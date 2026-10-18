@@ -615,6 +615,13 @@ export const cloneVideos = pgTable(
     subtitleUrl: text("subtitle_url"),
     thumbnailUrl: text("thumbnail_url"),
     durationSeconds: real("duration_seconds"),
+    /** true cuando el MP4, el SRT y la miniatura ya están en nuestro almacenamiento; false = siguen solo en HeyGen. */
+    filesStored: boolean("files_stored").notNull().default(false),
+    /**
+     * Última consulta a HeyGen. Sirve de freno (no consultar el mismo video más de una vez cada pocos segundos)
+     * y de candado: mientras se copian los archivos se pone en el futuro para que nadie más los copie a la vez.
+     */
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -747,6 +754,10 @@ export const serviceCredentials = pgTable("service_credentials", {
   provider: serviceProviderEnum("provider").notNull().unique(),
   secretEnc: text("secret_enc").notNull(),
   label: text("label"), // últimos 4 caracteres, para mostrar sin exponer la clave
+  // Webhook registrado en el servicio (HeyGen): su id y su secreto de firma, cifrado.
+  webhookEndpointId: text("webhook_endpoint_id"),
+  webhookSecretEnc: text("webhook_secret_enc"),
+  webhookError: text("webhook_error"), // por qué no se pudo registrar (en español); null = registrado o sin intentar
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

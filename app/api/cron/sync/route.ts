@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { dueKinds, syncAccount, type SyncOutcome } from "@/lib/social/sync/runner";
 import { classifyPendingHooks } from "@/lib/metrics/hooks";
 import { ensureWeeklyReport } from "@/lib/home/weekly-report";
+import { sweepCloneVideos } from "@/lib/heygen/service";
 
 export const maxDuration = 300;
 
@@ -63,5 +64,11 @@ export async function GET(request: NextRequest) {
     .set({ status: "FAILED", errorMessage: "La sincronización se interrumpió.", finishedAt: new Date() })
     .where(and(eq(schema.syncRuns.status, "RUNNING"), lt(schema.syncRuns.leaseUntil, sql`now()`)));
 
-  return NextResponse.json({ ok: true, ms: Date.now() - started, results });
+  // Videos con clon: respaldo del webhook para los que quedaron en curso sin que nadie mire la pantalla.
+  const clone = await sweepCloneVideos().catch((error: unknown) => {
+    console.error("[cron] clon:", error instanceof Error ? error.message : "error");
+    return null;
+  });
+
+  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone });
 }

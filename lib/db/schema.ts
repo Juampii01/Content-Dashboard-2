@@ -538,6 +538,9 @@ export const carousels = pgTable(
     ctaKeyword: text("cta_keyword"),
     sourceText: text("source_text"),
     scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    /** Carrusel de ejemplo para la demo de venta: se borra con la demo sin tocar los reales. */
+    demo: boolean("demo").notNull().default(false),
+    exportedAt: timestamp("exported_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

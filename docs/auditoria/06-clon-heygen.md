@@ -53,7 +53,7 @@ Base: `https://api.heygen.com`, header `X-Api-Key`.
 
 ## 2. ¿Es válido usar la API key del cliente? (ToS)
 - **Sí, con matices.** El cliente es el titular de la cuenta y paga su propio consumo. La herramienta es single-tenant y de él, con la key guardada en su backend y nunca en el cliente. Nova no revende créditos ni salidas de HeyGen. Los ToS prohíben "redistribución/republicación de los Servicios", "autorizar a terceros a usar los Servicios" y construir productos competidores ([terms](https://heygen.com/terms)). No hay cláusula explícita sobre keys en herramientas de terceros, y la propia doc muestra keys usadas en herramientas externas ([api-key](https://docs.heygen.com/docs/api-key)).
-- **Riesgos:** (1) que vendamos el módulo como "HeyGen incluido". No hacerlo: tiene que ser "conectás tu HeyGen". (2) Que Nova opere la cuenta del cliente.
+- **Riesgos:** (1) que vendamos el módulo como "HeyGen incluido". No hacerlo: tiene que ser "conecta tu HeyGen". (2) Que Nova opere la cuenta del cliente.
 - **Para escalar:** la vía oficial para apps que actúan por cuenta de usuarios es **OAuth**, que requiere aprobación de Partnerships por formulario ([oauth](https://docs.heygen.com/docs/heygen-oauth)). Conviene aplicar ya, sin que bloquee el MVP.
 - **Contrato:** cláusula donde el cliente declara que tiene el consentimiento de la persona clonada y acepta los ToS de HeyGen.
 

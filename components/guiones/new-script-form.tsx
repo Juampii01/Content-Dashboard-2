@@ -21,7 +21,21 @@ const objectives = [
   { value: "ventas", label: "Generar ventas", hint: "El CTA lleva a tu oferta." },
 ];
 
-export function NewScriptForm({ pillars, offers, source, aiReady, brandReady }: { pillars: string[]; offers: string[]; source: Source; aiReady: boolean; brandReady: boolean }) {
+export function NewScriptForm({
+  pillars,
+  offers,
+  source,
+  aiReady,
+  brandReady,
+  initialIdea = "",
+}: {
+  pillars: string[];
+  offers: string[];
+  source: Source;
+  aiReady: boolean;
+  brandReady: boolean;
+  initialIdea?: string;
+}) {
   const [state, action, pending] = useActionState<NewScriptState, FormData>(createScriptAction, {});
   const [format, setFormat] = useState("REEL");
   const [objective, setObjective] = useState("seguidores");
@@ -51,6 +65,7 @@ export function NewScriptForm({ pillars, offers, source, aiReady, brandReady }: 
             id="idea"
             name="idea"
             required
+            defaultValue={initialIdea}
             className="!min-h-24"
             placeholder={source ? "El mismo formato, pero sobre cómo cobrar más por el mismo servicio" : "Por qué los dueños de clínicas pierden pacientes en la primera llamada y qué decir en cambio"}
           />

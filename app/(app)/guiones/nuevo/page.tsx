@@ -16,6 +16,7 @@ export const metadata: Metadata = { title: "Nuevo guion" };
 async function Form({ searchParams }: { searchParams: PageProps<"/guiones/nuevo">["searchParams"] }) {
   const params = await searchParams;
   const desde = typeof params.desde === "string" ? params.desde : null;
+  const idea = typeof params.idea === "string" ? params.idea.slice(0, 600) : "";
   const [brand, piece] = await Promise.all([getBrandProfile(), desde ? getSourcePiece(desde) : null]);
   const source = piece
     ? {
@@ -31,6 +32,7 @@ async function Form({ searchParams }: { searchParams: PageProps<"/guiones/nuevo"
       source={source}
       aiReady={aiConfigured()}
       brandReady={brandIsReady(brand)}
+      initialIdea={idea}
     />
   );
 }

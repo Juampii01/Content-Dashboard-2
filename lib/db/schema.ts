@@ -191,6 +191,15 @@ export const oauthStates = pgTable("oauth_states", {
 // ─── Contenido y métricas (modelo común a las tres redes) ──────────────────
 
 /** REEL, CAROUSEL e IMAGE son de Instagram; VIDEO es YouTube largo, video de feed de IG o TikTok; SHORT es YouTube Short. */
+export type PieceAnalysis = {
+  verdict: string;
+  drivers: { factor: string; evidence: string; effect: "positivo" | "negativo" }[];
+  hook: string;
+  lessons: string[];
+  ideas: { title: string; hook: string; angle: string }[];
+  ratio: number | null;
+};
+
 export const contentTypeEnum = pgEnum("content_type", ["REEL", "CAROUSEL", "IMAGE", "VIDEO", "SHORT"]);
 
 /** OK: llegaron. PENDING: la red todavía no los calcula (hasta 48 h). NOT_SUPPORTED: la red no los da para esta pieza. */
@@ -248,6 +257,8 @@ export const contentItems = pgTable(
     available: boolean("available").notNull().default(true),
     unavailableSince: timestamp("unavailable_since", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    aiAnalysis: jsonb("ai_analysis").$type<PieceAnalysis>(), // "¿Por qué funcionó?" (lib/metrics/analysis.ts)
+    aiAnalyzedAt: timestamp("ai_analyzed_at", { withTimezone: true }),
     metricsUpdatedAt: timestamp("metrics_updated_at", { withTimezone: true }),
     raw: jsonb("raw"), // respuesta original de la API, para depurar mapeos
     createdAt: createdAt(),

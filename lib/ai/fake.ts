@@ -59,6 +59,26 @@ export function fakeResponse(feature: string): unknown {
         ],
         offers: [{ name: "Programa Agenda Llena", promise: "Llena tu agenda en 8 semanas", cta: "Comenta AGENDA y te explico cómo funciona", keyword: "AGENDA" }],
       };
+    case "metricas.analisis":
+      return {
+        verdict: "Funcionó por un gancho de contraste muy claro y porque se guardó casi el triple que tus otros reels: la gente lo tomó como referencia.",
+        drivers: [
+          { factor: "Guardados", evidence: "2,4 % de guardados por visualización contra 0,9 % de tu mediana.", effect: "positivo" },
+          { factor: "Gancho de contraste", evidence: "Por el texto, la primera línea contradice algo que tu audiencia hace todos los días (hipótesis: no vimos el video).", effect: "positivo" },
+          { factor: "Pocos comentarios", evidence: "0,2 % de comentarios contra 0,4 % de tu mediana: el CTA no invitaba a responder.", effect: "negativo" },
+        ],
+        hook: "Es un gancho de contraste: nombra un error concreto en la primera frase. Se entiende sin contexto y obliga a seguir mirando para saber la alternativa.",
+        lessons: [
+          "Abre con el error concreto que comete tu audiencia, no con el tema.",
+          "Cuando el contenido sea una referencia (pasos, guion, lista), pide guardar en el CTA.",
+          "Si quieres comentarios, termina con una pregunta de una palabra.",
+        ],
+        ideas: [
+          { title: "El segundo error de la primera llamada", hook: "Si ya no das el precio en la primera llamada, este es el siguiente error que te está costando pacientes.", angle: "Continuación directa: misma audiencia, siguiente paso." },
+          { title: "Guion de 3 preguntas", hook: "Estas 3 preguntas agendan más pacientes que cualquier descuento.", angle: "Formato lista para empujar guardados." },
+          { title: "La llamada real, comentada", hook: "Escucha cómo una recepcionista perdió a este paciente en 20 segundos.", angle: "Caso real con antes y después, para comentarios." },
+        ],
+      };
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

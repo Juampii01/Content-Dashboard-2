@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
+import type { PieceAnalysis } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { addDays, previousRange, type MetricsFilters, type SortKey } from "@/lib/metrics/params";
 import type { ContentType, Platform } from "@/lib/social/types";
@@ -419,7 +420,7 @@ function toRow(ci: typeof schema.contentItems.$inferSelect): ContentRow {
 // ─── Detalle de una pieza ──────────────────────────────────────────────────
 
 export type ContentDetail = {
-  item: ContentRow & { caption: string | null; skipRate: number | null; follows: number | null; profileVisits: number | null; watchTimeMinutes: number | null; subscribersGained: number | null; engagedViews: number | null; views24h: number | null; views72h: number | null; views7d: number | null; available: boolean };
+  item: ContentRow & { caption: string | null; skipRate: number | null; follows: number | null; profileVisits: number | null; watchTimeMinutes: number | null; subscribersGained: number | null; engagedViews: number | null; views24h: number | null; views72h: number | null; views7d: number | null; available: boolean; aiAnalysis: PieceAnalysis | null; aiAnalyzedAt: Date | null };
   snapshots: { day: string; ageHours: number | null; views: number | null }[];
   retention: { at: number; ratio: number }[] | null;
   peerMedian7d: number | null;
@@ -463,6 +464,8 @@ export async function getContentDetail(id: string): Promise<ContentDetail | null
       views72h: ci.views72h,
       views7d: ci.views7d,
       available: ci.available,
+      aiAnalysis: ci.aiAnalysis ?? null,
+      aiAnalyzedAt: ci.aiAnalyzedAt ?? null,
     },
     snapshots,
     retention: retention[0]?.points ?? null,

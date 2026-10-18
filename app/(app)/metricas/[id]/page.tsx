@@ -9,6 +9,9 @@ import { OutlierBadge } from "@/components/ui/badges";
 import { PlatformBadge } from "@/components/ui/platform";
 import { KpiCard } from "@/components/ui/stat";
 import { GrowthChart, RetentionChart } from "@/components/metricas/detail-charts";
+import { PieceAnalysisPanel } from "@/components/metricas/piece-analysis";
+import { aiConfigured } from "@/lib/ai/client";
+import { getCurrentUser } from "@/lib/auth";
 import { getContentDetail } from "@/lib/dal/metrics";
 import { formatCompact, formatDate, formatDuration, formatMultiplier } from "@/lib/format";
 import { typeLabel } from "@/lib/metrics/labels";
@@ -18,7 +21,7 @@ export const metadata: Metadata = { title: "Detalle de la pieza" };
 
 async function Detail({ params }: { params: PageProps<"/metricas/[id]">["params"] }) {
   const { id } = await params;
-  const detail = await getContentDetail(id);
+  const [detail, user] = await Promise.all([getContentDetail(id), getCurrentUser()]);
   if (!detail) notFound();
   const { item, snapshots, retention, peerMedian7d, compareViews: compareValue } = detail;
   const ratio = compareValue != null && peerMedian7d ? compareValue / peerMedian7d : null;
@@ -73,7 +76,7 @@ async function Detail({ params }: { params: PageProps<"/metricas/[id]">["params"
             </p>
           )}
           <div className="mt-auto flex flex-wrap gap-2 pt-2">
-            <ButtonLink href={`/guiones?desde=${item.id}`} icon={<FileText className="h-4 w-4" aria-hidden />}>
+            <ButtonLink href={`/guiones/nuevo?desde=${item.id}`} icon={<FileText className="h-4 w-4" aria-hidden />}>
               Crear un guion parecido
             </ButtonLink>
             {item.permalink && (
@@ -90,6 +93,15 @@ async function Detail({ params }: { params: PageProps<"/metricas/[id]">["params"
       {item.insightsStatus === "NOT_SUPPORTED" && (
         <Notice tone="warning">{platformLabel[item.platform]} no da estadísticas detalladas para esta pieza (por ejemplo, si se publicó antes de pasar la cuenta a profesional).</Notice>
       )}
+
+      <PieceAnalysisPanel
+        id={item.id}
+        analysis={item.aiAnalysis}
+        analyzedAt={item.aiAnalyzedAt?.toISOString() ?? null}
+        wentWell={ratio == null ? null : ratio >= 1}
+        canEdit={user.role !== "VIEWER"}
+        aiReady={aiConfigured()}
+      />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
         {cards.map((c) => (

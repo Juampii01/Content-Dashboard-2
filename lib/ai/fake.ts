@@ -59,6 +59,15 @@ export function fakeResponse(feature: string): unknown {
         ],
         offers: [{ name: "Programa Agenda Llena", promise: "Llena tu agenda en 8 semanas", cta: "Comenta AGENDA y te explico cómo funciona", keyword: "AGENDA" }],
       };
+    case "calendario.plan":
+      return {
+        ideas: [
+          { title: "El error de la primera llamada", hook: "Si contestas el teléfono así, estás perdiendo pacientes.", pillar: "Teléfono y recepción", format: "REEL", platforms: ["INSTAGRAM", "TIKTOK"], day: 1, why: "Tu pilar más atrasado y el tipo de gancho de contraste que mejor te rinde." },
+          { title: "3 anuncios que sí traen pacientes", hook: "Gastaste en anuncios y nadie agendó. Estos 3 sí funcionan.", pillar: "Anuncios que traen pacientes", format: "CAROUSEL", platforms: ["INSTAGRAM"], day: 2, why: "Los carruseles de lista son los que más guardan." },
+          { title: "De 3 a 6 citas de cada 10 llamadas", hook: "Una clínica en Houston duplicó sus citas sin gastar un dólar más.", pillar: "Casos de clientes", format: "SHORT", platforms: ["YOUTUBE"], day: 3, why: "Un caso con números concretos, como tus piezas que más rindieron." },
+          { title: "La pregunta que cierra la cita", hook: "Esta pregunta hace que el paciente agende antes de preguntar el precio.", pillar: "Teléfono y recepción", format: "REEL", platforms: ["INSTAGRAM", "TIKTOK"], day: 4, why: "Conecta con tu oferta Agenda Llena (palabra clave AGENDA)." },
+        ],
+      };
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

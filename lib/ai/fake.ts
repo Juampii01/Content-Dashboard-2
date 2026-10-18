@@ -70,6 +70,21 @@ export function fakeResponse(feature: string, task = ""): unknown {
         }),
       };
     }
+    case "inicio.resumen":
+      return {
+        headline: "Semana sólida: +873 seguidores, casi la mitad por un solo reel de historia.",
+        wins: [
+          "El reel de la primera llamada rindió ×3.1 tu mediana y trajo 410 seguidores.",
+          "Publicaste 14 piezas, 4 más que la semana anterior.",
+          "Los guardados por cada 1,000 vistas subieron de 9 a 14.",
+        ],
+        watch: ["Las visualizaciones totales bajaron 18 %: tres de tus piezas de TikTok quedaron por debajo de ×0.5."],
+        nextWeek: [
+          { title: "La llamada que perdió al paciente", hook: "Esta recepcionista perdió a un paciente en 20 segundos. Escucha por qué.", why: "Tus ganchos de historia rinden ×1.3 y esta semana lo confirmaste." },
+          { title: "3 preguntas antes del precio", hook: "Antes de decir el precio, haz estas 3 preguntas.", why: "Formato lista: el que más guardados te da." },
+          { title: "El mito del descuento", hook: "Bajar el precio no llena tu agenda. Esto sí.", why: "Contraste con una creencia de tu audiencia." },
+        ],
+      };
     case "metricas.analisis":
       return {
         verdict: "Funcionó por un gancho de contraste muy claro y porque se guardó casi el triple que tus otros reels: la gente lo tomó como referencia.",

@@ -5,6 +5,7 @@ import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { dueKinds, syncAccount, type SyncOutcome } from "@/lib/social/sync/runner";
 import { classifyPendingHooks } from "@/lib/metrics/hooks";
+import { ensureWeeklyReport } from "@/lib/home/weekly-report";
 
 export const maxDuration = 300;
 
@@ -47,6 +48,10 @@ export async function GET(request: NextRequest) {
   // Ganchos de las piezas nuevas (con el modelo rápido, cuesta centavos). Si falla, se reintenta en la próxima hora.
   if (deadline - Date.now() > 40_000) {
     await classifyPendingHooks(80).catch((error: unknown) => console.error("[cron] ganchos", error instanceof Error ? error.message : error));
+  }
+  // Resumen de la semana pasada (una vez por semana, desde el lunes a las 9:00 hora de la marca).
+  if (deadline - Date.now() > 40_000) {
+    await ensureWeeklyReport().catch((error: unknown) => console.error("[cron] resumen semanal", error instanceof Error ? error.message : error));
   }
 
   await db.delete(schema.oauthStates).where(lt(schema.oauthStates.expiresAt, new Date()));

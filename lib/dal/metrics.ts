@@ -170,6 +170,11 @@ async function totals(f: MetricsFilters, from: string, to: string): Promise<Peri
   };
 }
 
+/** Totales de un rango sin pedir sesión: solo para servicios internos (resumen semanal del cron). */
+export async function totalsUnchecked(f: MetricsFilters, from: string, to: string): Promise<PeriodTotals> {
+  return totals(f, from, to);
+}
+
 export async function getOverview(f: MetricsFilters): Promise<{ current: PeriodTotals; previous: PeriodTotals }> {
   await getCurrentUser();
   const prev = previousRange(f.from, f.to);

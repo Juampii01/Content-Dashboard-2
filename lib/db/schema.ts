@@ -374,6 +374,13 @@ export type VoiceSample = { source: string; text: string };
  * Perfil de marca: alimenta guiones, carruseles, editor y clon. Hay una sola fila (id = "brand").
  * `version` sube con cada cambio: sirve para invalidar la caché de los prompts.
  */
+export type GrowthGoals = {
+  followers: number; // meta de seguidores
+  platform: "TOTAL" | "INSTAGRAM" | "YOUTUBE" | "TIKTOK";
+  weeklyPieces: number; // piezas por semana que se propone publicar
+  deadline?: string | null; // YYYY-MM-DD opcional
+};
+
 export const brandProfile = pgTable("brand_profile", {
   id: text("id").primaryKey().default("brand"),
   name: text("name"),
@@ -399,8 +406,24 @@ export const brandProfile = pgTable("brand_profile", {
   characterPhotos: text("character_photos").array().notNull().default(sql`'{}'::text[]`), // rutas en el almacenamiento de archivos
   subtitlePreset: jsonb("subtitle_preset"),
   extraContext: text("extra_context"), // notas libres del cliente
+  goals: jsonb("goals").$type<GrowthGoals>(), // meta de seguidores y ritmo de publicación (Inicio)
   version: integer("version").notNull().default(1),
   updatedAt: updatedAt(),
+});
+
+export type WeeklyReportContent = {
+  headline: string;
+  wins: string[];
+  watch: string[];
+  nextWeek: { title: string; hook: string; why: string }[];
+  numbers: Record<string, number | null>;
+};
+
+/** Resumen semanal con IA (Inicio). Uno por semana, se genera el lunes o a pedido. */
+export const weeklyReports = pgTable("weekly_reports", {
+  weekStart: date("week_start", { mode: "string" }).primaryKey(), // lunes de la semana resumida (local)
+  content: jsonb("content").$type<WeeklyReportContent>().notNull(),
+  createdAt: createdAt(),
 });
 
 // ─── Producción ────────────────────────────────────────────────────────────

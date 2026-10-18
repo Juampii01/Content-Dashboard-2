@@ -11,6 +11,12 @@ import { Kpis } from "@/components/metricas/kpis";
 import { ContentGrid } from "@/components/metricas/content-grid";
 import { getOverview, getRisingPieces, getTopPieces } from "@/lib/dal/metrics";
 import { getFollowerSummary, getSetupProgress } from "@/lib/dal/home";
+import { getGrowth } from "@/lib/dal/growth";
+import { GrowthGoal } from "@/components/inicio/growth-goal";
+import { WeeklyReport } from "@/components/inicio/weekly-report";
+import { aiConfigured } from "@/lib/ai/client";
+import { lastWeekStart, latestWeeklyReport } from "@/lib/home/weekly-report";
+import { getCurrentUser } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { formatCompact, formatMultiplier, formatNumber } from "@/lib/format";
 import { typeLabel } from "@/lib/metrics/labels";
@@ -60,10 +66,20 @@ async function Week() {
   const tz = env().APP_TIMEZONE;
   const week = parseFilters({ rango: "7d" }, tz);
   const month = parseFilters({ rango: "28d" }, tz);
-  const [overview, rising, top, followers] = await Promise.all([getOverview(week), getRisingPieces(), getTopPieces(month, 4), getFollowerSummary()]);
+  const [overview, rising, top, followers, growth, user] = await Promise.all([
+    getOverview(week),
+    getRisingPieces(),
+    getTopPieces(month, 4),
+    getFollowerSummary(),
+    getGrowth(),
+    getCurrentUser(),
+  ]);
+  const report = await latestWeeklyReport();
 
   return (
     <>
+      <GrowthGoal growth={growth} canEdit={user.role !== "VIEWER"} />
+
       {rising.length > 0 && (
         <Section title="Va camino a ser de lo mejor" description="Piezas recientes que en sus primeras 24 h ya duplican lo normal para ti.">
           <ul className="flex flex-col gap-2">
@@ -84,6 +100,8 @@ async function Week() {
           </ul>
         </Section>
       )}
+
+      <WeeklyReport report={report} expectedWeek={lastWeekStart(tz)} canGenerate={user.role !== "VIEWER" && aiConfigured()} />
 
       <Section title="Tu semana" description="Lo publicado en los últimos 7 días, contra los 7 días anteriores.">
         <Kpis current={overview.current} previous={overview.previous} />

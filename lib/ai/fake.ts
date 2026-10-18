@@ -32,7 +32,14 @@ function fakeVideoPlan(task: string) {
     if (Number(m[3]) >= 0.6) for (let id = Number(m[1]); id <= Number(m[2]); id++) cut.add(id);
   }
   const hooks = frases
-    .filter((f) => f.dur >= 3 && f.dur <= 8 && ![...Array(f.to - f.from + 1).keys()].some((k) => cut.has(f.from + k)))
+    .map((f) => {
+      let from = f.from;
+      let to = f.to;
+      while (from < to && cut.has(from)) from++;
+      while (to > from && cut.has(to)) to--;
+      return { ...f, from, to };
+    })
+    .filter((f) => f.dur >= 3 && f.dur <= 8.5 && ![...Array(f.to - f.from + 1).keys()].some((k) => cut.has(f.from + k)))
     .map((f) => ({ ...f, score: (/[?¿]/.test(f.text) ? 0.2 : 0) + (/\d/.test(f.text) ? 0.2 : 0) + 0.5 - f.index * 0.01 }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)

@@ -121,6 +121,15 @@ const HOOK_MIN = 3;
 const HOOK_MAX = 8;
 const HOOK_TOLERANCE = 0.5;
 
+/** Un gancho no empieza ni termina en una palabra cortada (una muletilla o un arranque en falso del borde). */
+function trimHook<T extends HookCandidate>(h: T, removedSet: Set<number>): T {
+  let from = h.from_word;
+  let to = h.to_word;
+  while (from <= to && removedSet.has(from)) from++;
+  while (to >= from && removedSet.has(to)) to--;
+  return { ...h, from_word: from, to_word: to };
+}
+
 function hookIsValid(h: HookCandidate, words: Word[], removedSet: Set<number>): boolean {
   const a = words[h.from_word];
   const b = words[h.to_word];
@@ -142,7 +151,7 @@ export function fallbackHooks(words: Word[], removedSet: Set<number>, count = 3)
       if (/\d/.test(f.text)) score += 0.15;
       if (f.index === 1) score += 0.1;
       if (dur >= 4 && dur <= 7) score += 0.05;
-      return { from_word: f.from, to_word: f.to, score: Math.min(0.9, score), why: "Frase completa que se entiende sola (propuesta automática)." };
+      return trimHook({ from_word: f.from, to_word: f.to, score: Math.min(0.9, score), why: "Frase completa que se entiende sola (propuesta automática)." }, removedSet);
     })
     .filter((h) => hookIsValid(h, words, removedSet))
     .sort((a, b) => b.score - a.score);
@@ -201,7 +210,7 @@ export function assemblePlan(input: {
   });
 
   let hooks = (ai?.hook_candidates ?? [])
-    .map((h) => ({ from_word: h.from_word, to_word: h.to_word, score: clamp01(h.score), why: h.why.slice(0, 400) }))
+    .map((h) => trimHook({ from_word: h.from_word, to_word: h.to_word, score: clamp01(h.score), why: h.why.slice(0, 400) }, removedSet))
     .filter((h) => hookIsValid(h, words, removedSet))
     .slice(0, 3);
   if (hooks.length < 3) {

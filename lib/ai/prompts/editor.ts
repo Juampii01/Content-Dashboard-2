@@ -74,7 +74,8 @@ export function sentences(words: Word[]): Sentence[] {
   for (let i = 0; i < words.length; i++) {
     const w = words[i]!;
     const next = words[i + 1];
-    if (!next || endsSentence(w.text) || next.start - w.end > 0.7) {
+    // Una frase termina en un punto, signo de cierre o una pausa clara (al hablar, la pausa marca la frase).
+    if (!next || endsSentence(w.text) || next.start - w.end > 0.4) {
       out.push({
         index: out.length + 1,
         from: words[from]!.id,

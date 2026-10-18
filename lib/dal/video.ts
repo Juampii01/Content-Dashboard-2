@@ -173,7 +173,7 @@ export async function getProjectStatus(id: string) {
     status: p.status,
     errorMessage: p.errorMessage,
     updatedAt: p.updatedAt.toISOString(),
-    job: job ? { type: job.type, status: job.status, progress: job.progress, stage: job.stage, attempts: job.attempts, maxAttempts: job.maxAttempts } : null,
+    job: job ? { type: job.type, status: job.status, progress: job.progress, stage: job.stage, attempts: job.attempts, maxAttempts: job.maxAttempts, errorMessage: job.errorMessage } : null,
     worker: { online: worker.online, autoStart: worker.autoStart },
   };
 }

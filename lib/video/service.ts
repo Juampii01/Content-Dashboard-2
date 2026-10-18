@@ -77,16 +77,34 @@ export async function createProject(input: {
   return { id, key };
 }
 
-/** Después de la subida: verifica que el archivo está completo y encola el análisis. */
-export async function completeUpload(projectId: string, userId: string): Promise<void> {
+export type DraftSettings = { title: string; format: VideoFormat; preset: CaptionPresetKey; scriptId: string | null };
+
+/**
+ * Después de la subida: guarda lo elegido en los pasos, verifica que el archivo está completo y encola el análisis.
+ */
+export async function completeUpload(projectId: string, userId: string, settings?: DraftSettings): Promise<void> {
   const project = await loadProject(projectId);
   if (!project) throw new VideoError("No encontramos ese proyecto.");
   if (project.status !== "UPLOADING") return;
   const info = project.sourceKey ? await fileInfo(project.sourceKey) : null;
   if (!info || info.size === 0) throw new VideoError("La subida no terminó. Vuelve a elegir el archivo para continuar.");
   if (project.sourceBytes && info.size !== project.sourceBytes) throw new VideoError("El archivo llegó incompleto. Vuelve a subirlo.");
-  await getDb().update(schema.videoProjects).set({ status: "PROCESSING", sourceBytes: info.size, errorMessage: null }).where(eq(schema.videoProjects.id, projectId));
+  const next = settings
+    ? { title: settings.title, format: settings.format, captionPreset: settings.preset, scriptId: settings.scriptId }
+    : {};
+  await getDb()
+    .update(schema.videoProjects)
+    .set({ ...next, status: "PROCESSING", sourceBytes: info.size, errorMessage: null })
+    .where(and(eq(schema.videoProjects.id, projectId), eq(schema.videoProjects.status, "UPLOADING")));
   await enqueueAnalyze(project, userId);
+}
+
+/** Cambia lo elegido en los pasos mientras el video todavía se sube. */
+export async function updateDraft(projectId: string, settings: DraftSettings): Promise<void> {
+  await getDb()
+    .update(schema.videoProjects)
+    .set({ title: settings.title, format: settings.format, captionPreset: settings.preset, scriptId: settings.scriptId })
+    .where(and(eq(schema.videoProjects.id, projectId), eq(schema.videoProjects.status, "UPLOADING")));
 }
 
 async function enqueueAnalyze(project: Project, userId: string | null) {

@@ -13,6 +13,9 @@ import { getOverview, getRisingPieces, getTopPieces } from "@/lib/dal/metrics";
 import { getFollowerSummary, getSetupProgress } from "@/lib/dal/home";
 import { getGrowth } from "@/lib/dal/growth";
 import { GrowthGoal } from "@/components/inicio/growth-goal";
+import { Upcoming } from "@/components/inicio/upcoming";
+import { upcomingEntries } from "@/lib/dal/calendar";
+import { todayIn } from "@/lib/metrics/params";
 import { WeeklyReport } from "@/components/inicio/weekly-report";
 import { aiConfigured } from "@/lib/ai/client";
 import { lastWeekStart, latestWeeklyReport } from "@/lib/home/weekly-report";
@@ -74,11 +77,42 @@ async function Week() {
     getGrowth(),
     getCurrentUser(),
   ]);
+  const upcoming = await upcomingEntries(7, 6);
   const report = await latestWeeklyReport();
 
   return (
     <>
       <GrowthGoal growth={growth} canEdit={user.role !== "VIEWER"} />
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <Upcoming entries={upcoming} today={todayIn(tz)} />
+        </div>
+        <Section title="Tus redes" description="Seguidores hoy y cambio en 7 días.">
+          <ul className="flex flex-col gap-3">
+            {followers.map((f) => (
+              <li key={f.platform} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 px-4 py-3">
+                <span className="flex min-w-0 flex-col gap-1">
+                  <PlatformBadge platform={f.platform} className="self-start" />
+                  <span className="truncate text-xs text-muted">@{f.handle.replace(/^@/, "")}</span>
+                </span>
+                <span className="text-right">
+                  <span className="block text-lg font-bold tabular-nums">{f.followers == null ? "—" : formatNumber(f.followers)}</span>
+                  {f.change7d != null && (
+                    <span className={f.change7d >= 0 ? "text-xs text-success" : "text-xs text-warning"}>
+                      {f.change7d >= 0 ? "+" : ""}
+                      {formatNumber(f.change7d)} en 7 días
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Link href="/metricas" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-accent-hi hover:text-white">
+            Ver todas las métricas <ArrowRight className="h-4 w-4" aria-hidden />
+          </Link>
+        </Section>
+      </div>
 
       {rising.length > 0 && (
         <Section title="Va camino a ser de lo mejor" description="Piezas recientes que en sus primeras 24 h ya duplican lo normal para ti.">
@@ -108,7 +142,7 @@ async function Week() {
       </Section>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <Section title="Lo que mejor te funcionó" description="Últimos 28 días, contra tu mediana de cada red y tipo." className="xl:col-span-2">
+        <Section title="Lo que mejor te funcionó" description="Últimos 28 días, contra tu mediana de cada red y tipo." className="xl:col-span-3">
           {top.length > 0 ? (
             <ContentGrid rows={top.slice(0, 4)} layout="compact" />
           ) : (
@@ -117,30 +151,6 @@ async function Week() {
               Cuando tengas más piezas medidas, aquí aparecen las que rindieron por encima de tu promedio.
             </p>
           )}
-        </Section>
-        <Section title="Tus redes" description="Seguidores hoy y cambio en 7 días.">
-          <ul className="flex flex-col gap-3">
-            {followers.map((f) => (
-              <li key={f.platform} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 px-4 py-3">
-                <span className="flex min-w-0 flex-col gap-1">
-                  <PlatformBadge platform={f.platform} className="self-start" />
-                  <span className="truncate text-xs text-muted">@{f.handle.replace(/^@/, "")}</span>
-                </span>
-                <span className="text-right">
-                  <span className="block text-lg font-bold tabular-nums">{f.followers == null ? "—" : formatNumber(f.followers)}</span>
-                  {f.change7d != null && (
-                    <span className={f.change7d >= 0 ? "text-xs text-success" : "text-xs text-warning"}>
-                      {f.change7d >= 0 ? "+" : ""}
-                      {formatNumber(f.change7d)} en 7 días
-                    </span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <Link href="/metricas" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-accent-hi hover:text-white">
-            Ver todas las métricas <ArrowRight className="h-4 w-4" aria-hidden />
-          </Link>
         </Section>
       </div>
       {top.some((t) => (t.perfScore ?? 0) >= 1.5) && (

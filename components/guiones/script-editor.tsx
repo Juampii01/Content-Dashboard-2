@@ -3,6 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
+  CalendarDays,
+  Film,
+  GalleryHorizontalEnd,
+  UserRound,
   ArrowDown,
   ArrowUp,
   Check,
@@ -19,7 +23,7 @@ import {
   Wand2,
   Zap,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -340,6 +344,25 @@ export function ScriptEditor({
             Copiar guion completo
           </Button>
         </div>
+
+        {canEdit && (
+          <nav className="card flex flex-col gap-2 p-5" aria-label="Usar este guion">
+            <p className="mb-1 text-sm font-semibold text-white">Usar este guion</p>
+            <ButtonLink href={`/calendario?nuevo=1&guion=${scriptId}`} variant="ghost" size="sm" icon={<CalendarDays className="h-4 w-4" aria-hidden />}>
+              Programar en el calendario
+            </ButtonLink>
+            <ButtonLink href={`/editor/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<Film className="h-4 w-4" aria-hidden />}>
+              Editar mi grabación
+            </ButtonLink>
+            <ButtonLink href={`/clon/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<UserRound className="h-4 w-4" aria-hidden />}>
+              Generar con mi clon
+            </ButtonLink>
+            <ButtonLink href={`/carruseles/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<GalleryHorizontalEnd className="h-4 w-4" aria-hidden />}>
+              Convertir en carrusel
+            </ButtonLink>
+            {dirty && <p className="text-xs text-warning">Guarda primero: se usa la última versión guardada.</p>}
+          </nav>
+        )}
 
         {canEdit && (
           <div className="card flex flex-col gap-2 p-5">

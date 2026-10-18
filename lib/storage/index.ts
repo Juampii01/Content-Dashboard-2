@@ -5,7 +5,25 @@ import { env } from "@/lib/env";
 /**
  * Almacenamiento de archivos. Hoy usa Vercel Blob; los módulos solo usan estas funciones,
  * así se puede cambiar de proveedor (por ejemplo, a R2) sin tocarlos.
+ *
+ * - Este archivo: imágenes públicas (copias de miniaturas de las redes) en el store público.
+ * - `./files`: archivos privados (videos del Editor) en un store privado, con URLs firmadas,
+ *   o en disco local en desarrollo.
  */
+export {
+  deleteKeys,
+  deletePrefix,
+  fileDriver,
+  fileInfo,
+  MAX_VIDEO_BYTES,
+  readUrl,
+  VIDEO_EXTENSIONS,
+  VIDEO_TYPES,
+  workerTransfer,
+  type FileDriver,
+  type Transfer,
+} from "./files";
+
 export function storageConfigured(): boolean {
   return Boolean(env().BLOB_READ_WRITE_TOKEN);
 }

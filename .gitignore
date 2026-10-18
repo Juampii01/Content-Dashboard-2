@@ -29,3 +29,8 @@ __pycache__/
 npm-debug.log*
 pnpm-debug.log*
 .claude/worktrees/
+
+# Archivos locales del Editor de video en desarrollo (almacenamiento y trabajo del worker)
+.data/
+worker/fonts/
+.pytest_cache/

@@ -52,6 +52,16 @@ const schema = z.object({
 
   // Archivos (Vercel Blob). Lo crea la integración de Blob en el proyecto de Vercel.
   BLOB_READ_WRITE_TOKEN: optional,
+  // Videos del Editor: un segundo store de Blob, **privado** (los videos crudos del cliente no son públicos).
+  // Al conectarlo al proyecto de Vercel se elige el prefijo VIDEO_BLOB y se crea esta variable.
+  VIDEO_BLOB_READ_WRITE_TOKEN: optional,
+
+  // Worker de video (ver docs/worker.md). WORKER_SECRET lo comparten la app y el worker.
+  WORKER_SECRET: z.string().trim().min(32, "Debe tener al menos 32 caracteres. Genérala con: openssl rand -base64 32").optional(),
+  // Opcionales: si están, la app enciende la Fly Machine del worker al encolar un trabajo.
+  FLY_API_TOKEN: optional,
+  FLY_WORKER_APP: optional,
+  FLY_WORKER_MACHINE_ID: optional,
 
   // Integraciones (se exigen en cada módulo)
   INSTAGRAM_APP_ID: optional,
@@ -86,6 +96,8 @@ export function env(): Env {
 
 type OptionalKey =
   | "BLOB_READ_WRITE_TOKEN"
+  | "VIDEO_BLOB_READ_WRITE_TOKEN"
+  | "WORKER_SECRET"
   | "INSTAGRAM_APP_ID"
   | "INSTAGRAM_APP_SECRET"
   | "GOOGLE_CLIENT_ID"

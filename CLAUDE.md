@@ -62,11 +62,13 @@ No se copia código a ciegas. Se toma la pieza, se revisa y se adapta a esta arq
 
 ### Stack
 - **App:** Next.js (App Router) + React + TypeScript estricto + Tailwind CSS.
-- **Base de datos y auth:** Supabase (Postgres + Auth + Storage). **Drizzle** como ORM (TypeScript puro, sin motores binarios; migraciones en SQL dentro de `drizzle/`). Una base por cliente.
+- **Base de datos:** **Neon** (Postgres), instalada desde el Marketplace de Vercel. **Drizzle** como ORM con `node-postgres` (`pg` + `attachDatabasePool`); migraciones en SQL dentro de `drizzle/`. Una base por cliente.
+- **Auth:** **Better Auth** con correo y contraseña, sin registro abierto. Invitaciones y recuperación de contraseña por correo con **Resend**.
 - **Trabajos pesados:** un **worker** aparte (contenedor Docker con Python, ffmpeg con libass, Parakeet precargado, Pillow) para video y carruseles. Nunca se procesan videos ni se generan imágenes dentro de una función serverless.
-- **Cola de trabajos:** pg-boss sobre el mismo Postgres de Supabase (sin Redis extra). Cada trabajo tiene estado, progreso, reintentos y errores legibles.
-- **Archivos:** Supabase Storage (o R2 si el volumen lo pide) con URLs firmadas. Subidas directas desde el navegador, nunca a través de la app.
-- **Deploy:** app en Vercel, worker en un servicio de contenedores (Fly.io, Render o Railway). Cada cliente es un deploy independiente creado a partir de este repo.
+- **Cola de trabajos:** pg-boss sobre el mismo Postgres (sin Redis extra), con la conexión sin pooler. El worker solo consulta la cola mientras está encendido, así Neon puede suspenderse. Cada trabajo tiene estado, progreso, reintentos y errores legibles.
+- **Archivos:** **Vercel Blob** privado, detrás de la interfaz `lib/storage` (se puede cambiar a R2 sin tocar los módulos). Subidas directas desde el navegador, nunca a través de la app.
+- **Deploy:** app en **Vercel Pro** (Hobby no admite uso comercial y solo permite un cron diario), worker en **Fly Machines**. Cada cliente es un deploy independiente creado a partir de este repo; las cuentas son del cliente y nosotros las habilitamos.
+- **Cron:** Vercel Cron, protegido con `CRON_SECRET`.
 
 ### Estructura de carpetas
 ```
@@ -82,7 +84,10 @@ lib/
   jobs/               # encolar trabajos y leer su estado
   heygen/             # cliente de la API v3 de HeyGen
   db/                 # schema.ts (Drizzle) e index.ts (getDb)
-  auth.ts             # getCurrentUser, requireEditor, requireOwner
+  dal/                # funciones de datos por módulo; cada una empieza con getCurrentUser()
+  auth/               # index.ts (getCurrentUser, requireEditor, requireOwner), server.ts (Better Auth), invitations.ts
+  email.ts            # correos con Resend
+  rate-limit.ts       # límite de intentos guardado en la base
   crypto.ts, env.ts   # cifrado de tokens y validación de variables de entorno con Zod
 drizzle/              # migraciones SQL generadas (pnpm db:generate)
 worker/               # servicio Python: video/, carruseles/, comunes/
@@ -92,18 +97,18 @@ docs/                 # decisiones y guías de instalación por cliente
 ### Reglas de arquitectura
 - **Un módulo, una carpeta.** Un módulo no importa componentes internos de otro; comparten solo lo que está en `lib/` y `components/ui/`.
 - **Modelo común de contenido.** Las tres redes se normalizan a una sola tabla de piezas (`ContentItem`) con su red, tipo y métricas, más una tabla de snapshots de métricas por fecha para ver la evolución. Los filtros trabajan sobre ese modelo, no sobre tablas por red.
-- **Tokens:** `getValidToken(platform)` centralizado que refresca antes de vencer. Un cron diario sincroniza métricas y refresca tokens (el de Instagram vence a los 60 días). Tokens siempre cifrados con AES-256-GCM; si falta o está mal la clave, la app falla al arrancar, nunca guarda texto plano.
+- **Tokens:** `getValidToken(platform)` centralizado que refresca antes de vencer. El cron sincroniza métricas y refresca tokens (el de Instagram vence a los 60 días). Tokens siempre cifrados con AES-256-GCM y un contexto (AAD) por tipo de secreto (`encryptSecret(valor, "instagram.access")`); si falta o está mal la clave, la app falla al arrancar, nunca guarda texto plano.
 - **Variables de entorno** validadas con Zod al iniciar. Nunca se imprimen tokens ni claves en logs.
 - **IA:** Claude por la API de Anthropic con la clave del servidor. Prompts en archivos versionados dentro de `lib/ai/prompts/`, no escritos en línea dentro de las rutas. Se registra el uso de tokens por trabajo.
 - **Nada depende de una CLI local** (Claude Code, Codex, `ant`). Todo corre por API.
-- **Seguridad:** RLS activado en todas las tablas aunque sea single-tenant; endpoints protegidos por sesión; webhooks con firma verificada; subidas con tipo y tamaño validados.
+- **Seguridad:** toda lectura y escritura pasa por `lib/dal` o por una acción que llama a `getCurrentUser`/`requireEditor`/`requireOwner`; endpoints protegidos por sesión; webhooks con firma verificada; subidas con tipo y tamaño validados; cabeceras de seguridad (CSP, `frame-ancestors`) en `next.config.ts`; límite de intentos en inicio de sesión y recuperación.
 - **Errores visibles y en español:** cada trabajo fallido muestra qué pasó y qué hacer, no un stack trace.
 
 ### Integraciones externas
 - **Meta (Instagram):** Instagram API with Instagram Login, `graph.instagram.com`. Scopes solo de lectura de contenido e insights (`instagram_business_basic`, `instagram_business_manage_insights`). Sin permisos de mensajes ni comentarios. La app de Meta pasa por App Review una vez y cada deploy agrega su dominio a los redirect URIs.
 - **YouTube:** Google OAuth con `youtube.readonly` y YouTube Analytics API (`yt-analytics.readonly`) para tiempo de visualización y retención.
 - **TikTok:** Login Kit v2 + Display API (`user.info.basic`, `user.info.stats`, `video.list`). Refresh proactivo.
-- **HeyGen:** API **v3** (la v2 se retira el 1-nov-2026). Cada cliente usa **su propia cuenta y su propia API key de HeyGen**, que carga en Ajustes y se guarda cifrada. Así el clon y el consumo son del cliente y no revendemos HeyGen. Flujo: crear Digital Twin con video del cliente → consentimiento por el link oficial de HeyGen → generar videos con el guion. Estado por webhook firmado o polling.
+- **HeyGen:** API **v3** (la v1 y la v2 dejan de funcionar el 31-oct-2026). Cada cliente usa **su propia cuenta y su propia API key de HeyGen**, que guarda en Ajustes, cifrada. Así el clon y el consumo son del cliente y no revendemos HeyGen. Flujo: crear Digital Twin con video del cliente → consentimiento por el link oficial de HeyGen → generar videos con el guion. Estado por webhook firmado o polling.
 - **Imágenes para carruseles:** proveedor por API (a definir tras una prueba de calidad contra el motor actual). Encapsulado detrás de una interfaz para poder cambiarlo.
 
 ## 6. Diseño: estética MaestrIA
@@ -142,31 +147,34 @@ placeholder   #6f84a8
 
 ## 7. Orden de construcción
 
-1. **Bases:** repo, Next.js, Tailwind con los tokens, sistema de diseño en `components/ui`, layout con navegación, auth, Drizzle + Supabase, validación de entorno, cifrado. ✅ Lista.
+1. **Bases:** repo, Next.js, Tailwind con los tokens, sistema de diseño en `components/ui`, layout con navegación, auth (Better Auth + invitaciones + equipo en Ajustes), Drizzle + Neon, validación de entorno, cifrado, cabeceras de seguridad. ✅ Lista.
 2. **Conexiones y Métricas:** OAuth de las tres redes, sync, modelo común, cron, pantalla de métricas con filtros.
 3. **Mi marca** y **Guiones.**
 4. **Calendario.**
 5. **Worker y cola** + **Editor de video.**
 6. **Carruseles** (después de la prueba de calidad del proveedor de imágenes).
 7. **Videos con clon** (HeyGen v3).
-8. **Guía de instalación por cliente** en `docs/`: crear Supabase, deploy, variables, agregar redirect URIs, conectar redes.
+8. **Guía de instalación por cliente** en `docs/`: crear el proyecto en Vercel, Neon, Resend, variables, agregar redirect URIs, conectar redes.
+
+El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.
 
 Cada etapa se cierra con: build sin errores, tipos sin errores, revisión visual de las pantallas nuevas y textos revisados en español neutro.
 
 ## 8. Notas técnicas de la base
 
 - **Next.js 16** con Cache Components y Partial Prefetching activados. Antes de escribir código de Next, lee la guía que corresponde en `node_modules/next/dist/docs/` (ver `AGENTS.md`): cambian APIs respecto de versiones anteriores.
-- El middleware se llama **`proxy.ts`**: refresca la sesión de Supabase y manda al login a quien no tiene sesión. Es un filtro rápido; la autorización real se comprueba cerca de los datos con `lib/auth.ts`.
+- El middleware se llama **`proxy.ts`**: manda al login a quien no tiene cookie de sesión (sin consultar la base) y falla cerrado. Es un filtro rápido; la autorización real se comprueba cerca de los datos con `lib/auth`.
 - Todo lo que lee la sesión (`getCurrentUser`) va detrás de un `<Suspense>`; con Cache Components, leer cookies fuera de un `<Suspense>` es un error de build.
-- **Acceso:** solo entra quien tiene fila en `team_members`. No hay registro abierto. El primer dueño de cada instalación se crea con `pnpm crear-dueno correo@cliente.com "Nombre"`.
-- **RLS** activado en todas las tablas y sin políticas (migración `0001_rls.sql`): la app usa la conexión de servidor; la API pública de Supabase no puede leer nada.
+- **Acceso:** solo entra quien tiene fila activa en `team_members`. No hay registro abierto. El primer dueño de cada instalación se crea con `pnpm crear-dueno correo@cliente.com "Nombre"` (manda la invitación y muestra el enlace). El resto del equipo se invita desde Ajustes.
+- **Contraseñas:** las invitaciones (7 días) y la recuperación (1 hora) usan el mismo token de Better Auth y terminan en `/definir-contrasena`. Mínimo 10 caracteres. Al cambiarla se cierran todas las sesiones.
+- No hay RLS: no existe una API pública de la base. La única puerta es la app.
 - `getDb()` crea la conexión en el primer uso; el build no necesita base de datos.
-- Scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm crear-dueno`.
+- Scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm crear-dueno`. `crear-dueno` corre con `--conditions=react-server` para poder importar módulos `server-only`.
 
 ## 9. Reglas de trabajo
 
 - Antes de un cambio grande, propone el plan y espera aprobación.
-- Commits chicos y descriptivos en español. Nada de secretos en el repo: `.env*`, `supabase/.temp` y `.claude/settings.local.json` van en `.gitignore`.
+- Commits pequeños y descriptivos en español. Nada de secretos en el repo: `.env*` y `.claude/settings.local.json` van en `.gitignore`.
 - No se borran datos de métricas ni archivos del cliente sin confirmación.
 - No se agregan dependencias sin una razón clara.
 - Si una función de una red no existe en su API, se dice; no se inventa ni se rellena con datos falsos.

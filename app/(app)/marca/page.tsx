@@ -15,7 +15,7 @@ export default function MarcaPage() {
         icon={<Palette className="h-5 w-5" />}
       />
       <ModulePreview
-        stage={3}
+
         icon={<Palette className="h-6 w-6" />}
         title="Tu perfil de marca"
         description="Se completa una vez y se ajusta cuando quieras."

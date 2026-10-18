@@ -16,7 +16,7 @@ export default function MetricasPage() {
         icon={<BarChart3 className="h-5 w-5" />}
       />
       <ModulePreview
-        stage={2}
+
         icon={<BarChart3 className="h-6 w-6" />}
         title="Tus métricas, de las tres redes"
         description="Cuando conectes tus cuentas, cada reel, carrusel, video y short va a aparecer aquí con sus números, y se actualiza todos los días."

@@ -1,23 +1,21 @@
 import type { ReactNode } from "react";
-import { Check, Hammer } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 
 /**
  * Vista temporal de un módulo que todavía no está construido.
- * Explica qué va a hacer, sin datos inventados. Se reemplaza cuando llega su etapa (CLAUDE.md §7).
+ * Explica qué va a hacer, sin datos inventados. Se reemplaza cuando el módulo se construye (CLAUDE.md §7).
  */
 export function ModulePreview({
   icon,
   title,
   description,
   features,
-  stage,
   action,
 }: {
   icon: ReactNode;
   title: string;
   description: string;
   features: string[];
-  stage: number;
   action?: ReactNode;
 }) {
   return (
@@ -27,9 +25,9 @@ export function ModulePreview({
           <div className="tile-icon mb-4 h-12 w-12">{icon}</div>
           <h2 className="text-xl font-semibold">{title}</h2>
           <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">{description}</p>
-          <span className="pill mt-5 !border-warning/40 !bg-warning/10 !text-warning">
-            <Hammer className="h-3.5 w-3.5" />
-            En construcción · etapa {stage}
+          <span className="pill mt-5">
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Próximamente
           </span>
           {action && <div className="mt-6">{action}</div>}
         </div>

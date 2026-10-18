@@ -4,7 +4,7 @@ import { z } from "zod";
 /**
  * Variables de entorno del servidor, validadas con Zod.
  *
- * Las de las integraciones (redes, IA, HeyGen) son opcionales en esta etapa: cada módulo
+ * Las de las integraciones (redes, IA, HeyGen) son opcionales: cada módulo
  * pide la suya con `requireEnv` y muestra un error claro si falta. Las de la base son obligatorias
  * y se validan al arrancar el servidor (ver `instrumentation.ts`).
  */
@@ -16,11 +16,17 @@ const schema = z.object({
   // Base
   NEXT_PUBLIC_APP_URL: z.url(),
   NEXT_PUBLIC_APP_NAME: z.string().trim().min(1).default("Content Studio"),
-  NEXT_PUBLIC_SUPABASE_URL: z.url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
+
+  // Base de datos (Neon desde el Marketplace de Vercel: la integración crea estas dos variables)
   DATABASE_URL: z.string().startsWith("postgres"),
-  DIRECT_URL: z.string().startsWith("postgres"),
+  DATABASE_URL_UNPOOLED: z.string().startsWith("postgres"),
+
+  // Sesiones: firma de cookies. Genérala con: openssl rand -base64 32
+  BETTER_AUTH_SECRET: z.string().min(32, "Debe tener al menos 32 caracteres. Genérala con: openssl rand -base64 32"),
+
+  // Correos (invitaciones y recuperación de contraseña) con Resend
+  RESEND_API_KEY: optional,
+  EMAIL_FROM: optional, // por ejemplo: "Content Studio <hola@tudominio.com>"
 
   // Clave para cifrar tokens y claves de servicios: 32 bytes en base64.
   TOKEN_ENCRYPTION_KEY: z

@@ -16,7 +16,6 @@ coverage/
 !.env.example
 
 # Supabase y Claude Code locales
-supabase/.temp/
 .claude/settings.local.json
 
 # Worker (Python)

@@ -6,7 +6,7 @@ export type StepState = "done" | "active" | "pending";
 
 /**
  * Ruta de pasos para flujos largos (crear clon, editar video, crear carrusel).
- * Vertical en pantallas grandes, fila con scroll en pantallas chicas.
+ * Vertical en pantallas grandes, fila con scroll en pantallas pequeñas.
  */
 export function Steps({
   steps,

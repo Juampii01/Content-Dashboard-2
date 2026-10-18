@@ -1,22 +1,32 @@
 import "server-only";
-import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { attachDatabasePool } from "@vercel/functions";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { env } from "@/lib/env";
 import * as schema from "./schema";
 
 /**
- * Conexión a Postgres (Supabase) con Drizzle.
- * Usa el pooler en modo transacción (DATABASE_URL), por eso `prepare: false`.
- * Se crea recién en el primer uso (no al importar), así el build no necesita la base.
- * Una sola conexión por proceso; en desarrollo sobrevive a las recargas.
+ * Conexión a Postgres (Neon, instalado desde el Marketplace de Vercel) con Drizzle.
+ *
+ * - La app usa `DATABASE_URL` (con pooler). Las migraciones y el worker usan `DATABASE_URL_UNPOOLED`.
+ * - `attachDatabasePool` le avisa a Vercel (Fluid compute) que cierre las conexiones ociosas antes de
+ *   suspender la función, así no quedan conexiones colgadas.
+ * - Se crea en el primer uso (no al importar), así el build no necesita la base.
  */
-type Db = PostgresJsDatabase<typeof schema>;
-const globalForDb = globalThis as unknown as { db?: Db };
+type Db = NodePgDatabase<typeof schema>;
+const globalForDb = globalThis as unknown as { db?: Db; pool?: Pool };
 
 export function getDb(): Db {
   if (!globalForDb.db) {
-    const client = postgres(env().DATABASE_URL, { prepare: false, max: 5 });
-    globalForDb.db = drizzle({ client, schema });
+    const pool = new Pool({
+      connectionString: env().DATABASE_URL,
+      max: 5,
+      idleTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 10_000,
+    });
+    attachDatabasePool(pool);
+    globalForDb.pool = pool;
+    globalForDb.db = drizzle({ client: pool, schema });
   }
   return globalForDb.db;
 }

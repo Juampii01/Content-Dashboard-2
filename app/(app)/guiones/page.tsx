@@ -15,7 +15,7 @@ export default function GuionesPage() {
         icon={<ScrollText className="h-5 w-5" />}
       />
       <ModulePreview
-        stage={3}
+
         icon={<ScrollText className="h-6 w-6" />}
         title="Tu generador de guiones"
         description="Usa tu perfil de marca para que cada guion suene a ti y le hable a tu público."

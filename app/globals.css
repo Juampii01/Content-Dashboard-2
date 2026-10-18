@@ -124,7 +124,7 @@
   .eyebrow { @apply font-mono text-[11px] font-semibold tracking-[0.18em] text-accent-glow/90 uppercase; }
   .pill { @apply inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white; }
 
-  /* Ruta de pasos: nodos hecho · activo · pendiente. En pantallas chicas, fila con scroll. */
+  /* Ruta de pasos: nodos hecho · activo · pendiente. En pantallas pequeñas, fila con scroll. */
   .step-list { @apply m-0 flex list-none gap-1 overflow-x-auto p-0 pb-1 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0; }
   .step-item { @apply relative flex-none; }
   .step-item:not(:last-child)::after { @apply hidden lg:block; content: ""; position: absolute; left: 21px; top: 38px; height: 20px; width: 2px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }

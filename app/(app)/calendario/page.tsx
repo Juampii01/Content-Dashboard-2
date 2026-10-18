@@ -15,7 +15,7 @@ export default function CalendarioPage() {
         icon={<CalendarDays className="h-5 w-5" />}
       />
       <ModulePreview
-        stage={4}
+
         icon={<CalendarDays className="h-6 w-6" />}
         title="Tu calendario de contenido"
         description="Todo lo que produces en el sistema (guiones, carruseles y videos) cae aquí, con su fecha y su red."

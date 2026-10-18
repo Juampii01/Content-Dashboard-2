@@ -15,7 +15,7 @@ export default function ClonPage() {
         icon={<UserRound className="h-5 w-5" />}
       />
       <ModulePreview
-        stage={7}
+
         icon={<UserRound className="h-6 w-6" />}
         title="Tu clon con HeyGen"
         description="Usa tu propia cuenta de HeyGen. Tu clon y tus créditos son tuyos."

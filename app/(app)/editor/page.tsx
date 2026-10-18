@@ -15,7 +15,7 @@ export default function EditorPage() {
         icon={<Clapperboard className="h-5 w-5" />}
       />
       <ModulePreview
-        stage={5}
+
         icon={<Clapperboard className="h-6 w-6" />}
         title="Tu editor de video"
         description="Pensado para videos donde hablas a cámara. Puedes salir de la página mientras se edita."

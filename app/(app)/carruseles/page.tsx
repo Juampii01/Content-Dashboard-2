@@ -15,7 +15,7 @@ export default function CarruselesPage() {
         icon={<GalleryHorizontalEnd className="h-5 w-5" />}
       />
       <ModulePreview
-        stage={6}
+
         icon={<GalleryHorizontalEnd className="h-6 w-6" />}
         title="Tu creador de carruseles"
         description="Primero revisas los textos de cada slide; después se generan las imágenes con tu estilo."

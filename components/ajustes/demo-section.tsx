@@ -5,7 +5,8 @@ import { DemoControls } from "./demo-controls";
 
 /** Datos de ejemplo para mostrar la app sin conectar cuentas reales. Solo el dueño los carga o borra. */
 export async function DemoSection() {
-  const [me, active] = await Promise.all([getCurrentUser(), hasDemo()]);
+  const me = await getCurrentUser();
+  const active = await hasDemo();
   if (me.role !== "OWNER") return null;
   return (
     <Section>

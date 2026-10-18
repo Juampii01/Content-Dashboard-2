@@ -27,6 +27,9 @@ function ModalBase({ open, onOpenChange, title, description, children, footer, d
   const ref = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const pressStartedOnBackdrop = useRef(false);
+  // Cierre hecho por el propio componente al desmontarse: no debe avisar al padre (en modo estricto
+  // React desmonta y vuelve a montar, y un diálogo que arranca abierto se cerraba solo).
+  const closingInternally = useRef(false);
   const onOpenChangeRef = useRef(onOpenChange);
   const titleId = useId();
   const descId = useId();
@@ -50,7 +53,10 @@ function ModalBase({ open, onOpenChange, title, description, children, footer, d
   useEffect(() => {
     const dialog = ref.current;
     return () => {
-      if (dialog?.open) dialog.close();
+      if (dialog?.open) {
+        closingInternally.current = true;
+        dialog.close();
+      }
     };
   }, []);
 
@@ -63,6 +69,10 @@ function ModalBase({ open, onOpenChange, title, description, children, footer, d
       className={cn(variant === "sheet" ? "sheet" : "dialog", className)}
       onClose={() => {
         // Escape, form method="dialog" o close(): siempre se sincroniza el estado y vuelve el foco.
+        if (closingInternally.current) {
+          closingInternally.current = false;
+          return;
+        }
         if (open) onOpenChangeRef.current(false);
         const target = returnFocus.current;
         returnFocus.current = null;

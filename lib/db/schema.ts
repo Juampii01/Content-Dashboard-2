@@ -353,42 +353,101 @@ export const syncRuns = pgTable(
 
 // ─── Marca ─────────────────────────────────────────────────────────────────
 
-/** Perfil de marca: alimenta guiones, carruseles, editor y clon. Hay una sola fila (id = "brand"). */
+export type BrandOffer = { name: string; promise: string; cta: string; keyword?: string; link?: string; when?: string };
+export type BrandPillar = { name: string; description: string; share: number };
+export type VoiceSample = { source: string; text: string };
+
+/**
+ * Perfil de marca: alimenta guiones, carruseles, editor y clon. Hay una sola fila (id = "brand").
+ * `version` sube con cada cambio: sirve para invalidar la caché de los prompts.
+ */
 export const brandProfile = pgTable("brand_profile", {
   id: text("id").primaryKey().default("brand"),
   name: text("name"),
   handle: text("handle"),
   niche: text("niche"),
+  whatYouSell: text("what_you_sell"),
+  differentiator: text("differentiator"),
   audience: text("audience"), // público ideal
+  audiencePains: text("audience_pains").array().notNull().default(sql`'{}'::text[]`),
+  audienceDesires: text("audience_desires").array().notNull().default(sql`'{}'::text[]`),
+  objections: text("objections").array().notNull().default(sql`'{}'::text[]`),
+  beliefs: text("beliefs").array().notNull().default(sql`'{}'::text[]`), // posturas del creador contra la corriente
   tone: text("tone"),
-  language: text("language").notNull().default("es-neutro"),
+  signaturePhrases: text("signature_phrases").array().notNull().default(sql`'{}'::text[]`),
   bannedWords: text("banned_words").array().notNull().default(sql`'{}'::text[]`),
+  emojiPolicy: text("emoji_policy").notNull().default("pocos"), // ninguno | pocos | libres
+  language: text("language").notNull().default("es-neutro"),
+  voiceSamples: jsonb("voice_samples").$type<VoiceSample[]>().notNull().default(sql`'[]'::jsonb`),
+  offers: jsonb("offers").$type<BrandOffer[]>().notNull().default(sql`'[]'::jsonb`),
+  pillars: jsonb("pillars").$type<BrandPillar[]>().notNull().default(sql`'[]'::jsonb`),
   colors: jsonb("colors").$type<{ primary?: string; secondary?: string; accent?: string }>(),
   fonts: jsonb("fonts").$type<{ heading?: string; body?: string }>(),
   characterPhotos: text("character_photos").array().notNull().default(sql`'{}'::text[]`), // rutas en el almacenamiento de archivos
   subtitlePreset: jsonb("subtitle_preset"),
   extraContext: text("extra_context"), // notas libres del cliente
+  version: integer("version").notNull().default(1),
   updatedAt: updatedAt(),
 });
 
 // ─── Producción ────────────────────────────────────────────────────────────
 
-export const scriptStatusEnum = pgEnum("script_status", ["DRAFT", "READY", "ARCHIVED"]);
+export const scriptStatusEnum = pgEnum("script_status", ["IDEA", "DRAFT", "READY", "RECORDED", "PUBLISHED", "ARCHIVED"]);
+export const scriptFormatEnum = pgEnum("script_format", ["REEL", "SHORT", "YT_LONG", "STORY"]);
 
-export const scripts = pgTable("scripts", {
-  id: id(),
-  title: text("title").notNull(),
-  idea: text("idea"),
-  hook: text("hook"),
-  body: text("body").notNull().default(""),
-  cta: text("cta"),
-  status: scriptStatusEnum("status").notNull().default("DRAFT"),
-  platform: platformEnum("platform"),
-  sourceUrl: text("source_url"), // video de referencia
-  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
-});
+export type ScriptHook = { text: string; type: string; score: number; why: string };
+export type ScriptBeat = { id: string; purpose: string; spoken: string; onScreenText: string; broll: string; seconds: number };
+export type ScriptContent = {
+  title: string;
+  angle: string;
+  hooks: ScriptHook[];
+  selectedHook: number;
+  beats: ScriptBeat[];
+  cta: { spoken: string; onScreenText: string; offer: string | null };
+  caption: string;
+};
+
+/** Un guion. `content` guarda la estructura completa; cada cambio guarda una versión en script_versions. */
+export const scripts = pgTable(
+  "scripts",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    idea: text("idea"),
+    format: scriptFormatEnum("format").notNull().default("REEL"),
+    pillar: text("pillar"),
+    objective: text("objective"), // alcance | seguidores | ventas
+    status: scriptStatusEnum("status").notNull().default("DRAFT"),
+    platform: platformEnum("platform"),
+    content: jsonb("content").$type<ScriptContent>(),
+    wordCount: integer("word_count"),
+    estimatedSeconds: integer("estimated_seconds"),
+    sourceUrl: text("source_url"), // video de referencia
+    sourceText: text("source_text"), // transcripción o texto de referencia
+    sourceContentItemId: uuid("source_content_item_id").references(() => contentItems.id, { onDelete: "set null" }),
+    parentId: uuid("parent_id"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("scripts_status_updated_idx").on(t.status, t.updatedAt)],
+);
+
+/** Historial de un guion: cada generación, reescritura o edición guardada. Permite volver atrás. */
+export const scriptVersions = pgTable(
+  "script_versions",
+  {
+    id: id(),
+    scriptId: uuid("script_id")
+      .notNull()
+      .references(() => scripts.id, { onDelete: "cascade" }),
+    content: jsonb("content").$type<ScriptContent>().notNull(),
+    action: text("action").notNull(), // "generar", "ganchos", "acortar", "editar"…
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("script_versions_script_idx").on(t.scriptId, t.createdAt)],
+);
 
 export const calendarStatusEnum = pgEnum("calendar_status", ["IDEA", "SCRIPTING", "PRODUCTION", "READY", "PUBLISHED"]);
 export const contentFormatEnum = pgEnum("content_format", ["REEL", "CAROUSEL", "VIDEO", "SHORT", "CLONE_VIDEO"]);

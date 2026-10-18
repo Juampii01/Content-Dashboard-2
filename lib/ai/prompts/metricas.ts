@@ -65,3 +65,33 @@ ${input.growth ? `\nCRECIMIENTO DE VISUALIZACIONES\n${input.growth}` : ""}
 TAREA
 Explica por qué esta pieza rindió así y qué conviene repetir o cambiar. Después propone 3 ideas nuevas con su gancho.`;
 }
+
+/** Clasificación del tipo de gancho de cada pieza, a partir de su primera línea. */
+export const HOOK_CATEGORIES = ["contraste", "curiosidad", "dolor", "resultado", "historia", "pregunta", "lista", "otro"] as const;
+export type HookCategory = (typeof HOOK_CATEGORIES)[number];
+
+export const hookClassificationSchema = z.object({
+  items: z.array(
+    z.object({
+      n: z.number().int().describe("El número de la pieza (#n)."),
+      type: z.enum(HOOK_CATEGORIES),
+      hook: z.string().describe("El gancho tal cual aparece (la primera frase), máximo 120 caracteres."),
+    }),
+  ),
+});
+
+export const HOOK_RULES = `Clasificas el gancho (la primera frase) de piezas de redes sociales de un creador.
+
+TIPOS
+- contraste: contradice una creencia o una práctica común ("Deja de…", "Nadie te dice que…", "El error de…").
+- curiosidad: abre una intriga sin resolverla ("Esto cambió todo…", "Lo que descubrí…").
+- dolor: nombra un problema o frustración de la audiencia.
+- resultado: promete o muestra un resultado concreto, con cifra o transformación.
+- historia: arranca contando algo que pasó ("Mi primer cliente…", "Ayer…").
+- pregunta: empieza con una pregunta directa a la audiencia.
+- lista: anuncia una cantidad de ítems o pasos ("3 errores…", "5 herramientas…").
+- otro: no tiene gancho claro (solo hashtags, saludo, texto genérico) o no se puede saber.
+
+REGLAS
+- Si encaja en varios, elige el que más pesa en la primera frase.
+- Responde un ítem por cada pieza recibida, con su mismo número. Solo el JSON del esquema.`;

@@ -1,4 +1,5 @@
 import "server-only";
+import { hookRankingUnchecked } from "@/lib/metrics/hooks";
 import { sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { languageRules } from "./language";
@@ -43,6 +44,8 @@ export async function brandContext(brand: Brand | null): Promise<string> {
   const samples = brand.voiceSamples.length
     ? brand.voiceSamples.map((s, i) => `<muestra n="${i + 1}" fuente="${s.source}">\n${s.text.slice(0, 2500)}\n</muestra>`).join("\n")
     : "(sin muestras: usa un tono cercano y directo)";
+  const hooks = await hookRankingUnchecked().catch(() => null);
+  const hookText = hooks?.stats.map((h) => `- ${h.label}: ×${h.medianScore.toFixed(1)} (${h.count} piezas)`).join("\n") ?? "";
   const topText = top.length ? top.map((t) => `- [${t.platform} ${t.type}, ×${t.ratio?.toFixed(1)} su mediana] ${t.text}`).join("\n") : "(todavía no hay datos de rendimiento)";
 
   return `MARCA
@@ -81,6 +84,6 @@ ${samples}
 
 LO QUE YA FUNCIONÓ CON ESTA AUDIENCIA (patrones de gancho y ángulo, no el tema)
 ${topText}
-
+${hookText ? `\nTIPOS DE GANCHO SEGÚN SU RENDIMIENTO REAL (× la mediana de la cuenta; prioriza los primeros)\n${hookText}\n` : ""}
 ${brand.extraContext ? `NOTAS DEL CREADOR\n${brand.extraContext}` : ""}`.trim();
 }

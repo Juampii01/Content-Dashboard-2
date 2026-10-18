@@ -13,6 +13,10 @@ import { PostingHeatmap } from "@/components/metricas/posting-heatmap";
 import { ContentTable } from "@/components/metricas/content-table";
 import { ContentGrid } from "@/components/metricas/content-grid";
 import { Pagination } from "@/components/metricas/pagination";
+import { HookRanking } from "@/components/metricas/hook-ranking";
+import { aiConfigured } from "@/lib/ai/client";
+import { getCurrentUser } from "@/lib/auth";
+import { hookRanking } from "@/lib/metrics/hooks";
 import { countByPlatform, getDailyViews, getOverview, getPostingHeatmap, listConnections, listContent, PAGE_SIZE } from "@/lib/dal/metrics";
 import { env } from "@/lib/env";
 import { formatDateRange, formatNumber } from "@/lib/format";
@@ -46,12 +50,14 @@ async function MetricsContent({ searchParams }: { searchParams: PageProps<"/metr
   }
 
   const filters = parseFilters(params, env().APP_TIMEZONE);
-  const [counts, overview, daily, heatmap, content] = await Promise.all([
+  const [counts, overview, daily, heatmap, content, hooks, user] = await Promise.all([
     countByPlatform(),
     getOverview(filters),
     getDailyViews(filters),
     getPostingHeatmap(filters),
     listContent(filters),
+    hookRanking(filters.platforms.length === 1 ? filters.platforms[0]! : null),
+    getCurrentUser(),
   ]);
   const importing = connections.some((c) => !c.backfillDone);
 
@@ -80,6 +86,8 @@ async function MetricsContent({ searchParams }: { searchParams: PageProps<"/metr
           )}
         </div>
       </div>
+
+      <HookRanking stats={hooks.stats} pending={hooks.pending} classified={hooks.classified} canClassify={user.role !== "VIEWER" && aiConfigured()} />
 
       <Section
         title="Piezas"

@@ -29,6 +29,13 @@
       "when": 1792308651033,
       "tag": "0003_analisis-piezas",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792308833968,
+      "tag": "0004_ganchos",
+      "breakpoints": true
     }
   ]
 }

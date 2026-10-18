@@ -10,7 +10,7 @@ const beats = [
   { purpose: "Prueba", spoken: "Una clínica en Houston cambió solo eso y pasó de agendar 3 de cada 10 llamadas a 6 de cada 10 en un mes.", onScreenText: "3/10 → 6/10", broll: "Pantalla de agenda llenándose", seconds: 8 },
 ];
 
-export function fakeResponse(feature: string): unknown {
+export function fakeResponse(feature: string, task = ""): unknown {
   const hooks = [
     { text: "Si contestas el teléfono así, estás perdiendo pacientes.", type: "contraste", score: 9, why: "Ataca algo que hacen todos los días." },
     { text: "Tres de cada diez llamadas. Esa es la cifra que te está costando miles.", type: "resultado", score: 8, why: "Un número concreto genera curiosidad." },
@@ -59,6 +59,17 @@ export function fakeResponse(feature: string): unknown {
         ],
         offers: [{ name: "Programa Agenda Llena", promise: "Llena tu agenda en 8 semanas", cta: "Comenta AGENDA y te explico cómo funciona", keyword: "AGENDA" }],
       };
+    case "metricas.ganchos": {
+      const types = ["contraste", "curiosidad", "dolor", "resultado", "historia", "pregunta", "lista", "otro"];
+      const lines = [...task.matchAll(/^#(\d+) (.*)$/gm)];
+      return {
+        items: lines.map(([, n, text]) => {
+          const t = text!.toLowerCase();
+          const type = t.includes("?") ? "pregunta" : /\d/.test(t) ? "lista" : t.includes("error") || t.includes("deja") ? "contraste" : types[(text!.length * 7) % types.length];
+          return { n: Number(n), type, hook: text!.slice(0, 120) };
+        }),
+      };
+    }
     case "metricas.analisis":
       return {
         verdict: "Funcionó por un gancho de contraste muy claro y porque se guardó casi el triple que tus otros reels: la gente lo tomó como referencia.",

@@ -4,6 +4,7 @@ import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { dueKinds, syncAccount, type SyncOutcome } from "@/lib/social/sync/runner";
+import { classifyPendingHooks } from "@/lib/metrics/hooks";
 
 export const maxDuration = 300;
 
@@ -41,6 +42,11 @@ export async function GET(request: NextRequest) {
       if (budget < 30_000) break;
       results.push({ platform: account.platform, kind, outcome: await syncAccount(account.id, kind, budget) });
     }
+  }
+
+  // Ganchos de las piezas nuevas (con el modelo rápido, cuesta centavos). Si falla, se reintenta en la próxima hora.
+  if (deadline - Date.now() > 40_000) {
+    await classifyPendingHooks(80).catch((error: unknown) => console.error("[cron] ganchos", error instanceof Error ? error.message : error));
   }
 
   await db.delete(schema.oauthStates).where(lt(schema.oauthStates.expiresAt, new Date()));

@@ -259,6 +259,8 @@ export const contentItems = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     aiAnalysis: jsonb("ai_analysis").$type<PieceAnalysis>(), // "¿Por qué funcionó?" (lib/metrics/analysis.ts)
     aiAnalyzedAt: timestamp("ai_analyzed_at", { withTimezone: true }),
+    hookType: text("hook_type"), // tipo de gancho según la primera línea (lib/metrics/hooks.ts)
+    hookClassifiedAt: timestamp("hook_classified_at", { withTimezone: true }),
     metricsUpdatedAt: timestamp("metrics_updated_at", { withTimezone: true }),
     raw: jsonb("raw"), // respuesta original de la API, para depurar mapeos
     createdAt: createdAt(),

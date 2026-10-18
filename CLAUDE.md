@@ -62,7 +62,7 @@ No se copia código a ciegas. Se toma la pieza, se revisa y se adapta a esta arq
 
 ### Stack
 - **App:** Next.js (App Router) + React + TypeScript estricto + Tailwind CSS.
-- **Base de datos y auth:** Supabase (Postgres + Auth + Storage). Prisma como ORM. Una base por cliente.
+- **Base de datos y auth:** Supabase (Postgres + Auth + Storage). **Drizzle** como ORM (TypeScript puro, sin motores binarios; migraciones en SQL dentro de `drizzle/`). Una base por cliente.
 - **Trabajos pesados:** un **worker** aparte (contenedor Docker con Python, ffmpeg con libass, Parakeet precargado, Pillow) para video y carruseles. Nunca se procesan videos ni se generan imágenes dentro de una función serverless.
 - **Cola de trabajos:** pg-boss sobre el mismo Postgres de Supabase (sin Redis extra). Cada trabajo tiene estado, progreso, reintentos y errores legibles.
 - **Archivos:** Supabase Storage (o R2 si el volumen lo pide) con URLs firmadas. Subidas directas desde el navegador, nunca a través de la app.
@@ -81,8 +81,10 @@ lib/
   ai/                 # llamadas a Claude y prompts versionados
   jobs/               # encolar trabajos y leer su estado
   heygen/             # cliente de la API v3 de HeyGen
+  db/                 # schema.ts (Drizzle) e index.ts (getDb)
+  auth.ts             # getCurrentUser, requireEditor, requireOwner
   crypto.ts, env.ts   # cifrado de tokens y validación de variables de entorno con Zod
-prisma/
+drizzle/              # migraciones SQL generadas (pnpm db:generate)
 worker/               # servicio Python: video/, carruseles/, comunes/
 docs/                 # decisiones y guías de instalación por cliente
 ```
@@ -140,7 +142,7 @@ placeholder   #6f84a8
 
 ## 7. Orden de construcción
 
-1. **Bases:** repo, Next.js, Tailwind con los tokens, sistema de diseño en `components/ui`, layout con navegación, auth, Prisma + Supabase, validación de entorno, cifrado.
+1. **Bases:** repo, Next.js, Tailwind con los tokens, sistema de diseño en `components/ui`, layout con navegación, auth, Drizzle + Supabase, validación de entorno, cifrado. ✅ Lista.
 2. **Conexiones y Métricas:** OAuth de las tres redes, sync, modelo común, cron, pantalla de métricas con filtros.
 3. **Mi marca** y **Guiones.**
 4. **Calendario.**
@@ -151,7 +153,17 @@ placeholder   #6f84a8
 
 Cada etapa se cierra con: build sin errores, tipos sin errores, revisión visual de las pantallas nuevas y textos revisados en español neutro.
 
-## 8. Reglas de trabajo
+## 8. Notas técnicas de la base
+
+- **Next.js 16** con Cache Components y Partial Prefetching activados. Antes de escribir código de Next, lee la guía que corresponde en `node_modules/next/dist/docs/` (ver `AGENTS.md`): cambian APIs respecto de versiones anteriores.
+- El middleware se llama **`proxy.ts`**: refresca la sesión de Supabase y manda al login a quien no tiene sesión. Es un filtro rápido; la autorización real se comprueba cerca de los datos con `lib/auth.ts`.
+- Todo lo que lee la sesión (`getCurrentUser`) va detrás de un `<Suspense>`; con Cache Components, leer cookies fuera de un `<Suspense>` es un error de build.
+- **Acceso:** solo entra quien tiene fila en `team_members`. No hay registro abierto. El primer dueño de cada instalación se crea con `pnpm crear-dueno correo@cliente.com "Nombre"`.
+- **RLS** activado en todas las tablas y sin políticas (migración `0001_rls.sql`): la app usa la conexión de servidor; la API pública de Supabase no puede leer nada.
+- `getDb()` crea la conexión en el primer uso; el build no necesita base de datos.
+- Scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm crear-dueno`.
+
+## 9. Reglas de trabajo
 
 - Antes de un cambio grande, propone el plan y espera aprobación.
 - Commits chicos y descriptivos en español. Nada de secretos en el repo: `.env*`, `supabase/.temp` y `.claude/settings.local.json` van en `.gitignore`.

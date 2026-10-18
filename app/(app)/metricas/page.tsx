@@ -26,8 +26,9 @@ export const metadata: Metadata = { title: "Métricas" };
 
 async function MetricsContent({ searchParams }: { searchParams: PageProps<"/metricas">["searchParams"] }) {
   const params = await searchParams;
-  const connections = await listConnections();
-  if (connections.length === 0) {
+  const [connections, stored] = await Promise.all([listConnections(), countByPlatform()]);
+  // Sin conexiones pero con histórico guardado (por ejemplo, se desconectó todo): se muestra el histórico igual.
+  if (connections.length === 0 && Object.keys(stored).length === 0) {
     return (
       <ModulePreview
         icon={<BarChart3 className="h-6 w-6" />}
@@ -50,8 +51,8 @@ async function MetricsContent({ searchParams }: { searchParams: PageProps<"/metr
   }
 
   const filters = parseFilters(params, env().APP_TIMEZONE);
-  const [counts, overview, daily, heatmap, content, hooks, user] = await Promise.all([
-    countByPlatform(),
+  const counts = stored;
+  const [overview, daily, heatmap, content, hooks, user] = await Promise.all([
     getOverview(filters),
     getDailyViews(filters),
     getPostingHeatmap(filters),

@@ -129,7 +129,7 @@ async function totals(f: MetricsFilters, from: string, to: string): Promise<Peri
       sum(coalesce(ci.likes, 0) + coalesce(ci.comments, 0) + coalesce(ci.shares, 0) + coalesce(ci.saves, 0))::bigint as interactions,
       sum(ci.saves)::bigint as saves,
       sum(ci.shares)::bigint as shares,
-      100.0 * sum(coalesce(ci.likes, 0) + coalesce(ci.comments, 0) + coalesce(ci.shares, 0) + coalesce(ci.saves, 0))
+      100.0 * sum(coalesce(ci.likes, 0) + coalesce(ci.comments, 0) + coalesce(ci.shares, 0) + coalesce(ci.saves, 0)) filter (where ci.views > 0)
         / nullif(sum(ci.views) filter (where ci.views > 0), 0) as er,
       1000.0 * sum(coalesce(ci.saves, 0) + coalesce(ci.shares, 0)) filter (where ci.saves is not null and ci.shares is not null)
         / nullif(sum(ci.views) filter (where ci.saves is not null and ci.shares is not null and ci.views > 0), 0) as ss,
@@ -452,6 +452,8 @@ export async function getContentDetail(id: string): Promise<ContentDetail | null
       from content_items
       where platform = ${ci.platform} and type = ${ci.type} and available and id <> ${id}
         and published_at > now() - interval '180 days' and published_at < now() - interval '7 days'
+        -- Mismo grupo que el puntaje: a 7 días contra a 7 días, importadas contra importadas.
+        and (views_7d is not null) = ${ci.views7d != null}
     `),
   ]);
 
@@ -481,6 +483,7 @@ export async function getContentDetail(id: string): Promise<ContentDetail | null
 
 /** Cantidad de piezas por red (para los contadores de los filtros). */
 export async function countByPlatform(): Promise<Partial<Record<Platform, number>>> {
+  await getCurrentUser();
   const rows = await getDb()
     .select({ platform: schema.contentItems.platform, n: sql<number>`count(*)::int` })
     .from(schema.contentItems)

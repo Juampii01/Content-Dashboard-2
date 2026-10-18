@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { missingScopes, type Connection } from "./providers";
 import { encryptTokens } from "./tokens";
@@ -22,6 +22,18 @@ export async function saveConnection(platform: Platform, connection: Connection,
       .from(schema.socialAccounts)
       .where(and(eq(schema.socialAccounts.platform, platform), eq(schema.socialAccounts.externalId, profile.externalId)))
       .limit(1);
+
+    // Si había datos de demostración de esta red, se borran: nunca se mezclan con los reales
+    // (las medianas, el puntaje y lo que lee la IA saldrían de números inventados).
+    const demo = await tx
+      .select({ id: schema.socialAccounts.id })
+      .from(schema.socialAccounts)
+      .where(and(eq(schema.socialAccounts.platform, platform), sql`(${schema.socialAccounts.meta} ->> 'demo') = 'true'`));
+    if (demo.length > 0) {
+      const ids = demo.map((d) => d.id);
+      await tx.delete(schema.contentItems).where(inArray(schema.contentItems.socialAccountId, ids));
+      await tx.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.id, ids));
+    }
 
     // Otra cuenta de la misma red deja de ser la actual (se conserva por el histórico).
     await tx

@@ -29,6 +29,15 @@ export async function inviteAction(_prev: TeamActionState, formData: FormData): 
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
 
+  // Alguien que ya está activo en el equipo no se reinvita (así nadie se cambia el rol por acá, ni el único dueño).
+  const [existing] = await getDb()
+    .select({ active: schema.teamMembers.active })
+    .from(schema.teamMembers)
+    .innerJoin(schema.users, eq(schema.users.id, schema.teamMembers.userId))
+    .where(eq(schema.users.email, parsed.data.email))
+    .limit(1);
+  if (existing?.active) return { error: "Esa persona ya está en el equipo. Si quieres cambiar su rol, hazlo desde la lista." };
+
   try {
     await inviteMember({ ...parsed.data, invitedBy: { id: owner.id, name: owner.name } });
   } catch {

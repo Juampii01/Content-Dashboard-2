@@ -16,7 +16,8 @@ export type ScriptListItem = {
 
 export async function listScripts(status: string | null): Promise<ScriptListItem[]> {
   await getCurrentUser();
-  const where = status && status !== "todos" ? eq(schema.scripts.status, status as ScriptListItem["status"]) : ne(schema.scripts.status, "ARCHIVED");
+  const valid = (schema.scriptStatusEnum.enumValues as readonly string[]).includes(status ?? "");
+  const where = status && valid ? eq(schema.scripts.status, status as ScriptListItem["status"]) : ne(schema.scripts.status, "ARCHIVED");
   const rows = await getDb()
     .select({
       id: schema.scripts.id,

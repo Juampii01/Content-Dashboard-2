@@ -15,8 +15,12 @@ export async function ConnectionBanner() {
     .where(and(eq(schema.socialAccounts.current, true), inArray(schema.socialAccounts.status, ["EXPIRED", "REVOKED", "MISSING_SCOPES", "ERROR"])));
   if (broken.length === 0) return null;
 
-  const names = broken.map((b) => platformLabel[b.platform]).join(" y ");
-  const text = broken.length === 1 && broken[0]!.message ? broken[0]!.message : `${names} dejó de actualizarse. Reconecta la cuenta para seguir midiendo.`;
+  const labels = broken.map((b) => platformLabel[b.platform]);
+  const names = labels.length > 1 ? `${labels.slice(0, -1).join(", ")} y ${labels.at(-1)}` : labels[0];
+  const text =
+    broken.length === 1
+      ? (broken[0]!.message ?? `${names} dejó de actualizarse. Reconecta la cuenta para seguir midiendo.`)
+      : `${names} dejaron de actualizarse. Reconecta las cuentas para seguir midiendo.`;
   return (
     <div role="alert" className="mb-6 flex flex-col gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
       <p className="flex items-start gap-2 text-text">

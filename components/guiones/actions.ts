@@ -10,9 +10,16 @@ import { FORMATS, OBJECTIVES, type FormatKey } from "@/lib/ai/prompts/guiones";
 import { getDb, schema } from "@/lib/db";
 import type { ScriptContent } from "@/lib/db/schema";
 import { getSourcePiece } from "@/lib/dal/scripts";
+import { allowAttempt } from "@/lib/rate-limit";
 import { adaptScript, applyAction, createScript, restoreVersion, saveEdits, type ScriptAction } from "@/lib/scripts/service";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
+
+const LIMIT_MSG = "Hiciste muchos pedidos a la IA seguidos. Espera unos minutos y vuelve a intentar.";
+/** Tope de llamadas de IA por persona y por hora (protege el costo de la clave del servidor). */
+async function withinLimit(userId: string, kind: "ia" | "pesado"): Promise<boolean> {
+  return kind === "pesado" ? allowAttempt(`guiones-pesado:${userId}`, 15, 3600) : allowAttempt(`guiones:${userId}`, 80, 3600);
+}
 
 function fail(error: unknown): { ok: false; error: string } {
   if (error instanceof AiError) {
@@ -39,6 +46,7 @@ export type NewScriptState = { error?: string };
 export async function createScriptAction(_prev: NewScriptState, formData: FormData): Promise<NewScriptState> {
   const user = await requireEditor();
   if (isDenied(user)) return { error: user.error };
+  if (!(await withinLimit(user.id, formData.get("format") === "YT_LONG" ? "pesado" : "ia"))) return { error: LIMIT_MSG };
   const parsed = newScript.safeParse(Object.fromEntries([...formData.entries()].map(([k, v]) => [k, typeof v === "string" ? v : ""])));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const d = parsed.data;
@@ -77,6 +85,7 @@ export async function createScriptAction(_prev: NewScriptState, formData: FormDa
 export async function runScriptAction(scriptId: string, action: ScriptAction): Promise<ActionResult<ScriptContent>> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
+  if (!(await withinLimit(user.id, "ia"))) return { ok: false, error: LIMIT_MSG };
   try {
     return { ok: true, data: await applyAction(scriptId, action, user.id) };
   } catch (error) {
@@ -121,6 +130,7 @@ export async function setScriptStatusAction(scriptId: string, status: (typeof st
 export async function adaptScriptAction(scriptId: string, to: FormatKey): Promise<ActionResult<string>> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
+  if (!(await withinLimit(user.id, "pesado"))) return { ok: false, error: LIMIT_MSG };
   if (!(to in FORMATS)) return { ok: false, error: "Formato no válido." };
   try {
     return { ok: true, data: await adaptScript(scriptId, to, user.id) };

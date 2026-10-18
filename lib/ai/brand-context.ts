@@ -35,7 +35,7 @@ export async function topOwnPieces(limit = 8): Promise<{ text: string; views: nu
  * el orden es fijo y no lleva nada que cambie en cada pedido.
  */
 export async function brandContext(brand: Brand | null): Promise<string> {
-  if (!brand) return "MARCA: todavía no hay perfil de marca. Escribe para un creador de contenido latino que vende un servicio o infoproducto.";
+  if (!brand) return `MARCA: todavía no hay perfil de marca. Escribe para un creador de contenido latino que vende un servicio o infoproducto.\n${languageRules("es-neutro")}`;
   const top = await topOwnPieces();
   const offers = brand.offers.length
     ? brand.offers.map((o, i) => `${i + 1}. ${o.name}: ${o.promise}. CTA: ${o.cta}${o.keyword ? ` (palabra clave: ${o.keyword})` : ""}${o.when ? `. Cuándo usarla: ${o.when}` : ""}`).join("\n")

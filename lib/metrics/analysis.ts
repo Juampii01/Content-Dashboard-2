@@ -35,6 +35,7 @@ export async function analyzePiece(id: string, userId: string): Promise<PieceAna
     from content_items
     where platform = ${item.platform} and type = ${item.type} and available and id <> ${id}
       and published_at > now() - interval '180 days' and published_at < now() - interval '7 days'
+      and (views_7d is not null) = ${item.views7d != null}
   `);
   const m = peers.rows[0] as unknown as Medians;
   const num = (v: unknown) => (v == null ? null : Number(v));

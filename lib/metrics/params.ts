@@ -35,7 +35,10 @@ const list = (v: string | string[] | undefined) =>
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
+// Fecha real (rechaza 2026-02-31) y razonable (desde el año 2005, cuando nacieron estas redes).
+const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && s >= "2005-01-01" && !Number.isNaN(Date.parse(s)) && new Date(`${s}T12:00:00Z`).toISOString().slice(0, 10) === s;
+/** Rango máximo que se puede pedir (para no armar gráficos de miles de días). */
+const MAX_RANGE_DAYS = 3 * 366;
 const intOrNull = (s: string) => {
   const n = Number(s);
   return s !== "" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
@@ -78,8 +81,8 @@ export function parseFilters(params: Params, timeZone: string): MetricsFilters {
   const hasta = one(params.hasta);
   if (isDay(desde) && isDay(hasta) && desde <= hasta) {
     preset = "custom";
-    from = desde;
     to = hasta > today ? today : hasta;
+    from = daysBetween(desde, to) > MAX_RANGE_DAYS ? addDays(to, -(MAX_RANGE_DAYS - 1)) : desde;
   }
 
   const sortRaw = one(params.orden) as SortKey;

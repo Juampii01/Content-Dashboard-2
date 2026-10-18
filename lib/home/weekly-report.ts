@@ -10,6 +10,7 @@ import { totalsUnchecked } from "@/lib/dal/metrics";
 import { env } from "@/lib/env";
 import { formatDate, formatDateRange } from "@/lib/format";
 import { sendEmail, weeklyReportEmail } from "@/lib/email";
+import { allowAttempt } from "@/lib/rate-limit";
 import { typeLabel } from "@/lib/metrics/labels";
 import { addDays, parseFilters, todayIn } from "@/lib/metrics/params";
 import { platformLabel, type Platform } from "@/lib/social/types";
@@ -110,6 +111,8 @@ export async function ensureWeeklyReport(): Promise<boolean> {
   const db = getDb();
   const [existing] = await db.select({ w: schema.weeklyReports.weekStart }).from(schema.weeklyReports).where(eq(schema.weeklyReports.weekStart, weekStart)).limit(1);
   if (existing) return false;
+  // Si la IA falla, se reintenta como mucho 3 veces por semana (no cada hora).
+  if (!(await allowAttempt(`resumen-cron:${weekStart}`, 3, 7 * 86_400))) return false;
   const report = await generateWeeklyReport(weekStart);
   if (!report) return false;
 

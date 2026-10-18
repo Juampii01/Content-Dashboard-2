@@ -2,7 +2,9 @@ import "server-only";
 import { and, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { copyRemoteImage } from "@/lib/storage";
-import { isoDay, mapLimit, type SyncContext } from "../http";
+import { env } from "@/lib/env";
+import { todayIn } from "@/lib/metrics/params";
+import { mapLimit, type SyncContext } from "../http";
 import type { AccountDay, AccountProfile, ItemMetrics, NormalizedItem, Platform } from "../types";
 
 /**
@@ -97,7 +99,7 @@ export async function saveItems(accountId: string, platform: Platform, items: No
       watchTimeMinutes: schema.contentItems.watchTimeMinutes,
     });
 
-  const today = isoDay(now);
+  const today = todayIn(env().APP_TIMEZONE, now);
   await db
     .insert(schema.metricSnapshots)
     .values(
@@ -142,33 +144,36 @@ export async function saveItems(accountId: string, platform: Platform, items: No
 export async function fixCheckpoints(accountId: string): Promise<void> {
   await getDb().execute(sql`
     update content_items set
-      views_24h = case when views_24h is null and published_at <= now() - interval '20 hours' and published_at > now() - interval '40 hours' then views else views_24h end,
-      views_72h = case when views_72h is null and published_at <= now() - interval '66 hours' and published_at > now() - interval '100 hours' then views else views_72h end,
-      views_7d  = case when views_7d  is null and published_at <= now() - interval '7 days'   and published_at > now() - interval '9 days'    then views else views_7d end
+      views_24h = case when views_24h is null and metrics_updated_at >= published_at + interval '22 hours' and published_at > now() - interval '40 hours' then views else views_24h end,
+      views_72h = case when views_72h is null and metrics_updated_at >= published_at + interval '70 hours' and published_at > now() - interval '100 hours' then views else views_72h end,
+      views_7d  = case when views_7d  is null and metrics_updated_at >= published_at + interval '7 days'   and published_at > now() - interval '9 days'    then views else views_7d end
     where social_account_id = ${accountId} and views is not null and published_at > now() - interval '9 days'
   `);
 }
 
 /**
- * Puntaje de rendimiento: views a 7 días ÷ mediana de su red y tipo (últimos 180 días, mínimo 5 piezas).
- * Para piezas importadas viejas, sin dato a 7 días, se usa el total como aproximación.
+ * Puntaje de rendimiento: views ÷ mediana de su red y tipo (últimos 180 días, mínimo 5 piezas), comparando
+ * siempre piezas comparables: las que tienen dato a 7 días contra las que tienen dato a 7 días, y las importadas
+ * viejas (solo tienen el total de por vida) contra otras importadas. Si un grupo no llega a 5 piezas, no hay puntaje.
  */
 export async function recomputePerfScores(): Promise<void> {
   await getDb().execute(sql`
     with base as (
-      select id, platform, type, published_at,
+      select id, platform, type, published_at, (views_7d is not null) as fresh,
         coalesce(views_7d, case when published_at < now() - interval '7 days' then views end)::float8 as v
       from content_items
       where available
     ), med as (
-      select platform, type, percentile_cont(0.5) within group (order by v) as m, count(*) as n
+      select platform, type, fresh, percentile_cont(0.5) within group (order by v) as m, count(*) as n
       from base where v is not null and published_at > now() - interval '180 days'
-      group by platform, type
+      group by platform, type, fresh
+    ), scored as (
+      select b.id, case when b.v is not null and med.n >= 5 and med.m > 0 then round((b.v / med.m)::numeric, 2)::real end as score
+      from base b left join med on med.platform = b.platform and med.type = b.type and med.fresh = b.fresh
     )
-    update content_items ci
-      set perf_score = case when med.n >= 5 and med.m > 0 then round((b.v / med.m)::numeric, 2)::real else null end
-    from base b join med on med.platform = b.platform and med.type = b.type
-    where ci.id = b.id and b.v is not null
+    update content_items ci set perf_score = scored.score
+    from scored
+    where ci.id = scored.id and ci.perf_score is distinct from scored.score
   `);
 }
 
@@ -213,7 +218,7 @@ export async function saveAccountData(accountId: string, profile: AccountProfile
     });
   }
   if (profile) {
-    const today = isoDay(new Date());
+    const today = todayIn(env().APP_TIMEZONE);
     rows.set(today, {
       ...(rows.get(today) ?? { socialAccountId: accountId, capturedOn: today }),
       followers: profile.followers,

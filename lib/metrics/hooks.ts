@@ -50,8 +50,8 @@ export async function classifyPendingHooks(maxPieces = 120): Promise<number> {
       });
       const byN = new Map(result.items.map((it) => [it.n, it.type]));
       for (const [n, b] of withText.entries()) {
-        const type = byN.get(n + 1);
-        if (!type) continue;
+        // Si el modelo omitió una pieza, queda como "otro" para no reenviarla en cada corrida.
+        const type = byN.get(n + 1) ?? "otro";
         await db.execute(sql`update content_items set hook_type = ${type}, hook_classified_at = ${now} where id = ${b.id}`);
         done++;
       }

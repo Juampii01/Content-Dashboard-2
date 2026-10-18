@@ -52,7 +52,7 @@ async function acquire(accountId: string, platform: Platform, kind: SyncKind, de
       .limit(1);
     if (running) return null;
 
-    // Un backfill cortado se retoma desde su cursor.
+    // Un backfill cortado (por tiempo o por un error) se retoma desde su último cursor guardado.
     let cursor: Cursor | null = null;
     if (kind === "BACKFILL") {
       const [previous] = await tx
@@ -61,7 +61,7 @@ async function acquire(accountId: string, platform: Platform, kind: SyncKind, de
         .where(and(eq(schema.syncRuns.socialAccountId, accountId), eq(schema.syncRuns.kind, "BACKFILL")))
         .orderBy(desc(schema.syncRuns.startedAt))
         .limit(1);
-      if (previous?.status === "PARTIAL" && previous.cursor) cursor = previous.cursor as Cursor;
+      if ((previous?.status === "PARTIAL" || previous?.status === "FAILED") && previous.cursor) cursor = previous.cursor as Cursor;
     }
 
     const [run] = await tx

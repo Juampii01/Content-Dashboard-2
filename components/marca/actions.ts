@@ -4,10 +4,12 @@ import { refresh } from "next/cache";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { isDenied, requireEditor } from "@/lib/auth";
-import { topOwnPieces } from "@/lib/ai/brand-context";
+import { brandContext, getBrand, topOwnPieces } from "@/lib/ai/brand-context";
 import { AiError, generateStructured } from "@/lib/ai/client";
 import { LANGUAGES } from "@/lib/ai/language";
-import { brandDraftContext, brandDraftSchema, brandDraftTask, type BrandDraft } from "@/lib/ai/prompts/marca";
+import { brandDraftContext, brandDraftSchema, brandDraftTask, VOICE_TEST_TASK, voiceTestSchema, type BrandDraft, type VoiceTest } from "@/lib/ai/prompts/marca";
+import { WRITING_RULES } from "@/lib/ai/prompts/guiones";
+import { allowAttempt } from "@/lib/rate-limit";
 import { getDb, schema } from "@/lib/db";
 
 const text = (max: number) => z.string().trim().max(max);
@@ -90,5 +92,31 @@ export async function draftBrandAction(input: z.input<typeof draftInput>): Promi
     }
     console.error("[marca]", error);
     return { ok: false, error: "No pudimos armar el perfil. Prueba de nuevo." };
+  }
+}
+
+export async function voiceTestAction(): Promise<{ ok: true; test: VoiceTest } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return { ok: false, error: user.error };
+  if (!(await allowAttempt(`prueba-voz:${user.id}`, 20, 3600))) return { ok: false, error: "Hiciste muchas pruebas seguidas. Espera un rato." };
+  try {
+    const brand = await getBrand();
+    const test = await generateStructured({
+      feature: "marca.prueba",
+      model: "main",
+      context: `${WRITING_RULES}\n\n${await brandContext(brand)}`,
+      task: VOICE_TEST_TASK,
+      schema: voiceTestSchema,
+      maxTokens: 1500,
+      userId: user.id,
+    });
+    return { ok: true, test };
+  } catch (error) {
+    if (error instanceof AiError) {
+      console.error("[ia]", error.detail);
+      return { ok: false, error: error.userMessage };
+    }
+    console.error("[marca] prueba", error);
+    return { ok: false, error: "No pudimos escribir la prueba. Prueba de nuevo." };
   }
 }

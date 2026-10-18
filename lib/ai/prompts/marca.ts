@@ -60,3 +60,16 @@ ${input.topPieces.length ? input.topPieces.map((t) => `- ${t}`).join("\n") : "(s
 
 Arma el perfil de marca completo.`;
 }
+
+/** "Prueba de voz": un guion corto de muestra para comprobar que el perfil suena a la persona. */
+export const voiceTestSchema = z.object({
+  topic: z.string().describe("El tema elegido, en pocas palabras."),
+  hook: z.string(),
+  body: z.array(z.string()).describe("3 o 4 bloques hablados, cada uno de 1 a 3 frases."),
+  cta: z.string(),
+});
+export type VoiceTest = z.infer<typeof voiceTestSchema>;
+
+export const VOICE_TEST_TASK = `Escribe un reel de 30 a 40 segundos de muestra para que la persona compruebe si suena a ella.
+Elige tú el tema: el dolor más fuerte de su audiencia, contado desde una de sus creencias. Usa su tono, su ritmo y sus frases propias con moderación.
+Solo el texto hablado: gancho, 3 o 4 bloques y un CTA de una de sus ofertas.`;

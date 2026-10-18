@@ -70,6 +70,17 @@ export function fakeResponse(feature: string, task = ""): unknown {
         }),
       };
     }
+    case "marca.prueba":
+      return {
+        topic: "La primera llamada",
+        hook: "Tu recepcionista está perdiendo pacientes antes de decir hola.",
+        body: [
+          "Mira, el 80 % de las clínicas contesta la primera llamada dando el precio. Y ahí se cae todo.",
+          "Porque el paciente todavía no sabe si confía en ti. Le das un número y lo compara con el de enfrente.",
+          "Lo que funciona es al revés: preguntas qué le pasa, desde cuándo, qué probó. Y recién ahí hablas de la solución.",
+        ],
+        cta: "Si quieres el guion exacto de esa llamada, comenta AGENDA y te lo mando.",
+      };
     case "inicio.resumen":
       return {
         headline: "Semana sólida: +873 seguidores, casi la mitad por un solo reel de historia.",

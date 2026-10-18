@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { VoiceTest } from "./voice-test";
 import { Notice } from "@/components/ui/feedback";
 import { toast } from "@/components/ui/toast";
 import { LANGUAGES } from "@/lib/ai/language";
@@ -227,6 +228,8 @@ export function BrandEditor({ initial, suggestions, aiReady, canEdit }: { initia
       <Section title="Notas para la IA" description="Cualquier cosa más que deba saber quien escribe tus guiones.">
         <Textarea aria-label="Notas para la IA" value={brand.extraContext} onChange={(e) => set("extraContext", e.target.value)} disabled={!canEdit} />
       </Section>
+
+      <VoiceTest dirty={dirty} canEdit={canEdit} aiReady={aiReady} />
 
       {canEdit && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-bg/90 px-4 py-3 backdrop-blur-xl lg:left-64">

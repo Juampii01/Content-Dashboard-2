@@ -28,3 +28,4 @@ __pycache__/
 .vercel
 npm-debug.log*
 pnpm-debug.log*
+.claude/worktrees/

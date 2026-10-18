@@ -8,7 +8,8 @@ import { brandContext, getBrand } from "@/lib/ai/brand-context";
 import { WEEKLY_RULES, weeklyReportSchema } from "@/lib/ai/prompts/inicio";
 import { totalsUnchecked } from "@/lib/dal/metrics";
 import { env } from "@/lib/env";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateRange } from "@/lib/format";
+import { sendEmail, weeklyReportEmail } from "@/lib/email";
 import { typeLabel } from "@/lib/metrics/labels";
 import { addDays, parseFilters, todayIn } from "@/lib/metrics/params";
 import { platformLabel, type Platform } from "@/lib/social/types";
@@ -106,7 +107,23 @@ export async function ensureWeeklyReport(): Promise<boolean> {
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
   if (weekday === "Mon" && hour < 9) return false;
   const weekStart = lastWeekStart(tz);
-  const [existing] = await getDb().select({ w: schema.weeklyReports.weekStart }).from(schema.weeklyReports).where(eq(schema.weeklyReports.weekStart, weekStart)).limit(1);
+  const db = getDb();
+  const [existing] = await db.select({ w: schema.weeklyReports.weekStart }).from(schema.weeklyReports).where(eq(schema.weeklyReports.weekStart, weekStart)).limit(1);
   if (existing) return false;
-  return (await generateWeeklyReport(weekStart)) != null;
+  const report = await generateWeeklyReport(weekStart);
+  if (!report) return false;
+
+  // Correo a dueños y editores activos (solo si el correo está configurado).
+  if (env().RESEND_API_KEY && env().EMAIL_FROM) {
+    const members = await db.execute<{ email: string }>(sql`
+      select u.email from team_members tm join users u on u.id = tm.user_id where tm.active and tm.role in ('OWNER', 'EDITOR')
+    `);
+    const weekLabel = formatDateRange(weekStart, addDays(weekStart, 6));
+    for (const m of members.rows) {
+      await sendEmail(weeklyReportEmail(m.email, { headline: report.headline, wins: report.wins, watch: report.watch, ideas: report.nextWeek.map((i) => i.hook), weekLabel })).catch((error: unknown) =>
+        console.error("[resumen] correo", error instanceof Error ? error.message : error),
+      );
+    }
+  }
+  return true;
 }

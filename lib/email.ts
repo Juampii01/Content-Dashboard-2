@@ -8,9 +8,9 @@ import { env } from "@/lib/env";
  * En desarrollo, si no hay RESEND_API_KEY, el enlace se muestra en la consola del servidor
  * para poder probar sin configurar correo. En producción la falta de configuración es un error.
  */
-type Email = { to: string; subject: string; heading: string; intro: string; actionLabel: string; actionUrl: string; footnote: string };
+type Email = { to: string; subject: string; heading: string; intro: string; actionLabel: string; actionUrl: string; footnote: string; bullets?: string[] };
 
-function render({ heading, intro, actionLabel, actionUrl, footnote }: Email): { html: string; text: string } {
+function render({ heading, intro, actionLabel, actionUrl, footnote, bullets }: Email): { html: string; text: string } {
   const appName = env().NEXT_PUBLIC_APP_NAME;
   const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const html = `<!doctype html>
@@ -22,12 +22,13 @@ function render({ heading, intro, actionLabel, actionUrl, footnote }: Email): { 
 <p style="margin:0 0 8px;font-family:'JetBrains Mono',Menlo,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8cc6ff">${esc(appName)}</p>
 <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:#ffffff">${esc(heading)}</h1>
 <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#a7b9d4">${esc(intro)}</p>
+${bullets?.length ? `<ul style="margin:0 0 24px;padding-left:18px;font-size:14px;line-height:1.6;color:#dce7f7">${bullets.map((b) => `<li style="margin:0 0 6px">${esc(b)}</li>`).join("")}</ul>` : ""}
 <a href="${esc(actionUrl)}" style="display:inline-block;background:#0070f8;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 20px;border-radius:12px">${esc(actionLabel)}</a>
 <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#6f84a8">${esc(footnote)}</p>
 </td></tr></table>
 </td></tr></table>
 </body></html>`;
-  const text = `${heading}\n\n${intro}\n\n${actionLabel}: ${actionUrl}\n\n${footnote}`;
+  const text = `${heading}\n\n${intro}\n\n${bullets?.length ? `${bullets.map((b) => `- ${b}`).join("\n")}\n\n` : ""}${actionLabel}: ${actionUrl}\n\n${footnote}`;
   return { html, text };
 }
 
@@ -67,5 +68,18 @@ export function passwordResetEmail(to: string, url: string): Email {
     actionLabel: "Elegir una contraseña nueva",
     actionUrl: url,
     footnote: "El enlace vence en 1 hora. Si no lo pediste, ignora este correo: tu contraseña no cambia.",
+  };
+}
+
+export function weeklyReportEmail(to: string, input: { headline: string; wins: string[]; watch: string[]; ideas: string[]; weekLabel: string }): Email {
+  return {
+    to,
+    subject: `Tu semana: ${input.headline}`.slice(0, 140),
+    heading: `Tu semana · ${input.weekLabel}`,
+    intro: input.headline,
+    bullets: [...input.wins.map((w) => `✓ ${w}`), ...input.watch.map((w) => `! ${w}`), ...input.ideas.map((i) => `Idea: ${i}`)],
+    actionLabel: "Ver el resumen completo",
+    actionUrl: `${env().NEXT_PUBLIC_APP_URL}/inicio`,
+    footnote: "Te llega cada lunes con los números de la semana anterior.",
   };
 }

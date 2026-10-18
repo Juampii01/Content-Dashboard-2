@@ -12,7 +12,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "crear-dueno": "tsx --conditions=react-server --env-file=.env.local scripts/crear-dueno.ts",
-    "test:sync": "node --conditions=react-server --import tsx --test tests/sync.test.mts"
+    "test:sync": "node --conditions=react-server --import tsx --test tests/sync.test.mts",
+    "preparar": "tsx --conditions=react-server scripts/preparar.ts",
+    "vercel-build": "pnpm preparar && next build"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.2",

@@ -21,6 +21,8 @@ export async function inviteMember(input: {
   name?: string | null;
   role: Role;
   invitedBy?: { id: string; name: string } | null;
+  /** false = no manda el correo (el enlace se entrega de otra forma). */
+  notify?: boolean;
 }): Promise<{ userId: string; url: string }> {
   const email = input.email.trim().toLowerCase();
   const ctx = await getAuth().$context;
@@ -46,7 +48,7 @@ export async function inviteMember(input: {
   });
 
   const url = `${env().NEXT_PUBLIC_APP_URL}/definir-contrasena?token=${encodeURIComponent(token)}&invitacion=1`;
-  await sendEmail(invitationEmail(email, input.invitedBy?.name ?? null, url));
+  if (input.notify !== false) await sendEmail(invitationEmail(email, input.invitedBy?.name ?? null, url));
   return { userId: user.id, url };
 }
 

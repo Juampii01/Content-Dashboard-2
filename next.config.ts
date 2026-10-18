@@ -7,12 +7,20 @@ const isDev = process.env.NODE_ENV !== "production";
  * La CSP permite imágenes y video de HTTPS porque las miniaturas y previsualizaciones vienen
  * de las redes y del almacenamiento de archivos. `frame-ancestors 'none'` impide incrustar la app.
  */
+/**
+ * HeyGen sirve los previews de avatares y voces desde sus CDN por https (files.heygen.ai, files.heygen.com,
+ * resource.heygen.ai): ya entran en `https:`. Los videos generados no se cargan desde HeyGen sino desde
+ * /api/clon/[id]/archivo (mismo origen). Solo en desarrollo se suma el servidor simulado de HeyGen
+ * (HEYGEN_API_BASE=http://localhost:…), que sirve sus archivos por http.
+ */
+const heygenMock = isDev && process.env.HEYGEN_API_BASE?.startsWith("http://") ? ` ${new URL(process.env.HEYGEN_API_BASE).origin}` : "";
+
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "media-src 'self' blob: https:",
+  `img-src 'self' data: blob: https:${heygenMock}`,
+  `media-src 'self' blob: https:${heygenMock}`,
   "font-src 'self'",
   "connect-src 'self' https:",
   "frame-ancestors 'none'",

@@ -65,8 +65,8 @@ No se copia código a ciegas. Se toma la pieza, se revisa y se adapta a esta arq
 - **Base de datos:** **Neon** (Postgres), instalada desde el Marketplace de Vercel. **Drizzle** como ORM con `node-postgres` (`pg` + `attachDatabasePool`); migraciones en SQL dentro de `drizzle/`. Una base por cliente.
 - **Auth:** **Better Auth** con correo y contraseña, sin registro abierto. Invitaciones y recuperación de contraseña por correo con **Resend**.
 - **Trabajos pesados:** un **worker** aparte (contenedor Docker con Python, ffmpeg con libass, Parakeet precargado, Pillow) para video y carruseles. Nunca se procesan videos ni se generan imágenes dentro de una función serverless.
-- **Cola de trabajos:** pg-boss sobre el mismo Postgres (sin Redis extra), con la conexión sin pooler. El worker solo consulta la cola mientras está encendido, así Neon puede suspenderse. Cada trabajo tiene estado, progreso, reintentos y errores legibles.
-- **Archivos:** **Vercel Blob** privado, detrás de la interfaz `lib/storage` (se puede cambiar a R2 sin tocar los módulos). Subidas directas desde el navegador, nunca a través de la app.
+- **Cola de trabajos:** la tabla `jobs` del mismo Postgres, tomada por el worker con `FOR UPDATE SKIP LOCKED` (sin Redis ni pg-boss), con la conexión sin pooler. El worker solo consulta la cola mientras está encendido, así Neon puede suspenderse. Cada trabajo tiene estado, progreso, reintentos y errores legibles.
+- **Archivos:** **Vercel Blob** (un store público para miniaturas y uno **privado** para videos, `VIDEO_BLOB_READ_WRITE_TOKEN`), detrás de la interfaz `lib/storage` (se puede cambiar a R2 sin tocar los módulos). Subidas directas desde el navegador, nunca a través de la app.
 - **Deploy:** app en **Vercel Pro** (Hobby no admite uso comercial y solo permite un cron diario), worker en **Fly Machines**. Cada cliente es un deploy independiente creado a partir de este repo; las cuentas son del cliente y nosotros las habilitamos.
 - **Cron:** Vercel Cron, protegido con `CRON_SECRET`.
 
@@ -149,12 +149,14 @@ placeholder   #6f84a8
 
 1. **Bases:** repo, Next.js, Tailwind con los tokens, sistema de diseño en `components/ui`, layout con navegación, auth (Better Auth + invitaciones + equipo en Ajustes), Drizzle + Neon, validación de entorno, cifrado, cabeceras de seguridad. ✅ Lista.
 2. **Conexiones y Métricas:** OAuth de las tres redes, sync, modelo común, cron, pantalla de métricas con filtros. ✅ Código listo y probado con redes simuladas y datos demo; falta probar con las apps reales de Meta, Google y TikTok.
-3. **Mi marca** y **Guiones.**
-4. **Calendario.**
-5. **Worker y cola** + **Editor de video.**
-6. **Carruseles** (después de la prueba de calidad del proveedor de imágenes).
-7. **Videos con clon** (HeyGen v3).
-8. **Guía de instalación por cliente** en `docs/`: crear el proyecto en Vercel, Neon, Resend, variables, agregar redirect URIs, conectar redes.
+3. **Mi marca** y **Guiones.** ✅ Con prueba de voz, ganchos con puntaje, acciones de IA, versiones y modo grabación.
+4. **Calendario.** ✅ Mes, semana y agenda, arrastre, plan semanal con IA y vínculo automático con métricas (`lib/calendar/`).
+5. **Worker y cola** + **Editor de video.** ✅ Código y pruebas locales completas (`worker/`, `lib/video/`, `lib/jobs/`). La cola es la tabla `jobs` con `FOR UPDATE SKIP LOCKED` (sin pg-boss). Falta desplegar el worker en Fly (`docs/worker.md`) y probar con Blob, Deepgram/Groq reales.
+6. **Carruseles.** ✅ MVP sin imágenes de IA: 5 plantillas, texto ajustado solo y exportación a ZIP en el navegador (`modern-screenshot` + `fflate`). Las escenas con IA quedan para v1.1.
+7. **Videos con clon** (HeyGen v3). ✅ Probado contra un simulador (`tests/mocks/heygen-mock.mjs`); falta un render real para validar tarifas.
+8. **Guía de instalación por cliente.** ✅ `docs/instalacion.md`.
+
+**Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.
 
@@ -169,7 +171,7 @@ Cada etapa se cierra con: build sin errores, tipos sin errores, revisión visual
 - **Contraseñas:** las invitaciones (7 días) y la recuperación (1 hora) usan el mismo token de Better Auth y terminan en `/definir-contrasena`. Mínimo 10 caracteres. Al cambiarla se cierran todas las sesiones.
 - No hay RLS: no existe una API pública de la base. La única puerta es la app.
 - `getDb()` crea la conexión en el primer uso; el build no necesita base de datos.
-- Scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm crear-dueno`, `pnpm test:sync` (con `TEST_DATABASE_URL`), `pnpm demo cargar|borrar` (datos de demostración para ventas; el cron no los toca).
+- Scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm crear-dueno`, `pnpm test:sync` y `pnpm test:calendar` (con `TEST_DATABASE_URL`), `pnpm test:video`, `pnpm demo cargar|borrar` (datos de demostración para ventas; el cron no los toca).
 - **Deploy de producción:** `vercel-build` corre `scripts/preparar.ts` (migraciones + dueño con `OWNER_EMAIL`) antes de `next build`. En preview no toca la base.
 - **Formato:** todo número y fecha pasa por `lib/format.ts` (es-419: 12,345 · 12.4 mil · 12 oct 2026). Los días se cuentan en `APP_TIMEZONE`. `crear-dueno` corre con `--conditions=react-server` para poder importar módulos `server-only`.
 

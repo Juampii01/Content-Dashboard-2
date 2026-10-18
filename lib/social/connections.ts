@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { missingScopes, type Connection } from "./providers";
 import { encryptTokens } from "./tokens";
@@ -63,4 +63,23 @@ export async function disconnect(platform: Platform): Promise<void> {
     .update(schema.socialAccounts)
     .set({ current: false, status: "DISCONNECTED", statusMessage: null, accessTokenEnc: "revocado", refreshTokenEnc: null })
     .where(and(eq(schema.socialAccounts.platform, platform), eq(schema.socialAccounts.current, true)));
+}
+
+/**
+ * Borra todo lo medido de una red (todas sus cuentas, actuales y anteriores): piezas, snapshots,
+ * curvas de retención, totales diarios y registros de sincronización. Es irreversible: solo lo pide el dueño.
+ * Los guiones y el calendario no se borran; solo pierden el vínculo con la pieza.
+ */
+export async function purgePlatformData(platform: Platform): Promise<number> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const accounts = await tx.select({ id: schema.socialAccounts.id }).from(schema.socialAccounts).where(eq(schema.socialAccounts.platform, platform));
+    const ids = accounts.map((a) => a.id);
+    if (ids.length === 0) return 0;
+    // metric_snapshots y retention_curves se borran en cascada con content_items.
+    const removed = await tx.delete(schema.contentItems).where(inArray(schema.contentItems.socialAccountId, ids)).returning({ id: schema.contentItems.id });
+    // account_snapshots y sync_runs se borran en cascada con social_accounts.
+    await tx.delete(schema.socialAccounts).where(inArray(schema.socialAccounts.id, ids));
+    return removed.length;
+  });
 }

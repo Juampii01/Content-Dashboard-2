@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Play } from "lucide-react";
 
 /** Marco común de las pantallas de acceso: logo, título, explicación y tarjeta con el formulario. */
@@ -17,6 +18,17 @@ export function AuthShell({ title, description, children, footer }: { title: str
         </div>
         <div className="card p-6 sm:p-7">{children}</div>
         {footer && <div className="mt-6 text-center text-xs text-muted">{footer}</div>}
+        <nav aria-label="Información legal" className="mt-8 flex justify-center gap-5 text-xs text-placeholder">
+          <Link href="/privacidad" className="hover:text-muted">
+            Privacidad
+          </Link>
+          <Link href="/terminos" className="hover:text-muted">
+            Términos
+          </Link>
+          <Link href="/eliminar-datos" className="hover:text-muted">
+            Eliminar mis datos
+          </Link>
+        </nav>
       </div>
     </main>
   );

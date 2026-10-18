@@ -50,6 +50,8 @@ export function ConnectionCard({
 }) {
   const [pending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [purge, setPurge] = useState(false);
+  const [purgeText, setPurgeText] = useState("");
   const connectHref = `/api/social/${platformSlug[platform]}/connect`;
   const needsReconnect = connection && ["EXPIRED", "REVOKED", "MISSING_SCOPES", "ERROR"].includes(connection.status);
 
@@ -62,8 +64,10 @@ export function ConnectionCard({
 
   const confirmDisconnect = () =>
     startTransition(async () => {
-      const res = await disconnectAction(platform);
+      const res = await disconnectAction(platform, purge);
       setConfirmOpen(false);
+      setPurge(false);
+      setPurgeText("");
       if (res.error) toast.error(res.error);
       else toast.success(res.message ?? "Red desconectada.");
     });
@@ -142,12 +146,28 @@ export function ConnectionCard({
             <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={confirmDisconnect} disabled={pending}>
-              {pending ? "Desconectando…" : "Desconectar"}
+            <Button variant={purge ? "danger" : "primary"} onClick={confirmDisconnect} disabled={pending || (purge && purgeText.trim().toUpperCase() !== "BORRAR")}>
+              {pending ? "Desconectando…" : purge ? "Desconectar y borrar" : "Desconectar"}
             </Button>
           </>
         }
-      />
+      >
+        <label className="flex items-start gap-3 rounded-xl border border-line p-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#ff8f8f]" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
+          <span>
+            <span className="font-medium text-white">Borrar también todo lo medido de {platformLabel[platform]}</span>
+            <span className="mt-0.5 block text-muted">Piezas, métricas e histórico. No se puede deshacer. Tus guiones y tu calendario no se borran.</span>
+          </span>
+        </label>
+        {purge && (
+          <div className="mt-3">
+            <label htmlFor={`purge-${platform}`} className="mb-1.5 block text-xs text-muted">
+              Escribe BORRAR para confirmar
+            </label>
+            <input id={`purge-${platform}`} className="field" value={purgeText} onChange={(e) => setPurgeText(e.target.value)} autoComplete="off" />
+          </div>
+        )}
+      </Dialog>
     </li>
   );
 }

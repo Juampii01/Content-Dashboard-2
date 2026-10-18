@@ -6,7 +6,16 @@ import { NextResponse, type NextRequest } from "next/server";
  * No consulta la base (por eso es rápido); la autorización real se comprueba cerca de los datos
  * (`lib/auth`) en cada página, acción y endpoint. Falla cerrado: sin cookie, no pasa.
  */
-const PUBLIC_PATHS = ["/login", "/recuperar", "/definir-contrasena", "/api/cron", "/api/webhooks"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/recuperar",
+  "/definir-contrasena",
+  "/privacidad",
+  "/terminos",
+  "/eliminar-datos",
+  "/api/cron",
+  "/api/webhooks",
+];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

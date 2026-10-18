@@ -60,7 +60,12 @@ Variables: `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` (Secret).
 3. Se vuelve a Ajustes con "quedó conectado". El histórico se importa solo en unos minutos y Métricas se llena.
 4. Si algo falla, la pantalla dice el motivo. El detalle técnico queda en Vercel → Logs (buscar `[oauth]` o `[sync]`).
 
-## Pendiente para App Review
+## Páginas públicas para App Review
 
-- Páginas públicas `/privacidad` y `/terminos`.
-- URL de baja de datos (Meta: *Data deletion request*).
+Ya existen y no piden sesión:
+
+- Política de privacidad: `https://<dominio>/privacidad`
+- Términos: `https://<dominio>/terminos`
+- Eliminación de datos (Meta → *Data deletion instructions URL*): `https://<dominio>/eliminar-datos`
+
+Antes de enviar a revisión, configura en Vercel `LEGAL_COMPANY_NAME` (por defecto "KAVAR LLC") y **`LEGAL_CONTACT_EMAIL`** (sin correo, las páginas dicen "el contacto indicado en tu contrato", y Meta y Google piden un correo). El texto es un borrador razonable, no asesoría legal: conviene que lo revise un abogado.

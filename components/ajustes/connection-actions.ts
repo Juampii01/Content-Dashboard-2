@@ -5,7 +5,7 @@ import { refresh } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { isDenied, requireEditor, requireOwner } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
-import { disconnect } from "@/lib/social/connections";
+import { disconnect, purgePlatformData } from "@/lib/social/connections";
 import { syncAccount } from "@/lib/social/sync/runner";
 import { PLATFORMS, type Platform } from "@/lib/social/types";
 
@@ -30,11 +30,17 @@ export async function syncNowAction(platform: Platform): Promise<ConnectionActio
   return { ok: true, message: "Sincronizando. Los números se actualizan en uno o dos minutos." };
 }
 
-export async function disconnectAction(platform: Platform): Promise<ConnectionActionState> {
+export async function disconnectAction(platform: Platform, purge = false): Promise<ConnectionActionState> {
   const owner = await requireOwner();
   if (isDenied(owner)) return { error: owner.error };
   if (!PLATFORMS.includes(platform)) return { error: "Red no válida." };
   await disconnect(platform);
+  if (purge) {
+    const removed = await purgePlatformData(platform);
+    console.info(`[ajustes] datos de ${platform} borrados por ${owner.email}: ${removed} piezas`);
+    refresh();
+    return { ok: true, message: "Listo. La red quedó desconectada y borramos todo lo que se había medido." };
+  }
   refresh();
   return { ok: true, message: "Listo. La red quedó desconectada y tu histórico se conserva." };
 }

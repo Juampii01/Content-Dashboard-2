@@ -43,6 +43,13 @@
       "when": 1792309018436,
       "tag": "0005_metas-y-resumen",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792310318718,
+      "tag": "0006_carruseles-demo",
+      "breakpoints": true
     }
   ]
 }

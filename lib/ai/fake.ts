@@ -116,6 +116,36 @@ export function fakeResponse(feature: string, task = ""): unknown {
           { title: "La llamada real, comentada", hook: "Escucha cómo una recepcionista perdió a este paciente en 20 segundos.", angle: "Caso real con antes y después, para comentarios." },
         ],
       };
+    case "carruseles.ficha":
+      return {
+        title: "La primera llamada que llena tu agenda",
+        slides: [
+          { type: "cover", kicker: "Clínicas dentales", headline: "Así pierdes pacientes en la primera llamada", highlight: "primera llamada", body: "", cta: "" },
+          { type: "item", kicker: "Error #1", headline: "Dar el precio antes de escuchar", highlight: "precio", body: "Si lo primero que oye es un número, el paciente compara precios y cuelga.", cta: "" },
+          { type: "item", kicker: "Error #2", headline: "Responder sin preguntar qué le pasa", highlight: "preguntar", body: "Pregunta qué le duele, desde cuándo y qué probó. Así sabe que lo escuchas.", cta: "" },
+          { type: "step", kicker: "Lo que sí funciona", headline: "Repite lo que dijo con sus palabras", highlight: "sus palabras", body: "“Entonces te duele al masticar desde hace una semana.” Recién ahí hablas de la solución.", cta: "" },
+          { type: "data", kicker: "Caso real", headline: "De 3 de cada 10 a 6 de cada 10 citas", highlight: "6 de cada 10", body: "Una clínica cambió solo el orden de la llamada y duplicó las citas agendadas en un mes.", cta: "" },
+          { type: "quote", kicker: "Recuerda", headline: "La primera llamada se gana escuchando, no explicando", highlight: "escuchando", body: "", cta: "" },
+          { type: "cta", kicker: "Guion de llamadas", headline: "¿Quieres el guion exacto para tu recepción?", highlight: "guion exacto", body: "Te lo mando gratis por mensaje directo.", cta: "Comenta AGENDA" },
+        ],
+        caption: "El error que comete casi toda clínica en la primera llamada 👇\n\nNo es el precio. Es el orden: primero escuchas, después explicas.\n\nComenta AGENDA y te mando el guion que usa mi equipo.",
+        hashtags: ["#clinicadental", "#dentistas", "#marketingdental", "#recepcion", "#pacientesnuevos"],
+      };
+    case "carruseles.slide":
+      return { slide: { type: "item", kicker: "Error #1", headline: "Hablar del precio antes de escuchar (reescrito)", highlight: "precio", body: "Primero pregunta qué le pasa. El precio llega cuando ya confía en ti.", cta: "" } };
+    case "carruseles.portada":
+      return {
+        covers: [
+          { kicker: "Clínicas dentales", headline: "Tu recepción está espantando pacientes sin darse cuenta", highlight: "espantando pacientes", body: "" },
+          { kicker: "Antes de contestar", headline: "Lo que tu recepcionista dice en los primeros segundos", highlight: "primeros segundos", body: "" },
+          { kicker: "Pregunta incómoda", headline: "¿Por qué llaman, preguntan el precio y no vuelven?", highlight: "no vuelven", body: "" },
+        ],
+      };
+    case "carruseles.caption":
+      return {
+        caption: "Tu agenda no se llena con más anuncios. Se llena en el teléfono.\n\nGuarda este carrusel y compártelo con tu recepción.\n\nComenta AGENDA y te mando el guion completo.",
+        hashtags: ["#odontologia", "#clinicadental", "#recepcionista", "#agendallena", "#dentistaslatinos"],
+      };
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

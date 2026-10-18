@@ -11,8 +11,16 @@ import { cn } from "@/lib/utils";
  * Navegación principal. Fija a la izquierda en pantallas grandes;
  * en tablet y teléfono se abre como panel desde un botón en la barra superior.
  */
-export function Sidebar({ appName, footer }: { appName: string; footer: ReactNode }) {
+export function Sidebar(props: { appName: string; footer: ReactNode }) {
   const pathname = usePathname();
+  return <SidebarView {...props} pathname={pathname} />;
+}
+
+/**
+ * La barra sin leer la URL. Se usa como respaldo del <Suspense> en rutas dinámicas (por ejemplo,
+ * /metricas/[id]), donde la ruta actual solo se conoce al pedir la página.
+ */
+export function SidebarView({ appName, footer, pathname }: { appName: string; footer: ReactNode; pathname: string }) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   const openButtonRef = useRef<HTMLButtonElement>(null);

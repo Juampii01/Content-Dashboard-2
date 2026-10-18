@@ -14,7 +14,8 @@
     "crear-dueno": "tsx --conditions=react-server --env-file=.env.local scripts/crear-dueno.ts",
     "test:sync": "node --conditions=react-server --import tsx --test tests/sync.test.mts",
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",
-    "vercel-build": "pnpm preparar && next build"
+    "vercel-build": "pnpm preparar && next build",
+    "demo": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/demo.ts"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.2",

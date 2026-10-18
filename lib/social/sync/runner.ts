@@ -197,6 +197,8 @@ export async function syncAccount(accountId: string, kind: SyncKind, budgetMs = 
   const db = getDb();
   const [account] = await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.id, accountId)).limit(1);
   if (!account || !account.current || account.status === "DISCONNECTED") return { status: "SKIPPED", itemsUpserted: 0, apiCalls: 0 };
+  // Las cuentas de demostración (pnpm demo cargar) no tienen tokens reales: nunca se sincronizan.
+  if ((account.meta as { demo?: boolean } | null)?.demo) return { status: "SKIPPED", itemsUpserted: 0, apiCalls: 0, message: "Es una cuenta de demostración." };
 
   const ctx = new SyncContext(account.platform, Date.now() + budgetMs);
   const lock = await acquire(accountId, account.platform, kind, ctx.deadline);

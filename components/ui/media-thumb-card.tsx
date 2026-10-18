@@ -56,7 +56,7 @@ export function MediaThumbCard({
   const interactive = Boolean(href || onClick);
 
   const media = (
-    <span className={cn("relative block overflow-hidden rounded-xl bg-[#0a1a45]", aspectClass[aspect])}>
+    <span className={cn("@container relative block overflow-hidden rounded-xl bg-[#0a1a45]", aspectClass[aspect])}>
       {showImage ? (
         // Miniaturas de dominios de terceros que cambian y vencen: next/image necesitaría declarar cada dominio.
         // eslint-disable-next-line @next/next/no-img-element
@@ -85,7 +85,8 @@ export function MediaThumbCard({
       {platform && (
         <span className="absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur">
           <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", platformMeta[platform].dot)} />
-          {platformMeta[platform].label}
+          {/* Con insignia a la derecha, en tarjetas angostas solo queda el punto para que no se pisen. */}
+          <span className={cn(badge && "sr-only @[11rem]:not-sr-only")}>{platformMeta[platform].label}</span>
         </span>
       )}
       {badge && <span className="absolute top-2 right-2">{badge}</span>}

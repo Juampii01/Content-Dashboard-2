@@ -1,6 +1,8 @@
 import { Suspense } from "react";
-import { Sidebar } from "@/components/shell/sidebar";
+import { Sidebar, SidebarView } from "@/components/shell/sidebar";
 import { UserMenu, UserMenuSkeleton } from "@/components/shell/user-menu";
+import { ConnectionBanner } from "@/components/shell/connection-banner";
+import { Toaster } from "@/components/ui/toast";
 
 /**
  * Estructura de la app privada: navegación a la izquierda y contenido a la derecha.
@@ -11,17 +13,26 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
-      <Sidebar
-        appName={appName}
-        footer={
-          <Suspense fallback={<UserMenuSkeleton />}>
-            <UserMenu />
-          </Suspense>
-        }
-      />
+      {/* En rutas dinámicas la ruta actual llega al pedir la página: mientras tanto, la barra sin marcar. */}
+      <Suspense fallback={<SidebarView pathname="" appName={appName} footer={<UserMenuSkeleton />} />}>
+        <Sidebar
+          appName={appName}
+          footer={
+            <Suspense fallback={<UserMenuSkeleton />}>
+              <UserMenu />
+            </Suspense>
+          }
+        />
+      </Suspense>
       <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
-        <div className="mx-auto max-w-6xl animate-step-in">{children}</div>
+        <div className="mx-auto max-w-6xl animate-step-in">
+          <Suspense fallback={null}>
+            <ConnectionBanner />
+          </Suspense>
+          {children}
+        </div>
       </main>
+      <Toaster />
     </div>
   );
 }

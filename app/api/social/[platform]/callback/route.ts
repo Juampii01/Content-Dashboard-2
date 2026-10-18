@@ -16,9 +16,10 @@ export const maxDuration = 300;
  */
 export async function GET(request: NextRequest, { params }: RouteContext<"/api/social/[platform]/callback">) {
   const settings = new URL("/ajustes", request.nextUrl.origin);
-  const fail = (code: string, detail?: string) => {
+  // Solo códigos en la URL (nunca texto libre): la pantalla los traduce a mensajes propios.
+  const fail = (code: string, reason?: string) => {
     settings.searchParams.set("error", code);
-    if (detail) settings.searchParams.set("detalle", detail.slice(0, 200));
+    if (reason) settings.searchParams.set("motivo", reason);
     return NextResponse.redirect(settings);
   };
 
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/api/s
   } catch (error) {
     if (error instanceof SocialApiError) {
       console.error(`[oauth] ${platform}:`, error.detail);
-      return fail("conexion", error.userMessage);
+      return fail("conexion", error.kind);
     }
     console.error(`[oauth] ${platform}:`, error instanceof Error ? error.message : error);
     return fail("conexion");

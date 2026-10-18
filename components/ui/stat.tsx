@@ -62,6 +62,7 @@ export function KpiCard({
   trendColor,
   icon,
   loading = false,
+  compare = true,
   className,
 }: {
   label: string;
@@ -80,6 +81,8 @@ export function KpiCard({
   trendColor?: string;
   icon?: ReactNode;
   loading?: boolean;
+  /** false = sin línea de comparación (ej. el detalle de una pieza, que no tiene periodo anterior). */
+  compare?: boolean;
   className?: string;
 }) {
   const change =
@@ -104,11 +107,11 @@ export function KpiCard({
         </>
       ) : (
         <>
-          <p className="mt-2 text-[2rem] leading-tight font-semibold tracking-tight text-white" title={full}>
+          <p className="mt-2 text-[1.75rem] leading-tight font-semibold tracking-tight whitespace-nowrap text-white xl:text-[2rem]" title={full}>
             {display}
             {full && full !== display && <span className="sr-only"> ({full})</span>}
           </p>
-          <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          {compare && <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
             {change != null ? (
               <>
                 <DeltaBadge value={change} invert={invertDelta} comparisonLabel={comparisonLabel} />
@@ -119,7 +122,7 @@ export function KpiCard({
             ) : (
               <span className="text-placeholder">Sin datos del periodo anterior</span>
             )}
-          </div>
+          </div>}
         </>
       )}
       {trend && trend.length > 1 && (

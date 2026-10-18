@@ -148,7 +148,7 @@ placeholder   #6f84a8
 ## 7. Orden de construcción
 
 1. **Bases:** repo, Next.js, Tailwind con los tokens, sistema de diseño en `components/ui`, layout con navegación, auth (Better Auth + invitaciones + equipo en Ajustes), Drizzle + Neon, validación de entorno, cifrado, cabeceras de seguridad. ✅ Lista.
-2. **Conexiones y Métricas:** OAuth de las tres redes, sync, modelo común, cron, pantalla de métricas con filtros.
+2. **Conexiones y Métricas:** OAuth de las tres redes, sync, modelo común, cron, pantalla de métricas con filtros. ✅ Código listo y probado con redes simuladas y datos demo; falta probar con las apps reales de Meta, Google y TikTok.
 3. **Mi marca** y **Guiones.**
 4. **Calendario.**
 5. **Worker y cola** + **Editor de video.**
@@ -169,7 +169,9 @@ Cada etapa se cierra con: build sin errores, tipos sin errores, revisión visual
 - **Contraseñas:** las invitaciones (7 días) y la recuperación (1 hora) usan el mismo token de Better Auth y terminan en `/definir-contrasena`. Mínimo 10 caracteres. Al cambiarla se cierran todas las sesiones.
 - No hay RLS: no existe una API pública de la base. La única puerta es la app.
 - `getDb()` crea la conexión en el primer uso; el build no necesita base de datos.
-- Scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm crear-dueno`. `crear-dueno` corre con `--conditions=react-server` para poder importar módulos `server-only`.
+- Scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm crear-dueno`, `pnpm test:sync` (con `TEST_DATABASE_URL`), `pnpm demo cargar|borrar` (datos de demostración para ventas; el cron no los toca).
+- **Deploy de producción:** `vercel-build` corre `scripts/preparar.ts` (migraciones + dueño con `OWNER_EMAIL`) antes de `next build`. En preview no toca la base.
+- **Formato:** todo número y fecha pasa por `lib/format.ts` (es-419: 12,345 · 12.4 mil · 12 oct 2026). Los días se cuentan en `APP_TIMEZONE`. `crear-dueno` corre con `--conditions=react-server` para poder importar módulos `server-only`.
 
 ## 9. Reglas de trabajo
 

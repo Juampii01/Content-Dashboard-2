@@ -16,6 +16,18 @@ const schema = z.object({
   // Base
   NEXT_PUBLIC_APP_URL: z.url(),
   NEXT_PUBLIC_APP_NAME: z.string().trim().min(1).default("Content Studio"),
+  // Zona horaria de la marca: define qué es "hoy", los días de los gráficos y el mapa de horarios.
+  APP_TIMEZONE: z
+    .string()
+    .default("America/Mexico_City")
+    .refine((tz) => {
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Zona horaria no válida (usa un nombre IANA, por ejemplo America/Bogota)."),
 
   // Base de datos (Neon desde el Marketplace de Vercel: la integración crea estas dos variables)
   DATABASE_URL: z.string().startsWith("postgres"),

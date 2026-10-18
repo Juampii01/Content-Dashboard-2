@@ -61,7 +61,7 @@ export async function generateStructured<S extends z.ZodType>(input: {
   if (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production") {
     const { fakeResponse } = await import("./fake");
     await new Promise((r) => setTimeout(r, 800));
-    return input.schema.parse(fakeResponse(input.feature)) as z.infer<S>;
+    return input.schema.parse(fakeResponse(input.feature, input.task)) as z.infer<S>;
   }
   let message;
   try {

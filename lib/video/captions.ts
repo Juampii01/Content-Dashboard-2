@@ -1,0 +1,68 @@
+/**
+ * Bloques de subtítulos a partir de las palabras del video final. Lo usan la vista previa (HTML)
+ * y el worker (ASS y SRT), así el texto y los tiempos son los mismos en los dos lados.
+ */
+import type { CaptionBlock, CaptionPresetKey, TimedWord } from "./types";
+
+export const CAPTION_PRESETS: Record<CaptionPresetKey, { label: string; description: string }> = {
+  clasico: { label: "Clásico", description: "Tres palabras por bloque; la que estás diciendo, en tu color de acento." },
+  pop: { label: "Pop", description: "Una o dos palabras grandes, en mayúsculas, que entran con un pequeño salto." },
+  ninguno: { label: "Sin subtítulos", description: "El video sale limpio. Igual recibes el archivo SRT." },
+};
+
+const MAX_GAP = 0.45;
+/** Si el siguiente bloque empieza casi enseguida, el actual se estira hasta él (sin parpadeo). */
+const BRIDGE = 0.35;
+
+export function captionBlocks(words: TimedWord[], preset: CaptionPresetKey): CaptionBlock[] {
+  const maxWords = preset === "pop" ? 2 : 3;
+  const maxChars = preset === "pop" ? 14 : 24;
+  const blocks: CaptionBlock[] = [];
+  let current: TimedWord[] = [];
+  const flush = () => {
+    if (current.length) blocks.push({ start: current[0]!.start, end: current[current.length - 1]!.end, words: current });
+    current = [];
+  };
+  for (const [i, w] of words.entries()) {
+    const prev = words[i - 1];
+    const chars = current.reduce((n, x) => n + x.text.length + 1, 0) + w.text.length;
+    const breakBefore =
+      current.length >= maxWords ||
+      chars > maxChars ||
+      (prev && prev.stop) ||
+      (prev && w.start - prev.end > MAX_GAP) ||
+      // Pop: una palabra larga va sola.
+      (preset === "pop" && current.length === 1 && (current[0]!.text.length > 7 || w.text.length > 7));
+    if (breakBefore) flush();
+    current.push(w);
+  }
+  flush();
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const gap = blocks[i + 1]!.start - blocks[i]!.end;
+    if (gap > 0 && gap < BRIDGE) blocks[i]!.end = blocks[i + 1]!.start;
+  }
+  return blocks;
+}
+
+/** Texto de un bloque tal como se ve en pantalla. */
+export function blockText(block: CaptionBlock, preset: CaptionPresetKey): string {
+  const text = block.words.map((w) => w.text).join(" ");
+  return preset === "pop" ? text.toLocaleUpperCase("es") : text;
+}
+
+function srtTime(sec: number): string {
+  const ms = Math.max(0, Math.round(sec * 1000));
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  const r = ms % 1000;
+  const p = (n: number, l = 2) => String(n).padStart(l, "0");
+  return `${p(h)}:${p(m)}:${p(s)},${p(r, 3)}`;
+}
+
+/** SRT del video final (siempre con bloques de tipo Clásico, que se leen mejor en un reproductor). */
+export function toSrt(words: TimedWord[]): string {
+  return captionBlocks(words, "clasico")
+    .map((b, i) => `${i + 1}\n${srtTime(b.start)} --> ${srtTime(b.end)}\n${b.words.map((w) => w.text).join(" ")}\n`)
+    .join("\n");
+}

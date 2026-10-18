@@ -1,0 +1,7 @@
+.env*
+!.env.example
+node_modules/
+.next/
+supabase/.temp/
+.claude/settings.local.json
+__pycache__/

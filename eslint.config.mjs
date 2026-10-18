@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Carpetas de trabajo temporales de agentes
+    ".claude/**",
   ]),
 ]);
 

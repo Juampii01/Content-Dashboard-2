@@ -28,6 +28,26 @@
   --color-youtube: #ff3b3b;
   --color-tiktok: #25f4ee;
 
+  /*
+   * Colores para gráficos (validados con el validador de la skill de dataviz sobre la superficie #050d2b,
+   * banda de luminosidad oscura, separación para daltonismo y contraste ≥ 3:1).
+   * Los colores de marca de Instagram y YouTube son casi iguales entre sí (ΔE 9,3), por eso en gráficos
+   * cada red usa un tono propio: Instagram se corre a magenta, YouTube a rojo anaranjado y TikTok a un turquesa
+   * más profundo. Las etiquetas siguen usando --color-instagram/youtube/tiktok.
+   * El orden categórico es fijo: la serie 1 siempre es chart-1, nunca se reciclan colores.
+   */
+  --color-chart-1: #3a8ef5;
+  --color-chart-2: #d95926;
+  --color-chart-3: #199e70;
+  --color-chart-4: #c98500;
+  --color-chart-5: #d55181;
+  --color-chart-instagram: #c94cd8;
+  --color-chart-youtube: #ee4b2b;
+  --color-chart-tiktok: #0fa59c;
+  --color-chart-grid: rgba(167, 185, 212, 0.12);
+  --color-chart-axis: rgba(167, 185, 212, 0.28);
+  --color-chart-surface: #050d2b;
+
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
@@ -124,6 +144,43 @@
   .eyebrow { @apply font-mono text-[11px] font-semibold tracking-[0.18em] text-accent-glow/90 uppercase; }
   .pill { @apply inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white; }
 
+  /* Chips de filtro: apagados por defecto, acento cuando están activos. */
+  .chip { @apply inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-muted transition select-none; }
+  .chip:hover:not(:disabled) { @apply border-white/25 bg-white/[0.06] text-white; }
+  .chip[aria-pressed="true"], .chip[aria-checked="true"] { @apply border-accent-hi/60 bg-accent/20 text-white; }
+  .chip:disabled { @apply cursor-not-allowed opacity-50; }
+
+  /* Capas flotantes: menús, selector de fechas, tooltips y avisos. Superficie sólida para que el texto se lea sobre cualquier fondo. */
+  .popover { @apply rounded-xl border border-white/12 bg-[#081a4a] shadow-[0_18px_48px_rgba(0,8,40,0.6)]; }
+  .menu-item { @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-text outline-none transition-colors; }
+  .menu-item:hover:not([aria-disabled="true"]), .menu-item:focus-visible { @apply bg-white/[0.07] text-white; }
+  .menu-item:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--color-accent-hi); }
+  .menu-item[aria-disabled="true"] { @apply cursor-not-allowed opacity-45; }
+
+  /* Control segmentado y pestañas */
+  .segmented { @apply inline-flex items-center gap-1 rounded-xl border border-white/10 bg-black/30 p-1; }
+  .segmented-item { @apply inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted transition; }
+  .segmented-item:hover { @apply text-white; }
+  .segmented-item[aria-checked="true"] { @apply bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]; }
+
+  /* Diálogo y panel lateral (<dialog> nativo). Tailwind quita el margen automático: se lo devolvemos. */
+  .dialog { @apply m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-2xl border border-white/12 bg-[#06143a] p-0 text-text shadow-[0_30px_80px_rgba(0,6,30,0.7)]; }
+  .dialog::backdrop { background: rgba(1, 4, 18, 0.72); backdrop-filter: blur(3px); }
+  .dialog[open] { @apply animate-pop-in; }
+  .sheet { @apply mr-0 ml-auto h-dvh max-h-none w-full max-w-md overflow-hidden rounded-none border-0 border-l border-white/12 bg-[#06143a] p-0 text-text shadow-[-20px_0_60px_rgba(0,6,30,0.6)] sm:rounded-l-2xl; }
+  .sheet::backdrop { background: rgba(1, 4, 18, 0.6); backdrop-filter: blur(2px); }
+  .sheet[open] { animation: sheet-in 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+
+  /* Tablas de datos */
+  .data-table { @apply w-full border-separate border-spacing-0 text-sm; }
+  .data-table th { @apply border-b border-white/10 bg-[#061238] px-4 py-3 text-left text-xs font-semibold whitespace-nowrap text-muted; }
+  .data-table td { @apply border-b border-white/[0.06] px-4 py-3 align-middle text-text; }
+  .data-table tbody tr:last-child td { @apply border-b-0; }
+  .data-table tbody tr[data-interactive="true"] { @apply cursor-pointer; }
+  /* Resaltado con sombra interior: no reemplaza el fondo sólido de las columnas fijas. */
+  .data-table tbody tr[data-interactive="true"]:hover td, .data-table tbody tr[data-interactive="true"]:focus-visible td { box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.035); }
+  .data-table tbody tr[data-interactive="true"]:focus-visible { outline-offset: -2px; }
+
   /* Ruta de pasos: nodos hecho · activo · pendiente. En pantallas pequeñas, fila con scroll. */
   .step-list { @apply m-0 flex list-none gap-1 overflow-x-auto p-0 pb-1 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0; }
   .step-item { @apply relative flex-none; }
@@ -136,6 +193,11 @@
   .step[data-state="done"] .step-node { @apply animate-pop-in border-accent-hi bg-accent-hi text-bg; }
   .step[data-state="active"] .step-node { @apply animate-ping-soft border-accent-hi bg-accent text-white; }
 }
+
+@keyframes sheet-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Sin desplazamiento de la página mientras hay un diálogo o panel abierto. */
+html:has(dialog[open][data-lock-scroll]) { overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }

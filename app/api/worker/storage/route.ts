@@ -27,11 +27,9 @@ export async function POST(request: NextRequest) {
   const project = await loadProject(projectId);
   if (!project) return NextResponse.json({ error: "Proyecto inexistente." }, { status: 404 });
 
-  // El original de un video con clon puede ser una URL propia ya pública (la guarda el módulo de clon).
-  if (op === "get" && key === project.sourceKey && /^https:\/\//.test(key)) {
-    return NextResponse.json({ method: "GET", url: key, headers: {} });
-  }
-  const own = key.startsWith(`editor/${projectId}/`);
+  // Archivos propios del proyecto, o (solo lectura) el original que viene de "Videos con clon" (`clon/<id>/…`).
+  const cloneOriginal = op === "get" && key === project.sourceKey && key.startsWith("clon/");
+  const own = key.startsWith(`editor/${projectId}/`) || cloneOriginal;
   if (!own) return NextResponse.json({ error: "Ese archivo no es de este proyecto." }, { status: 403 });
   if (op === "put" && key === project.sourceKey) return NextResponse.json({ error: "El original no se reemplaza." }, { status: 403 });
   try {

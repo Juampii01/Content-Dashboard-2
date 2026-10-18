@@ -17,7 +17,7 @@ export async function GET() {
   const host = new URL(source).hostname;
   if (!/(^|\.)(cdninstagram\.com|fbcdn\.net|instagram\.com)$/.test(host)) return new NextResponse(null, { status: 404 });
   try {
-    const res = await fetch(source, { signal: AbortSignal.timeout(8_000), redirect: "follow" });
+    const res = await fetch(source, { signal: AbortSignal.timeout(8_000), redirect: "error" });
     const type = res.headers.get("content-type") ?? "";
     if (!res.ok || !/^image\/(jpeg|png|webp|gif)/.test(type)) return new NextResponse(null, { status: 404 });
     const body = await res.arrayBuffer();

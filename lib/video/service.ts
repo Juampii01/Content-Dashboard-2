@@ -198,7 +198,10 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
     aiError,
   });
   const parsed = planSchemaFor(words.length).safeParse(plan);
-  if (!parsed.success) throw new VideoError(`El plan no pasó la validación: ${parsed.error.issues[0]?.message}`);
+  if (!parsed.success) {
+    console.error("[editor] plan inválido:", parsed.error.issues[0]?.message);
+    throw new VideoError("No pudimos armar el plan de edición de este video. Vuelve a intentarlo.");
+  }
 
   await getDb()
     .update(schema.videoProjects)

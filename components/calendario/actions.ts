@@ -3,6 +3,7 @@
 import { refresh } from "next/cache";
 import { z } from "zod";
 import { isDenied, requireEditor } from "@/lib/auth";
+import { allowAttempt } from "@/lib/rate-limit";
 import { AiError } from "@/lib/ai/client";
 import { isDay, isTime } from "@/lib/calendar/dates";
 import { CALENDAR_STATUSES, PLANNED_FORMATS, PLATFORMS } from "@/lib/calendar/labels";
@@ -158,6 +159,7 @@ export async function unlinkTargetAction(targetId: string): Promise<ActionResult
 export async function planWeekAction(): Promise<ActionResult<{ weekStart: string; ideas: PlanIdea[] }>> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
+  if (!(await allowAttempt(`calendario-plan:${user.id}`, 20, 3600))) return { ok: false, error: "Pediste muchos planes seguidos. Espera unos minutos y vuelve a intentar." };
   try {
     return { ok: true, data: await buildWeekPlan(user.id) };
   } catch (error) {

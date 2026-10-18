@@ -21,6 +21,7 @@ from .appclient import AppClient
 from .config import VERSION, Config
 from .errors import Cancelled, JobError, Shutdown
 from .ffmpeg import stop_event
+from .janitor import cleanup_workdirs
 
 log = logging.getLogger("worker")
 
@@ -148,6 +149,7 @@ class Worker:
         side = threading.Thread(target=self.side_loop, daemon=True)
         side.start()
         idle_since = time.monotonic()
+        self.cleanup()
         try:
             while not self.shutdown.is_set():
                 try:
@@ -159,6 +161,7 @@ class Worker:
                     continue
                 if job:
                     self.process(job)
+                    self.cleanup()
                     idle_since = time.monotonic()
                     continue
                 idle = time.monotonic() - idle_since
@@ -174,6 +177,13 @@ class Worker:
             except psycopg.Error:
                 pass
         return 0
+
+    def cleanup(self) -> None:
+        """Borra carpetas de trabajo de proyectos borrados o viejos (ver janitor.py). Nunca frena la cola."""
+        try:
+            cleanup_workdirs(self.conn, self.config.work_dir)
+        except Exception:  # noqa: BLE001
+            log.exception("limpieza de la carpeta de trabajo falló")
 
     def process(self, job: dict[str, Any]) -> None:
         handler = _handlers[job["type"]]

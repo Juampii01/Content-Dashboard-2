@@ -163,7 +163,7 @@ export async function uploadDelegation(pathname: string): Promise<IssuedSignedTo
 /** URL para que el navegador lea un archivo (reproducir o descargar). Vence en `ttlSec`. */
 export async function readUrl(key: string, options: { ttlSec?: number; download?: string } = {}): Promise<string> {
   assertKey(key);
-  const ttlMs = (options.ttlSec ?? 6 * 3600) * 1000;
+  const ttlMs = (options.ttlSec ?? 90 * 60) * 1000; // corto: alguien que sale del equipo pierde el acceso enseguida
   if (fileDriver() === "blob") {
     const token = await signedToken(key, ["get"], ttlMs);
     const { presignedUrl } = await presignUrl(token, { operation: "get", pathname: key, access: "private", validUntil: Date.now() + ttlMs });

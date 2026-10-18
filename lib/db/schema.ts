@@ -609,6 +609,8 @@ export const cloneVideos = pgTable(
     estimatedSeconds: integer("estimated_seconds"),
     estimatedCostUsd: real("estimated_cost_usd"),
     heygenVideoId: text("heygen_video_id").unique(),
+    retriedInto: uuid("retried_into"), // video nuevo creado al reintentar este (evita cobrar dos veces)
+    copyingUntil: timestamp("copying_until", { withTimezone: true }), // candado de la copia de archivos
     status: cloneVideoStatusEnum("status").notNull().default("QUEUED"),
     errorMessage: text("error_message"),
     videoUrl: text("video_url"), // copia propia (las URLs de HeyGen vencen)

@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -220,8 +220,16 @@ export async function refreshCloneVideo(id: string, options: { minAgeSec?: numbe
   const status = statusMap[video.status] ?? row.status;
   if (status === "COMPLETED") {
     if (row.status === "COMPLETED" && (row.filesStored || !blobConfigured())) return row;
-    // Candado de 3 minutos mientras se copian los archivos.
-    await db.update(schema.cloneVideos).set({ lastCheckedAt: sql`now() + interval '180 seconds'` }).where(eq(schema.cloneVideos.id, id));
+    // Candado propio de la copia (más largo que el timeout de descarga de 240 s). Atómico: si otro proceso
+    // (webhook, polling o cron) ya está copiando, este no copia de nuevo y no deja archivos huérfanos.
+    if (blobConfigured()) {
+      const [lock] = await db
+        .update(schema.cloneVideos)
+        .set({ copyingUntil: sql`now() + interval '330 seconds'`, lastCheckedAt: sql`now() + interval '330 seconds'` })
+        .where(and(eq(schema.cloneVideos.id, id), or(isNull(schema.cloneVideos.copyingUntil), sql`${schema.cloneVideos.copyingUntil} < now()`)))
+        .returning({ id: schema.cloneVideos.id });
+      if (!lock) return row;
+    }
     const files = await storeFiles(row, video);
     const [updated] = await db
       .update(schema.cloneVideos)
@@ -232,6 +240,7 @@ export async function refreshCloneVideo(id: string, options: { minAgeSec?: numbe
         durationSeconds: video.duration ?? row.durationSeconds,
         completedAt: row.completedAt ?? (video.completed_at ? new Date(video.completed_at * 1000) : new Date()),
         lastCheckedAt: sql`now()`,
+        copyingUntil: null,
       })
       .where(eq(schema.cloneVideos.id, id))
       .returning();

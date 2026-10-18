@@ -1,7 +1,8 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getCurrentUser, isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
@@ -240,9 +241,17 @@ export async function retryCloneVideoAction(id: string): Promise<ActionResult<{ 
   if (!row) return { ok: false, error: "Ese video ya no existe." };
   if (row.status !== "FAILED") return { ok: false, error: "Ese video no falló: no hace falta reintentarlo." };
 
+  if (row.retriedInto) return { ok: true, data: { id: row.retriedInto } };
+
   try {
     if (!row.heygenVideoId) {
-      await getDb().update(schema.cloneVideos).set({ status: "QUEUED", errorMessage: null }).where(eq(schema.cloneVideos.id, row.id));
+      // Solo un pedido pasa de FAILED a QUEUED (dos clics o dos pestañas no reenvían dos veces).
+      const [claimed] = await getDb()
+        .update(schema.cloneVideos)
+        .set({ status: "QUEUED", errorMessage: null })
+        .where(and(eq(schema.cloneVideos.id, row.id), eq(schema.cloneVideos.status, "FAILED")))
+        .returning({ id: schema.cloneVideos.id });
+      if (!claimed) return { ok: true, data: { id: row.id } };
       await submitToHeyGen(row);
       refresh();
       return { ok: true, data: { id: row.id } };
@@ -255,9 +264,22 @@ export async function retryCloneVideoAction(id: string): Promise<ActionResult<{ 
     const blocked = insufficient(balanceFromUser(await conn.client.getMe()), estimate.usd, estimate.credits);
     if (blocked) return { ok: false, error: blocked };
 
+    // Se reserva el reintento de forma atómica: si otro pedido ya lo hizo, se devuelve ese video y no se cobra otro.
+    const freshId = randomUUID();
+    const [claim] = await getDb()
+      .update(schema.cloneVideos)
+      .set({ retriedInto: freshId })
+      .where(and(eq(schema.cloneVideos.id, row.id), eq(schema.cloneVideos.status, "FAILED"), isNull(schema.cloneVideos.retriedInto)))
+      .returning({ id: schema.cloneVideos.id });
+    if (!claim) {
+      const again = await getCloneVideoRow(row.id);
+      return again?.retriedInto ? { ok: true, data: { id: again.retriedInto } } : { ok: false, error: "Ese video ya se está reintentando." };
+    }
+
     const [fresh] = await getDb()
       .insert(schema.cloneVideos)
       .values({
+        id: freshId,
         title: row.title,
         scriptId: row.scriptId,
         scriptText: row.scriptText,

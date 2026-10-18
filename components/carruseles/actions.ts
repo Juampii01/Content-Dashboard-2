@@ -5,6 +5,11 @@ import { refresh } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { isDenied, requireEditor } from "@/lib/auth";
+import { allowAttempt } from "@/lib/rate-limit";
+
+const AI_LIMIT = "Hiciste muchos pedidos a la IA seguidos. Espera unos minutos y vuelve a intentar.";
+/** Tope de llamadas de IA por persona y por hora (protege el costo de la clave del servidor). */
+const withinAiLimit = (userId: string) => allowAttempt(`carruseles:${userId}`, 60, 3600);
 import { AiError } from "@/lib/ai/client";
 import { getDb, schema } from "@/lib/db";
 import type { CarouselSlide } from "@/lib/db/schema";
@@ -54,6 +59,7 @@ export type NewCarouselState = { error?: string };
 export async function createCarouselAction(_prev: NewCarouselState, formData: FormData): Promise<NewCarouselState> {
   const user = await requireEditor();
   if (isDenied(user)) return { error: user.error };
+  if (!(await withinAiLimit(user.id))) return { error: AI_LIMIT };
   const parsed = newCarousel.safeParse(Object.fromEntries([...formData.entries()].map(([k, v]) => [k, typeof v === "string" ? v : ""])));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const d = parsed.data;
@@ -126,6 +132,7 @@ export async function saveCarouselAction(id: string, draft: CarouselDraft): Prom
 export async function rewriteSlideAction(id: string, slides: CarouselSlide[], slideId: string, instruction: string): Promise<ActionResult<CarouselSlide>> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
+  if (!(await withinAiLimit(user.id))) return { ok: false, error: AI_LIMIT };
   const parsed = slidesSchema.safeParse(slides);
   if (!uuid.safeParse(id).success || !parsed.success) return { ok: false, error: "No pudimos leer el carrusel. Recarga la página." };
   try {
@@ -138,6 +145,7 @@ export async function rewriteSlideAction(id: string, slides: CarouselSlide[], sl
 export async function coverOptionsAction(id: string, slides: CarouselSlide[]): Promise<ActionResult<{ kicker: string; headline: string; highlight: string; body: string }[]>> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
+  if (!(await withinAiLimit(user.id))) return { ok: false, error: AI_LIMIT };
   const parsed = slidesSchema.safeParse(slides);
   if (!uuid.safeParse(id).success || !parsed.success) return { ok: false, error: "No pudimos leer el carrusel. Recarga la página." };
   try {
@@ -150,6 +158,7 @@ export async function coverOptionsAction(id: string, slides: CarouselSlide[]): P
 export async function captionAction(id: string, slides: CarouselSlide[]): Promise<ActionResult<{ caption: string; hashtags: string[] }>> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
+  if (!(await withinAiLimit(user.id))) return { ok: false, error: AI_LIMIT };
   const parsed = slidesSchema.safeParse(slides);
   if (!uuid.safeParse(id).success || !parsed.success) return { ok: false, error: "No pudimos leer el carrusel. Recarga la página." };
   try {

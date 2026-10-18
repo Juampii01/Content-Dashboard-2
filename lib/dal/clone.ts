@@ -28,6 +28,7 @@ export type CloneVideoItem = {
   scriptId: string | null;
   createdAt: string;
   completedAt: string | null;
+  retriedInto: string | null;
 };
 
 export function toCloneVideoItem(row: CloneVideoRow): CloneVideoItem {
@@ -52,6 +53,7 @@ export function toCloneVideoItem(row: CloneVideoRow): CloneVideoItem {
     scriptId: row.scriptId,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
+    retriedInto: row.retriedInto ?? null,
   };
 }
 

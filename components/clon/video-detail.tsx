@@ -127,7 +127,11 @@ export function CloneVideoDetail({
               <Notice tone="danger" title="El video no se pudo generar">
                 {video.errorMessage ?? "HeyGen no informó el motivo."}
               </Notice>
-              {canEdit && (
+              {video.retriedInto ? (
+                <ButtonLink href={`/clon/${video.retriedInto}`} variant="ghost" className="self-start">
+                  Ver el reintento
+                </ButtonLink>
+              ) : canEdit && (
                 <Button className="self-start" onClick={retry} disabled={pending} icon={<RotateCcw className="h-4 w-4" aria-hidden />}>
                   {pending ? "Reintentando…" : "Reintentar"}
                 </Button>

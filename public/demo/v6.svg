@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 960" width="540" height="960">
+<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5b3cc4"/><stop offset=".55" stop-color="#1a0a2e"/><stop offset="1" stop-color="#02061a"/></linearGradient>
+<radialGradient id="p" cx=".5" cy=".3" r=".7"><stop offset="0" stop-color="#c8b6ff" stop-opacity=".95"/><stop offset="1" stop-color="#5b3cc4" stop-opacity=".55"/></radialGradient>
+<filter id="b" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="32"/></filter></defs>
+<rect width="540" height="960" fill="url(#g)"/><circle cx="473" cy="211" r="202" fill="#5b3cc4" opacity="0.37" filter="url(#b)"/><circle cx="313" cy="307" r="221" fill="#5b3cc4" opacity="0.44" filter="url(#b)"/><circle cx="256" cy="446" r="116" fill="#5b3cc4" opacity="0.39" filter="url(#b)"/>
+<ellipse cx="270" cy="709" rx="359" ry="201" fill="url(#p)" opacity=".9"/>
+<circle cx="270" cy="403" r="106" fill="url(#p)"/>
+<rect width="540" height="960" fill="url(#g)" opacity=".25"/><rect x="65" y="672" width="410" height="43" rx="12" fill="#fff" opacity=".88"/><rect x="108" y="734" width="324" height="43" rx="12" fill="#c8b6ff" opacity=".9"/></svg>

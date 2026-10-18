@@ -183,6 +183,7 @@ export async function loadDemo(): Promise<string[]> {
       const title = `${pick(hooks)}${rand() < 0.3 ? ` (parte ${1 + Math.floor(rand() * 3)})` : ""}`;
       const isIg = spec.platform === "INSTAGRAM";
       const isYt = spec.platform === "YOUTUBE";
+      const isYtVideo = isYt && t.type === "VIDEO";
       items.push({
         socialAccountId: accountId,
         platform: spec.platform,
@@ -191,7 +192,8 @@ export async function loadDemo(): Promise<string[]> {
         caption: isYt ? `${title}\n\nEn este video te cuento paso a paso cómo lo hago, con ejemplos reales.` : `${title} 👇\n\nGuárdalo para cuando lo necesites y comparte con alguien que lo necesita.`,
         title: isIg ? null : title,
         permalink: null,
-        thumbnailUrl: null,
+        // Miniaturas abstractas propias (public/demo): sin fotos de terceros.
+        thumbnailUrl: isYtVideo ? `/demo/h${(i % 8) + 1}.svg` : `/demo/v${(i % 12) + 1}.svg`,
         thumbnailSourceUrl: null,
         publishedAt: published,
         durationSec: duration,

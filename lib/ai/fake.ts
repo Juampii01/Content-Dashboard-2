@@ -10,6 +10,51 @@ const beats = [
   { purpose: "Prueba", spoken: "Una clínica en Houston cambió solo eso y pasó de agendar 3 de cada 10 llamadas a 6 de cada 10 en un mes.", onScreenText: "3/10 → 6/10", broll: "Pantalla de agenda llenándose", seconds: 8 },
 ];
 
+/**
+ * Editor de video: un "editor" determinista que lee la tarea (candidatos y frases con sus tiempos)
+ * y responde como lo haría Claude: corta los candidatos seguros y propone 3 frases de 3 a 8 s como gancho.
+ */
+function fakeVideoPlan(task: string) {
+  const decisions = [...task.matchAll(/^(C\d+) (toma repetida|arranque en falso|muletilla) \[(\d+)–(\d+)\] conf ([\d.]+)/gm)].map((m) => ({
+    candidate: m[1]!,
+    cut: Number(m[5]) >= 0.6,
+    confidence: Number(m[5]),
+  }));
+  const frases = [...task.matchAll(/^F(\d+) \[(\d+)–(\d+)\] ([\d.]+) s \([\d.]+–[\d.]+\): (.*)$/gm)].map((m) => ({
+    index: Number(m[1]),
+    from: Number(m[2]),
+    to: Number(m[3]),
+    dur: Number(m[4]),
+    text: m[5]!,
+  }));
+  const cut = new Set<number>();
+  for (const m of task.matchAll(/^C\d+ (?:toma repetida|arranque en falso|muletilla) \[(\d+)–(\d+)\] conf ([\d.]+)/gm)) {
+    if (Number(m[3]) >= 0.6) for (let id = Number(m[1]); id <= Number(m[2]); id++) cut.add(id);
+  }
+  const hooks = frases
+    .map((f) => {
+      let from = f.from;
+      let to = f.to;
+      while (from < to && cut.has(from)) from++;
+      while (to > from && cut.has(to)) to--;
+      return { ...f, from, to };
+    })
+    .filter((f) => f.dur >= 3 && f.dur <= 8.5 && ![...Array(f.to - f.from + 1).keys()].some((k) => cut.has(f.from + k)))
+    .map((f) => ({ ...f, score: (/[?¿]/.test(f.text) ? 0.2 : 0) + (/\d/.test(f.text) ? 0.2 : 0) + 0.5 - f.index * 0.01 }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((f) => ({ from_word: f.from, to_word: f.to, score: Math.min(0.95, f.score), why: /\d/.test(f.text) ? "Abre con un dato concreto que genera curiosidad." : "Plantea el problema de entrada y se entiende sin contexto." }));
+  const numbers = [...task.matchAll(/(\d+):[^\s]*\d[^\s]*/g)].map((m) => Number(m[1])).slice(0, 4);
+  return {
+    decisions,
+    extra_removals: [],
+    hook_candidates: hooks,
+    emphasis_words: numbers,
+    summary: `Se cortaron ${decisions.filter((d) => d.cut).length} tramos: tomas repetidas, arranques en falso y muletillas. Las pausas largas se acortan solas.`,
+    warning: "",
+  };
+}
+
 export function fakeResponse(feature: string, task = ""): unknown {
   const hooks = [
     { text: "Si contestas el teléfono así, estás perdiendo pacientes.", type: "contraste", score: 9, why: "Ataca algo que hacen todos los días." },
@@ -155,6 +200,8 @@ export function fakeResponse(feature: string, task = ""): unknown {
           { title: "La pregunta que cierra la cita", hook: "Esta pregunta hace que el paciente agende antes de preguntar el precio.", pillar: "Teléfono y recepción", format: "REEL", platforms: ["INSTAGRAM", "TIKTOK"], day: 4, why: "Conecta con tu oferta Agenda Llena (palabra clave AGENDA)." },
         ],
       };
+    case "video.plan":
+      return fakeVideoPlan(task);
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

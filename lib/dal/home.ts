@@ -33,3 +33,50 @@ export async function getFollowerSummary(): Promise<{ platform: Platform; handle
     change7d: r.now != null && r.before != null ? Number(r.now) - Number(r.before) : null,
   }));
 }
+
+export type ActiveWork = {
+  id: string;
+  kind: "video" | "clon";
+  title: string;
+  label: string; // etapa en español
+  progress: number | null; // 0 a 100 si se conoce
+  needsAction: boolean; // por ejemplo, un video listo para revisar
+  href: string;
+};
+
+/** Trabajos en curso para Inicio: videos del editor procesando o esperando revisión, y videos con clon generándose. */
+export async function getActiveWork(): Promise<ActiveWork[]> {
+  await getCurrentUser();
+  const db = getDb();
+  const videos = await db.execute<{ id: string; title: string; status: string; stage: string | null; progress: number | null }>(sql`
+    select p.id, p.title, p.status,
+      (select j.stage from jobs j where j.video_project_id = p.id order by j.created_at desc limit 1) as stage,
+      (select j.progress from jobs j where j.video_project_id = p.id and j.status in ('QUEUED', 'RUNNING') order by j.created_at desc limit 1) as progress
+    from video_projects p
+    where p.status in ('PROCESSING', 'AWAITING_REVIEW', 'RENDERING')
+    order by p.updated_at desc limit 5
+  `);
+  const clones = await db.execute<{ id: string; title: string; status: string }>(sql`
+    select id, title, status from clone_videos where status in ('QUEUED', 'PROCESSING') order by created_at desc limit 5
+  `);
+  return [
+    ...videos.rows.map((v) => ({
+      id: v.id,
+      kind: "video" as const,
+      title: v.title,
+      label: v.status === "AWAITING_REVIEW" ? "Listo para revisar" : (v.stage ?? (v.status === "RENDERING" ? "Renderizando" : "Procesando")),
+      progress: v.status === "AWAITING_REVIEW" ? null : v.progress == null ? null : Number(v.progress),
+      needsAction: v.status === "AWAITING_REVIEW",
+      href: `/editor/${v.id}`,
+    })),
+    ...clones.rows.map((c) => ({
+      id: c.id,
+      kind: "clon" as const,
+      title: c.title,
+      label: c.status === "QUEUED" ? "En cola en HeyGen" : "Generando con tu clon",
+      progress: null,
+      needsAction: false,
+      href: `/clon/${c.id}`,
+    })),
+  ];
+}

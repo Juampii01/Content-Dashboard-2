@@ -10,7 +10,8 @@ import { Skeleton } from "@/components/ui/feedback";
 import { Kpis } from "@/components/metricas/kpis";
 import { ContentGrid } from "@/components/metricas/content-grid";
 import { getOverview, getRisingPieces, getTopPieces } from "@/lib/dal/metrics";
-import { getFollowerSummary, getSetupProgress } from "@/lib/dal/home";
+import { getActiveWork, getFollowerSummary, getSetupProgress } from "@/lib/dal/home";
+import { ActiveWork } from "@/components/inicio/active-work";
 import { getGrowth } from "@/lib/dal/growth";
 import { GrowthGoal } from "@/components/inicio/growth-goal";
 import { Upcoming } from "@/components/inicio/upcoming";
@@ -61,6 +62,10 @@ async function FirstSteps() {
       </ol>
     </Section>
   );
+}
+
+async function Working() {
+  return <ActiveWork items={await getActiveWork()} />;
 }
 
 async function Week() {
@@ -172,6 +177,9 @@ export default function InicioPage() {
         icon={<House className="h-5 w-5" aria-hidden />}
       />
       <div className="flex flex-col gap-6">
+        <Suspense fallback={null}>
+          <Working />
+        </Suspense>
         <Suspense fallback={<Skeleton className="h-48" />}>
           <Week />
         </Suspense>

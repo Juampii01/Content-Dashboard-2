@@ -4,12 +4,28 @@ import { env } from "@/lib/env";
 
 /**
  * Copia de archivos remotos (por ejemplo, los videos de HeyGen, cuyas URLs vencen) a nuestro almacenamiento.
- * Los archivos quedan **privados** en Vercel Blob: solo se leen desde el servidor con `openStoredFile`,
- * detrás de una ruta que comprueba la sesión. Así un video del cliente nunca queda en una URL pública.
+ * Los archivos quedan **privados** en el store privado de videos (`VIDEO_BLOB_READ_WRITE_TOKEN`, el mismo del
+ * Editor): solo se leen desde el servidor con `openStoredFile`, detrás de una ruta que comprueba la sesión.
+ * Así un video del cliente nunca queda en una URL pública, y el Editor puede usarlo como original.
+ * (En Vercel Blob el acceso público o privado es del store, no de cada archivo.)
  */
 
+function privateToken(): string | undefined {
+  return env().VIDEO_BLOB_READ_WRITE_TOKEN;
+}
+
 export function blobConfigured(): boolean {
-  return Boolean(env().BLOB_READ_WRITE_TOKEN);
+  return Boolean(privateToken());
+}
+
+/** Ruta dentro del store (`clon/<id>/video-xxxx.mp4`) a partir de la URL guardada, para usarla como clave. */
+export function storedKey(url: string): string | null {
+  if (!isStoredUrl(url)) return null;
+  try {
+    return decodeURIComponent(new URL(url).pathname.replace(/^\/+/, ""));
+  } catch {
+    return null;
+  }
 }
 
 /** true si la URL es de nuestro Vercel Blob (y no, por ejemplo, de HeyGen). */
@@ -52,7 +68,7 @@ export async function copyRemoteFile(
     contentType,
     addRandomSuffix: true,
     multipart: true,
-    token: env().BLOB_READ_WRITE_TOKEN,
+    token: privateToken(),
   });
   return { url: blob.url, contentType, bytes: Number.isFinite(length) ? length : null };
 }
@@ -64,7 +80,7 @@ export async function copyRemoteFile(
 export async function openStoredFile(url: string, range?: string | null): Promise<Response | null> {
   const result = await get(url, {
     access: "private",
-    token: env().BLOB_READ_WRITE_TOKEN,
+    token: privateToken(),
     headers: range ? { range } : undefined,
   });
   if (!result || !result.stream) return null;

@@ -23,7 +23,8 @@ Pide al cliente:
 ## 2. Base de datos (Neon) y archivos (Blob)
 
 1. En el proyecto: **Storage → Create Database → Neon** (plan Launch o superior para producción). La integración crea sola `DATABASE_URL` y `DATABASE_URL_UNPOOLED`.
-2. **Storage → Create → Blob**. Crea `BLOB_READ_WRITE_TOKEN`.
+2. **Storage → Create → Blob**, acceso **público**, prefijo por defecto. Crea `BLOB_READ_WRITE_TOKEN` (solo miniaturas).
+3. **Storage → Create → Blob** otra vez, acceso **privado**, y al conectarlo elige el prefijo **`VIDEO_BLOB`**. Crea `VIDEO_BLOB_READ_WRITE_TOKEN` (videos del Editor y del Clon). En Vercel Blob el acceso es del store, por eso son dos.
 
 ## 3. Variables de entorno
 

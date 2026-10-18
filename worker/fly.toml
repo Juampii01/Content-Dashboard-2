@@ -1,0 +1,35 @@
+# Worker de video de Content 2 en Fly Machines (una app por cliente).
+# Sin servicios ni puertos públicos: el worker solo sale a buscar trabajos a la base y habla con la app.
+# Se apaga solo después de IDLE_EXIT_MINUTES sin trabajos; la app lo enciende con la Machines API al encolar.
+# Cambia `app` por el nombre de la app de este cliente (por ejemplo content2-worker-<cliente>).
+app = "content2-worker-CAMBIAR"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "60s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  IDLE_EXIT_MINUTES = "5"
+  LEASE_SECONDS = "90"
+  X264_PRESET = "slow"
+  LOG_LEVEL = "INFO"
+
+# Caché de trabajo (original, mezzanine, tramos): sobrevive a los apagados, así un reintento no repite lo hecho.
+[mounts]
+  source = "work"
+  destination = "/data"
+  initial_size = "20gb"
+  auto_extend_size_threshold = 80
+  auto_extend_size_increment = "10gb"
+  auto_extend_size_limit = "60gb"
+
+[[vm]]
+  size = "performance-4x"
+  memory = "8gb"
+
+# Si el proceso termina bien (sin trabajos), la máquina queda detenida; si se cae, Fly la reinicia.
+[[restart]]
+  policy = "on-failure"
+  retries = 3

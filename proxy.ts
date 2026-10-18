@@ -15,6 +15,9 @@ const PUBLIC_PATHS = [
   "/eliminar-datos",
   "/api/cron",
   "/api/webhooks",
+  // Las llama el worker de video (sin cookie). Cada ruta exige `Authorization: Bearer <WORKER_SECRET>`
+  // con comparación en tiempo constante (lib/jobs: workerAuthorized).
+  "/api/worker",
 ];
 
 export function proxy(request: NextRequest) {
@@ -34,6 +37,11 @@ export function proxy(request: NextRequest) {
   return NextResponse.redirect(loginUrl);
 }
 
+/**
+ * Fuera del filtro: archivos estáticos y las dos rutas que reciben videos grandes en desarrollo
+ * (almacenamiento local). Con el filtro activo, Next copia el cuerpo en memoria y lo corta en 10 MB.
+ * Esas rutas validan la sesión (`/api/editor/files`) o el WORKER_SECRET (`/api/worker/files`) ellas mismas.
+ */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|fonts/|demo/|icon.svg|favicon.ico|robots.txt).*)"],
+  matcher: ["/((?!_next/static|_next/image|fonts/|demo/|icon.svg|favicon.ico|robots.txt|api/editor/files/|api/worker/files/).*)"],
 };

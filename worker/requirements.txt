@@ -1,0 +1,3 @@
+# Worker de Content 2 (Python 3.12). Solo lo indispensable: la base y números para medir la energía del audio.
+psycopg[binary]==3.2.13
+numpy==2.5.4

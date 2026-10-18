@@ -1,0 +1,373 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Clapperboard, Loader2, RotateCcw, Sparkles, Undo2, Wand2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/feedback";
+import { SegmentedControl } from "@/components/ui/tabs";
+import { toast } from "@/components/ui/toast";
+import { formatDuration, formatNumber } from "@/lib/format";
+import { CAPTION_PRESETS, captionBlocks } from "@/lib/video/captions";
+import { rangesFromIds } from "@/lib/video/plan";
+import { buildTimeline } from "@/lib/video/timeline";
+import type { CaptionPresetKey, EditPlan, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
+import { cn } from "@/lib/utils";
+import { renderAction, saveReviewAction } from "./actions";
+import { PreviewPlayer, type PreviewHandle } from "./preview-player";
+import { TranscriptEditor } from "./transcript-editor";
+
+function idsOf(plan: Pick<EditPlan, "removals">): Set<number> {
+  const set = new Set<number>();
+  for (const r of plan.removals) for (let id = r.from_word; id <= r.to_word; id++) set.add(id);
+  return set;
+}
+
+export function ReviewEditor({
+  projectId,
+  plan,
+  words,
+  duration,
+  sourceWidth,
+  sourceHeight,
+  proxyUrl,
+  posterUrl,
+  accent,
+  canEdit,
+}: {
+  projectId: string;
+  plan: EditPlan;
+  words: Word[];
+  duration: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  proxyUrl: string | null;
+  posterUrl: string | null;
+  accent: string;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const preview = useRef<PreviewHandle>(null);
+  const [removed, setRemoved] = useState<Set<number>>(() => idsOf(plan));
+  const [selectedHook, setSelectedHook] = useState<number | null>(plan.selected_hook);
+  const [preset, setPreset] = useState<CaptionPresetKey>(plan.captions.preset);
+  const [format, setFormat] = useState<VideoFormat>(plan.format);
+  const [offsetX, setOffsetX] = useState(plan.framing.offset_x);
+  const [corrections, setCorrections] = useState<Record<string, string>>(plan.corrections);
+  const [activeTime, setActiveTime] = useState<number | null>(null);
+  const [rendering, startRender] = useTransition();
+
+  const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
+  const reasons = useMemo(() => {
+    const map = new Map<number, RemovalReason>();
+    for (const r of [...plan.proposed_removals, ...plan.removals]) for (let id = r.from_word; id <= r.to_word; id++) if (!map.has(id) || r.source === "user") map.set(id, r.reason);
+    return map;
+  }, [plan.proposed_removals, plan.removals]);
+  const offScript = useMemo(() => new Set(plan.off_script), [plan.off_script]);
+
+  const review = useMemo(
+    () => ({ removed: [...removed].sort((a, b) => a - b), selectedHook, preset, offsetX, corrections }),
+    [removed, selectedHook, preset, offsetX, corrections],
+  );
+
+  const timeline = useMemo(
+    () =>
+      buildTimeline(
+        words,
+        {
+          removals: rangesFromIds(review.removed, plan.removals),
+          hook_candidates: plan.hook_candidates,
+          selected_hook: selectedHook,
+          corrections,
+          captions: { preset, emphasis_words: plan.captions.emphasis_words },
+        },
+        duration,
+      ),
+    [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, selectedHook, corrections, preset, duration],
+  );
+  const blocks = useMemo(() => (preset === "ninguno" ? [] : captionBlocks(timeline.words, preset)), [timeline.words, preset]);
+
+  // Guardado automático de la revisión (1,2 s después del último cambio).
+  const reviewKey = useMemo(() => JSON.stringify([review, format]), [review, format]);
+  const [savedKey, setSavedKey] = useState(reviewKey);
+  const [saving, setSaving] = useState<"idle" | "saving" | "error">("idle");
+  const sending = useRef(false);
+  useEffect(() => {
+    if (!canEdit || reviewKey === savedKey) return;
+    const timer = setTimeout(async () => {
+      if (sending.current) return;
+      setSaving("saving");
+      const result = await saveReviewAction(projectId, review, format);
+      if (result.ok) {
+        setSavedKey(reviewKey);
+        setSaving("idle");
+      } else {
+        setSaving("error");
+        toast.error(result.error);
+      }
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [reviewKey, savedKey, review, format, projectId, canEdit]);
+  const saveState = saving === "error" ? "error" : saving === "saving" || reviewKey !== savedKey ? "saving" : "saved";
+
+  // "Escuchar" un gancho: primero se elige (pasa al principio) y, cuando el timeline cambia, se reproduce desde 0.
+  const listenAfterChange = useRef(false);
+  useEffect(() => {
+    if (!listenAfterChange.current) return;
+    listenAfterChange.current = false;
+    preview.current?.seekOutput(0, true);
+  }, [timeline]);
+
+  const setCut = useCallback((ids: number[], cut: boolean) => {
+    setRemoved((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (cut) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  function listenFrom(id: number) {
+    const w = timeline.words.find((x) => x.id >= id);
+    preview.current?.seekOutput(w ? w.start : 0, true);
+  }
+
+  function render() {
+    sending.current = true;
+    startRender(async () => {
+      const result = await renderAction(projectId, review, format);
+      if (!result.ok) {
+        sending.current = false;
+        toast.error(result.error);
+      } else router.refresh();
+    });
+  }
+
+  const hook = selectedHook != null ? plan.hook_candidates[selectedHook] : undefined;
+  const cutCount = removed.size;
+  const landscape = sourceWidth > sourceHeight * 1.02;
+  const showFraming = format === "9:16" && landscape;
+  const changedFromProposal = removed.size !== proposed.size || [...removed].some((id) => !proposed.has(id));
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+      <div className="order-2 flex min-w-0 flex-col gap-6 lg:order-1">
+        {plan.planned_by === "auto" && (
+          <Notice tone="warning" title="Plan armado sin IA">
+            {plan.warning || "La IA no respondió: se cortaron solo las tomas repetidas, arranques en falso y muletillas más claras. Revisa los cortes con más atención."}
+          </Notice>
+        )}
+        {plan.planned_by === "ai" && plan.warning && <Notice tone="warning">{plan.warning}</Notice>}
+        {plan.summary && plan.planned_by === "ai" && (
+          <div className="card flex gap-3 p-4">
+            <Sparkles className="mt-0.5 h-4 w-4 flex-none text-accent-hi" aria-hidden />
+            <p className="text-sm text-text/90">{plan.summary}</p>
+          </div>
+        )}
+
+        <section aria-labelledby="hooks-title" className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 id="hooks-title" className="text-base font-semibold">
+                Elige el gancho
+              </h2>
+              <p className="text-sm text-muted">El gancho pasa al principio del video. Los primeros 3 segundos deciden si siguen mirando.</p>
+            </div>
+          </div>
+          <div role="radiogroup" aria-label="Gancho" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {plan.hook_candidates.map((h, i) => {
+              const text = words.slice(h.from_word, h.to_word + 1).map((w) => corrections[String(w.id)] ?? w.text).join(" ");
+              const secs = (words[h.to_word]?.end ?? 0) - (words[h.from_word]?.start ?? 0);
+              const active = selectedHook === i;
+              return (
+                <div key={`${h.from_word}-${h.to_word}`} className={cn("card flex flex-col gap-2 p-4 transition", active ? "!border-accent bg-accent/12" : "hover:border-white/25")}>
+                  <button type="button" role="radio" aria-checked={active} disabled={!canEdit} onClick={() => setSelectedHook(i)} className="flex flex-col gap-2 text-left">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="eyebrow">Gancho {i + 1}</span>
+                      <span className="font-mono text-[11px] text-muted">{secs.toFixed(1)} s</span>
+                    </span>
+                    <span className="line-clamp-4 text-sm font-semibold text-white">“{text}”</span>
+                    <span className="line-clamp-3 text-xs text-muted">{h.why}</span>
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    className="mt-auto self-start !px-2 -ml-2"
+                    onClick={() => {
+                      if (canEdit && selectedHook !== i) {
+                        listenAfterChange.current = true;
+                        setSelectedHook(i);
+                      } else preview.current?.seekOutput(0, true);
+                    }}
+                  >
+                    Escuchar
+                  </Button>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selectedHook == null}
+              disabled={!canEdit}
+              onClick={() => setSelectedHook(null)}
+              className={cn("card flex flex-col justify-center gap-1 p-4 text-left transition", selectedHook == null ? "!border-accent bg-accent/12" : "hover:border-white/25")}
+            >
+              <span className="text-sm font-semibold text-white">Sin gancho</span>
+              <span className="text-xs text-muted">El video empieza como lo grabaste.</span>
+            </button>
+          </div>
+          {plan.hook_candidates.length === 0 && <p className="text-sm text-muted">No encontramos frases de 3 a 8 segundos que funcionen solas como gancho.</p>}
+        </section>
+
+        <section aria-labelledby="transcript-title" className="section-shell flex flex-col gap-4 !p-4 sm:!p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="transcript-title" className="text-base font-semibold">
+                Revisa los cortes
+              </h2>
+              <p className="text-sm text-muted">
+                {formatNumber(cutCount)} {cutCount === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}. Lo tachado no sale en el video.
+              </p>
+            </div>
+            {canEdit && (
+              <div className="flex flex-wrap gap-2">
+                {changedFromProposal && proposed.size > 0 && (
+                  <Button size="sm" variant="ghost" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => setRemoved(new Set(proposed))}>
+                    Volver a la propuesta
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => setRemoved(new Set())} disabled={removed.size === 0}>
+                  Restaurar todo
+                </Button>
+              </div>
+            )}
+          </div>
+          <TranscriptEditor
+            words={words}
+            removed={removed}
+            reasons={reasons}
+            hook={hook ? { from: hook.from_word, to: hook.to_word } : null}
+            offScript={offScript}
+            corrections={corrections}
+            activeTime={activeTime}
+            canEdit={canEdit}
+            onSetCut={setCut}
+            onCorrect={(id, text) =>
+              setCorrections((prev) => {
+                const next = { ...prev };
+                if (text) next[String(id)] = text;
+                else delete next[String(id)];
+                return next;
+              })
+            }
+            onListen={listenFrom}
+          />
+          {offScript.size > 0 && <p className="text-xs text-muted">Lo subrayado con puntos amarillos no está en el guion (no se corta solo).</p>}
+        </section>
+      </div>
+
+      <aside className="order-1 lg:order-2">
+        <div className="flex flex-col gap-4 lg:sticky lg:top-6">
+          <div className="card flex flex-col gap-4 p-4">
+            <PreviewPlayer
+              ref={preview}
+              src={proxyUrl}
+              poster={posterUrl}
+              clips={timeline.clips}
+              duration={timeline.duration}
+              blocks={blocks}
+              preset={preset}
+              format={format}
+              accent={accent}
+              sourceWidth={sourceWidth}
+              sourceHeight={sourceHeight}
+              offsetX={showFraming ? offsetX : 0}
+              onSourceTime={setActiveTime}
+            />
+            <dl className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-white/[0.04] px-2 py-2">
+                <dt className="text-[11px] text-muted">Original</dt>
+                <dd className="font-mono text-sm font-semibold text-white tabular-nums">{formatDuration(duration)}</dd>
+              </div>
+              <div className="rounded-xl bg-accent/12 px-2 py-2">
+                <dt className="text-[11px] text-accent-glow">Final</dt>
+                <dd className="font-mono text-sm font-semibold text-white tabular-nums" aria-live="polite">
+                  {formatDuration(timeline.duration)}
+                </dd>
+              </div>
+              <div className="rounded-xl bg-white/[0.04] px-2 py-2">
+                <dt className="text-[11px] text-muted">Cortes</dt>
+                <dd className="font-mono text-sm font-semibold text-white tabular-nums">{formatNumber(Math.max(0, timeline.clips.length - 1))}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="card flex flex-col gap-4 p-4">
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-semibold text-white">Formato</span>
+              <SegmentedControl
+                label="Formato"
+                value={format}
+                onValueChange={(v) => canEdit && setFormat(v)}
+                options={[
+                  { value: "9:16", label: "Vertical 9:16" },
+                  { value: "16:9", label: "Horizontal 16:9" },
+                ]}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-semibold text-white">Subtítulos</span>
+              <SegmentedControl
+                label="Estilo de subtítulos"
+                value={preset}
+                onValueChange={(v) => canEdit && setPreset(v)}
+                options={(Object.keys(CAPTION_PRESETS) as CaptionPresetKey[]).map((k) => ({ value: k, label: CAPTION_PRESETS[k].label }))}
+              />
+              <p className="text-xs text-muted">{CAPTION_PRESETS[preset].description}</p>
+            </div>
+            {showFraming && (
+              <div className="flex flex-col gap-2">
+                <label htmlFor="framing" className="flex items-center justify-between text-sm font-semibold text-white">
+                  Encuadre
+                  {offsetX !== 0 && (
+                    <button type="button" className="inline-flex items-center gap-1 text-xs font-medium text-accent-hi" onClick={() => setOffsetX(0)}>
+                      <RotateCcw className="h-3 w-3" aria-hidden /> Centrar
+                    </button>
+                  )}
+                </label>
+                <input
+                  id="framing"
+                  type="range"
+                  className="range"
+                  min={-1}
+                  max={1}
+                  step={0.05}
+                  value={offsetX}
+                  disabled={!canEdit}
+                  onChange={(e) => setOffsetX(Number(e.target.value))}
+                  style={{ ["--pct" as string]: `${((offsetX + 1) / 2) * 100}%` }}
+                  aria-valuetext={offsetX === 0 ? "Centrado" : offsetX < 0 ? "Hacia la izquierda" : "Hacia la derecha"}
+                />
+                <p className="text-xs text-muted">Tu video es horizontal: mueve el recorte para que tu cara quede al centro.</p>
+              </div>
+            )}
+          </div>
+
+          {canEdit && (
+            <div className="flex flex-col gap-2">
+              <Button onClick={render} disabled={rendering || timeline.clips.length === 0} icon={rendering ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />}>
+                {rendering ? "Enviando…" : "Renderizar video"}
+              </Button>
+              <p className="text-center text-xs text-muted" aria-live="polite">
+                {saveState === "saving" ? "Guardando cambios…" : saveState === "error" ? "No se pudieron guardar los cambios." : "Cambios guardados."} Puedes salir y volver cuando quieras.
+              </p>
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "calendar_entries" ADD COLUMN "demo" boolean DEFAULT false NOT NULL;

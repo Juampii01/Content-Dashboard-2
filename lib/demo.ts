@@ -9,6 +9,10 @@ import "server-only";
  */
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { clearCarouselDemo, loadCarouselDemo } from "@/lib/carousels/demo";
+import { addDays, todayIn } from "@/lib/calendar/dates";
+import type { CalendarStatus, PlannedFormat } from "@/lib/calendar/labels";
+import { env } from "@/lib/env";
 import { encryptTokens } from "@/lib/social/tokens";
 import type { ContentType, Platform } from "@/lib/social/types";
 
@@ -103,6 +107,9 @@ const growth = (ageDays: number) => 1 - Math.exp(-ageDays / 2.2) * 0.92 - 0.08 *
 
 export async function clearDemo(): Promise<number> {
   const db = getDb();
+  // Piezas de calendario de la demo (sus destinos caen en cascada). Las reales no se tocan.
+  await db.delete(schema.calendarEntries).where(eq(schema.calendarEntries.demo, true));
+  await clearCarouselDemo();
   const demo = await db.select({ id: schema.socialAccounts.id }).from(schema.socialAccounts).where(sql`(${schema.socialAccounts.meta} ->> 'demo') = 'true'`);
   for (const a of demo) {
     await db.delete(schema.contentItems).where(eq(schema.contentItems.socialAccountId, a.id)); // snapshots y retención caen en cascada
@@ -116,6 +123,14 @@ export async function loadDemo(): Promise<string[]> {
   seed = 42;
   const loaded: string[] = [];
   await clearDemo();
+  // Si ya hay alguna cuenta real (actual o con histórico), no se carga la demo: mezclar redes reales con
+  // inventadas ensucia las medianas, el puntaje y lo que lee la IA.
+  const [anyReal] = await db
+    .select({ id: schema.socialAccounts.id })
+    .from(schema.socialAccounts)
+    .where(sql`coalesce(${schema.socialAccounts.meta} ->> 'demo', 'false') <> 'true'`)
+    .limit(1);
+  if (anyReal) return [];
   const now = Date.now();
   for (const spec of specs) {
     const [real] = await db
@@ -271,7 +286,158 @@ export async function loadDemo(): Promise<string[]> {
   // Puntajes contra la mediana.
   const { recomputePerfScores } = await import("@/lib/social/sync/store");
   await recomputePerfScores();
+  const planned = await loadDemoCalendar();
+  if (planned) loaded.push(`Calendario: ${planned} piezas`);
+  const { created } = await loadCarouselDemo();
+  if (created) loaded.push(`Carruseles: ${created}`);
   return loaded;
+}
+
+// ─── Calendario de la demo ─────────────────────────────────────────────────
+
+type DemoEntry = {
+  title: string;
+  hook?: string;
+  pillar: string;
+  format: PlannedFormat;
+  status: CalendarStatus;
+  date: string | null;
+  time?: string | null;
+  platforms: Platform[];
+  notes?: string;
+  link?: { platform: Platform; itemId: string; status: "LINKED" | "SUGGESTED"; score: number };
+};
+
+const demoPillars = ["Crecer en redes", "Vender con contenido", "Detrás de cámaras"];
+
+const plannedFormatFor = (platform: Platform, type: ContentType): PlannedFormat =>
+  type === "CAROUSEL" ? "CAROUSEL" : type === "IMAGE" ? "POST" : type === "SHORT" ? "SHORT" : type === "REEL" ? "REEL" : platform === "YOUTUBE" ? "VIDEO" : "REEL";
+
+/**
+ * Piezas de calendario creíbles para la demo: publicadas y vinculadas con piezas demo reales (con su métrica),
+ * dos sugerencias por confirmar, lo próximo en distintos estados y redes, y unas ideas sin fecha.
+ * Todas llevan `demo = true`: clearDemo las borra sin tocar las reales.
+ */
+async function loadDemoCalendar(): Promise<number> {
+  const db = getDb();
+  const tz = env().APP_TIMEZONE;
+  const today = todayIn(tz);
+  const recent = await db.execute<{ id: string; platform: Platform; type: ContentType; title: string | null; caption: string | null; day: string; hhmm: string }>(sql`
+    select ci.id, ci.platform, ci.type, ci.title, ci.caption,
+      to_char((ci.published_at at time zone ${tz})::date, 'YYYY-MM-DD') as day,
+      to_char(ci.published_at at time zone ${tz}, 'HH24:MI') as hhmm
+    from content_items ci join social_accounts sa on sa.id = ci.social_account_id
+    where (sa.meta ->> 'demo') = 'true' and ci.available and ci.published_at > now() - interval '24 days'
+      and ci.published_at < now() - interval '20 hours'
+    order by ci.published_at desc
+  `);
+  const pieces = recent.rows;
+  const text = (p: (typeof pieces)[number]) =>
+    (p.title || p.caption?.split("\n")[0] || "")
+      .replace(/\s*👇\s*$/, "")
+      .replace(/\s*\(parte \d\)$/, "")
+      .trim();
+  const entries: DemoEntry[] = [];
+  const used = new Set<string>();
+  const usedText = new Set<string>();
+
+  // Dos sugerencias "¿Es esta?": lo planeado decía algo parecido y se publicó un día después.
+  const lower = (t: string) => `${t.charAt(0).toLowerCase()}${t.slice(1)}`;
+  const rewordings = [(t: string) => `Versión corta: ${lower(t)}`, (t: string) => `Reel sobre ${lower(t)}`];
+  for (const p of pieces.slice(0, 12)) {
+    if (entries.length >= 2) break;
+    if (usedText.has(text(p)) || p.type === "CAROUSEL") continue;
+    used.add(p.id);
+    usedText.add(text(p));
+    entries.push({
+      title: rewordings[entries.length]!(text(p)),
+      pillar: demoPillars[entries.length % 3]!,
+      format: plannedFormatFor(p.platform, p.type),
+      status: "READY",
+      date: addDays(p.day, -1),
+      time: "19:00",
+      platforms: [p.platform],
+      link: { platform: p.platform, itemId: p.id, status: "SUGGESTED", score: entries.length ? 0.62 : 0.68 },
+    });
+  }
+
+  // Lo ya publicado, vinculado con su pieza real: una por día como mucho y sin repetir textos.
+  const days = new Set<string>();
+  for (const p of pieces) {
+    if (entries.filter((e) => e.link?.status === "LINKED").length >= 14) break;
+    if (used.has(p.id) || usedText.has(text(p)) || days.has(p.day)) continue;
+    used.add(p.id);
+    usedText.add(text(p));
+    days.add(p.day);
+    entries.push({
+      title: text(p),
+
+      pillar: demoPillars[entries.length % 3]!,
+      format: plannedFormatFor(p.platform, p.type),
+      status: "PUBLISHED",
+      date: p.day,
+      time: `${p.hhmm.slice(0, 2)}:00`,
+      platforms: [p.platform],
+      link: { platform: p.platform, itemId: p.id, status: "LINKED", score: 0.8 + ((entries.length * 37) % 18) / 100 },
+    });
+  }
+
+  // Lo que viene.
+  const upcoming: DemoEntry[] = [
+    { title: "Cómo respondo cuando me dicen “está caro”", hook: "Si te dicen “está caro”, no bajes el precio: haz esta pregunta.", pillar: "Vender con contenido", format: "REEL", status: "PRODUCTION", date: today, time: "19:00", platforms: ["INSTAGRAM", "TIKTOK"] },
+    { title: "El guion de 30 segundos para cerrar ventas por DM", hook: "Este mensaje de 30 segundos me trajo más clientes que un año de anuncios.", pillar: "Vender con contenido", format: "REEL", status: "READY", date: addDays(today, 1), time: "18:30", platforms: ["INSTAGRAM", "TIKTOK"], notes: "Grabar con la luz de la ventana. CTA: comenta GUION." },
+    { title: "Mi sistema para grabar un mes en una tarde", hook: "Grabo 30 videos en 4 horas. Este es el sistema exacto.", pillar: "Detrás de cámaras", format: "VIDEO", status: "PRODUCTION", date: addDays(today, 2), time: "10:00", platforms: ["YOUTUBE"] },
+    { title: "5 ganchos de contraste para tu próximo reel", hook: "Guarda estos 5 ganchos: funcionan en cualquier nicho.", pillar: "Crecer en redes", format: "CAROUSEL", status: "SCRIPTING", date: addDays(today, 3), platforms: ["INSTAGRAM"] },
+    { title: "Lo que nadie te dice de los primeros 1,000 seguidores", pillar: "Crecer en redes", format: "SHORT", status: "READY", date: addDays(today, 4), time: "18:00", platforms: ["YOUTUBE"] },
+    { title: "Un día grabando contenido conmigo", pillar: "Detrás de cámaras", format: "REEL", status: "IDEA", date: addDays(today, 5), platforms: ["TIKTOK"] },
+    { title: "Por qué tu CTA no convierte (y cómo arreglarlo)", hook: "Tu CTA no falla por el texto. Falla por el momento.", pillar: "Vender con contenido", format: "REEL", status: "SCRIPTING", date: addDays(today, 7), time: "19:00", platforms: ["INSTAGRAM", "TIKTOK"] },
+    { title: "Plantilla: planea tu mes en 2 horas", pillar: "Crecer en redes", format: "CAROUSEL", status: "IDEA", date: addDays(today, 9), platforms: ["INSTAGRAM"] },
+    { title: "Respuesta a la duda más común de mis alumnos", pillar: "Vender con contenido", format: "CLONE_VIDEO", status: "PRODUCTION", date: addDays(today, 11), time: "12:00", platforms: ["INSTAGRAM", "TIKTOK"] },
+    { title: "Mi estudio por menos de 300 dólares", pillar: "Detrás de cámaras", format: "VIDEO", status: "IDEA", date: addDays(today, 13), platforms: ["YOUTUBE"] },
+  ];
+  const undated: DemoEntry[] = [
+    { title: "Errores de edición que bajan tu retención", hook: "Si tu video pierde gente en el segundo 3, es por esto.", pillar: "Crecer en redes", format: "REEL", status: "IDEA", date: null, platforms: ["INSTAGRAM", "TIKTOK"] },
+    { title: "Caso: de 0 a 10 clientes con contenido orgánico", pillar: "Vender con contenido", format: "VIDEO", status: "IDEA", date: null, platforms: ["YOUTUBE"] },
+    { title: "Las 3 apps que uso para todo", pillar: "Detrás de cámaras", format: "CAROUSEL", status: "IDEA", date: null, platforms: ["INSTAGRAM"] },
+  ];
+  entries.push(...upcoming, ...undated);
+
+  const positions = new Map<string, number>();
+  for (const e of entries) {
+    const key = e.date ?? "none";
+    const position = positions.get(key) ?? 0;
+    positions.set(key, position + 1);
+    const [row] = await db
+      .insert(schema.calendarEntries)
+      .values({
+        title: e.title,
+        hook: e.hook ?? null,
+        pillar: e.pillar,
+        notes: e.notes ?? null,
+        format: e.format,
+        status: e.status,
+        scheduledDate: e.date,
+        scheduledTime: e.date ? (e.time ?? null) : null,
+        position,
+        source: "manual",
+        demo: true,
+      })
+      .returning({ id: schema.calendarEntries.id });
+    await db.insert(schema.calendarTargets).values(
+      e.platforms.map((platform) => {
+        const link = e.link?.platform === platform ? e.link : null;
+        return {
+          entryId: row!.id,
+          platform,
+          linkStatus: link?.status ?? ("NONE" as const),
+          contentItemId: link?.itemId ?? null,
+          linkScore: link ? Math.round(link.score * 100) / 100 : null,
+          linkedAt: link?.status === "LINKED" ? new Date() : null,
+        };
+      }),
+    );
+  }
+  return entries.length;
 }
 
 /** true si hay cuentas de demostración cargadas. */

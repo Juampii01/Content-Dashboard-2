@@ -7,7 +7,7 @@ import { clearDemo, loadDemo } from "../lib/demo";
 
 const action = process.argv[2];
 (async () => {
-  if (action === "cargar") console.log((await loadDemo()).join("\n") || "No se cargó nada: todas las redes tienen una cuenta real.");
+  if (action === "cargar") console.log((await loadDemo()).join("\n") || "No se cargó nada: ya hay cuentas reales conectadas y la demo no se mezcla con ellas.");
   else if (action === "borrar") console.log(`Demo borrada (${await clearDemo()} cuentas).`);
   else {
     console.log("Uso: pnpm demo cargar | pnpm demo borrar");

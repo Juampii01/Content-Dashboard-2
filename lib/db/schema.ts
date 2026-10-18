@@ -511,6 +511,7 @@ export const calendarEntries = pgTable(
     carouselId: uuid("carousel_id"),
     cloneVideoId: uuid("clone_video_id"),
     videoProjectId: uuid("video_project_id"),
+    demo: boolean("demo").notNull().default(false), // creada por los datos de demostración: se borra con ellos
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

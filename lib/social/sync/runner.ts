@@ -1,6 +1,7 @@
 import "server-only";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { autoLinkRecent } from "@/lib/calendar/linking";
 import { isoDay, SyncContext } from "../http";
 import { instagramAccountDays, instagramMediaPage, instagramNormalize, instagramProfile, pastDays } from "../instagram/client";
 import { tiktokProfile, tiktokVideosPage } from "../tiktok/client";
@@ -239,6 +240,8 @@ export async function syncAccount(accountId: string, kind: SyncKind, budgetMs = 
       .where(eq(schema.socialAccounts.id, account.id));
 
     const status = items.complete ? "SUCCEEDED" : "PARTIAL";
+    // Une lo planeado en el Calendario con lo que se acaba de publicar. Si falla, el sync igual cuenta como bueno.
+    await autoLinkRecent().catch((error) => console.error("[calendario] vínculo:", error instanceof Error ? error.message : error));
     await finish({
       status,
       itemsUpserted: items.upserted,

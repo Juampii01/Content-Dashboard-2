@@ -12,8 +12,8 @@ export async function loadDemoAction(): Promise<DemoState> {
   const loaded = await loadDemo();
   refresh();
   return loaded.length
-    ? { ok: true, message: "Listo. Cargamos 6 meses de contenido de ejemplo. Mira Inicio y Métricas." }
-    : { error: "Todas las redes ya tienen una cuenta real conectada: la demo no se mezcla con datos reales." };
+    ? { ok: true, message: "Listo. Cargamos 6 meses de contenido de ejemplo, un calendario y carruseles. Mira Inicio, Métricas y Calendario." }
+    : { error: "Ya hay cuentas reales en esta instalación: la demo no se mezcla con datos reales." };
 }
 
 export async function clearDemoAction(): Promise<DemoState> {

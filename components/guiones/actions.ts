@@ -11,6 +11,7 @@ import { getDb, schema } from "@/lib/db";
 import type { ScriptContent } from "@/lib/db/schema";
 import { getSourcePiece } from "@/lib/dal/scripts";
 import { allowAttempt } from "@/lib/rate-limit";
+import { syncEntriesFromScript } from "@/lib/calendar/status";
 import { adaptScript, applyAction, createScript, restoreVersion, saveEdits, type ScriptAction } from "@/lib/scripts/service";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -123,6 +124,7 @@ export async function setScriptStatusAction(scriptId: string, status: (typeof st
   if (isDenied(user)) return user;
   if (!statuses.includes(status)) return { ok: false, error: "Estado no válido." };
   await getDb().update(schema.scripts).set({ status }).where(eq(schema.scripts.id, scriptId));
+  await syncEntriesFromScript(scriptId, status); // el Calendario sigue al guion (lib/calendar/status.ts)
   refresh();
   return { ok: true };
 }

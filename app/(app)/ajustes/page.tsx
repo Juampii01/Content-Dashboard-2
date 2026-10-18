@@ -6,6 +6,7 @@ import { Section } from "@/components/ui/card";
 import { TeamSection, TeamSectionSkeleton } from "@/components/ajustes/team-section";
 import { ConnectionsSection, ConnectionsSkeleton } from "@/components/ajustes/connections-section";
 import { ConnectNotice } from "@/components/ajustes/connect-notice";
+import { DemoSection } from "@/components/ajustes/demo-section";
 
 export const metadata: Metadata = { title: "Ajustes" };
 
@@ -30,6 +31,10 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
             <ConnectionsSection />
           </Suspense>
         </Section>
+
+        <Suspense fallback={null}>
+          <DemoSection />
+        </Suspense>
 
         <Section title="Claves de servicios" description="Tu API key de HeyGen para los videos con clon. Se guarda cifrada y nunca se muestra completa.">
           <div className="flex items-center gap-3 text-sm text-muted">

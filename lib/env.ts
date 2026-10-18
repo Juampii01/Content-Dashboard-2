@@ -38,6 +38,9 @@ const schema = z.object({
   // Tareas programadas (sync diario y refresco de tokens)
   CRON_SECRET: z.string().min(16),
 
+  // Archivos (Vercel Blob). Lo crea la integración de Blob en el proyecto de Vercel.
+  BLOB_READ_WRITE_TOKEN: optional,
+
   // Integraciones (se exigen en cada módulo)
   INSTAGRAM_APP_ID: optional,
   INSTAGRAM_APP_SECRET: optional,
@@ -70,6 +73,7 @@ export function env(): Env {
 }
 
 type OptionalKey =
+  | "BLOB_READ_WRITE_TOKEN"
   | "INSTAGRAM_APP_ID"
   | "INSTAGRAM_APP_SECRET"
   | "GOOGLE_CLIENT_ID"

@@ -125,35 +125,62 @@ export const teamMembers = pgTable("team_members", {
 
 export const platformEnum = pgEnum("platform", ["INSTAGRAM", "YOUTUBE", "TIKTOK"]);
 
-/** EXPIRED: el token venció y no se pudo refrescar. REVOKED: el usuario quitó el permiso desde la red. */
-export const connectionStatusEnum = pgEnum("connection_status", ["ACTIVE", "EXPIRED", "REVOKED", "ERROR"]);
+/**
+ * ACTIVE: funciona. EXPIRED: el token venció y no se pudo refrescar. REVOKED: el usuario quitó el permiso
+ * desde la red. MISSING_SCOPES: conectó sin aceptar todos los permisos. ERROR: falla de la red que no se resolvió.
+ * DISCONNECTED: se desconectó desde Ajustes (se conserva por el histórico).
+ */
+export const connectionStatusEnum = pgEnum("connection_status", [
+  "ACTIVE",
+  "EXPIRED",
+  "REVOKED",
+  "MISSING_SCOPES",
+  "ERROR",
+  "DISCONNECTED",
+]);
 
-/** Una cuenta conectada por red. Los tokens se guardan cifrados (lib/crypto.ts). */
-export const socialAccounts = pgTable("social_accounts", {
-  id: id(),
-  platform: platformEnum("platform").notNull().unique(),
-  externalId: text("external_id").notNull(),
-  handle: text("handle").notNull(),
-  displayName: text("display_name"),
-  avatarUrl: text("avatar_url"),
-  accessTokenEnc: text("access_token_enc").notNull(),
-  refreshTokenEnc: text("refresh_token_enc"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
-  scopes: text("scopes").array().notNull().default(sql`'{}'::text[]`),
-  status: connectionStatusEnum("status").notNull().default("ACTIVE"),
-  statusMessage: text("status_message"),
-  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
-  connectedAt: createdAt(),
-  updatedAt: updatedAt(),
-});
+/**
+ * Cuentas conectadas. Puede haber varias filas por red (si se cambia de cuenta, la anterior queda
+ * DISCONNECTED con su histórico), pero solo una "actual" por red (índice único parcial).
+ * Los tokens se guardan cifrados (lib/crypto.ts).
+ */
+export const socialAccounts = pgTable(
+  "social_accounts",
+  {
+    id: id(),
+    platform: platformEnum("platform").notNull(),
+    externalId: text("external_id").notNull(),
+    handle: text("handle").notNull(),
+    displayName: text("display_name"),
+    avatarUrl: text("avatar_url"),
+    accessTokenEnc: text("access_token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    tokenIssuedAt: timestamp("token_issued_at", { withTimezone: true }),
+    scopes: text("scopes").array().notNull().default(sql`'{}'::text[]`),
+    status: connectionStatusEnum("status").notNull().default("ACTIVE"),
+    statusMessage: text("status_message"), // en español, para mostrar
+    current: boolean("current").notNull().default(true),
+    meta: jsonb("meta").$type<Record<string, unknown>>(), // datos propios de la red (p. ej. playlist de subidas de YouTube)
+    backfillCompletedAt: timestamp("backfill_completed_at", { withTimezone: true }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    connectedBy: text("connected_by").references(() => users.id, { onDelete: "set null" }),
+    connectedAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("social_accounts_platform_external_id_key").on(t.platform, t.externalId),
+    uniqueIndex("social_accounts_current_platform_key").on(t.platform).where(sql`${t.current}`),
+  ],
+);
 
 /** Estado temporal del flujo OAuth (protección CSRF). Se borra al usarse o a los 10 minutos. */
 export const oauthStates = pgTable("oauth_states", {
   id: id(),
   state: text("state").notNull().unique(),
   platform: platformEnum("platform").notNull(),
-  codeVerifier: text("code_verifier"), // PKCE (TikTok)
+  codeVerifier: text("code_verifier"),
   createdBy: text("created_by")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -163,13 +190,16 @@ export const oauthStates = pgTable("oauth_states", {
 
 // ─── Contenido y métricas (modelo común a las tres redes) ──────────────────
 
-/** REEL, CAROUSEL e IMAGE son de Instagram; VIDEO es YouTube largo o TikTok; SHORT es YouTube Short. */
+/** REEL, CAROUSEL e IMAGE son de Instagram; VIDEO es YouTube largo, video de feed de IG o TikTok; SHORT es YouTube Short. */
 export const contentTypeEnum = pgEnum("content_type", ["REEL", "CAROUSEL", "IMAGE", "VIDEO", "SHORT"]);
+
+/** OK: llegaron. PENDING: la red todavía no los calcula (hasta 48 h). NOT_SUPPORTED: la red no los da para esta pieza. */
+export const insightsStatusEnum = pgEnum("insights_status", ["OK", "PENDING", "NOT_SUPPORTED"]);
 
 /**
  * Una pieza publicada en cualquier red, con sus métricas actuales.
- * Nunca se borra: si deja de venir en la API se marca `available = false`.
- * Métricas en null = la red no da ese dato para esta pieza.
+ * Nunca se borra: si deja de venir en la API se marca `available = false` y `unavailableSince`.
+ * Métricas en null = la red no da ese dato (nunca se guarda 0 en lugar de "sin dato").
  */
 export const contentItems = pgTable(
   "content_items",
@@ -182,22 +212,42 @@ export const contentItems = pgTable(
     externalId: text("external_id").notNull(),
     type: contentTypeEnum("type").notNull(),
     caption: text("caption"),
-    title: text("title"), // YouTube
+    title: text("title"), // YouTube y TikTok
     permalink: text("permalink"),
-    thumbnailUrl: text("thumbnail_url"),
+    thumbnailUrl: text("thumbnail_url"), // copia propia (la de la red vence)
+    thumbnailSourceUrl: text("thumbnail_source_url"),
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
     durationSec: integer("duration_sec"),
 
+    // Métricas actuales
     views: bigint("views", { mode: "number" }),
+    reach: integer("reach"),
     likes: integer("likes"),
     comments: integer("comments"),
     shares: integer("shares"),
     saves: integer("saves"),
-    reach: integer("reach"),
-    watchTimeMinutes: real("watch_time_minutes"), // YouTube Analytics
-    avgViewPercentage: real("avg_view_percentage"), // YouTube Analytics
+    totalInteractions: integer("total_interactions"),
+    follows: integer("follows"),
+    profileVisits: integer("profile_visits"),
+    avgWatchSec: real("avg_watch_sec"),
+    totalWatchSec: real("total_watch_sec"),
+    skipRate: real("skip_rate"), // IG: % que salta en los primeros 3 s
+    engagedViews: bigint("engaged_views", { mode: "number" }), // YouTube
+    watchTimeMinutes: real("watch_time_minutes"), // YouTube
+    avgViewPercentage: real("avg_view_percentage"), // YouTube
+    subscribersGained: integer("subscribers_gained"), // YouTube
 
+    // Rendimiento a la misma edad (para comparar piezas de forma justa)
+    views24h: bigint("views_24h", { mode: "number" }),
+    views72h: bigint("views_72h", { mode: "number" }),
+    views7d: bigint("views_7d", { mode: "number" }),
+    /** views7d ÷ mediana de views7d del mismo tipo y red en los últimos 90 días. */
+    perfScore: real("perf_score"),
+
+    insightsStatus: insightsStatusEnum("insights_status").notNull().default("PENDING"),
     available: boolean("available").notNull().default(true),
+    unavailableSince: timestamp("unavailable_since", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     metricsUpdatedAt: timestamp("metrics_updated_at", { withTimezone: true }),
     raw: jsonb("raw"), // respuesta original de la API, para depurar mapeos
     createdAt: createdAt(),
@@ -207,10 +257,15 @@ export const contentItems = pgTable(
     uniqueIndex("content_items_platform_external_id_key").on(t.platform, t.externalId),
     index("content_items_platform_published_at_idx").on(t.platform, t.publishedAt),
     index("content_items_published_at_idx").on(t.publishedAt),
+    index("content_items_account_idx").on(t.socialAccountId),
+    index("content_items_search_idx").using(
+      "gin",
+      sql`to_tsvector('simple', coalesce(${t.caption}, '') || ' ' || coalesce(${t.title}, ''))`,
+    ),
   ],
 );
 
-/** Foto diaria de las métricas de una pieza, para ver su evolución. */
+/** Foto de las métricas de una pieza (una por día), para ver su evolución y calcular views a 24 h, 72 h y 7 días. */
 export const metricSnapshots = pgTable(
   "metric_snapshots",
   {
@@ -219,17 +274,21 @@ export const metricSnapshots = pgTable(
       .notNull()
       .references(() => contentItems.id, { onDelete: "cascade" }),
     capturedOn: date("captured_on", { mode: "string" }).notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    ageHours: integer("age_hours"),
     views: bigint("views", { mode: "number" }),
+    reach: integer("reach"),
     likes: integer("likes"),
     comments: integer("comments"),
     shares: integer("shares"),
     saves: integer("saves"),
-    reach: integer("reach"),
+    avgWatchSec: real("avg_watch_sec"),
+    watchTimeMinutes: real("watch_time_minutes"),
   },
   (t) => [uniqueIndex("metric_snapshots_item_day_key").on(t.contentItemId, t.capturedOn)],
 );
 
-/** Foto diaria de la cuenta: seguidores y totales. */
+/** Foto diaria de la cuenta: seguidores y totales del día. */
 export const accountSnapshots = pgTable(
   "account_snapshots",
   {
@@ -241,10 +300,55 @@ export const accountSnapshots = pgTable(
     followers: integer("followers"),
     following: integer("following"),
     mediaCount: integer("media_count"),
-    totalViews: bigint("total_views", { mode: "number" }),
-    totalLikes: bigint("total_likes", { mode: "number" }),
+    totalLikes: bigint("total_likes", { mode: "number" }), // TikTok: likes acumulados de la cuenta
+    // Totales del día
+    views: bigint("views", { mode: "number" }),
+    reach: integer("reach"),
+    accountsEngaged: integer("accounts_engaged"),
+    interactions: integer("interactions"),
+    profileLinksTaps: integer("profile_links_taps"),
+    follows: integer("follows"),
+    unfollows: integer("unfollows"),
+    subscribersGained: integer("subscribers_gained"),
+    subscribersLost: integer("subscribers_lost"),
+    watchTimeMinutes: real("watch_time_minutes"),
   },
   (t) => [uniqueIndex("account_snapshots_account_day_key").on(t.socialAccountId, t.capturedOn)],
+);
+
+/** Curva de retención de un video de YouTube (porcentaje que sigue mirando en cada punto del video). */
+export const retentionCurves = pgTable("retention_curves", {
+  contentItemId: uuid("content_item_id")
+    .primaryKey()
+    .references(() => contentItems.id, { onDelete: "cascade" }),
+  points: jsonb("points").$type<{ at: number; ratio: number }[]>().notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const syncKindEnum = pgEnum("sync_kind", ["BACKFILL", "RECENT", "DAILY", "WEEKLY", "ACCOUNT", "TOKEN", "MANUAL"]);
+export const syncStatusEnum = pgEnum("sync_status", ["RUNNING", "SUCCEEDED", "PARTIAL", "FAILED"]);
+
+/** Registro de cada sincronización. También funciona como candado: una sola sincronización por red a la vez. */
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: id(),
+    socialAccountId: uuid("social_account_id")
+      .notNull()
+      .references(() => socialAccounts.id, { onDelete: "cascade" }),
+    platform: platformEnum("platform").notNull(),
+    kind: syncKindEnum("kind").notNull(),
+    status: syncStatusEnum("status").notNull().default("RUNNING"),
+    cursor: jsonb("cursor").$type<Record<string, unknown>>(), // para retomar un backfill largo
+    apiCalls: integer("api_calls").notNull().default(0),
+    itemsUpserted: integer("items_upserted").notNull().default(0),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"), // en español, para mostrar
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("sync_runs_account_started_idx").on(t.socialAccountId, t.startedAt)],
 );
 
 // ─── Marca ─────────────────────────────────────────────────────────────────

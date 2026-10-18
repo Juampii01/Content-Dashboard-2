@@ -1,5 +1,5 @@
 {
-  "id": "bf139a0b-57b5-40a6-88a6-00ca0b0f1f43",
+  "id": "f2483b10-f453-4ce4-b34c-f9fa9290cefd",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -45,15 +45,69 @@
           "primaryKey": false,
           "notNull": false
         },
-        "total_views": {
-          "name": "total_views",
+        "total_likes": {
+          "name": "total_likes",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
-        "total_likes": {
-          "name": "total_likes",
+        "views": {
+          "name": "views",
           "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reach": {
+          "name": "reach",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accounts_engaged": {
+          "name": "accounts_engaged",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "interactions": {
+          "name": "interactions",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_links_taps": {
+          "name": "profile_links_taps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "follows": {
+          "name": "follows",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unfollows": {
+          "name": "unfollows",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "subscribers_gained": {
+          "name": "subscribers_gained",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "subscribers_lost": {
+          "name": "subscribers_lost",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "watch_time_minutes": {
+          "name": "watch_time_minutes",
+          "type": "real",
           "primaryKey": false,
           "notNull": false
         }
@@ -632,6 +686,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "thumbnail_source_url": {
+          "name": "thumbnail_source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "published_at": {
           "name": "published_at",
           "type": "timestamp with time zone",
@@ -647,6 +707,12 @@
         "views": {
           "name": "views",
           "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reach": {
+          "name": "reach",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -674,9 +740,45 @@
           "primaryKey": false,
           "notNull": false
         },
-        "reach": {
-          "name": "reach",
+        "total_interactions": {
+          "name": "total_interactions",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "follows": {
+          "name": "follows",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_visits": {
+          "name": "profile_visits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avg_watch_sec": {
+          "name": "avg_watch_sec",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_watch_sec": {
+          "name": "total_watch_sec",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "skip_rate": {
+          "name": "skip_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "engaged_views": {
+          "name": "engaged_views",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -692,12 +794,63 @@
           "primaryKey": false,
           "notNull": false
         },
+        "subscribers_gained": {
+          "name": "subscribers_gained",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "views_24h": {
+          "name": "views_24h",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "views_72h": {
+          "name": "views_72h",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "views_7d": {
+          "name": "views_7d",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "perf_score": {
+          "name": "perf_score",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "insights_status": {
+          "name": "insights_status",
+          "type": "insights_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
         "available": {
           "name": "available",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "unavailable_since": {
+          "name": "unavailable_since",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         },
         "metrics_updated_at": {
           "name": "metrics_updated_at",
@@ -782,6 +935,36 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+          "with": {}
+        },
+        "content_items_account_idx": {
+          "name": "content_items_account_idx",
+          "columns": [
+            {
+              "expression": "social_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "content_items_search_idx": {
+          "name": "content_items_search_idx",
+          "columns": [
+            {
+              "expression": "to_tsvector('simple', coalesce(\"caption\", '') || ' ' || coalesce(\"title\", ''))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
           "with": {}
         }
       },
@@ -978,9 +1161,28 @@
           "primaryKey": false,
           "notNull": true
         },
+        "captured_at": {
+          "name": "captured_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "age_hours": {
+          "name": "age_hours",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "views": {
           "name": "views",
           "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reach": {
+          "name": "reach",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -1008,9 +1210,15 @@
           "primaryKey": false,
           "notNull": false
         },
-        "reach": {
-          "name": "reach",
-          "type": "integer",
+        "avg_watch_sec": {
+          "name": "avg_watch_sec",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "watch_time_minutes": {
+          "name": "watch_time_minutes",
+          "type": "real",
           "primaryKey": false,
           "notNull": false
         }
@@ -1166,6 +1374,52 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.retention_curves": {
+      "name": "retention_curves",
+      "schema": "",
+      "columns": {
+        "content_item_id": {
+          "name": "content_item_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "points": {
+          "name": "points",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "captured_at": {
+          "name": "captured_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "retention_curves_content_item_id_content_items_id_fk": {
+          "name": "retention_curves_content_item_id_content_items_id_fk",
+          "tableFrom": "retention_curves",
+          "tableTo": "content_items",
+          "columnsFrom": [
+            "content_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1526,6 +1780,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "token_issued_at": {
+          "name": "token_issued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "scopes": {
           "name": "scopes",
           "type": "text[]",
@@ -1547,9 +1807,34 @@
           "primaryKey": false,
           "notNull": false
         },
+        "current": {
+          "name": "current",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "meta": {
+          "name": "meta",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "backfill_completed_at": {
+          "name": "backfill_completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "last_synced_at": {
           "name": "last_synced_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "connected_by": {
+          "name": "connected_by",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1568,18 +1853,197 @@
           "default": "now()"
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "social_accounts_platform_unique": {
-          "name": "social_accounts_platform_unique",
-          "nullsNotDistinct": false,
+      "indexes": {
+        "social_accounts_platform_external_id_key": {
+          "name": "social_accounts_platform_external_id_key",
           "columns": [
-            "platform"
-          ]
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "social_accounts_current_platform_key": {
+          "name": "social_accounts_current_platform_key",
+          "columns": [
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"social_accounts\".\"current\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
+      "foreignKeys": {
+        "social_accounts_connected_by_users_id_fk": {
+          "name": "social_accounts_connected_by_users_id_fk",
+          "tableFrom": "social_accounts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "connected_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sync_runs": {
+      "name": "sync_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "social_account_id": {
+          "name": "social_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "platform",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "sync_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "sync_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'RUNNING'"
+        },
+        "cursor": {
+          "name": "cursor",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "api_calls": {
+          "name": "api_calls",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "items_upserted": {
+          "name": "items_upserted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "sync_runs_account_started_idx": {
+          "name": "sync_runs_account_started_idx",
+          "columns": [
+            {
+              "expression": "social_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sync_runs_social_account_id_social_accounts_id_fk": {
+          "name": "sync_runs_social_account_id_social_accounts_id_fk",
+          "tableFrom": "sync_runs",
+          "tableTo": "social_accounts",
+          "columnsFrom": [
+            "social_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1833,7 +2297,9 @@
         "ACTIVE",
         "EXPIRED",
         "REVOKED",
-        "ERROR"
+        "MISSING_SCOPES",
+        "ERROR",
+        "DISCONNECTED"
       ]
     },
     "public.content_format": {
@@ -1856,6 +2322,15 @@
         "IMAGE",
         "VIDEO",
         "SHORT"
+      ]
+    },
+    "public.insights_status": {
+      "name": "insights_status",
+      "schema": "public",
+      "values": [
+        "OK",
+        "PENDING",
+        "NOT_SUPPORTED"
       ]
     },
     "public.job_status": {
@@ -1912,6 +2387,29 @@
       "schema": "public",
       "values": [
         "HEYGEN"
+      ]
+    },
+    "public.sync_kind": {
+      "name": "sync_kind",
+      "schema": "public",
+      "values": [
+        "BACKFILL",
+        "RECENT",
+        "DAILY",
+        "WEEKLY",
+        "ACCOUNT",
+        "TOKEN",
+        "MANUAL"
+      ]
+    },
+    "public.sync_status": {
+      "name": "sync_status",
+      "schema": "public",
+      "values": [
+        "RUNNING",
+        "SUCCEEDED",
+        "PARTIAL",
+        "FAILED"
       ]
     }
   },

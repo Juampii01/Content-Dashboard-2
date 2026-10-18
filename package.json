@@ -11,9 +11,11 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "crear-dueno": "tsx --conditions=react-server --env-file=.env.local scripts/crear-dueno.ts"
+    "crear-dueno": "tsx --conditions=react-server --env-file=.env.local scripts/crear-dueno.ts",
+    "test:sync": "node --conditions=react-server --import tsx --test tests/sync.test.mts"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.2",
     "@vercel/functions": "^3.10.1",
     "better-auth": "^1.7.10",
     "clsx": "^2.1.1",

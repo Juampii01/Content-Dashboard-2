@@ -15,6 +15,13 @@
       "when": 1792306757978,
       "tag": "0001_marca-y-guiones",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792308027287,
+      "tag": "0002_modulos-produccion",
+      "breakpoints": true
     }
   ]
 }

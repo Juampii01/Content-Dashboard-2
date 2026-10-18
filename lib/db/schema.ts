@@ -450,26 +450,181 @@ export const scriptVersions = pgTable(
 );
 
 export const calendarStatusEnum = pgEnum("calendar_status", ["IDEA", "SCRIPTING", "PRODUCTION", "READY", "PUBLISHED"]);
-export const contentFormatEnum = pgEnum("content_format", ["REEL", "CAROUSEL", "VIDEO", "SHORT", "CLONE_VIDEO"]);
+export const plannedFormatEnum = pgEnum("planned_format", ["REEL", "CAROUSEL", "VIDEO", "SHORT", "STORY", "POST", "CLONE_VIDEO"]);
+export const linkStatusEnum = pgEnum("link_status", ["NONE", "SUGGESTED", "LINKED"]);
 
-/** Pieza planeada en el calendario. Al publicarse se vincula con su pieza real en `content_items`. */
+/**
+ * Pieza planeada en el calendario. La fecha es local (APP_TIMEZONE): `scheduledDate` + `scheduledTime` opcional.
+ * Sin fecha = está en la lista "Sin fecha". Las redes de destino van en `calendar_targets`.
+ */
 export const calendarEntries = pgTable(
   "calendar_entries",
   {
     id: id(),
     title: text("title").notNull(),
     notes: text("notes"),
-    format: contentFormatEnum("format").notNull(),
-    platforms: platformEnum("platforms").array().notNull().default(sql`'{}'`),
+    hook: text("hook"),
+    pillar: text("pillar"),
+    format: plannedFormatEnum("format").notNull().default("REEL"),
     status: calendarStatusEnum("status").notNull().default("IDEA"),
-    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    scheduledDate: date("scheduled_date"),
+    scheduledTime: text("scheduled_time"), // "HH:MM" local; null = sin hora
+    position: integer("position").notNull().default(0), // orden dentro del día o de "Sin fecha"
+    source: text("source").notNull().default("manual"), // manual | guion | carrusel | clon | editor | plan
     scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
-    contentItemId: uuid("content_item_id").references(() => contentItems.id, { onDelete: "set null" }),
+    carouselId: uuid("carousel_id"),
+    cloneVideoId: uuid("clone_video_id"),
+    videoProjectId: uuid("video_project_id"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("calendar_entries_scheduled_for_idx").on(t.scheduledFor)],
+  (t) => [
+    index("calendar_entries_date_idx").on(t.scheduledDate),
+    index("calendar_entries_script_idx").on(t.scriptId),
+  ],
+);
+
+/** Una red de destino de una pieza planeada, con su vínculo a la pieza real publicada. */
+export const calendarTargets = pgTable(
+  "calendar_targets",
+  {
+    id: id(),
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => calendarEntries.id, { onDelete: "cascade" }),
+    platform: platformEnum("platform").notNull(),
+    linkStatus: linkStatusEnum("link_status").notNull().default("NONE"),
+    contentItemId: uuid("content_item_id").references(() => contentItems.id, { onDelete: "set null" }),
+    linkScore: real("link_score"),
+    linkedAt: timestamp("linked_at", { withTimezone: true }),
+    rejectedItemIds: uuid("rejected_item_ids").array().notNull().default(sql`'{}'::uuid[]`), // sugerencias descartadas
+  },
+  (t) => [
+    uniqueIndex("calendar_targets_entry_platform_uq").on(t.entryId, t.platform),
+    index("calendar_targets_item_idx").on(t.contentItemId),
+  ],
+);
+
+// ─── Carruseles ────────────────────────────────────────────────────────────
+
+export const carouselStatusEnum = pgEnum("carousel_status", ["DRAFT", "READY", "EXPORTED", "ARCHIVED"]);
+
+export type CarouselSlide = {
+  id: string;
+  type: "cover" | "item" | "step" | "data" | "quote" | "cta";
+  kicker: string;
+  headline: string;
+  highlight: string; // palabra o frase del titular que va en color de acento
+  body: string;
+  cta: string;
+  template?: string | null; // plantilla propia de este slide; null = la del carrusel
+  imageUrl?: string | null; // foto o fondo subido por el cliente
+};
+
+/** Un carrusel de Instagram (1080×1350). Los slides son texto; la imagen final se dibuja con la plantilla. */
+export const carousels = pgTable(
+  "carousels",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    topic: text("topic"),
+    status: carouselStatusEnum("status").notNull().default("DRAFT"),
+    template: text("template").notNull().default("editorial"),
+    theme: jsonb("theme").$type<Record<string, string>>(), // colores o fuentes propios de este carrusel
+    slides: jsonb("slides").$type<CarouselSlide[]>().notNull().default(sql`'[]'::jsonb`),
+    caption: text("caption"),
+    hashtags: text("hashtags").array().notNull().default(sql`'{}'::text[]`),
+    ctaKeyword: text("cta_keyword"),
+    sourceText: text("source_text"),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("carousels_updated_at_idx").on(t.updatedAt)],
+);
+
+// ─── Videos con clon (HeyGen) ──────────────────────────────────────────────
+
+export const cloneVideoStatusEnum = pgEnum("clone_video_status", ["QUEUED", "PROCESSING", "COMPLETED", "FAILED"]);
+
+/** Un video generado con el clon del cliente en su propia cuenta de HeyGen. */
+export const cloneVideos = pgTable(
+  "clone_videos",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    scriptText: text("script_text").notNull(),
+    avatarId: text("avatar_id").notNull(),
+    avatarName: text("avatar_name"),
+    voiceId: text("voice_id").notNull(),
+    engine: text("engine").notNull(), // avatar_iii | avatar_iv | avatar_v
+    aspectRatio: text("aspect_ratio").notNull().default("9:16"),
+    resolution: text("resolution").notNull().default("1080p"),
+    captions: boolean("captions").notNull().default(false),
+    background: jsonb("background").$type<{ type: "color"; value: string } | null>(),
+    speed: real("speed").notNull().default(1),
+    estimatedSeconds: integer("estimated_seconds"),
+    estimatedCostUsd: real("estimated_cost_usd"),
+    heygenVideoId: text("heygen_video_id").unique(),
+    status: cloneVideoStatusEnum("status").notNull().default("QUEUED"),
+    errorMessage: text("error_message"),
+    videoUrl: text("video_url"), // copia propia (las URLs de HeyGen vencen)
+    subtitleUrl: text("subtitle_url"),
+    thumbnailUrl: text("thumbnail_url"),
+    durationSeconds: real("duration_seconds"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [index("clone_videos_status_idx").on(t.status), index("clone_videos_created_at_idx").on(t.createdAt)],
+);
+
+/** Eventos de webhooks ya procesados (para no procesar dos veces el mismo). */
+export const webhookEvents = pgTable("webhook_events", {
+  key: text("key").primaryKey(), // proveedor:evento:id
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Editor de video ───────────────────────────────────────────────────────
+
+export const videoProjectStatusEnum = pgEnum("video_project_status", [
+  "UPLOADING",
+  "PROCESSING", // ingesta, transcripción y plan
+  "AWAITING_REVIEW", // el usuario revisa cortes, gancho y subtítulos
+  "RENDERING",
+  "DONE",
+  "FAILED",
+]);
+
+/** Un video crudo que el cliente sube para editar. El detalle técnico vive en jsonb; el trabajo pesado lo hace el worker. */
+export const videoProjects = pgTable(
+  "video_projects",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    status: videoProjectStatusEnum("status").notNull().default("UPLOADING"),
+    format: text("format").notNull().default("9:16"), // 9:16 | 16:9
+    captionPreset: text("caption_preset").notNull().default("clasico"),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    sourceKey: text("source_key"), // ruta del original en el almacenamiento
+    sourceName: text("source_name"),
+    sourceBytes: bigint("source_bytes", { mode: "number" }),
+    media: jsonb("media").$type<Record<string, unknown>>(), // duración, tamaño, fps, hdr, rutas de proxy y audio
+    transcript: jsonb("transcript").$type<unknown>(), // palabras con id, inicio y fin
+    plan: jsonb("plan").$type<unknown>(), // plan de edición v2 (ver lib/video/plan.ts)
+    outputKey: text("output_key"),
+    srtKey: text("srt_key"),
+    outputMeta: jsonb("output_meta").$type<Record<string, unknown>>(),
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("video_projects_updated_at_idx").on(t.updatedAt)],
 );
 
 // ─── Trabajos en segundo plano ─────────────────────────────────────────────
@@ -477,13 +632,18 @@ export const calendarEntries = pgTable(
 export const jobTypeEnum = pgEnum("job_type", [
   "SYNC_METRICS",
   "VIDEO_EDIT",
+  "VIDEO_ANALYZE",
+  "VIDEO_RENDER",
   "CAROUSEL_GENERATE",
   "CLONE_TRAIN",
   "CLONE_VIDEO",
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 
-/** Registro visible de cada trabajo. La cola técnica la maneja pg-boss; esto es lo que ve el usuario. */
+/**
+ * Cola de trabajos y registro visible de cada uno. El worker toma trabajos con
+ * `FOR UPDATE SKIP LOCKED` sobre esta tabla (sin Redis ni servicios extra) y renueva `lockedUntil` mientras trabaja.
+ */
 export const jobs = pgTable(
   "jobs",
   {
@@ -496,13 +656,30 @@ export const jobs = pgTable(
     output: jsonb("output"),
     errorMessage: text("error_message"), // en español, para mostrar al usuario
     attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    lockedBy: text("locked_by"),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    videoProjectId: uuid("video_project_id").references(() => videoProjects.id, { onDelete: "cascade" }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
-  (t) => [index("jobs_type_status_idx").on(t.type, t.status), index("jobs_created_at_idx").on(t.createdAt)],
+  (t) => [
+    index("jobs_type_status_idx").on(t.type, t.status),
+    index("jobs_queue_idx").on(t.status, t.runAfter),
+    index("jobs_created_at_idx").on(t.createdAt),
+  ],
 );
+
+/** Latido del worker: así la app sabe si el servicio de procesamiento está encendido. */
+export const workerHeartbeats = pgTable("worker_heartbeats", {
+  workerId: text("worker_id").primaryKey(),
+  version: text("version"),
+  capabilities: text("capabilities").array().notNull().default(sql`'{}'::text[]`),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /** Consumo de IA por llamada, para saber cuánto cuesta cada función. */
 export const aiUsage = pgTable(

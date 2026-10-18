@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { KeyRound, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Section } from "@/components/ui/card";
 import { TeamSection, TeamSectionSkeleton } from "@/components/ajustes/team-section";
 import { ConnectionsSection, ConnectionsSkeleton } from "@/components/ajustes/connections-section";
 import { ConnectNotice } from "@/components/ajustes/connect-notice";
 import { DemoSection } from "@/components/ajustes/demo-section";
+import { HeyGenSection, HeyGenSectionSkeleton } from "@/components/ajustes/heygen-section";
 
 export const metadata: Metadata = { title: "Ajustes" };
 
@@ -36,12 +37,13 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
           <DemoSection />
         </Suspense>
 
-        <Section title="Claves de servicios" description="Tu API key de HeyGen para los videos con clon. Se guarda cifrada y nunca se muestra completa.">
-          <div className="flex items-center gap-3 text-sm text-muted">
-            <KeyRound className="h-4 w-4 text-accent-hi" aria-hidden />
-            Próximamente.
-          </div>
-        </Section>
+        <div id="claves" className="scroll-mt-6">
+          <Section title="Claves de servicios" description="Tu API key de HeyGen para los videos con clon. Tu clon y tu saldo son tuyos: la clave se guarda cifrada y nunca se muestra completa.">
+            <Suspense fallback={<HeyGenSectionSkeleton />}>
+              <HeyGenSection />
+            </Suspense>
+          </Section>
+        </div>
 
         <Section title="Equipo" description="Invita a tu editor o asistente con acceso de edición o de solo lectura.">
           <Suspense fallback={<TeamSectionSkeleton />}>

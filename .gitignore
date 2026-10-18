@@ -1,7 +1,31 @@
+# Dependencias
+node_modules/
+.pnp
+.pnp.*
+
+# Next.js y builds
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+
+# Variables de entorno: nunca se suben, salvo el ejemplo
 .env*
 !.env.example
-node_modules/
-.next/
+
+# Supabase y Claude Code locales
 supabase/.temp/
 .claude/settings.local.json
+
+# Worker (Python)
 __pycache__/
+.venv/
+
+# Varios
+.DS_Store
+*.pem
+.vercel
+npm-debug.log*
+pnpm-debug.log*

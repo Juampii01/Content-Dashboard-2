@@ -28,7 +28,10 @@ async function main() {
   console.log("[preparar] Migraciones al día.");
 
   const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
-  if (ownerEmail) {
+  const missing = ["BETTER_AUTH_SECRET", "TOKEN_ENCRYPTION_KEY", "CRON_SECRET", "NEXT_PUBLIC_APP_URL"].filter((k) => !process.env[k]);
+  if (ownerEmail && missing.length > 0) {
+    console.log(`[preparar] Faltan ${missing.join(", ")}: el dueño se crea en el próximo deploy, cuando estén cargadas.`);
+  } else if (ownerEmail) {
     const { rows } = await pool.query<{ n: number }>("select count(*)::int as n from team_members where role = 'OWNER' and active");
     if ((rows[0]?.n ?? 0) === 0) {
       const { inviteMember } = await import("../lib/auth/invitations");

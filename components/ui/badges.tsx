@@ -52,7 +52,7 @@ export function StatusBadge({
 }
 
 /**
- * Variación porcentual contra el periodo anterior: "▲ +12,5 %", "▼ -3,2 %" o "sin cambio".
+ * Variación porcentual contra el periodo anterior: "▲ +12.5 %", "▼ -3.2 %" o "sin cambio".
  * Flecha + signo + texto: el color acompaña, no informa solo.
  * `invert` para métricas donde subir es malo (ej. tasa de abandono).
  */
@@ -64,7 +64,7 @@ export function DeltaBadge({
   size = "sm",
   className,
 }: {
-  /** Puntos porcentuales: 12.5 = +12,5 %. `null` → no se muestra nada. */
+  /** Puntos porcentuales: 12.5 = +12.5 %. `null` → no se muestra nada. */
   value: number | null | undefined;
   invert?: boolean;
   digits?: number;
@@ -110,7 +110,7 @@ export function DeltaBadge({
 }
 
 /**
- * Insignia de pieza destacada: cuántas veces supera su promedio ("×3,2").
+ * Insignia de pieza destacada: cuántas veces supera su promedio ("×3.2").
  * Pensada para el hueco `badge` de MediaThumbCard y para filas de tabla.
  */
 export function OutlierBadge({ ratio, className }: { ratio: number; className?: string }) {

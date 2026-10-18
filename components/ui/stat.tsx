@@ -66,7 +66,7 @@ export function KpiCard({
 }: {
   label: string;
   value: number | null | undefined;
-  /** "number" → 12.345 · "compact" → 12,4 mil · "percent" (puntos porcentuales) → 4,8 % · "duration" (segundos) → 1:05. */
+  /** "number" → 12,345 · "compact" → 12.4 mil · "percent" (puntos porcentuales) → 4.8 % · "duration" (segundos) → 1:05. */
   format?: KpiFormat;
   /** Variación porcentual ya calculada. Si no viene y hay `previous`, se calcula. */
   delta?: number | null;

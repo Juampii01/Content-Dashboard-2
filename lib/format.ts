@@ -1,19 +1,19 @@
 /**
  * Formato de números, porcentajes, duraciones y fechas para toda la interfaz.
  *
- * Usamos la configuración regional "es" con agrupación siempre activa:
- *   12345     → "12.345"      (separador de miles con punto, coma decimal)
- *   12400     → "12,4 mil"    (forma compacta para tarjetas y ejes)
- *   12.5 (%)  → "12,5 %"
+ * Usamos la configuración regional de Latinoamérica ("es-419", la que se lee en México, Colombia,
+ * Centroamérica y entre latinos en Estados Unidos), con agrupación siempre activa:
+ *   12345     → "12,345"      (coma de miles, punto decimal)
+ *   12400     → "12.4 mil"    (forma compacta para tarjetas y ejes)
+ *   12.5 (%)  → "12.5 %"
  *   fecha     → "12 oct 2026"
  * Todo pasa por Intl: nada de concatenar separadores a mano.
  */
 
-const LOCALE = "es";
+const LOCALE = "es-419";
 const EMPTY = "—";
 
 const numberFormat = new Intl.NumberFormat(LOCALE, { useGrouping: "always", maximumFractionDigits: 2 });
-const compactFormat = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1, useGrouping: "always" });
 const dateFormat = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", year: "numeric" });
 const shortDateFormat = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" });
 const relativeFormat = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto", style: "short" });
@@ -25,7 +25,7 @@ function isNum(value: Num): value is number {
   return value != null && Number.isFinite(value);
 }
 
-/** 12345 → "12.345"; 0.5 → "0,5". `null` → "—". */
+/** 12345 → "12,345"; 0.5 → "0.5". `null` → "—". */
 export function formatNumber(value: Num, options?: { digits?: number }): string {
   if (!isNum(value)) return EMPTY;
   if (options?.digits != null) {
@@ -39,17 +39,23 @@ export function formatNumber(value: Num, options?: { digits?: number }): string 
 }
 
 /**
- * Forma compacta: 999 → "999", 12400 → "12,4 mil", 1250000 → "1,3 M".
- * Para tarjetas de métricas y ejes de gráficos.
+ * Forma compacta: 999 → "999", 12400 → "12.4 mil", 1250000 → "1.3 M", 2.1e9 → "2.1 mil M".
+ * Para tarjetas de métricas y ejes de gráficos. Se arma a mano porque el compacto de Intl en
+ * es-419 usa "k", que suena a inglés.
  */
 export function formatCompact(value: Num): string {
   if (!isNum(value)) return EMPTY;
-  return compactFormat.format(value);
+  const abs = Math.abs(value);
+  const one = (n: number) => formatNumber(Math.round(n * 10) / 10);
+  if (abs >= 1e9) return `${one(value / 1e9)} mil M`;
+  if (abs >= 1e6) return `${one(value / 1e6)} M`;
+  if (abs >= 1e4) return `${one(value / 1e3)} mil`;
+  return formatNumber(Math.round(value));
 }
 
 /**
- * Recibe puntos porcentuales (12.5 = 12,5 %), no una proporción.
- * `signed` agrega el signo: "+12,5 %", "-3,2 %"; el cero queda sin signo.
+ * Recibe puntos porcentuales (12.5 = 12.5 %), no una proporción.
+ * `signed` agrega el signo: "+12.5 %", "-3.2 %"; el cero queda sin signo.
  */
 export function formatPercent(value: Num, options?: { digits?: number; signed?: boolean }): string {
   if (!isNum(value)) return EMPTY;
@@ -61,7 +67,7 @@ export function formatPercent(value: Num, options?: { digits?: number; signed?: 
   }).format(value / 100);
 }
 
-/** Multiplicador para piezas que rinden por encima de lo normal: 3.2 → "×3,2". */
+/** Multiplicador para piezas que rinden por encima de lo normal: 3.2 → "×3.2". */
 export function formatMultiplier(value: Num): string {
   if (!isNum(value)) return EMPTY;
   return `×${formatNumber(value, { digits: value >= 10 ? 0 : 1 })}`;
@@ -86,7 +92,7 @@ export function formatDuration(seconds: Num): string {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
-/** Bytes legibles: 1536 → "1,5 KB", 2147483648 → "2 GB". */
+/** Bytes legibles: 1536 → "1.5 KB", 2147483648 → "2 GB". */
 export function formatBytes(bytes: Num): string {
   if (!isNum(bytes) || bytes < 0) return EMPTY;
   const units = ["B", "KB", "MB", "GB", "TB"];

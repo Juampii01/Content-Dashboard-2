@@ -269,11 +269,11 @@ function toText(value: number | null) {
   return value == null ? "" : String(value);
 }
 
-/** Acepta "12000", "12.000" o "12,5": el punto se toma como separador de miles y la coma como decimal. */
+/** Acepta "12000", "12,000" o "12.5": la coma se toma como separador de miles y el punto como decimal (es-419). */
 function parse(text: string): number | null {
   const clean = text.trim();
   if (!clean) return null;
-  const normalized = clean.replace(/\./g, "").replace(",", ".");
+  const normalized = clean.replace(/,/g, "");
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
 }

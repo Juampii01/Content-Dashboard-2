@@ -18,7 +18,7 @@ const aspectClass: Record<MediaAspect, string> = {
 
 /**
  * Miniatura de una pieza para la vista de cuadrícula: imagen con su proporción real, red,
- * métrica principal sobre la imagen, duración y un hueco para la insignia de pieza destacada (×3,2).
+ * métrica principal sobre la imagen, duración y un hueco para la insignia de pieza destacada (×3.2).
  * Si la imagen no carga (las URLs de las redes vencen), muestra un reemplazo en lugar del ícono roto.
  */
 export function MediaThumbCard({
@@ -39,7 +39,7 @@ export function MediaThumbCard({
   title: string;
   aspect?: MediaAspect;
   platform?: PlatformKey;
-  /** Métrica que se ve sobre la imagen (ej. { value: "12,4 mil", label: "visualizaciones" }). */
+  /** Métrica que se ve sobre la imagen (ej. { value: "12.4 mil", label: "visualizaciones" }). */
   metric?: { value: string; label: string; icon?: ReactNode };
   /** Duración en segundos (videos). */
   duration?: number | null;

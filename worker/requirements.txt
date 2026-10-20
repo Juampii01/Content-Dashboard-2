@@ -1,3 +1,9 @@
-# Worker de Content 2 (Python 3.12). Solo lo indispensable: la base y números para medir la energía del audio.
+# Worker de Content 2 (Python 3.12). Todo open source: nada de esto tiene costo por uso ni pide claves.
 psycopg[binary]==3.2.13
 numpy==2.5.4
+# Editor de video: transcripción local (Parakeet en ONNX y faster-whisper de respaldo).
+onnx-asr[cpu,hub]==0.12.0
+faster-whisper==1.2.1
+# Estilos desde un video de referencia: cortes, zooms y caras (YuNet) con OpenCV; bajar links con yt-dlp.
+opencv-python-headless==5.0.0.93
+yt-dlp==2026.8.19

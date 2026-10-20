@@ -98,7 +98,7 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
         ingest.asr_audio(wav, ogg, wav16)
         ctx.progress(0.2)
         language = ctx.input.get("language") or "es"
-        provider, words = transcribe.transcribe(ctx.config, ogg, language)
+        provider, words = transcribe.transcribe(ctx.config, ogg, language, wav16)
         ctx.check()
         if not words:
             raise JobError("No encontramos voz en el video. El editor trabaja con lo que dices: revisa que el audio se escuche.", retry=False)

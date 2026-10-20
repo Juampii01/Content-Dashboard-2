@@ -40,6 +40,8 @@ App (Vercel) ── INSERT en jobs ──▶ Postgres (Neon) ◀── toma trab
 
 `WORKER_TEST_TRANSCRIPT` (transcripción falsa desde un archivo) es solo para pruebas locales y se ignora en Fly.
 
+**Carruseles** (trabajos `CAROUSEL_STYLE`, `CAROUSEL_IMAGES`, `CODEX_LOGIN`): no necesitan variables nuevas en el worker. La sesión de ChatGPT o la API key de OpenAI del cliente las manda la app, descifradas, solo dentro de un trabajo en curso (`/api/worker/carruseles/credenciales`). La imagen trae `tesseract-ocr` (+ español), Node 22 y `@openai/codex` 0.162.1, Pillow y `gallery-dl`. Opcionales, solo para pruebas: `CODEX_BIN` y `GALLERY_DL_BIN` (rutas a los simulados de `worker/tests/fakes/`).
+
 ### App (Vercel)
 
 | Variable | Qué es |
@@ -49,6 +51,9 @@ App (Vercel) ── INSERT en jobs ──▶ Postgres (Neon) ◀── toma trab
 | `FLY_API_TOKEN` | Opcional. Token de la app del worker: `fly tokens create deploy -a <app>`. |
 | `FLY_WORKER_APP` | Opcional. Nombre de la app de Fly del worker. |
 | `FLY_WORKER_MACHINE_ID` | Opcional. Si no está, la app busca una máquina detenida de esa app. |
+| `OPENAI_API_BASE` | Opcional (`https://api.openai.com/v1`). Solo para probar con un simulador. |
+| `OPENAI_IMAGE_MODEL` | Opcional (`gpt-image-2.5-flare`). Modelo de imágenes cuando el cliente usa su API key de OpenAI. |
+| `CODEX_MODEL` | Opcional (`gpt-5.6-terra`). Modelo con el que Codex llama a su herramienta de imágenes con la cuenta de ChatGPT del cliente. |
 
 ### Store de Blob privado
 

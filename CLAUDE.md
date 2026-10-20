@@ -55,7 +55,7 @@ No se copia código a ciegas. Se toma la pieza, se revisa y se adapta a esta arq
 | `Juampii01/Content-Dashboard` | OAuth de Instagram (Instagram Login), YouTube (Google) y TikTok (Login Kit v2); cifrado de tokens (`lib/crypto.ts`, arreglando el caso de clave mal formada); clientes de API; prompts de guiones; transcripción con Groq; transcripts de YouTube | DMs, comentarios con respuesta, ads, ingresos, tareas, theming multi-marca, "view-as" de admin, `console.log` con tokens |
 | `Juampii01/editor-de-video` | Base del editor: transcripción (Parakeet), plan de edición en JSON con Claude (`ia.py`, `ESQUEMA_PLAN`), render con ffmpeg y subtítulos ASS, b-roll con IA | Codex CLI, OAuth de ChatGPT, `ant`/osascript, claves en `.env` del proceso |
 | `eternitydevzz/crear-videos-3-0` | Mezcla de audio sin `loudnorm` y música bajo la voz (`mezclar.sh`), comparación contra guion (`tiempos.py`), corte fino de silencios (`_cortar.py`), concepto de "estilo medido" convertido en preset JSON | Dependencia de Claude Code en el chat, rutas fijas, scripts por sistema operativo |
-| `eternitydevzz/carrusel-creator-pro` | Parser y validaciones de fichas (`motor/ficha.py`), prompts y reglas (`REGLAS.md`), utilidades de Pillow, scraping de referencias con ScrapeCreators | Codex CLI y sesión de ChatGPT (se reemplaza por API de imágenes), filesystem como base de datos, candados por PID, **borrado de metadatos C2PA y GPS falso (no se porta, nunca)** |
+| `eternitydevzz/carrusel-creator-pro` | Parser y validaciones de fichas (`motor/ficha.py`), prompts y reglas (`REGLAS.md`), utilidades de Pillow, la forma de llamar a Codex CLI (`llamar_codex`) para generar imágenes con la cuenta de ChatGPT del cliente | Filesystem como base de datos, candados por PID, texto dentro de la imagen (aquí la imagen va siempre sin texto), **borrado de metadatos C2PA y GPS falso (no se porta, nunca)** |
 | `eternitydevzz/creatuagencia-maestria` | Estética (sección 6) | Todo lo demás |
 
 ## 5. Arquitectura
@@ -100,7 +100,7 @@ docs/                 # decisiones y guías de instalación por cliente
 - **Tokens:** `getValidToken(platform)` centralizado que refresca antes de vencer. El cron sincroniza métricas y refresca tokens (el de Instagram vence a los 60 días). Tokens siempre cifrados con AES-256-GCM y un contexto (AAD) por tipo de secreto (`encryptSecret(valor, "instagram.access")`); si falta o está mal la clave, la app falla al arrancar, nunca guarda texto plano.
 - **Variables de entorno** validadas con Zod al iniciar. Nunca se imprimen tokens ni claves en logs.
 - **IA:** Claude por la API de Anthropic con la clave del servidor. Prompts en archivos versionados dentro de `lib/ai/prompts/`, no escritos en línea dentro de las rutas. Se registra el uso de tokens por trabajo.
-- **Nada depende de una CLI local** (Claude Code, Codex, `ant`). Todo corre por API.
+- **Nada depende de una CLI en la computadora del cliente** (Claude Code, Codex, `ant`). La única CLI es Codex dentro del worker, para las imágenes de carruseles con la cuenta de ChatGPT del propio cliente (ver Integraciones).
 - **Seguridad:** toda lectura y escritura pasa por `lib/dal` o por una acción que llama a `getCurrentUser`/`requireEditor`/`requireOwner`; endpoints protegidos por sesión; webhooks con firma verificada; subidas con tipo y tamaño validados; cabeceras de seguridad (CSP, `frame-ancestors`) en `next.config.ts`; límite de intentos en inicio de sesión y recuperación.
 - **Errores visibles y en español:** cada trabajo fallido muestra qué pasó y qué hacer, no un stack trace.
 
@@ -109,7 +109,8 @@ docs/                 # decisiones y guías de instalación por cliente
 - **YouTube:** Google OAuth con `youtube.readonly` y YouTube Analytics API (`yt-analytics.readonly`) para tiempo de visualización y retención.
 - **TikTok:** Login Kit v2 + Display API (`user.info.basic`, `user.info.stats`, `video.list`). Refresh proactivo.
 - **HeyGen:** API **v3** (la v1 y la v2 dejan de funcionar el 31-oct-2026). Cada cliente usa **su propia cuenta y su propia API key de HeyGen**, que guarda en Ajustes, cifrada. Así el clon y el consumo son del cliente y no revendemos HeyGen. Flujo: crear Digital Twin con video del cliente → consentimiento por el link oficial de HeyGen → generar videos con el guion. Estado por webhook firmado o polling.
-- **Imágenes para carruseles:** proveedor por API (a definir tras una prueba de calidad contra el motor actual). Encapsulado detrás de una interfaz para poder cambiarlo.
+- **Imágenes para carruseles:** las imágenes de carruseles usan la cuenta de ChatGPT del propio cliente vía Codex CLI en el worker, o su API key de OpenAI como respaldo. Siempre **sin texto** (el texto lo dibuja la plantilla). `ImageProvider` en `lib/carousels/images/` (`chatgpt` por defecto, `openai-api` de respaldo). El cliente conecta su ChatGPT en Ajustes con el login por código de dispositivo de Codex (trabajo `CODEX_LOGIN`; alternativa: pegar su `~/.codex/auth.json`); el `auth.json` se guarda cifrado (`chatgpt.auth`) y el worker lo escribe en un `CODEX_HOME` temporal por trabajo (600), vuelve a guardarlo si Codex refrescó los tokens y lo borra al terminar. Así el consumo es del plan del cliente y no revendemos imágenes.
+- **Plantillas desde referencia:** el cliente sube las imágenes de un carrusel (o pega su link; el worker lo baja con `gallery-dl`). El worker mide con Tesseract y k-means (`worker/carruseles/medidas.py`), la app arma un borrador determinista (`lib/carousels/style/draft.ts`) y Claude con visión lo corrige (`carruseles.estilo`). Se guarda solo el diseño (`carousel_templates.spec`, Zod en `lib/carousels/template-spec.ts`); las referencias se borran al terminar y nunca se muestran ni se mandan al generador de imágenes.
 
 ## 6. Diseño: estética MaestrIA
 
@@ -152,7 +153,7 @@ placeholder   #6f84a8
 3. **Mi marca** y **Guiones.** ✅ Con prueba de voz, ganchos con puntaje, acciones de IA, versiones y modo grabación.
 4. **Calendario.** ✅ Mes, semana y agenda, arrastre, plan semanal con IA y vínculo automático con métricas (`lib/calendar/`).
 5. **Worker y cola** + **Editor de video.** ✅ Código y pruebas locales completas (`worker/`, `lib/video/`, `lib/jobs/`). La cola es la tabla `jobs` con `FOR UPDATE SKIP LOCKED` (sin pg-boss). Falta desplegar el worker en Fly (`docs/worker.md`) y probar con Blob, Deepgram/Groq reales.
-6. **Carruseles.** ✅ MVP sin imágenes de IA: 5 plantillas, texto ajustado solo y exportación a ZIP en el navegador (`modern-screenshot` + `fflate`). Las escenas con IA quedan para v1.1.
+6. **Carruseles.** ✅ 6 plantillas de fábrica (incluida "Foto + texto"), plantillas propias copiadas de una referencia, imágenes sin texto por slide (ChatGPT del cliente vía Codex en el worker u OpenAI API), texto ajustado solo y exportación a ZIP en el navegador (`modern-screenshot` + `fflate`). Probado con Codex, gallery-dl y OpenAI simulados; falta una generación real con ChatGPT y OpenAI, y bajar un link real de Instagram.
 7. **Videos con clon** (HeyGen v3). ✅ Probado contra un simulador (`tests/mocks/heygen-mock.mjs`); falta un render real para validar tarifas.
 8. **Guía de instalación por cliente.** ✅ `docs/instalacion.md`.
 

@@ -27,6 +27,32 @@ const hookSchema = z.object({
   why: z.string().max(400),
 });
 
+const brollOptionSchema = z.object({
+  source: z.enum(["pexels", "library"]),
+  id: z.string().min(1).max(80),
+  duration: z.number().min(0).max(36000),
+  width: z.number().int().min(0).max(10000),
+  height: z.number().int().min(0).max(10000),
+  thumb: z.url().max(2000).nullable().optional(),
+  preview: z.url().max(2000).nullable().optional(),
+  file: z.url().max(2000).nullable().optional(),
+  credit: z.object({ name: z.string().max(200), url: z.string().max(2000), page: z.string().max(2000) }).nullable().optional(),
+  key: z.string().max(300).nullable().optional(),
+  thumbKey: z.string().max(300).nullable().optional(),
+  title: z.string().max(200).nullable().optional(),
+});
+
+export const brollItemSchema = z.object({
+  id: z.string().min(1).max(40),
+  from_word: z.number().int().min(0),
+  to_word: z.number().int().min(0),
+  query_en: z.string().max(120),
+  keywords: z.array(z.string().max(40)).max(8),
+  why: z.string().max(300).optional(),
+  choice: brollOptionSchema.nullable(),
+  options: z.array(brollOptionSchema).max(12),
+});
+
 export const planSchema = z.object({
   version: z.literal(2),
   format: z.enum(["9:16", "16:9"]),
@@ -36,10 +62,13 @@ export const planSchema = z.object({
   proposed_removals: z.array(removalSchema).max(5000),
   hook_candidates: z.array(hookSchema).max(5),
   selected_hook: z.number().int().min(0).max(4).nullable(),
-  captions: z.object({ preset: z.enum(["clasico", "pop", "ninguno"]), emphasis_words: z.array(z.number().int().min(0)).max(40) }),
+  captions: z.object({ preset: z.enum(["clasico", "pop", "estilo", "ninguno"]), emphasis_words: z.array(z.number().int().min(0)).max(40) }),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   overlays: z.array(z.object({ text: z.string().max(120), from_word: z.number().int(), to_word: z.number().int(), position: z.enum(["top", "center"]) })).max(20),
-  broll: z.array(z.object({ from_word: z.number().int(), to_word: z.number().int(), query_en: z.string().max(120), source: z.enum(["pexels", "upload"]) })).max(10),
+  broll: z.array(brollItemSchema).max(20),
+  zooms_enabled: z.boolean().optional(),
+  pacing: z.object({ long_pause: z.number().min(0.2).max(1.2) }).optional(),
+  style_id: z.uuid().nullable().optional(),
   audio: z.object({ music_asset_id: z.string().nullable(), music_db: z.number().min(-40).max(0), target_lufs: z.number().min(-24).max(-9) }),
   framing: z.object({ mode: z.enum(["center", "manual"]), offset_x: z.number().min(-1).max(1) }),
   off_script: z.array(z.number().int().min(0)).max(20000),
@@ -65,6 +94,12 @@ export function planIssues(plan: EditPlan, wordCount: number): string[] {
   plan.hook_candidates.forEach((h) => check("Gancho", h.from_word, h.to_word));
   if (plan.selected_hook != null && !plan.hook_candidates[plan.selected_hook]) issues.push("El gancho elegido no existe.");
   plan.captions.emphasis_words.forEach((id) => !valid(id) && issues.push(`Palabra resaltada inexistente (${id}).`));
+  const broll = [...plan.broll].sort((a, b) => a.from_word - b.from_word);
+  broll.forEach((b, i) => {
+    check("B-roll", b.from_word, b.to_word);
+    const next = broll[i + 1];
+    if (next && next.from_word <= b.to_word) issues.push(`B-roll superpuestos (${b.from_word}–${b.to_word} y ${next.from_word}–${next.to_word}).`);
+  });
   Object.keys(plan.corrections).forEach((id) => !valid(Number(id)) && issues.push(`Corrección de una palabra inexistente (${id}).`));
   return issues;
 }
@@ -174,8 +209,13 @@ export function assemblePlan(input: {
   offScript: number[];
   /** Mensaje corto si la IA falló y el plan se arma sin ella. */
   aiError?: string | null;
+  /** Estilo de un video de referencia: ritmo, tolerancia de silencios y largo del gancho. */
+  style?: PlanStyle | null;
 }): EditPlan {
   const { ai, candidates, words } = input;
+  const style = input.style ?? null;
+  // Con un estilo de ritmo alto se cortan también los candidatos menos seguros que la IA no decidió.
+  const undecidedThreshold = style ? AGGRESSIVENESS_THRESHOLD[style.aggressiveness] : 0.85;
   const count = words.length;
   const byId = new Map(candidates.map((c) => [c.id, c]));
 
@@ -189,7 +229,7 @@ export function assemblePlan(input: {
       if (d.cut) removals.push({ from_word: c.from_word, to_word: c.to_word, reason: c.kind, confidence: clamp01(d.confidence), source: "auto", note: c.note });
     }
     // Candidatos sin decisión: se cortan solo los muy seguros.
-    for (const c of confidentRemovals(candidates, 0.85)) {
+    for (const c of confidentRemovals(candidates, undecidedThreshold)) {
       if (!decided.has(c.id)) removals.push({ from_word: c.from_word, to_word: c.to_word, reason: c.kind, confidence: c.confidence, source: "auto", note: c.note });
     }
     for (const r of ai.extra_removals) {
@@ -199,7 +239,7 @@ export function assemblePlan(input: {
       removals.push({ from_word: r.from_word, to_word: r.to_word, reason: r.reason, confidence: clamp01(r.confidence), source: "ai", note: r.note.slice(0, 300) });
     }
   } else {
-    for (const c of confidentRemovals(candidates)) {
+    for (const c of confidentRemovals(candidates, style ? undecidedThreshold - 0.1 : undefined)) {
       removals.push({ from_word: c.from_word, to_word: c.to_word, reason: c.kind, confidence: c.confidence, source: "auto", note: c.note });
     }
   }
@@ -216,6 +256,11 @@ export function assemblePlan(input: {
   if (hooks.length < 3) {
     const extra = fallbackHooks(words, removedSet).filter((f) => !hooks.some((h) => h.from_word <= f.to_word && f.from_word <= h.to_word));
     hooks = [...hooks, ...extra].slice(0, 3);
+  }
+  if (style) {
+    // El gancho más cercano al largo del estilo va primero (sin descartar los otros).
+    const off = (h: HookCandidate) => Math.abs(words[h.to_word]!.end - words[h.from_word]!.start - style.hookTarget);
+    hooks = [...hooks].sort((a, b) => b.score - off(b) * 0.08 - (a.score - off(a) * 0.08));
   }
 
   const emphasis = [...new Set((ai?.emphasis_words ?? []).filter((id) => id >= 0 && id < count && !removedSet.has(id)))].slice(0, 8);
@@ -239,9 +284,15 @@ export function assemblePlan(input: {
     summary: ai?.summary.slice(0, 1000) ?? "Plan armado sin IA: se cortaron solo las tomas repetidas, arranques en falso y muletillas más claras.",
     warning: ai?.warning.slice(0, 1000) ?? (input.aiError ? `La IA no respondió (${input.aiError}). Revisa los cortes con más atención.` : ""),
     planned_by: ai ? "ai" : "auto",
+    ...(style ? { pacing: { long_pause: style.longPause }, zooms_enabled: style.zoom, style_id: style.id } : {}),
   };
   return withDerived(plan, words, input.duration);
 }
+
+export type PlanStyle = { id: string; aggressiveness: "suave" | "media" | "alta"; hookTarget: number; longPause: number; zoom: boolean };
+
+/** Confianza mínima para cortar un candidato que la IA no decidió, según el ritmo del estilo. */
+const AGGRESSIVENESS_THRESHOLD: Record<PlanStyle["aggressiveness"], number> = { alta: 0.7, media: 0.85, suave: 0.92 };
 
 /** Recalcula segmentos y orden, y agrega un aviso si la duración final se pasa del objetivo. */
 export function withDerived(plan: EditPlan, words: Word[], duration: number): EditPlan {

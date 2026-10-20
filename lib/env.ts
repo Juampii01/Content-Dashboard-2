@@ -74,6 +74,10 @@ const schema = z.object({
   GROQ_API_KEY: optional,
   APIFY_API_TOKEN: optional,
   SCRAPECREATORS_API_KEY: optional,
+  // B-roll del Editor de video: videos de stock de Pexels (clave gratuita, uso comercial con atribución).
+  // Sin clave, el b-roll sale solo de la biblioteca del cliente. PEXELS_API_BASE es para pruebas con un simulador.
+  PEXELS_API_KEY: optional,
+  PEXELS_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.pexels.com")),
   // HeyGen: cada cliente guarda su propia API key en Ajustes (cifrada en la base). Esta variable solo
   // cambia la dirección de la API; sirve para pruebas con un servidor simulado. Por defecto, la oficial.
   HEYGEN_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.heygen.com")),

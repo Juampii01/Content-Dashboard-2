@@ -697,11 +697,68 @@ export const videoProjects = pgTable(
     srtKey: text("srt_key"),
     outputMeta: jsonb("output_meta").$type<Record<string, unknown>>(),
     errorMessage: text("error_message"),
+    // Estilo copiado de un video de referencia (ver video_styles). null = sin estilo.
+    styleId: uuid("style_id").references(() => videoStyles.id, { onDelete: "set null" }),
+    // B-roll: "auto" (Claude elige dónde y busca en Pexels y en la biblioteca) o "off".
+    brollMode: text("broll_mode").notNull().default("off"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [index("video_projects_updated_at_idx").on(t.updatedAt)],
+);
+
+export const videoStyleStatusEnum = pgEnum("video_style_status", ["UPLOADING", "ANALYZING", "READY", "FAILED"]);
+
+/**
+ * Estilo de edición medido en un video de referencia ("Edita como este"). Se copia el estilo (ritmo de cortes,
+ * zooms, subtítulos, b-roll), nunca el contenido: el video de referencia se borra después del análisis.
+ */
+export const videoStyles = pgTable(
+  "video_styles",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    status: videoStyleStatusEnum("status").notNull().default("ANALYZING"),
+    sourceKind: text("source_kind").notNull(), // "upload" | "link"
+    sourceUrl: text("source_url"), // link de Instagram, TikTok o YouTube (se muestra como origen)
+    sourceKey: text("source_key"), // archivo subido; se borra al terminar el análisis
+    sourceName: text("source_name"),
+    sourceBytes: bigint("source_bytes", { mode: "number" }),
+    thumbKey: text("thumb_key"),
+    metrics: jsonb("metrics").$type<Record<string, unknown>>(), // lo medido (ver worker/video/style.py)
+    preset: jsonb("preset").$type<Record<string, unknown>>(), // preset validado (ver lib/video/style.ts)
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("video_styles_updated_at_idx").on(t.updatedAt)],
+);
+
+export const brollClipStatusEnum = pgEnum("broll_clip_status", ["UPLOADING", "PROCESSING", "READY", "FAILED"]);
+
+/** Biblioteca de b-roll del cliente: clips propios que sube una vez y el editor reutiliza. */
+export const brollClips = pgTable(
+  "broll_clips",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    status: brollClipStatusEnum("status").notNull().default("UPLOADING"),
+    fileKey: text("file_key").notNull(),
+    fileName: text("file_name"),
+    fileBytes: bigint("file_bytes", { mode: "number" }),
+    thumbKey: text("thumb_key"), // la genera el worker
+    duration: real("duration"),
+    width: integer("width"),
+    height: integer("height"),
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("broll_clips_updated_at_idx").on(t.updatedAt)],
 );
 
 // ─── Trabajos en segundo plano ─────────────────────────────────────────────
@@ -717,6 +774,8 @@ export const jobTypeEnum = pgEnum("job_type", [
   "CAROUSEL_STYLE", // analizar un carrusel de referencia (Tesseract + colores) para crear una plantilla
   "CAROUSEL_IMAGES", // generar imágenes sin texto para slides (ChatGPT vía Codex o API de OpenAI)
   "CODEX_LOGIN", // conectar la cuenta de ChatGPT del cliente (login por código de dispositivo)
+  "VIDEO_STYLE", // análisis de un video de referencia (input.styleId)
+  "VIDEO_CLIP", // miniatura y datos de un clip de la biblioteca de b-roll (input.clipId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 

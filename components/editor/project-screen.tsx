@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, RefreshCcw, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
@@ -17,12 +17,21 @@ import { deleteAction, reopenAction, retryAction } from "./actions";
 import { statusLabel, statusTone, type ProjectStatus } from "./labels";
 import { ProcessingView } from "./processing-view";
 import { ResultView } from "./result-view";
+import type { SignedOption } from "./broll-panel";
 import { ReviewEditor } from "./review-editor";
 import { startUpload, submitUpload, useUpload } from "./upload-manager";
 
 type View = Omit<ProjectView, "createdAt" | "updatedAt"> & { createdAt: string; updatedAt: string; accent: string; uploadMode: "blob" | "local" };
 
-export function ProjectScreen({ project }: { project: View }) {
+export function ProjectScreen({
+  project,
+  signedBroll = {},
+  style = null,
+}: {
+  project: View;
+  signedBroll?: Record<string, SignedOption>;
+  style?: ComponentProps<typeof ReviewEditor>["style"];
+}) {
   const status = project.status as ProjectStatus;
   return (
     <div className="flex flex-col gap-6">
@@ -47,6 +56,8 @@ export function ProjectScreen({ project }: { project: View }) {
           posterUrl={project.posterUrl}
           accent={project.accent}
           canEdit={project.canEdit}
+          signedBroll={signedBroll}
+          style={style}
         />
       )}
       {status === "DONE" && project.output && (

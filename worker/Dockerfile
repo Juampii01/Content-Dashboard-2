@@ -15,9 +15,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WORK_DIR=/data/work
 
 # ffmpeg de Debian bookworm (5.1) trae libx264, libass, libzimg (zscale para el tonemap HDR) y libopus.
-# Carruseles: tesseract-ocr con español (medir las referencias).
+# Tesseract (español e inglés): medir carruseles de referencia y leer subtítulos de videos de referencia.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg fontconfig curl unzip ca-certificates tesseract-ocr tesseract-ocr-spa \
+ && apt-get install -y --no-install-recommends ffmpeg fontconfig curl unzip ca-certificates tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 
 # Carruseles: Node 22 LTS (solo el binario) y Codex CLI desde la etapa de arriba.
@@ -32,6 +32,13 @@ RUN pip install -r requirements.txt
 # Fuentes de los subtítulos (Montserrat e Inter, SIL Open Font License), bajadas de sus repos oficiales.
 COPY scripts/fetch_fonts.sh scripts/
 RUN sh scripts/fetch_fonts.sh /app/fonts && fc-cache -f /app/fonts
+
+# Editor de video: modelos open source (Parakeet + Silero VAD, faster-whisper small, YuNet), bajados una sola vez
+# al construir la imagen (~1,2 GB). Al ejecutar no se descarga nada: HF_HUB_OFFLINE impide que se intente.
+ENV MODELS_DIR=/app/models
+COPY scripts/fetch_models.py scripts/
+RUN python scripts/fetch_models.py /app/models
+ENV HF_HUB_OFFLINE=1
 
 COPY main.py .
 COPY comunes comunes

@@ -148,7 +148,68 @@ def process_audio(src: Path, out: Path, target: float = -14.0, tp: float = -1.0)
 # ─── 4. Video final ────────────────────────────────────────────────────────
 
 
-def framing_graph(src_w: int, src_h: int, fmt: str, offset_x: float, ass: Path | None, fonts_dir: Path) -> tuple[str, int, int]:
+MAX_ZOOM = 1.35
+BROLL_FADE = 0.2
+
+
+def zoom_expr(zooms: list[dict[str, Any]]) -> str | None:
+    """Expresión de zoom por tiempo de entrada (`it`) para zoompan: 1 fuera de los tramos y la escala de cada tramo
+    dentro, con una rampa corta al entrar (suave) o de golpe (punch-in en un corte). Los tramos no se superponen."""
+    terms = []
+    last_end = -1.0
+    for z in sorted(zooms, key=lambda z: float(z["start"]))[:40]:
+        start, end = float(z["start"]), float(z["end"])
+        scale = max(1.0, min(MAX_ZOOM, float(z.get("scale", 1.1))))
+        ramp = max(0.0, min(1.0, float(z.get("ramp", 0.0))))
+        if end - start < 0.2 or scale <= 1.001 or start < last_end:
+            continue
+        last_end = end
+        amount = f"{scale - 1:.4f}"
+        if ramp > 0:
+            terms.append(f"between(it,{start:.3f},{end:.3f})*{amount}*min(1,(it-{start:.3f})/{ramp:.3f})")
+        else:
+            terms.append(f"between(it,{start:.3f},{end:.3f})*{amount}")
+    return f"1+{'+'.join(terms)}" if terms else None
+
+
+def prepare_broll(src: Path, out: Path, duration: float, size: tuple[int, int], offset: float = 0.0) -> None:
+    """Clip de b-roll listo para superponer: a pantalla completa (recortado al formato), 30 fps, sin audio,
+    con la duración exacta del tramo (si el clip es más corto, se repite)."""
+    if out.exists() and out.stat().st_size > 0:
+        return
+    w, h = size
+    frames = max(1, int(round(duration * FPS)))
+    info = ffmpeg.probe(src)
+    clip_dur = float(info.get("format", {}).get("duration") or 0)
+    offset = max(0.0, min(offset, max(0.0, clip_dur - duration))) if clip_dur else 0.0
+    loop = ["-stream_loop", "-1"] if clip_dur and clip_dur - offset < duration else []
+    tmp = _atomic(out)
+    ffmpeg.run(
+        [
+            *loop, "-ss", f"{offset:.3f}", "-i", str(src),
+            "-an", "-map", "0:v:0",
+            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},fps={FPS},setsar=1,format=yuv420p",
+            "-frames:v", str(frames),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-g", str(FPS),
+            str(tmp),
+        ],
+        what="b-roll",
+    )
+    os.replace(tmp, out)
+
+
+def framing_graph(
+    src_w: int,
+    src_h: int,
+    fmt: str,
+    offset_x: float,
+    ass: Path | None,
+    fonts_dir: Path,
+    zooms: list[dict[str, Any]] | None = None,
+    focus_y: float = 0.42,
+    broll: list[dict[str, Any]] | None = None,
+) -> tuple[str, int, int]:
+    """Grafo del video final. `broll`: [{"input": índice de la entrada de ffmpeg, "start", "end"}] en segundos del final."""
     out_w, out_h = OUTPUT_SIZE[fmt]
     target_ratio = out_w / out_h
     src_ratio = src_w / src_h
@@ -167,17 +228,43 @@ def framing_graph(src_w: int, src_h: int, fmt: str, offset_x: float, ass: Path |
         )
     else:
         graph = f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=increase:flags=lanczos,crop={out_w}:{out_h},setsar=1"
+    expr = zoom_expr(zooms or [])
+    if expr:
+        # Zoom hacia la cara (centro horizontal, `focus_y` vertical). Con d=1 cada cuadro entra y sale una vez.
+        fy = max(0.2, min(0.8, focus_y))
+        graph += (
+            f",zoompan=z='{expr}':x='iw/2-iw/zoom/2':y='max(0,min(ih-ih/zoom,ih*{fy:.3f}-ih/zoom/2))'"
+            f":d=1:s={out_w}x{out_h}:fps={FPS}"
+        )
+    label = "base"
+    graph += f"[{label}]"
+    for i, b in enumerate(broll or []):
+        start, end = float(b["start"]), float(b["end"])
+        dur = end - start
+        fade = min(BROLL_FADE, dur / 4)
+        clip = f"br{i}"
+        graph += (
+            f";[{int(b['input'])}:v]format=yuva420p,fade=t=in:st=0:d={fade:.3f}:alpha=1,fade=t=out:st={max(0.0, dur - fade):.3f}:d={fade:.3f}:alpha=1,"
+            f"setpts=PTS-STARTPTS+{start:.3f}/TB[{clip}]"
+        )
+        nxt = f"ov{i}"
+        graph += f";[{label}][{clip}]overlay=eof_action=pass:enable='between(t,{start:.3f},{end:.3f})'[{nxt}]"
+        label = nxt
+    graph += f";[{label}]"
     if ass:
-        graph += f",ass=filename={ass}:fontsdir={fonts_dir}"
-    graph += ",format=yuv420p[v]"
+        graph += f"ass=filename={ass}:fontsdir={fonts_dir},"
+    graph += "format=yuv420p[v]"
     return graph, out_w, out_h
 
 
-def final_encode(video: Path, audio: Path, graph: str, duration: float, out: Path, preset: str, on_progress: Callable[[float], None]) -> None:
+def final_encode(
+    video: Path, audio: Path, graph: str, duration: float, out: Path, preset: str, on_progress: Callable[[float], None], extra_inputs: list[Path] | None = None
+) -> None:
     tmp = _atomic(out)
+    extra = [arg for p in extra_inputs or [] for arg in ("-i", str(p))]
     ffmpeg.run(
         [
-            "-i", str(video), "-i", str(audio),
+            "-i", str(video), "-i", str(audio), *extra,
             "-filter_complex", graph,
             "-map", "[v]", "-map", "1:a:0",
             "-r", str(FPS), "-fps_mode", "cfr",

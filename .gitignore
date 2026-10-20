@@ -33,4 +33,5 @@ pnpm-debug.log*
 # Archivos locales del Editor de video en desarrollo (almacenamiento y trabajo del worker)
 .data/
 worker/fonts/
+worker/models/
 .pytest_cache/

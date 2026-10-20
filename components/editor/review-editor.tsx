@@ -2,20 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Clapperboard, Loader2, RotateCcw, Sparkles, Undo2, Wand2 } from "lucide-react";
+import { Clapperboard, Loader2, Palette, RotateCcw, Sparkles, Undo2, Wand2, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { CAPTION_PRESETS, captionBlocks } from "@/lib/video/captions";
+import { brollSegments, computeZooms } from "@/lib/video/effects";
 import { rangesFromIds } from "@/lib/video/plan";
+import type { CaptionStyle, StylePreset } from "@/lib/video/style";
 import { buildTimeline } from "@/lib/video/timeline";
-import type { CaptionPresetKey, EditPlan, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
+import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { renderAction, saveReviewAction } from "./actions";
+import { BrollPanel, BrollPicker, optionKey, type SignedOption } from "./broll-panel";
 import { PreviewPlayer, type PreviewHandle } from "./preview-player";
-import { TranscriptEditor } from "./transcript-editor";
+import { TranscriptEditor, type BrollMark } from "./transcript-editor";
+
+let brollCounter = 0;
+const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
 
 function idsOf(plan: Pick<EditPlan, "removals">): Set<number> {
   const set = new Set<number>();
@@ -34,6 +40,8 @@ export function ReviewEditor({
   posterUrl,
   accent,
   canEdit,
+  signedBroll = {},
+  style = null,
 }: {
   projectId: string;
   plan: EditPlan;
@@ -45,6 +53,10 @@ export function ReviewEditor({
   posterUrl: string | null;
   accent: string;
   canEdit: boolean;
+  /** URLs listas para el navegador de cada alternativa de b-roll (clave "fuente:id"). */
+  signedBroll?: Record<string, SignedOption>;
+  /** Estilo con el que se armó el plan (nombre, zooms y subtítulos), si hay. */
+  style?: { id: string; name: string; zoom: StylePreset["zoom"]; captions: CaptionStyle | null; focusY: number } | null;
 }) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
@@ -56,6 +68,12 @@ export function ReviewEditor({
   const [corrections, setCorrections] = useState<Record<string, string>>(plan.corrections);
   const [activeTime, setActiveTime] = useState<number | null>(null);
   const [rendering, startRender] = useTransition();
+  const [brollItems, setBrollItems] = useState<BrollItem[]>(plan.broll ?? []);
+  const [zoomsOn, setZoomsOn] = useState(plan.zooms_enabled !== false);
+  const [signed, setSigned] = useState<Record<string, SignedOption>>(signedBroll);
+  const [activeBroll, setActiveBroll] = useState<string | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
+  const captionStyle = style?.captions ?? null;
 
   const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
   const reasons = useMemo(() => {
@@ -66,8 +84,8 @@ export function ReviewEditor({
   const offScript = useMemo(() => new Set(plan.off_script), [plan.off_script]);
 
   const review = useMemo(
-    () => ({ removed: [...removed].sort((a, b) => a - b), selectedHook, preset, offsetX, corrections }),
-    [removed, selectedHook, preset, offsetX, corrections],
+    () => ({ removed: [...removed].sort((a, b) => a - b), selectedHook, preset, offsetX, corrections, broll: brollItems, ...(style ? { zooms: zoomsOn } : {}) }),
+    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn],
   );
 
   const timeline = useMemo(
@@ -80,12 +98,58 @@ export function ReviewEditor({
           selected_hook: selectedHook,
           corrections,
           captions: { preset, emphasis_words: plan.captions.emphasis_words },
+          pacing: plan.pacing,
         },
         duration,
       ),
-    [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, selectedHook, corrections, preset, duration],
+    [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, plan.pacing, selectedHook, corrections, preset, duration],
   );
-  const blocks = useMemo(() => (preset === "ninguno" ? [] : captionBlocks(timeline.words, preset)), [timeline.words, preset]);
+  const blocks = useMemo(() => (preset === "ninguno" ? [] : captionBlocks(timeline.words, preset, captionStyle)), [timeline.words, preset, captionStyle]);
+  const segments = useMemo(() => brollSegments(timeline, brollItems), [timeline, brollItems]);
+  const zooms = useMemo(
+    () => (style && zoomsOn ? computeZooms(timeline, style.zoom, { emphasis: plan.captions.emphasis_words, avoid: segments }) : []),
+    [style, zoomsOn, timeline, plan.captions.emphasis_words, segments],
+  );
+  const signedOf = useCallback(
+    (o: BrollItem["choice"]) => (o ? (signed[optionKey(o)] ?? { ...o, thumbUrl: o.thumb ?? null, previewUrl: o.preview ?? null }) : null),
+    [signed],
+  );
+  const previewBroll = useMemo(
+    () => segments.map((sg) => ({ id: sg.id, start: sg.start, end: sg.end, previewUrl: signedOf(sg.option)?.previewUrl ?? null, thumbUrl: signedOf(sg.option)?.thumbUrl ?? null })),
+    [segments, signedOf],
+  );
+  const brollMarks = useMemo<BrollMark[]>(
+    () => brollItems.map((b) => ({ id: b.id, from: b.from_word, to: b.to_word, thumbUrl: signedOf(b.choice)?.thumbUrl ?? null, empty: !b.choice })),
+    [brollItems, signedOf],
+  );
+
+  function showBroll(id: string) {
+    setActiveBroll(id);
+    const seg = segments.find((sg) => sg.id === id);
+    if (seg) preview.current?.seekOutput(seg.start, true);
+  }
+
+  function addBroll(range: { from: number; to: number }) {
+    const overlaps = (b: BrollItem) => range.from <= b.to_word && b.from_word <= range.to;
+    const query = words
+      .slice(range.from, range.to + 1)
+      .map((w) => w.text.replace(/[^\p{L}\p{N}]+/gu, ""))
+      .filter((w) => w.length > 3)
+      .slice(0, 4);
+    const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: query.join(" ").slice(0, 100) || "b-roll", keywords: query.map((w) => w.toLowerCase()), choice: null, options: [] };
+    setBrollItems((prev) => [...prev.filter((b) => !overlaps(b)), item].sort((a, b) => a.from_word - b.from_word));
+    setActiveBroll(item.id);
+    setPicking(item.id);
+  }
+
+  function moveBroll(id: string, range: { from: number; to: number }) {
+    setBrollItems((prev) =>
+      prev
+        .filter((b) => b.id === id || !(range.from <= b.to_word && b.from_word <= range.to))
+        .map((b) => (b.id === id ? { ...b, from_word: range.from, to_word: range.to } : b))
+        .sort((a, b) => a.from_word - b.from_word),
+    );
+  }
 
   // Guardado automático de la revisión (1,2 s después del último cambio).
   const reviewKey = useMemo(() => JSON.stringify([review, format]), [review, format]);
@@ -222,6 +286,47 @@ export function ReviewEditor({
           {plan.hook_candidates.length === 0 && <p className="text-sm text-muted">No encontramos frases de 3 a 8 segundos que funcionen solas como gancho.</p>}
         </section>
 
+        <BrollPanel
+          items={brollItems}
+          segments={segments}
+          signed={signed}
+          words={words}
+          corrections={corrections}
+          canEdit={canEdit}
+          activeId={activeBroll}
+          onActivate={showBroll}
+          onRemove={(id) => setBrollItems((prev) => prev.filter((b) => b.id !== id))}
+          onChange={(id) => setPicking(id)}
+          format={format}
+        />
+        <BrollPicker
+          key={picking ?? "none"}
+          item={brollItems.find((b) => b.id === picking) ?? null}
+          signed={signed}
+          format={format}
+          minDuration={(() => {
+            const b = brollItems.find((x) => x.id === picking);
+            return b ? Math.max(0, (words[b.to_word]?.end ?? 0) - (words[b.from_word]?.start ?? 0)) : 0;
+          })()}
+          onClose={() => setPicking(null)}
+          onPick={(option) => {
+            // Al plan va la alternativa sin las URLs firmadas (vencen); esas quedan solo para la vista previa.
+            const plain: BrollOption = { ...option };
+            delete (plain as Partial<SignedOption>).thumbUrl;
+            delete (plain as Partial<SignedOption>).previewUrl;
+            setSigned((prev) => ({ ...prev, [optionKey(option)]: option }));
+            setBrollItems((prev) =>
+              prev.map((b) =>
+                b.id === picking
+                  ? { ...b, choice: plain, options: b.options.some((o) => optionKey(o) === optionKey(plain)) ? b.options : [plain, ...b.options].slice(0, 12) }
+                  : b,
+              ),
+            );
+            setPicking(null);
+            if (picking) setActiveBroll(picking);
+          }}
+        />
+
         <section aria-labelledby="transcript-title" className="section-shell flex flex-col gap-4 !p-4 sm:!p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -264,6 +369,25 @@ export function ReviewEditor({
               })
             }
             onListen={listenFrom}
+            brollMarks={brollMarks}
+            activeBroll={activeBroll}
+            onBrollClick={showBroll}
+            extraActions={
+              canEdit
+                ? (range, clear) => (
+                    <>
+                      <Button size="sm" variant="ghost" icon={<Clapperboard className="h-3.5 w-3.5" aria-hidden />} onClick={() => (addBroll(range), clear())}>
+                        Poner b-roll aquí
+                      </Button>
+                      {activeBroll && brollItems.some((b) => b.id === activeBroll) && (
+                        <Button size="sm" variant="ghost" onClick={() => (moveBroll(activeBroll, range), clear())}>
+                          Mover el b-roll elegido aquí
+                        </Button>
+                      )}
+                    </>
+                  )
+                : undefined
+            }
           />
           {offScript.size > 0 && <p className="text-xs text-muted">Lo subrayado con puntos amarillos no está en el guion (no se corta solo).</p>}
         </section>
@@ -286,6 +410,10 @@ export function ReviewEditor({
               sourceHeight={sourceHeight}
               offsetX={showFraming ? offsetX : 0}
               onSourceTime={setActiveTime}
+              captionStyle={preset === "estilo" ? captionStyle : null}
+              broll={previewBroll}
+              zooms={zooms}
+              focusY={style?.focusY ?? 0.42}
             />
             <dl className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-xl bg-white/[0.04] px-2 py-2">
@@ -324,10 +452,28 @@ export function ReviewEditor({
                 label="Estilo de subtítulos"
                 value={preset}
                 onValueChange={(v) => canEdit && setPreset(v)}
-                options={(Object.keys(CAPTION_PRESETS) as CaptionPresetKey[]).map((k) => ({ value: k, label: CAPTION_PRESETS[k].label }))}
+                options={(Object.keys(CAPTION_PRESETS) as CaptionPresetKey[]).filter((k) => k !== "estilo" || Boolean(captionStyle)).map((k) => ({ value: k, label: CAPTION_PRESETS[k].label }))}
               />
               <p className="text-xs text-muted">{CAPTION_PRESETS[preset].description}</p>
             </div>
+            {style && (
+              <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
+                <span className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Palette className="h-4 w-4 text-accent-hi" aria-hidden /> Estilo: <span className="truncate font-normal text-text">{style.name}</span>
+                </span>
+                {style.zoom.enabled ? (
+                  <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+                    <span className="flex items-center gap-2 text-sm text-text">
+                      <ZoomIn className="h-4 w-4 text-accent-hi" aria-hidden />
+                      Zooms del estilo {zoomsOn ? `(${formatNumber(zooms.length)})` : ""}
+                    </span>
+                    <input type="checkbox" className="h-4 w-4 accent-[#0070f8]" checked={zoomsOn} disabled={!canEdit} onChange={(e) => setZoomsOn(e.target.checked)} />
+                  </label>
+                ) : (
+                  <p className="text-xs text-muted">La referencia no usa zooms.</p>
+                )}
+              </div>
+            )}
             {showFraming && (
               <div className="flex flex-col gap-2">
                 <label htmlFor="framing" className="flex items-center justify-between text-sm font-semibold text-white">

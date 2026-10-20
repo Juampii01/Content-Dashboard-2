@@ -87,6 +87,7 @@ const CONTENT_TYPES: Record<string, string> = {
   srt: "application/x-subrip",
   jpg: "image/jpeg",
   json: "application/json",
+  txt: "text/plain; charset=utf-8",
 };
 
 export function contentTypeFor(key: string): string {
@@ -234,7 +235,8 @@ export async function fileInfo(key: string): Promise<{ size: number } | null> {
 
 /** Borra todos los archivos bajo un prefijo (por ejemplo `editor/<id>/`). */
 export async function deletePrefix(prefix: string): Promise<void> {
-  if (!/^[a-z0-9_-]+\/[0-9a-f-]{36}\/$/i.test(prefix)) throw new Error("Prefijo no válido.");
+  // `editor/<id>/`, `clon/<id>/` o, en el Editor, `editor/estilos/<id>/` y `editor/biblioteca/<id>/`.
+  if (!/^[a-z0-9_-]+\/((estilos|biblioteca)\/)?[0-9a-f-]{36}\/$/i.test(prefix)) throw new Error("Prefijo no válido.");
   if (fileDriver() === "blob") {
     let cursor: string | undefined;
     do {

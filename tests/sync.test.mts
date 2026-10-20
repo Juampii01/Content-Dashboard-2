@@ -141,7 +141,10 @@ describe("sincronización", () => {
     const [account] = await db.select().from(schema.socialAccounts).where(eq(schema.socialAccounts.id, igId));
     assert.ok(account!.backfillCompletedAt, "el backfill queda completo");
     const days = await db.select().from(schema.accountSnapshots).where(eq(schema.accountSnapshots.socialAccountId, igId));
-    assert.equal(days.length, 29, "28 días de totales + la foto de hoy");
+    // 28 días de totales + la foto de hoy. "Hoy" se cuenta en APP_TIMEZONE: según la hora en que corre la prueba,
+    // puede coincidir con el último día de totales (que la API da en UTC) y entonces es la misma fila.
+    assert.ok(days.length === 28 || days.length === 29, `28 o 29 días guardados (${days.length})`);
+    assert.ok(days.some((d) => d.followers != null), "la foto de hoy guarda los seguidores");
     assert.equal(days.find((d) => d.followers !== null)?.followers, 5230);
     assert.equal(days[0]!.follows, 12);
   });

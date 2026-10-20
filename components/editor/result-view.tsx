@@ -19,7 +19,7 @@ export function ResultView({
 }: {
   projectId: string;
   format: "9:16" | "16:9";
-  output: { url: string; downloadUrl: string; srtUrl: string | null; meta: OutputMeta };
+  output: { url: string; downloadUrl: string; srtUrl: string | null; creditsUrl?: string | null; meta: OutputMeta };
   posterUrl: string | null;
   canEdit: boolean;
 }) {
@@ -59,6 +59,11 @@ export function ResultView({
             {output.srtUrl && (
               <a href={output.srtUrl} download className="btn-ghost">
                 <FileText className="h-4 w-4" aria-hidden /> Subtítulos (SRT)
+              </a>
+            )}
+            {output.creditsUrl && (
+              <a href={output.creditsUrl} download className="btn-ghost">
+                <FileText className="h-4 w-4" aria-hidden /> Créditos del b-roll
               </a>
             )}
             <ButtonLink href={`/calendario?nuevo=1&video=${projectId}`} variant="ghost" icon={<CalendarPlus className="h-4 w-4" aria-hidden />}>

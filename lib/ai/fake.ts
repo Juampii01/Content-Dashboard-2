@@ -212,7 +212,50 @@ export function fakeResponse(feature: string, task = ""): unknown {
       };
     case "video.plan":
       return fakeVideoPlan(task);
+    case "video.broll":
+      return fakeBrollPlan(task);
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }
+}
+
+/**
+ * B-roll del Editor: elige frases "mostrables" repartidas en el video (ni la primera ni la última),
+ * un tramo del largo pedido dentro de cada una, y arma la búsqueda con un diccionario chico.
+ */
+function fakeBrollPlan(task: string) {
+  const count = Number(task.match(/CANTIDAD: (\d+)/)?.[1] ?? 2);
+  const [minS, maxS] = (task.match(/DURACIÓN: ([\d.]+)–([\d.]+) s/)?.slice(1) ?? ["1.5", "3"]).map(Number) as [number, number];
+  const forbidden = [...task.matchAll(/PROHIBIDO \[(\d+)–(\d+)\]/g)].map((m) => [Number(m[1]), Number(m[2])] as const);
+  const frases = [...task.matchAll(/^F(\d+) \[(\d+)–(\d+)\] ([\d.]+) s \(([\d.]+)–([\d.]+)\): (.*)$/gm)].map((m) => ({
+    from: Number(m[2]),
+    to: Number(m[3]),
+    dur: Number(m[4]),
+    text: m[7]!,
+  }));
+  const dictionary: [RegExp, string, string][] = [
+    [/tel[eé]fono|llamada|contestan/i, "receptionist answering phone", "teléfono"],
+    [/cl[ií]nica|pacientes?|m[eé]dic/i, "modern medical clinic", "clínica"],
+    [/precio|dinero|pag/i, "price tag money", "dinero"],
+    [/citas?|agenda|calendario/i, "calendar appointment booking", "agenda"],
+    [/pregunt|escuch/i, "doctor listening to patient", "consulta"],
+    [/houston|ciudad/i, "city skyline aerial", "ciudad"],
+  ];
+  const usable = frases.filter((f, i) => i > 0 && i < frases.length - 1 && f.dur >= minS && !forbidden.some(([a, b]) => f.from <= b && a <= f.to));
+  const step = Math.max(1, Math.floor(usable.length / Math.max(1, count)));
+  const picked = usable.filter((_, i) => i % step === 0).slice(0, count);
+  return {
+    broll: picked.map((f) => {
+      const words = f.to - f.from + 1;
+      const take = Math.max(2, Math.min(words, Math.round((words * Math.min(f.dur, maxS)) / f.dur)));
+      const hit = dictionary.find(([re]) => re.test(f.text));
+      return {
+        from_word: f.from,
+        to_word: f.from + take - 1,
+        query_en: hit?.[1] ?? "business office teamwork",
+        keywords: [hit?.[2] ?? "oficina", ...f.text.toLowerCase().split(/[^a-záéíóúñ]+/).filter((w) => w.length > 5).slice(0, 2)],
+        why: "La frase describe algo que se puede mostrar.",
+      };
+    }),
+  };
 }

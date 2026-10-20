@@ -7,6 +7,7 @@ import type { CaptionBlock, CaptionPresetKey, TimedWord } from "./types";
 export const CAPTION_PRESETS: Record<CaptionPresetKey, { label: string; description: string }> = {
   clasico: { label: "Clásico", description: "Tres palabras por bloque; la que estás diciendo, en tu color de acento." },
   pop: { label: "Pop", description: "Una o dos palabras grandes, en mayúsculas, que entran con un pequeño salto." },
+  estilo: { label: "Del estilo", description: "Copia los subtítulos del video de referencia: posición, tamaño, colores y palabras por bloque." },
   ninguno: { label: "Sin subtítulos", description: "El video sale limpio. Igual recibes el archivo SRT." },
 };
 
@@ -14,9 +15,10 @@ const MAX_GAP = 0.45;
 /** Si el siguiente bloque empieza casi enseguida, el actual se estira hasta él (sin parpadeo). */
 const BRIDGE = 0.35;
 
-export function captionBlocks(words: TimedWord[], preset: CaptionPresetKey): CaptionBlock[] {
-  const maxWords = preset === "pop" ? 2 : 3;
-  const maxChars = preset === "pop" ? 14 : 24;
+export function captionBlocks(words: TimedWord[], preset: CaptionPresetKey, style?: { wordsPerBlock: number } | null): CaptionBlock[] {
+  const styled = preset === "estilo" ? Math.max(1, Math.min(6, style?.wordsPerBlock ?? 3)) : null;
+  const maxWords = styled ?? (preset === "pop" ? 2 : 3);
+  const maxChars = styled ? Math.max(12, styled * 9) : preset === "pop" ? 14 : 24;
   const blocks: CaptionBlock[] = [];
   let current: TimedWord[] = [];
   const flush = () => {
@@ -45,9 +47,9 @@ export function captionBlocks(words: TimedWord[], preset: CaptionPresetKey): Cap
 }
 
 /** Texto de un bloque tal como se ve en pantalla. */
-export function blockText(block: CaptionBlock, preset: CaptionPresetKey): string {
+export function blockText(block: CaptionBlock, preset: CaptionPresetKey, style?: { uppercase: boolean } | null): string {
   const text = block.words.map((w) => w.text).join(" ");
-  return preset === "pop" ? text.toLocaleUpperCase("es") : text;
+  return preset === "pop" || (preset === "estilo" && style?.uppercase) ? text.toLocaleUpperCase("es") : text;
 }
 
 function srtTime(sec: number): string {

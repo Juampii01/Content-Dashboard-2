@@ -78,6 +78,13 @@
       "when": 1792467259254,
       "tag": "0010_carruseles-plantillas-imagenes",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792471646015,
+      "tag": "0011_editor-estilos-broll",
+      "breakpoints": true
     }
   ]
 }

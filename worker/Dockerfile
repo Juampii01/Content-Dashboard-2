@@ -1,5 +1,11 @@
 # Worker de Content 2: Python 3.12 + ffmpeg (con libass y zimg) + fuentes OFL de los subtítulos.
 # Misma imagen para todos los clientes; cada cliente la despliega en su propia app de Fly (ver docs/worker.md).
+
+# Carruseles: Codex CLI (imágenes con la cuenta de ChatGPT del cliente). Se instala con npm en una imagen de Node
+# y se copian solo `node` y el paquete: la imagen final sigue siendo la de Python.
+FROM node:22.20.0-bookworm-slim AS codex
+RUN npm install -g @openai/codex@0.162.1 && npm cache clean --force
+
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -9,9 +15,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WORK_DIR=/data/work
 
 # ffmpeg de Debian bookworm (5.1) trae libx264, libass, libzimg (zscale para el tonemap HDR) y libopus.
+# Carruseles: tesseract-ocr con español (medir las referencias).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg fontconfig curl unzip ca-certificates \
+ && apt-get install -y --no-install-recommends ffmpeg fontconfig curl unzip ca-certificates tesseract-ocr tesseract-ocr-spa \
  && rm -rf /var/lib/apt/lists/*
+
+# Carruseles: Node 22 LTS (solo el binario) y Codex CLI desde la etapa de arriba.
+COPY --from=codex /usr/local/bin/node /usr/local/bin/node
+COPY --from=codex /usr/local/lib/node_modules/@openai /usr/local/lib/node_modules/@openai
+RUN ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex && codex --version
 
 WORKDIR /app
 COPY requirements.txt .
@@ -24,6 +36,7 @@ RUN sh scripts/fetch_fonts.sh /app/fonts && fc-cache -f /app/fonts
 COPY main.py .
 COPY comunes comunes
 COPY video video
+COPY carruseles carruseles
 
 # Sin root. /data es el volumen de Fly (caché de trabajo que sobrevive a los apagados de la máquina).
 RUN useradd --create-home --uid 10001 worker && mkdir -p /data/work && chown -R worker /data /app

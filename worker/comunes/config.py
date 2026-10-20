@@ -36,7 +36,7 @@ class Config:
     groq_api_key: str | None
     test_transcript: str | None
     x264_preset: str
-    capabilities: list[str] = field(default_factory=lambda: ["VIDEO_ANALYZE", "VIDEO_RENDER"])
+    capabilities: list[str] = field(default_factory=lambda: ["VIDEO_ANALYZE", "VIDEO_RENDER", "CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CODEX_LOGIN"])
 
     def describe(self) -> str:
         """Resumen para el log de arranque, sin secretos."""

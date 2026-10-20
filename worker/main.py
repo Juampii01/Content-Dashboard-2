@@ -16,6 +16,7 @@ from comunes.runner import Worker
 
 # Los módulos de trabajos se registran al importarse.
 import video.pipeline  # noqa: F401
+import carruseles  # noqa: F401  (CAROUSEL_STYLE, CAROUSEL_IMAGES, CODEX_LOGIN)
 
 
 def main() -> int:

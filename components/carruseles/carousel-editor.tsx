@@ -12,6 +12,8 @@ import {
   Download,
   GripVertical,
   Hash,
+  Images,
+  Loader2,
   MoreHorizontal,
   Plus,
   RefreshCw,
@@ -24,16 +26,20 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
-import { Progress } from "@/components/ui/feedback";
+import { Notice, Progress } from "@/components/ui/feedback";
 import { DropdownMenu } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
 import type { CarouselSlide } from "@/lib/db/schema";
 import { carouselStatusLabel, type CarouselStatus } from "@/lib/carousels/labels";
 import {
   blankSlide,
+  customIdOf,
+  customRef,
   FONTS,
+  isTemplateRef,
   newSlideId,
   PALETTES,
+  PHOTO_TEMPLATES,
   resolveTheme,
   SLIDE_TYPES,
   TEMPLATE_KEYS,
@@ -44,7 +50,11 @@ import {
   type SlideIdentity,
   type SlideType,
   type TemplateKey,
+  type TemplateRef,
 } from "@/lib/carousels/theme";
+import { layoutFor } from "@/lib/carousels/template-spec";
+import { isActive, useJob, type JobState } from "@/lib/carousels/use-job";
+import type { CarouselImageState } from "@/lib/dal/carousels";
 import { captionWithHashtags, LIMITS, normalizeHashtag, validateCarousel, type CarouselWarning } from "@/lib/carousels/validate";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -59,8 +69,11 @@ import {
   setCarouselStatusAction,
   type CarouselDraft,
 } from "./actions";
+import { CustomTemplatesProvider, type CustomTemplateInfo } from "./custom-templates";
 import { buildZip, downloadBlob, ensureFonts, slugify } from "./export";
+import { generateImagesAction } from "./image-actions";
 import { ScaledSlide, Slide } from "./slide";
+import { SlideImagePanel } from "./slide-image-panel";
 
 type Theme = { palette?: string; accent?: string; font?: string };
 type Look = BrandLook & { identity: SlideIdentity; bannedWords: string[] };
@@ -97,19 +110,23 @@ export function CarouselEditor({
   ctaKeyword,
   script,
   canEdit,
+  customTemplates,
+  imageState,
 }: {
   carouselId: string;
-  initial: { title: string; status: CarouselStatus; template: TemplateKey; theme: Theme; slides: CarouselSlide[]; caption: string; hashtags: string[] };
+  initial: { title: string; status: CarouselStatus; template: TemplateRef; theme: Theme; slides: CarouselSlide[]; caption: string; hashtags: string[] };
   look: Look;
   sourceText: string | null;
   ctaKeyword: string | null;
   script: { id: string; title: string } | null;
   canEdit: boolean;
+  customTemplates: CustomTemplateInfo[];
+  imageState: CarouselImageState;
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(initial.title);
   const [status, setStatus] = useState<CarouselStatus>(initial.status);
-  const [template, setTemplate] = useState<TemplateKey>(initial.template);
+  const [template, setTemplate] = useState<TemplateRef>(initial.template);
   const [theme, setTheme] = useState<Theme>(initial.theme);
   const [slides, setSlides] = useState<CarouselSlide[]>(initial.slides);
   const [caption, setCaption] = useState(initial.caption);
@@ -125,13 +142,59 @@ export function CarouselEditor({
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const customs = useMemo(() => Object.fromEntries(customTemplates.map((t) => [t.id, t])), [customTemplates]);
+  // Imágenes con IA: trabajo en curso (se puede salir y volver), proveedor y cuenta de las últimas 24 h.
+  const [imageJobId, setImageJobId] = useState<string | null>(imageState.activeJobId);
+  const [imageJobSlides, setImageJobSlides] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [provider, setProvider] = useState<string | null>(imageState.providers.preferred);
+  const [made24h, setMade24h] = useState(imageState.last24h.chatgpt + imageState.last24h.openai);
+  const merged = useRef(new Set<string>());
 
   const hashtags = useMemo(() => hashtagText.split(/[\s,]+/).map(normalizeHashtag).filter(Boolean), [hashtagText]);
-  const resolved = useMemo(() => resolveTheme(theme as Record<string, string>, look), [theme, look]);
+  // Paleta "referencia": la de la plantilla propia del carrusel (o la del slide elegido, si solo ese la usa).
+  const refTemplate = customs[customIdOf(template) ?? ""] ?? customs[customIdOf(slides.find((s) => s.id === selectedId)?.template) ?? ""] ?? null;
+  const resolved = useMemo(
+    () => resolveTheme(theme as Record<string, string>, look, refTemplate ? { palette: refTemplate.spec.palette, font: refTemplate.spec.fonts.heading } : null),
+    [theme, look, refTemplate],
+  );
   const warnings = useMemo(() => validateCarousel({ slides, caption, hashtags, bannedWords: look.bannedWords, sourceText }), [slides, caption, hashtags, look.bannedWords, sourceText]);
   const selectedIndex = Math.max(0, slides.findIndex((s) => s.id === selectedId));
   const selected = slides[selectedIndex];
-  const templateOf = (s: CarouselSlide): TemplateKey => (s.template && s.template in TEMPLATES ? (s.template as TemplateKey) : template);
+  const validRef = (t: string | null | undefined): t is TemplateRef => Boolean(t && isTemplateRef(t) && (!customIdOf(t) || customs[customIdOf(t)!]));
+  const templateOf = (s: CarouselSlide): TemplateRef => (validRef(s.template) ? s.template : validRef(template) ? template : "editorial");
+  /** La plantilla del slide dibuja imagen: "required" (Foto + texto o una propia con foto), "optional" (Tweet) o no. */
+  const imageMode = (s: CarouselSlide): "required" | "optional" | null => {
+    const t = templateOf(s);
+    const c = customs[customIdOf(t) ?? ""];
+    if (c) return layoutFor(c.spec, s.type).photo.position !== "none" ? "required" : null;
+    if (t === "foto") return "required";
+    return (PHOTO_TEMPLATES as string[]).includes(t) ? "optional" : null;
+  };
+  const providerReady = Boolean(provider);
+  const job = useJob(imageJobId, (state: JobState) => {
+    // Cada imagen se pone apenas sale (el servidor ya la guardó en el carrusel).
+    const done = Array.isArray(state.output.slides) ? (state.output.slides as { slideId: string; url: string }[]) : [];
+    const fresh = done.filter((d) => d.url && !merged.current.has(`${state.id}:${d.slideId}`));
+    if (fresh.length) {
+      fresh.forEach((d) => merged.current.add(`${state.id}:${d.slideId}`));
+      setSlides((list) => list.map((s) => {
+        const hit = fresh.find((d) => d.slideId === s.id);
+        return hit ? { ...s, imageUrl: hit.url, imageSource: "ai" } : s;
+      }));
+      setMade24h((n) => n + fresh.length);
+    }
+    if (state.status === "SUCCEEDED") {
+      toast.success(done.length === 1 ? "Imagen lista." : `${done.length} imágenes listas.`);
+      setImageJobId(null);
+      setImageJobSlides([]);
+    } else if (state.status === "FAILED" || state.status === "CANCELED") {
+      toast.error(state.error ?? "No se generaron las imágenes.", { duration: 12_000 });
+      setImageJobId(null);
+      setImageJobSlides([]);
+    }
+  });
+  const generating = isActive(job) || (imageJobId !== null && !job);
   const slideWarnings = (id: string) => warnings.filter((w) => w.slideId === id);
   const globalWarnings = warnings.filter((w) => w.slideId === null);
 
@@ -273,6 +336,24 @@ export function CarouselEditor({
     });
   }
 
+  async function generateImages(ids: string[]) {
+    if (!ids.length) return;
+    if (dirty && !(await save(true))) return;
+    setBusy("imagenes");
+    const res = await generateImagesAction(carouselId, ids, provider);
+    setBusy(null);
+    if (!res.ok || !res.data) return void toast.error(res.ok ? "No pudimos pedir las imágenes." : res.error);
+    const scenes = res.data.scenes;
+    // Las escenas que propuso la IA ya están guardadas: se muestran sin marcar cambios.
+    setSlides((list) => list.map((s) => (scenes[s.id] ? { ...s, scenePrompt: scenes[s.id] } : s)));
+    setImageJobSlides(ids);
+    setImageJobId(res.data.jobId);
+    toast.success(ids.length === 1 ? "Generando la imagen…" : `Generando ${ids.length} imágenes…`, { description: "Puedes seguir editando o salir: se guardan solas." });
+  }
+
+  const needImages = slides.filter((s) => imageMode(s) === "required" && !s.imageUrl);
+  const withImageSlot = slides.filter((s) => imageMode(s) === "required");
+
   function changeStatus(next: CarouselStatus) {
     setStatus(next);
     startTransition(async () => {
@@ -289,6 +370,8 @@ export function CarouselEditor({
       await ensureFonts(resolved.font);
       // Dos cuadros para que el escenario de exportación se monte y ajuste el texto con las fuentes ya cargadas.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // Las imágenes de los slides tienen que estar cargadas antes de dibujar.
+      await Promise.all(Array.from(stageRef.current?.querySelectorAll("img") ?? []).map((img) => img.decode().catch(() => undefined)));
       const nodes = Array.from(stageRef.current?.querySelectorAll<HTMLElement>("[data-slide]") ?? []);
       if (nodes.length !== slides.length) throw new Error("stage");
       const blob = await buildZip(nodes, {
@@ -336,6 +419,7 @@ export function CarouselEditor({
   const marca = brandPalette(look.colors);
 
   return (
+    <CustomTemplatesProvider templates={customTemplates}>
     <div className="flex flex-col gap-6 pb-24">
       {/* Cabecera */}
       <div className="card flex flex-col gap-4 p-5 sm:p-6">
@@ -369,7 +453,12 @@ export function CarouselEditor({
                 </option>
               ))}
             </Select>
-            <Button onClick={() => void exportZip()} disabled={busy !== null || slides.length === 0} icon={<Download className="h-4 w-4" aria-hidden />}>
+            {canEdit && withImageSlot.length > 0 && (
+              <Button variant="ghost" onClick={() => setBulkOpen(true)} disabled={busy !== null || generating || !providerReady} icon={generating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Images className="h-4 w-4" aria-hidden />}>
+                {generating ? "Generando…" : needImages.length ? `Generar imágenes (${needImages.length})` : "Generar imágenes"}
+              </Button>
+            )}
+            <Button onClick={() => void exportZip()} disabled={busy !== null || slides.length === 0 || generating} icon={<Download className="h-4 w-4" aria-hidden />}>
               {exporting ? `Preparando ${exporting.done} de ${exporting.total}…` : "Descargar ZIP"}
             </Button>
             <DropdownMenu
@@ -387,6 +476,22 @@ export function CarouselEditor({
           </div>
         </div>
         {exporting && <Progress value={(exporting.done / Math.max(1, exporting.total)) * 100} label="Dibujando tus slides en 1080 × 1350" />}
+        {generating && <Progress value={job?.progress ?? 0} label={job?.retrying ? `${job.retrying} Lo volvemos a intentar.` : (job?.stage ?? "En cola")} />}
+        {generating && job?.status === "QUEUED" && !imageState.workerOnline && (
+          <Notice tone="warning" title={imageState.workerAutoStart ? "Encendiendo el servicio de procesamiento" : "El servicio de procesamiento está apagado"}>
+            {imageState.workerAutoStart ? "Suele tardar menos de un minuto." : "Tus imágenes quedan en cola y arrancan apenas se encienda. Si en unos minutos no avanza, avísale a soporte."}
+          </Notice>
+        )}
+        {canEdit && withImageSlot.length > 0 && !providerReady && (
+          <Notice tone="info" title="Conecta tu ChatGPT para generar imágenes">
+            Las escenas con IA se generan con tu propia cuenta de ChatGPT (o con tu API key de OpenAI).{" "}
+            <a href="/ajustes#claves" className="font-semibold underline">
+              Ir a Ajustes
+            </a>
+            . También puedes subir tus fotos en cada slide.
+          </Notice>
+        )}
+        {!imageState.storageReady && withImageSlot.length > 0 && <Notice tone="warning">Falta configurar el almacenamiento de archivos: no se pueden guardar imágenes. Avísale a soporte.</Notice>}
       </div>
 
       {/* Tira de miniaturas: navegación en el teléfono y vista de conjunto en la computadora */}
@@ -505,11 +610,22 @@ export function CarouselEditor({
                 <Field label="Plantilla de este slide" htmlFor="s-template">
                   <Select id="s-template" value={selected.template ?? ""} onChange={(e) => patchSlide(selected.id, { template: e.target.value || null })} disabled={!canEdit}>
                     <option value="">Igual al carrusel</option>
-                    {TEMPLATE_KEYS.map((t) => (
-                      <option key={t} value={t}>
-                        {TEMPLATES[t].label}
-                      </option>
-                    ))}
+                    <optgroup label="De fábrica">
+                      {TEMPLATE_KEYS.map((t) => (
+                        <option key={t} value={t}>
+                          {TEMPLATES[t].label}
+                        </option>
+                      ))}
+                    </optgroup>
+                    {customTemplates.length > 0 && (
+                      <optgroup label="Tus plantillas">
+                        {customTemplates.map((c) => (
+                          <option key={c.id} value={customRef(c.id)}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </Select>
                 </Field>
               </div>
@@ -551,6 +667,19 @@ export function CarouselEditor({
                   <WarningList items={fieldWarnings("cta")} />
                 </div>
               )}
+              <SlideImagePanel
+                carouselId={carouselId}
+                slide={selected}
+                showsImages={imageMode(selected) !== null}
+                optional={imageMode(selected) === "optional"}
+                canEdit={canEdit}
+                disabled={disabled || !imageState.storageReady}
+                generating={generating && imageJobSlides.includes(selected.id)}
+                providerReady={providerReady}
+                onPatch={(patch) => patchSlide(selected.id, patch)}
+                onGenerate={() => void generateImages([selected.id])}
+                onUsePhotoTemplate={() => patchSlide(selected.id, { template: "foto" })}
+              />
               {canEdit && (
                 <div className="flex flex-wrap gap-1.5 border-t border-white/8 pt-3 lg:hidden">
                   <Button variant="subtle" size="sm" disabled={selectedIndex === 0 || disabled} onClick={() => move(selected.id, -1)} icon={<ArrowUp className="h-3.5 w-3.5" aria-hidden />}>
@@ -581,21 +710,21 @@ export function CarouselEditor({
           <div className="card flex flex-col gap-4 p-4">
             <fieldset>
               <legend className="mb-2 text-sm font-semibold text-white">Plantilla del carrusel</legend>
-              <div className="grid grid-cols-5 gap-2">
-                {TEMPLATE_KEYS.map((t) => (
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-4">
+                {[...TEMPLATE_KEYS, ...customTemplates.map((c) => customRef(c.id))].map((t) => (
                   <button
                     key={t}
                     type="button"
                     onClick={() => (setTemplate(t), touch())}
                     disabled={!canEdit}
                     aria-pressed={template === t}
-                    title={TEMPLATES[t].hint}
+                    title={customs[customIdOf(t) ?? ""]?.name ?? TEMPLATES[t as TemplateKey]?.hint}
                     className={cn("flex flex-col gap-1 rounded-lg text-left transition disabled:cursor-not-allowed", template === t ? "text-white" : "text-muted hover:text-white")}
                   >
                     <span className={cn("block overflow-hidden rounded-md border-2", template === t ? "border-accent-hi" : "border-white/10")}>
-                      {selected && <ScaledSlide slide={selected} index={selectedIndex} total={slides.length} template={t} theme={resolved} identity={look.identity} label={TEMPLATES[t].label} />}
+                      {selected && <ScaledSlide slide={selected} index={selectedIndex} total={slides.length} template={t} theme={resolved} identity={look.identity} label={customs[customIdOf(t) ?? ""]?.name ?? TEMPLATES[t as TemplateKey]?.label} />}
                     </span>
-                    <span className="truncate text-[10px] font-semibold">{TEMPLATES[t].label}</span>
+                    <span className="truncate text-[10px] font-semibold">{customs[customIdOf(t) ?? ""]?.name ?? TEMPLATES[t as TemplateKey]?.label}</span>
                   </button>
                 ))}
               </div>
@@ -603,7 +732,7 @@ export function CarouselEditor({
             <fieldset>
               <legend className="mb-2 text-sm font-semibold text-white">Colores</legend>
               <div className="flex flex-wrap gap-2">
-                {[["marca", { ...marca, label: "Mi marca" }] as const, ...Object.entries(PALETTES)].map(([key, p]) => {
+                {[["marca", { ...marca, label: "Mi marca" }] as const, ...(refTemplate ? [["referencia", { ...refTemplate.spec.palette, label: "Referencia" }] as const] : []), ...Object.entries(PALETTES)].map(([key, p]) => {
                   const active = resolved.palette === key;
                   return (
                     <button
@@ -797,6 +926,53 @@ export function CarouselEditor({
           </>
         }
       />
+
+      <Dialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        title="Generar imágenes con IA"
+        description="Una escena por slide, siempre sin texto: el texto lo pone la plantilla. Usa la primera imagen como referencia para que todas combinen."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setBulkOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={!providerReady || (needImages.length === 0 && withImageSlot.length === 0)}
+              icon={<Sparkles className="h-4 w-4" aria-hidden />}
+              onClick={() => {
+                setBulkOpen(false);
+                void generateImages((needImages.length ? needImages : withImageSlot).slice(0, 10).map((s) => s.id));
+              }}
+            >
+              {needImages.length ? `Generar ${Math.min(10, needImages.length)}` : `Rehacer ${Math.min(10, withImageSlot.length)}`}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3 text-sm">
+          {withImageSlot.length === 0 ? (
+            <Notice tone="info">Ningún slide usa una plantilla con imagen. Elige “Foto + texto” o una plantilla tuya con foto.</Notice>
+          ) : (
+            <p className="text-muted">
+              {needImages.length
+                ? `${needImages.length} ${needImages.length === 1 ? "slide no tiene" : "slides no tienen"} imagen todavía.`
+                : "Todos los slides con foto ya tienen imagen: se generan de nuevo."}{" "}
+              Hasta 10 por vez.
+            </p>
+          )}
+          {imageState.providers.chatgpt.configured && imageState.providers.openai.configured && (
+            <Field label="Generar con" htmlFor="img-provider">
+              <Select id="img-provider" value={provider ?? ""} onChange={(e) => setProvider(e.target.value)}>
+                <option value="chatgpt">Tu ChatGPT</option>
+                <option value="openai-api">Tu API key de OpenAI</option>
+              </Select>
+            </Field>
+          )}
+          <p className="text-xs text-muted">Llevas {formatNumber(made24h)} imágenes en las últimas 24 h. Los planes de ChatGPT tienen un límite diario.</p>
+        </div>
+      </Dialog>
     </div>
+    </CustomTemplatesProvider>
   );
 }

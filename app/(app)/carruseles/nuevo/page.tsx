@@ -7,15 +7,19 @@ import { Skeleton } from "@/components/ui/feedback";
 import { NewCarouselFlow } from "@/components/carruseles/new-carousel-flow";
 import { aiConfigured } from "@/lib/ai/client";
 import { brandIsReady, getBrandProfile } from "@/lib/dal/brand";
-import { getCarouselLook, listScriptsForCarousel } from "@/lib/dal/carousels";
+import { getCarouselLook, listCarouselTemplates, listScriptsForCarousel } from "@/lib/dal/carousels";
 
 export const metadata: Metadata = { title: "Nuevo carrusel" };
 
-/** `?guion=<id>` precarga un guion como origen (lo usa el botón "Hacer carrusel" de Guiones). */
+/**
+ * `?guion=<id>` precarga un guion como origen (lo usa el botón "Hacer carrusel" de Guiones).
+ * `?plantilla=<id>` preselecciona una plantilla propia (desde Plantillas).
+ */
 async function Flow({ searchParams }: { searchParams: PageProps<"/carruseles/nuevo">["searchParams"] }) {
   const params = await searchParams;
   const guion = typeof params.guion === "string" && /^[0-9a-f-]{36}$/i.test(params.guion) ? params.guion : null;
-  const [brand, look, scripts] = await Promise.all([getBrandProfile(), getCarouselLook(), listScriptsForCarousel()]);
+  const plantilla = typeof params.plantilla === "string" && /^[0-9a-f-]{36}$/i.test(params.plantilla) ? params.plantilla : null;
+  const [brand, look, scripts, templates] = await Promise.all([getBrandProfile(), getCarouselLook(), listScriptsForCarousel(), listCarouselTemplates(true)]);
   const preselected = guion && scripts.some((s) => s.id === guion) ? guion : null;
   return (
     <NewCarouselFlow
@@ -25,6 +29,8 @@ async function Flow({ searchParams }: { searchParams: PageProps<"/carruseles/nue
       look={{ colors: look.colors, fonts: look.fonts, identity: look.identity }}
       aiReady={aiConfigured()}
       brandReady={brandIsReady(brand)}
+      customTemplates={templates.flatMap((t) => (t.spec ? [{ id: t.id, name: t.name, spec: t.spec }] : []))}
+      preselectedTemplate={plantilla}
     />
   );
 }

@@ -59,7 +59,6 @@ export const measurementsSchema = z.object({
 });
 export type Measurements = z.infer<typeof measurementsSchema>;
 type MSlide = Measurements["slides"][number];
-type MBlock = MSlide["text_blocks"][number];
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const W = 1080;
@@ -173,7 +172,7 @@ export function draftSpec(m: Measurements): TemplateSpec {
   const byRole: Record<LayoutKey, MSlide[]> = { cover: [], content: [], cta: [] };
   m.slides.forEach((sl, i) => byRole[roleOf(i, total)].push(sl));
   const leftMargins = m.slides.flatMap((sl) => sl.text_blocks.filter((b) => b.role === "headline" && b.align === "left").map((b) => b.x * W));
-  const topMargins = m.slides.flatMap((sl) => sl.text_blocks.filter((b) => !sl.photo.present || (sl.photo.y ?? 0) > 0.1).map((b) => b.y * H));
+  const topMargins = m.slides.flatMap((sl) => (!sl.photo.present || (sl.photo.y ?? 0) > 0.1 ? sl.text_blocks : []).map((b) => b.y * H));
   const pad = { x: Math.round(Math.min(160, Math.max(40, median(leftMargins, 88)))), y: Math.round(Math.min(160, Math.max(40, topMargins.length ? Math.min(...topMargins) : 88))) };
 
   const content = layoutFrom(byRole.content.length ? byRole.content : m.slides, "content", pad);

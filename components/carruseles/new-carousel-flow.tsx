@@ -1,14 +1,17 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, FileText, Lightbulb, ScrollText, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, ArrowRight, FileText, Lightbulb, Palette, ScrollText, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
 import { Steps, type StepState } from "@/components/ui/steps";
 import type { CarouselSlide } from "@/lib/db/schema";
 import { CAROUSEL_OBJECTIVES, type CarouselObjective } from "@/lib/carousels/labels";
-import { resolveTheme, TEMPLATE_KEYS, TEMPLATES, type BrandLook, type SlideIdentity, type TemplateKey } from "@/lib/carousels/theme";
+import { customIdOf, customRef, resolveTheme, SLIDE_TYPES, TEMPLATE_KEYS, TEMPLATES, type BrandLook, type SlideIdentity, type TemplateRef } from "@/lib/carousels/theme";
+import { SegmentedControl } from "@/components/ui/tabs";
+import { CustomTemplatesProvider, type CustomTemplateInfo } from "./custom-templates";
 import { LIMITS } from "@/lib/carousels/validate";
 import { cn } from "@/lib/utils";
 import { createCarouselAction, type NewCarouselState } from "./actions";
@@ -36,14 +39,19 @@ export function NewCarouselFlow({
   look,
   aiReady,
   brandReady,
+  customTemplates,
+  preselectedTemplate,
 }: {
   scripts: ScriptOption[];
   preselectedScript: string | null;
+  customTemplates: CustomTemplateInfo[];
+  preselectedTemplate: string | null;
   keywords: { keyword: string; offer: string }[];
   look: BrandLook & { identity: SlideIdentity };
   aiReady: boolean;
   brandReady: boolean;
 }) {
+  const initialTemplate: TemplateRef = preselectedTemplate && customTemplates.some((t) => t.id === preselectedTemplate) ? customRef(preselectedTemplate) : "editorial";
   const [state, action, pending] = useActionState<NewCarouselState, FormData>(createCarouselAction, {});
   const [step, setStep] = useState<StepId>("origen");
   const [origin, setOrigin] = useState<Origin>(preselectedScript ? "guion" : "tema");
@@ -53,12 +61,18 @@ export function NewCarouselFlow({
   const [objective, setObjective] = useState<CarouselObjective>(keywords.length ? "conversacion" : "guardar");
   const [count, setCount] = useState(7);
   const [keyword, setKeyword] = useState(keywords[0]?.keyword ?? "");
-  const [template, setTemplate] = useState<TemplateKey>("editorial");
+  const [template, setTemplate] = useState<TemplateRef>(initialTemplate);
+  const [colors, setColors] = useState<"referencia" | "marca">("referencia");
+  const [respect, setRespect] = useState(false);
   const theme = useMemo(() => resolveTheme(null, look), [look]);
+  const custom = customTemplates.find((t) => t.id === customIdOf(template)) ?? null;
+  const customTheme = (c: CustomTemplateInfo) => resolveTheme({ palette: colors }, look, { palette: c.spec.palette, font: c.spec.fonts.heading });
+  const structure = custom && respect && custom.spec.structure.length >= 3 ? custom.spec.structure.map((s) => s.type) : null;
+  const templateLabel = custom ? custom.name : TEMPLATES[template as keyof typeof TEMPLATES]?.label ?? "Editorial";
 
   const script = scripts.find((s) => s.id === scriptId) ?? null;
   const fromBeats = origin === "guion" && script && script.beats >= 2;
-  const slides = fromBeats ? Math.min(LIMITS.maxSlides, script.beats + 2) : count;
+  const slides = structure ? structure.length : fromBeats ? Math.min(LIMITS.maxSlides, script.beats + 2) : count;
   const originError =
     origin === "tema" && topic.trim().length < 8
       ? "Cuenta el tema en una o dos frases."
@@ -87,6 +101,8 @@ export function NewCarouselFlow({
       <input type="hidden" name="slides" value={slides} />
       <input type="hidden" name="keyword" value={objective === "conversacion" ? keyword : ""} />
       <input type="hidden" name="template" value={template} />
+      <input type="hidden" name="palette" value={custom ? colors : ""} />
+      <input type="hidden" name="structure" value={structure ? structure.join(",") : ""} />
 
       <div className="lg:sticky lg:top-6 lg:self-start">
         <Steps steps={states} onSelect={(id) => go(id as StepId)} />
@@ -240,26 +256,96 @@ export function NewCarouselFlow({
               <h2 className="text-lg font-semibold">Elige la plantilla</h2>
               <p className="mt-1 text-sm text-muted">Usa los colores de Mi marca. Puedes cambiarla después, para todo el carrusel o para un slide.</p>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5" role="radiogroup" aria-label="Plantilla">
-              {TEMPLATE_KEYS.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  role="radio"
-                  aria-checked={template === t}
-                  onClick={() => setTemplate(t)}
-                  className={cn("flex flex-col gap-2 rounded-xl border-2 p-1.5 text-left transition", template === t ? "border-accent-hi bg-accent/10" : "border-white/10 hover:border-white/25")}
-                >
-                  <span className="overflow-hidden rounded-lg">
-                    <ScaledSlide slide={sample} index={0} total={7} template={t} theme={theme} identity={look.identity} label={`Plantilla ${TEMPLATES[t].label}`} />
-                  </span>
-                  <span className="px-1 pb-1">
-                    <span className="block text-sm font-semibold text-white">{TEMPLATES[t].label}</span>
-                    <span className="text-xs leading-snug text-muted">{TEMPLATES[t].hint}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
+            <CustomTemplatesProvider templates={customTemplates}>
+              <div className="flex flex-col gap-3">
+                <p className="text-xs font-semibold tracking-wide text-muted uppercase">De fábrica</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" role="radiogroup" aria-label="Plantillas de fábrica">
+                  {TEMPLATE_KEYS.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      role="radio"
+                      aria-checked={template === t}
+                      onClick={() => setTemplate(t)}
+                      className={cn("flex flex-col gap-2 rounded-xl border-2 p-1.5 text-left transition", template === t ? "border-accent-hi bg-accent/10" : "border-white/10 hover:border-white/25")}
+                    >
+                      <span className="overflow-hidden rounded-lg">
+                        <ScaledSlide slide={sample} index={0} total={7} template={t} theme={theme} identity={look.identity} label={`Plantilla ${TEMPLATES[t].label}`} />
+                      </span>
+                      <span className="px-1 pb-1">
+                        <span className="block text-sm font-semibold text-white">{TEMPLATES[t].label}</span>
+                        <span className="text-xs leading-snug text-muted">{TEMPLATES[t].hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold tracking-wide text-muted uppercase">Tus plantillas</p>
+                  <Link href="/carruseles/plantillas/nueva" className="text-xs font-semibold text-accent-hi hover:text-white">
+                    Copiar otro estilo
+                  </Link>
+                </div>
+                {customTemplates.length === 0 ? (
+                  <div className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-white/15 p-4 text-sm text-muted sm:flex-row sm:items-center">
+                    <Palette className="h-5 w-5 flex-none text-accent-hi" aria-hidden />
+                    <span>¿Te gusta el diseño de otro carrusel? Copia su estilo y úsalo con tus textos y tu marca.</span>
+                    <Link href="/carruseles/plantillas/nueva" className="chip whitespace-nowrap sm:ml-auto">
+                      Copiar un estilo
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" role="radiogroup" aria-label="Tus plantillas">
+                    {customTemplates.map((c) => {
+                      const ref = customRef(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={template === ref}
+                          onClick={() => setTemplate(ref)}
+                          className={cn("flex flex-col gap-2 rounded-xl border-2 p-1.5 text-left transition", template === ref ? "border-accent-hi bg-accent/10" : "border-white/10 hover:border-white/25")}
+                        >
+                          <span className="overflow-hidden rounded-lg">
+                            <ScaledSlide slide={sample} index={0} total={7} template={ref} theme={customTheme(c)} identity={look.identity} label={`Plantilla ${c.name}`} />
+                          </span>
+                          <span className="px-1 pb-1">
+                            <span className="block truncate text-sm font-semibold text-white">{c.name}</span>
+                            <span className="text-xs leading-snug text-muted">{c.spec.usesPhoto ? "Con foto por slide" : "Solo texto"}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </CustomTemplatesProvider>
+            {custom && (
+              <div className="flex flex-col gap-4 rounded-xl border border-white/10 p-4">
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-semibold text-white">Colores</span>
+                  <SegmentedControl
+                    label="Colores de la plantilla"
+                    size="sm"
+                    value={colors}
+                    onValueChange={setColors}
+                    options={[
+                      { value: "referencia", label: "De la referencia" },
+                      { value: "marca", label: "De mi marca" },
+                    ]}
+                  />
+                </div>
+                {custom.spec.structure.length >= 3 && (
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <input type="checkbox" checked={respect} onChange={(e) => setRespect(e.target.checked)} className="mt-1 h-4 w-4 accent-[#0070f8]" />
+                    <span>
+                      <span className="block text-sm font-semibold text-white">Respetar la estructura de la referencia ({custom.spec.structure.length} slides)</span>
+                      <span className="text-xs text-muted">{custom.spec.structure.map((s) => SLIDE_TYPES[s.type]).join(" · ")}</span>
+                    </span>
+                  </label>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -287,7 +373,10 @@ export function NewCarouselFlow({
               </div>
               <div className="rounded-xl border border-white/10 p-3">
                 <dt className="text-xs text-muted">Plantilla</dt>
-                <dd className="mt-0.5 font-semibold text-white">{TEMPLATES[template].label}</dd>
+                <dd className="mt-0.5 font-semibold text-white">
+                  {templateLabel}
+                  {custom ? ` · colores ${colors === "referencia" ? "de la referencia" : "de tu marca"}` : ""}
+                </dd>
               </div>
             </dl>
             <p className="text-sm text-muted">Te devolvemos el texto de cada slide, el caption y 5 hashtags. Después lo ajustas a mano o con IA y descargas las imágenes.</p>

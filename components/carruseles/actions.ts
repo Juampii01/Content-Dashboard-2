@@ -15,7 +15,10 @@ import { getDb, schema } from "@/lib/db";
 import type { CarouselSlide } from "@/lib/db/schema";
 import { CAROUSEL_OBJECTIVES, type CarouselObjective, type CarouselStatus } from "@/lib/carousels/labels";
 import { coverOptions, createCarousel, newCaption, rewriteSlide } from "@/lib/carousels/service";
-import { FONTS, PALETTE_KEYS, TEMPLATE_KEYS, type TemplateKey } from "@/lib/carousels/theme";
+import { customIdOf, FONTS, isTemplateRef, PALETTE_KEYS, type TemplateRef } from "@/lib/carousels/theme";
+import { copySlideImages, deleteCarouselFolder } from "@/lib/carousels/files";
+import { getTemplate } from "@/lib/carousels/templates";
+import { SLIDE_TYPE_KEYS } from "@/lib/carousels/template-spec";
 import { LIMITS } from "@/lib/carousels/validate";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -30,7 +33,8 @@ function fail(error: unknown): { ok: false; error: string } {
 }
 
 const uuid = z.string().regex(/^[0-9a-f-]{36}$/i, "Carrusel no válido.");
-const templateEnum = z.enum(TEMPLATE_KEYS as [TemplateKey, ...TemplateKey[]]);
+/** Plantilla de fábrica (`editorial`, `foto`…) o propia (`custom:<uuid>`). */
+const templateEnum = z.string().refine((v): v is TemplateRef => isTemplateRef(v), "Plantilla no válida.");
 
 const newCarousel = z
   .object({
@@ -47,6 +51,9 @@ const newCarousel = z
       .regex(/^[\p{L}\p{N}_-]*$/u, "La palabra clave va sin espacios ni símbolos (por ejemplo, AGENDA).")
       .default(""),
     template: templateEnum,
+    palette: z.enum(["", "marca", "referencia"]).default(""),
+    /** Tipos de slide de la referencia, separados por coma, si se respeta su estructura. */
+    structure: z.string().max(400).default(""),
   })
   .superRefine((d, ctx) => {
     if (d.origin === "tema" && d.topic.length < 8) ctx.addIssue({ code: "custom", message: "Cuenta el tema en una o dos frases." });
@@ -63,6 +70,15 @@ export async function createCarouselAction(_prev: NewCarouselState, formData: Fo
   const parsed = newCarousel.safeParse(Object.fromEntries([...formData.entries()].map(([k, v]) => [k, typeof v === "string" ? v : ""])));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const d = parsed.data;
+  // Plantilla propia: tiene que existir y estar lista; la estructura solo vale con ella.
+  const customId = customIdOf(d.template);
+  let structure: string[] | null = null;
+  if (customId) {
+    const tpl = await getTemplate(customId);
+    if (!tpl || tpl.status !== "READY" || !tpl.spec) return { error: "Esa plantilla ya no está disponible. Elige otra." };
+    const types = d.structure.split(",").map((t) => t.trim()).filter((t): t is (typeof SLIDE_TYPE_KEYS)[number] => (SLIDE_TYPE_KEYS as readonly string[]).includes(t));
+    if (types.length >= 3) structure = types.slice(0, 20);
+  }
   let id: string;
   try {
     id = await createCarousel({
@@ -71,9 +87,11 @@ export async function createCarouselAction(_prev: NewCarouselState, formData: Fo
       pastedText: d.pastedText || null,
       scriptId: d.origin === "guion" ? d.scriptId : null,
       objective: d.objective,
-      slides: d.slides,
+      slides: structure ? structure.length : d.slides,
       keyword: d.keyword ? d.keyword.toUpperCase() : null,
-      template: d.template,
+      template: d.template as TemplateRef,
+      theme: customId && d.palette ? { palette: d.palette } : null,
+      structure,
       userId: user.id,
     });
   } catch (error) {
@@ -91,7 +109,10 @@ const slideSchema = z.object({
   body: z.string().max(1500),
   cta: z.string().max(300),
   template: templateEnum.nullable().optional(),
-  imageUrl: z.string().max(1000).nullable().optional(),
+  // Solo imágenes nuestras (subidas o generadas), servidas por la app con sesión.
+  imageUrl: z.string().max(400).regex(/^\/api\/carruseles\/archivos\/carruseles\/[0-9a-f-]{36}\/[a-z0-9-]+\.(jpg|png|webp)$/i, "Imagen no válida.").nullable().optional(),
+  imageSource: z.enum(["upload", "ai"]).nullable().optional(),
+  scenePrompt: z.string().max(600).nullable().optional(),
 });
 const slidesSchema = z.array(slideSchema).min(1, "El carrusel necesita al menos un slide.").max(20, "Máximo 20 slides.");
 
@@ -211,6 +232,10 @@ export async function duplicateCarouselAction(id: string): Promise<ActionResult<
       createdBy: user.id,
     })
     .returning({ id: schema.carousels.id });
+  // Las imágenes se copian a la carpeta de la copia (si no, borrar el original la dejaría sin ellas).
+  if (row.slides.some((s) => s.imageUrl)) {
+    await getDb().update(schema.carousels).set({ slides: await copySlideImages(row.slides, copy!.id) }).where(eq(schema.carousels.id, copy!.id));
+  }
   refresh();
   return { ok: true, data: copy!.id };
 }
@@ -221,6 +246,8 @@ export async function deleteCarouselAction(id: string): Promise<ActionResult> {
   if (isDenied(user)) return user;
   if (!uuid.safeParse(id).success) return { ok: false, error: "Carrusel no válido." };
   await getDb().delete(schema.carousels).where(eq(schema.carousels.id, id));
+  // Sus imágenes (subidas o generadas) no quedan sueltas en el almacenamiento.
+  await deleteCarouselFolder(id);
   refresh();
   return { ok: true };
 }

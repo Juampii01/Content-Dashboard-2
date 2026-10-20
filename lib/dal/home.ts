@@ -36,7 +36,7 @@ export async function getFollowerSummary(): Promise<{ platform: Platform; handle
 
 export type ActiveWork = {
   id: string;
-  kind: "video" | "clon";
+  kind: "video" | "clon" | "carrusel";
   title: string;
   label: string; // etapa en español
   progress: number | null; // 0 a 100 si se conoce
@@ -44,7 +44,7 @@ export type ActiveWork = {
   href: string;
 };
 
-/** Trabajos en curso para Inicio: videos del editor procesando o esperando revisión, y videos con clon generándose. */
+/** Trabajos en curso para Inicio: videos del editor, videos con clon, imágenes de carruseles y plantillas copiándose. */
 export async function getActiveWork(): Promise<ActiveWork[]> {
   await getCurrentUser();
   const db = getDb();
@@ -58,6 +58,14 @@ export async function getActiveWork(): Promise<ActiveWork[]> {
   `);
   const clones = await db.execute<{ id: string; title: string; status: string }>(sql`
     select id, title, status from clone_videos where status in ('QUEUED', 'PROCESSING') order by created_at desc limit 5
+  `);
+  // Carruseles: imágenes generándose y plantillas copiando un estilo.
+  const carousels = await db.execute<{ id: string; type: string; ref: string; title: string | null; stage: string | null; progress: number | null }>(sql`
+    select j.id, j.type, coalesce(j.input->>'carouselId', j.input->>'templateId') as ref, j.stage, j.progress,
+      coalesce((select c.title from carousels c where c.id::text = j.input->>'carouselId'), (select t.name from carousel_templates t where t.id::text = j.input->>'templateId')) as title
+    from jobs j
+    where j.type in ('CAROUSEL_IMAGES', 'CAROUSEL_STYLE') and j.status in ('QUEUED', 'RUNNING')
+    order by j.created_at desc limit 5
   `);
   return [
     ...videos.rows.map((v) => ({
@@ -78,5 +86,16 @@ export async function getActiveWork(): Promise<ActiveWork[]> {
       needsAction: false,
       href: `/clon/${c.id}`,
     })),
+    ...carousels.rows
+      .filter((c) => c.title)
+      .map((c) => ({
+        id: c.id,
+        kind: "carrusel" as const,
+        title: c.type === "CAROUSEL_STYLE" ? `Plantilla: ${c.title}` : c.title!,
+        label: c.stage ?? (c.type === "CAROUSEL_STYLE" ? "Copiando el estilo" : "Generando imágenes"),
+        progress: c.progress == null ? null : Number(c.progress),
+        needsAction: false,
+        href: c.type === "CAROUSEL_STYLE" ? `/carruseles/plantillas/${c.ref}` : `/carruseles/${c.ref}`,
+      })),
   ];
 }

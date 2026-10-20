@@ -2,7 +2,7 @@
 
 import "./slides.css";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { customIdOf, isTemplate, SLIDE_HEIGHT, SLIDE_WIDTH, type ResolvedTheme, type TemplateKey } from "@/lib/carousels/theme";
+import { customIdOf, isTemplate, SLIDE_HEIGHT, SLIDE_WIDTH, type TemplateKey } from "@/lib/carousels/theme";
 import { cn } from "@/lib/utils";
 import { useCustomTemplate } from "./custom-templates";
 import { CustomSlide } from "./custom-slide";
@@ -18,7 +18,6 @@ import {
   Footer,
   Frame,
   Highlighted,
-  isDark,
   MONO,
   pad2,
   px,

@@ -11,7 +11,8 @@ import { DropdownMenu } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
 import { formatRelative } from "@/lib/format";
 import { carouselStatusLabel, carouselStatusTone, type CarouselStatus } from "@/lib/carousels/labels";
-import { isTemplate, resolveTheme, TEMPLATES, type BrandLook, type SlideIdentity } from "@/lib/carousels/theme";
+import { customIdOf, isTemplate, isTemplateRef, resolveTheme, TEMPLATES, type BrandLook, type SlideIdentity } from "@/lib/carousels/theme";
+import { useCustomTemplate } from "./custom-templates";
 import type { CarouselSlide } from "@/lib/db/schema";
 import { deleteCarouselAction, duplicateCarouselAction } from "./actions";
 import { ScaledSlide } from "./slide";
@@ -33,8 +34,10 @@ export function CarouselCard({ item, look, canEdit }: { item: CarouselCardItem; 
   const router = useRouter();
   const [confirm, setConfirm] = useState(false);
   const [pending, startTransition] = useTransition();
-  const theme = resolveTheme(item.theme, look);
-  const template = item.cover?.template && isTemplate(item.cover.template) ? item.cover.template : isTemplate(item.template) ? item.template : "editorial";
+  const template = item.cover?.template && isTemplateRef(item.cover.template) ? item.cover.template : isTemplateRef(item.template) ? item.template : "editorial";
+  const custom = useCustomTemplate(customIdOf(item.template) ?? customIdOf(template));
+  const theme = resolveTheme(item.theme, look, custom ? { palette: custom.spec.palette, font: custom.spec.fonts.heading } : null);
+  const templateName = isTemplate(item.template) ? TEMPLATES[item.template].label : (custom?.name ?? "Editorial");
 
   function duplicate() {
     startTransition(async () => {
@@ -92,7 +95,7 @@ export function CarouselCard({ item, look, canEdit }: { item: CarouselCardItem; 
           {item.title}
         </Link>
         <span className="mt-auto text-xs text-placeholder">
-          {isTemplate(item.template) ? TEMPLATES[item.template].label : "Editorial"} · Editado {formatRelative(item.updatedAt)}
+          {templateName} · Editado {formatRelative(item.updatedAt)}
         </span>
       </div>
       <Dialog

@@ -8,6 +8,7 @@ import { ConnectionsSection, ConnectionsSkeleton } from "@/components/ajustes/co
 import { ConnectNotice } from "@/components/ajustes/connect-notice";
 import { DemoSection } from "@/components/ajustes/demo-section";
 import { HeyGenSection, HeyGenSectionSkeleton } from "@/components/ajustes/heygen-section";
+import { ImageKeysSection, ImageKeysSectionSkeleton } from "@/components/ajustes/image-keys-section";
 
 export const metadata: Metadata = { title: "Ajustes" };
 
@@ -38,10 +39,15 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
         </Suspense>
 
         <div id="claves" className="scroll-mt-6">
-          <Section title="Claves de servicios" description="Tu API key de HeyGen para los videos con clon. Tu clon y tu saldo son tuyos: la clave se guarda cifrada y nunca se muestra completa.">
-            <Suspense fallback={<HeyGenSectionSkeleton />}>
-              <HeyGenSection />
-            </Suspense>
+          <Section title="Claves de servicios" description="Tu API key de HeyGen para los videos con clon y tu cuenta de ChatGPT para las imágenes de los carruseles. Son tuyas: se guardan cifradas y nunca se muestran completas.">
+            <div className="flex flex-col gap-6">
+              <Suspense fallback={<HeyGenSectionSkeleton />}>
+                <HeyGenSection />
+              </Suspense>
+              <Suspense fallback={<ImageKeysSectionSkeleton />}>
+                <ImageKeysSection />
+              </Suspense>
+            </div>
           </Section>
         </div>
 

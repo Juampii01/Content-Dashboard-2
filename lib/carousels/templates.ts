@@ -169,6 +169,13 @@ export async function listTemplates(onlyReady = false): Promise<TemplateListItem
   }));
 }
 
+export async function getTemplate(id: string): Promise<TemplateListItem | null> {
+  const [r] = await getDb().select().from(schema.carouselTemplates).where(eq(schema.carouselTemplates.id, id)).limit(1);
+  return r
+    ? { id: r.id, name: r.name, status: r.status, source: r.source, referenceCount: r.referenceCount, spec: parseSpec(r.spec), errorMessage: r.errorMessage, updatedAt: r.updatedAt, createdAt: r.createdAt }
+    : null;
+}
+
 export async function renameTemplate(id: string, name: string): Promise<void> {
   const res = await getDb().update(schema.carouselTemplates).set({ name: name.trim().slice(0, 80) }).where(eq(schema.carouselTemplates.id, id)).returning({ id: schema.carouselTemplates.id });
   if (!res.length) throw new TemplateError("No encontramos esa plantilla.");

@@ -18,12 +18,14 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
 export async function ensureFonts(font: FontKey): Promise<void> {
   if (typeof document === "undefined" || !document.fonts) return;
   const sample = "ÁÉÍÓÚáéíóúÑñÜü¿¡“”—0123456789";
-  const families = new Set(['"Inter"', '"JetBrains Mono"', FONTS[font].family.split(",")[0]!, '"Montserrat Carrusel"', '"Playfair Carrusel"']);
+  // Todas las familias de las plantillas (las propias pueden usar cualquiera para titulares y texto).
+  const families = new Set(['"Inter"', '"JetBrains Mono"', FONTS[font].family.split(",")[0]!, ...Object.values(FONTS).map((f) => f.family.split(",")[0]!)]);
   const loads: Promise<unknown>[] = [];
   for (const f of families) {
     for (const w of [400, 600, 700, 800, 900]) loads.push(document.fonts.load(`${w} 40px ${f}`, sample).catch(() => undefined));
   }
   loads.push(document.fonts.load(`italic 600 40px "Playfair Carrusel"`, sample).catch(() => undefined));
+  loads.push(document.fonts.load(`italic 400 40px "Instrument Carrusel"`, sample).catch(() => undefined));
   await Promise.all(loads);
   await document.fonts.ready;
 }

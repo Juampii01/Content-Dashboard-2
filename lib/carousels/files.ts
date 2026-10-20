@@ -1,8 +1,10 @@
 import "server-only";
-import { get, put } from "@vercel/blob";
+import { copyFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { copy, get, put } from "@vercel/blob";
 import { env } from "@/lib/env";
 import { deleteKeys, deletePrefix, fileDriver } from "@/lib/storage";
-import { assertKey, serveLocal, writeLocal } from "@/lib/storage/files";
+import { assertKey, localPath, serveLocal, writeLocal } from "@/lib/storage/files";
 
 /**
  * Archivos de Carruseles en el almacenamiento **privado** (el mismo store que los videos del Editor):
@@ -73,6 +75,35 @@ export async function serveFile(key: string, request: Request): Promise<Response
   const res = await serveLocal(key, request);
   if (res.ok) res.headers.set("Cache-Control", "private, max-age=86400, immutable");
   return res;
+}
+
+/**
+ * Copia las imágenes de los slides a la carpeta de otro carrusel (al duplicar): así borrar el original no deja a la
+ * copia sin imágenes. Devuelve los slides con sus URLs nuevas; si una copia falla, ese slide queda sin imagen.
+ */
+export async function copySlideImages<T extends { id: string; imageUrl?: string | null }>(slides: T[], toCarouselId: string): Promise<T[]> {
+  const out: T[] = [];
+  for (const s of slides) {
+    const from = keyFromUrl(s.imageUrl);
+    if (!from) {
+      out.push(s);
+      continue;
+    }
+    const to = `carruseles/${toCarouselId}/${from.split("/")[2]}`;
+    try {
+      if (fileDriver() === "blob") {
+        await copy(from, to, { access: "private", addRandomSuffix: false, allowOverwrite: true, token: env().VIDEO_BLOB_READ_WRITE_TOKEN });
+      } else {
+        await mkdir(path.dirname(localPath(to)), { recursive: true });
+        await copyFile(localPath(from), localPath(to));
+      }
+      out.push({ ...s, imageUrl: fileUrl(to) });
+    } catch (error) {
+      console.error("[carruseles] copiar imagen:", error instanceof Error ? error.message : "error");
+      out.push({ ...s, imageUrl: null });
+    }
+  }
+  return out;
 }
 
 export async function deleteFiles(keys: string[]): Promise<void> {

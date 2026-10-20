@@ -1,11 +1,17 @@
 import "server-only";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { getBrand } from "@/lib/ai/brand-context";
 import { getDb, schema } from "@/lib/db";
 import type { CarouselSlide } from "@/lib/db/schema";
 import type { BrandLook, SlideIdentity } from "@/lib/carousels/theme";
 import type { CarouselStatus } from "@/lib/carousels/labels";
+import { carouselFilesReady } from "@/lib/carousels/files";
+import { providersStatus, type ImageProvidersStatus } from "@/lib/carousels/images";
+import { activeImageJob, imagesLast24h } from "@/lib/carousels/images/service";
+import type { TemplateSpec } from "@/lib/carousels/template-spec";
+import { getTemplate, latestStyleJob, listTemplates, type TemplateListItem } from "@/lib/carousels/templates";
+import { workerStatus } from "@/lib/jobs";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -117,4 +123,78 @@ export async function listScriptsForCarousel(): Promise<{ id: string; title: str
     .orderBy(desc(schema.scripts.updatedAt))
     .limit(50);
   return rows;
+}
+
+// ─── Plantillas desde referencia ──────────────────────────────────────────
+
+export type TemplateView = {
+  id: string;
+  name: string;
+  status: "ANALYZING" | "READY" | "FAILED";
+  source: string;
+  referenceCount: number;
+  spec: TemplateSpec | null;
+  errorMessage: string | null;
+  updatedAt: string;
+  /** Trabajo de análisis en curso (o el último), para mostrar el progreso. */
+  job: { id: string; status: string; progress: number; stage: string | null; errorMessage: string | null } | null;
+};
+
+async function toView(t: TemplateListItem): Promise<TemplateView> {
+  const job = t.status === "ANALYZING" || t.status === "FAILED" ? await latestStyleJob(t.id) : null;
+  const failedByJob = t.status === "ANALYZING" && (job?.status === "FAILED" || job?.status === "CANCELED");
+  return {
+    id: t.id,
+    name: t.name,
+    status: failedByJob ? "FAILED" : t.status,
+    source: t.source,
+    referenceCount: t.referenceCount,
+    spec: t.spec,
+    errorMessage: t.errorMessage ?? (failedByJob ? (job?.errorMessage ?? "El análisis se canceló.") : null),
+    updatedAt: t.updatedAt.toISOString(),
+    job,
+  };
+}
+
+export async function listCarouselTemplates(onlyReady = false): Promise<TemplateView[]> {
+  await getCurrentUser();
+  const rows = await listTemplates(onlyReady);
+  return Promise.all(rows.map(toView));
+}
+
+export async function getCarouselTemplate(id: string): Promise<TemplateView | null> {
+  await getCurrentUser();
+  if (!UUID.test(id)) return null;
+  const row = await getTemplate(id);
+  return row ? toView(row) : null;
+}
+
+// ─── Imágenes con IA ──────────────────────────────────────────────────────
+
+export type CarouselImageState = {
+  providers: ImageProvidersStatus;
+  last24h: { chatgpt: number; openai: number };
+  activeJobId: string | null;
+  workerOnline: boolean;
+  workerAutoStart: boolean;
+  storageReady: boolean;
+};
+
+export async function getCarouselImageState(carouselId: string): Promise<CarouselImageState> {
+  await getCurrentUser();
+  const [providers, last24h, active, worker] = await Promise.all([providersStatus(), imagesLast24h(), UUID.test(carouselId) ? activeImageJob(carouselId) : null, workerStatus()]);
+  return { providers, last24h, activeJobId: active?.id ?? null, workerOnline: worker.online, workerAutoStart: worker.autoStart, storageReady: carouselFilesReady() };
+}
+
+/** Estado de la conexión de ChatGPT y de la API key de OpenAI, para Ajustes. */
+export async function getImageKeysStatus() {
+  const me = await getCurrentUser();
+  const [providers, last24h, worker] = await Promise.all([providersStatus(), imagesLast24h(), workerStatus()]);
+  const [login] = await getDb()
+    .select({ id: schema.jobs.id })
+    .from(schema.jobs)
+    .where(and(eq(schema.jobs.type, "CODEX_LOGIN"), inArray(schema.jobs.status, ["QUEUED", "RUNNING"])))
+    .orderBy(desc(schema.jobs.createdAt))
+    .limit(1);
+  return { isOwner: me.role === "OWNER", providers, last24h, loginJobId: login?.id ?? null, workerOnline: worker.online, workerAutoStart: worker.autoStart };
 }

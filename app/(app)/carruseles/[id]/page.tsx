@@ -6,14 +6,14 @@ import { ButtonLink } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/feedback";
 import { CarouselEditor } from "@/components/carruseles/carousel-editor";
 import { getCurrentUser } from "@/lib/auth";
-import { getCarousel, getCarouselLook } from "@/lib/dal/carousels";
-import { isTemplate } from "@/lib/carousels/theme";
+import { getCarousel, getCarouselImageState, getCarouselLook, listCarouselTemplates } from "@/lib/dal/carousels";
+import { isTemplateRef } from "@/lib/carousels/theme";
 
 export const metadata: Metadata = { title: "Carrusel" };
 
 async function Editor({ params }: { params: PageProps<"/carruseles/[id]">["params"] }) {
   const { id } = await params;
-  const [me, data, look] = await Promise.all([getCurrentUser(), getCarousel(id), getCarouselLook()]);
+  const [me, data, look, templates, imageState] = await Promise.all([getCurrentUser(), getCarousel(id), getCarouselLook(), listCarouselTemplates(true), getCarouselImageState(id)]);
   if (!data) notFound();
   const { carousel: c, script } = data;
   return (
@@ -23,7 +23,7 @@ async function Editor({ params }: { params: PageProps<"/carruseles/[id]">["param
       initial={{
         title: c.title,
         status: c.status,
-        template: isTemplate(c.template) ? c.template : "editorial",
+        template: isTemplateRef(c.template) ? c.template : "editorial",
         theme: c.theme ?? {},
         slides: c.slides,
         caption: c.caption ?? "",
@@ -34,6 +34,8 @@ async function Editor({ params }: { params: PageProps<"/carruseles/[id]">["param
       ctaKeyword={c.ctaKeyword}
       script={script}
       canEdit={me.role !== "VIEWER"}
+      customTemplates={templates.flatMap((t) => (t.spec ? [{ id: t.id, name: t.name, spec: t.spec }] : []))}
+      imageState={imageState}
     />
   );
 }

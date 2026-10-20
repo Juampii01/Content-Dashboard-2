@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Clapperboard, UserRound } from "lucide-react";
+import { ArrowRight, Clapperboard, GalleryHorizontalEnd, UserRound } from "lucide-react";
 import { Section } from "@/components/ui/card";
 import type { ActiveWork as Work } from "@/lib/dal/home";
 
@@ -13,7 +13,7 @@ export function ActiveWork({ items }: { items: Work[] }) {
           <li key={`${w.kind}-${w.id}`}>
             <Link href={w.href} className="card card-lift flex items-center gap-4 p-4">
               <span className="tile-icon h-10 w-10 flex-none">
-                {w.kind === "video" ? <Clapperboard className="h-5 w-5" aria-hidden /> : <UserRound className="h-5 w-5" aria-hidden />}
+                {w.kind === "video" ? <Clapperboard className="h-5 w-5" aria-hidden /> : w.kind === "carrusel" ? <GalleryHorizontalEnd className="h-5 w-5" aria-hidden /> : <UserRound className="h-5 w-5" aria-hidden />}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="line-clamp-1 font-medium text-white">{w.title}</span>

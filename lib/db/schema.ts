@@ -555,8 +555,10 @@ export type CarouselSlide = {
   highlight: string; // palabra o frase del titular que va en color de acento
   body: string;
   cta: string;
-  template?: string | null; // plantilla propia de este slide; null = la del carrusel
-  imageUrl?: string | null; // foto o fondo subido por el cliente
+  template?: string | null; // plantilla propia de este slide (de fábrica o `custom:<uuid>`); null = la del carrusel
+  imageUrl?: string | null; // imagen del slide (foto subida o escena con IA), servida por /api/carruseles/archivos/…
+  imageSource?: "upload" | "ai" | null; // de dónde salió la imagen
+  scenePrompt?: string | null; // escena que propone la IA para la imagen (sin texto); editable
 };
 
 /** Un carrusel de Instagram (1080×1350). Los slides son texto; la imagen final se dibuja con la plantilla. */
@@ -583,6 +585,32 @@ export const carousels = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("carousels_updated_at_idx").on(t.updatedAt)],
+);
+
+export const carouselTemplateStatusEnum = pgEnum("carousel_template_status", ["ANALYZING", "READY", "FAILED"]);
+
+/**
+ * Plantilla propia creada copiando el estilo de un carrusel de referencia (imágenes subidas o un link).
+ * Se guarda solo el diseño (spec validado con Zod en lib/carousels/template-spec.ts): nunca el texto, las fotos
+ * ni los logos del original. Las imágenes de referencia se borran al terminar el análisis.
+ */
+export const carouselTemplates = pgTable(
+  "carousel_templates",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    status: carouselTemplateStatusEnum("status").notNull().default("ANALYZING"),
+    source: text("source").notNull().default("upload"), // upload | link
+    sourceUrl: text("source_url"), // link del post, si vino de un link
+    referenceCount: integer("reference_count").notNull().default(0),
+    spec: jsonb("spec").$type<Record<string, unknown>>(), // TemplateSpec; null mientras se analiza
+    measurements: jsonb("measurements").$type<Record<string, unknown>>(), // medidas de Tesseract y colores (sin texto)
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("carousel_templates_updated_at_idx").on(t.updatedAt)],
 );
 
 // ─── Videos con clon (HeyGen) ──────────────────────────────────────────────
@@ -686,6 +714,9 @@ export const jobTypeEnum = pgEnum("job_type", [
   "CAROUSEL_GENERATE",
   "CLONE_TRAIN",
   "CLONE_VIDEO",
+  "CAROUSEL_STYLE", // analizar un carrusel de referencia (Tesseract + colores) para crear una plantilla
+  "CAROUSEL_IMAGES", // generar imágenes sin texto para slides (ChatGPT vía Codex o API de OpenAI)
+  "CODEX_LOGIN", // conectar la cuenta de ChatGPT del cliente (login por código de dispositivo)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 
@@ -748,7 +779,7 @@ export const aiUsage = pgTable(
 
 // ─── Claves de servicios del cliente ───────────────────────────────────────
 
-export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN"]);
+export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI"]);
 
 /** Claves que carga el propio cliente (por ejemplo su API key de HeyGen), cifradas. */
 export const serviceCredentials = pgTable("service_credentials", {

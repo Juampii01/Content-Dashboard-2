@@ -30,8 +30,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext<"/api/w
   if (fileDriver() !== "local") return new NextResponse(null, { status: 404 });
   if (!workerAuthorized(request)) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   const key = resolveKey((await params).key);
-  if (!key || !key.startsWith("editor/")) return NextResponse.json({ error: "Clave no válida." }, { status: 400 });
+  // editor/… (videos) o carruseles/… (imágenes de slides, hasta 8 MB). La clave la firmó antes la app para un trabajo.
+  if (!key || !(key.startsWith("editor/") || key.startsWith("carruseles/"))) return NextResponse.json({ error: "Clave no válida." }, { status: 400 });
   if (!request.body) return NextResponse.json({ error: "Falta el archivo." }, { status: 400 });
-  const bytes = await writeLocal(key, request.body, MAX_WORKER_UPLOAD);
+  const bytes = await writeLocal(key, request.body, key.startsWith("carruseles/") ? 8 * 1024 * 1024 : MAX_WORKER_UPLOAD);
   return NextResponse.json({ ok: true, bytes });
 }

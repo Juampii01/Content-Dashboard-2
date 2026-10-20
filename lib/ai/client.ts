@@ -55,6 +55,10 @@ export async function generateStructured<S extends z.ZodType>(input: {
   schema: S;
   maxTokens?: number;
   userId?: string | null;
+  /** Imágenes para modelos con visión (base64, sin el prefijo data:). Van antes de la tarea. Opcional. */
+  images?: { mediaType: "image/jpeg" | "image/png" | "image/webp"; data: string }[];
+  /** Trabajo de la cola al que se carga el consumo (ai_usage.job_id). */
+  jobId?: string | null;
 }): Promise<z.infer<S>> {
   const model = MODELS[input.model ?? "main"];
   // Solo para probar la interfaz en desarrollo: nunca en producción.
@@ -69,7 +73,14 @@ export async function generateStructured<S extends z.ZodType>(input: {
       model,
       max_tokens: input.maxTokens ?? 4096,
       system: [{ type: "text", text: input.context, cache_control: { type: "ephemeral", ttl: "1h" } }],
-      messages: [{ role: "user", content: input.task }],
+      messages: [
+        {
+          role: "user",
+          content: input.images?.length
+            ? [...input.images.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } })), { type: "text" as const, text: input.task }]
+            : input.task,
+        },
+      ],
       output_config: { format: zodOutputFormat(input.schema) },
     });
   } catch (error) {
@@ -91,6 +102,7 @@ export async function generateStructured<S extends z.ZodType>(input: {
       model,
       inputTokens: (message.usage.input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0) + (message.usage.cache_creation_input_tokens ?? 0),
       outputTokens: message.usage.output_tokens ?? 0,
+      jobId: input.jobId ?? null,
     })
     .catch(() => undefined);
 

@@ -11,6 +11,8 @@ import {
   coversSchema,
   coversTask,
   generateTask,
+  scenesSchema,
+  scenesTask,
   slideOnlySchema,
   slideTask,
   type GeneratedSlide,
@@ -19,7 +21,7 @@ import { scriptAsText } from "@/lib/ai/prompts/guiones";
 import { getDb, schema } from "@/lib/db";
 import type { CarouselSlide, ScriptContent } from "@/lib/db/schema";
 import type { CarouselObjective } from "./labels";
-import { newSlideId, type TemplateKey } from "./theme";
+import { newSlideId, type TemplateRef } from "./theme";
 import { LIMITS, normalizeHashtag } from "./validate";
 
 /**
@@ -30,7 +32,7 @@ async function context(): Promise<string> {
   return `${CAROUSEL_RULES}\n\n${await brandContext(await getBrand())}`;
 }
 
-function toSlide(s: GeneratedSlide, keep?: Pick<CarouselSlide, "id" | "template" | "imageUrl">): CarouselSlide {
+function toSlide(s: GeneratedSlide & { scenePrompt?: string }, keep?: Pick<CarouselSlide, "id" | "template" | "imageUrl" | "imageSource" | "scenePrompt">): CarouselSlide {
   return {
     id: keep?.id ?? newSlideId(),
     type: s.type,
@@ -40,7 +42,8 @@ function toSlide(s: GeneratedSlide, keep?: Pick<CarouselSlide, "id" | "template"
     body: s.body.trim(),
     cta: s.cta.trim(),
     template: keep?.template ?? null,
-    ...(keep?.imageUrl ? { imageUrl: keep.imageUrl } : {}),
+    ...(keep?.imageUrl ? { imageUrl: keep.imageUrl, imageSource: keep.imageSource ?? null } : {}),
+    ...(s.scenePrompt?.trim() ? { scenePrompt: s.scenePrompt.trim().slice(0, 600) } : keep?.scenePrompt ? { scenePrompt: keep.scenePrompt } : {}),
   };
 }
 
@@ -69,7 +72,11 @@ export async function createCarousel(input: {
   objective: CarouselObjective;
   slides: number;
   keyword: string | null;
-  template: TemplateKey;
+  template: TemplateRef;
+  /** Colores elegidos al crear (por ejemplo "referencia" con una plantilla propia). */
+  theme?: Record<string, string> | null;
+  /** Tipos de slide de la referencia, si se quiere respetar su estructura. */
+  structure?: string[] | null;
   userId: string;
 }): Promise<string> {
   let topic = input.topic;
@@ -104,6 +111,7 @@ export async function createCarousel(input: {
       slides: input.slides,
       keyword: input.keyword,
       offer: offer ? `${offer.name}: ${offer.promise}. CTA: ${offer.cta}` : null,
+      structure: input.structure ?? null,
     }),
     schema: carouselSchema,
     maxTokens: 4_000,
@@ -118,6 +126,7 @@ export async function createCarousel(input: {
       topic,
       status: "DRAFT",
       template: input.template,
+      theme: input.theme ?? null,
       slides,
       caption: generated.caption.trim(),
       hashtags: cleanHashtags(generated.hashtags),
@@ -180,4 +189,25 @@ export async function newCaption(carouselId: string, slides: CarouselSlide[], us
     userId,
   });
   return { caption: res.caption.trim(), hashtags: cleanHashtags(res.hashtags) };
+}
+
+/** Propone la escena (sin texto) de los slides que no la tienen, para generar sus imágenes. */
+export async function proposeScenes(carouselId: string, slides: CarouselSlide[], slideIds: string[], userId: string): Promise<Record<string, string>> {
+  await exists(carouselId);
+  const indexes = slideIds.map((id) => slides.findIndex((s) => s.id === id)).filter((i) => i >= 0);
+  if (!indexes.length) return {};
+  const res = await generateStructured({
+    feature: "carruseles.escenas",
+    model: "fast",
+    context: await context(),
+    task: scenesTask(carouselAsText(slides), indexes),
+    schema: scenesSchema,
+    userId,
+  });
+  const out: Record<string, string> = {};
+  for (const scene of res.scenes) {
+    const slide = slides[scene.index - 1];
+    if (slide && indexes.includes(scene.index - 1) && scene.scenePrompt.trim()) out[slide.id] = scene.scenePrompt.trim().slice(0, 600);
+  }
+  return out;
 }

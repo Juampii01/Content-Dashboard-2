@@ -1,234 +1,42 @@
 "use client";
 
 import "./slides.css";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import type { CarouselSlide } from "@/lib/db/schema";
-import { initials, SLIDE_HEIGHT, SLIDE_WIDTH, type ResolvedTheme, type SlideIdentity, type TemplateKey } from "@/lib/carousels/theme";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { customIdOf, isTemplate, SLIDE_HEIGHT, SLIDE_WIDTH, type ResolvedTheme, type TemplateKey } from "@/lib/carousels/theme";
 import { cn } from "@/lib/utils";
+import { useCustomTemplate } from "./custom-templates";
+import { CustomSlide } from "./custom-slide";
+import {
+  alpha,
+  Arrow,
+  Avatar,
+  Backdrop,
+  Counter,
+  CtaBox,
+  Fit,
+  fitKeyOf,
+  Footer,
+  Frame,
+  Highlighted,
+  isDark,
+  MONO,
+  pad2,
+  px,
+  pxMin,
+  SERIF,
+  SlideImage,
+  VerifiedLike,
+  type SlideProps,
+} from "./slide-parts";
+
+export type { SlideProps } from "./slide-parts";
+export { SlideImage } from "./slide-parts";
 
 /**
  * Plantillas de carrusel. Cada slide se dibuja en un nodo de 1080×1350 con estilos en línea:
  * el mismo componente sirve para la vista previa (escalada con `transform`) y para la exportación a JPG,
  * así lo que se ve es exactamente lo que se descarga.
  */
-export type SlideProps = {
-  slide: CarouselSlide;
-  index: number;
-  total: number;
-  template: TemplateKey;
-  theme: ResolvedTheme;
-  identity: SlideIdentity;
-};
-
-const MONO = '"JetBrains Mono", ui-monospace, monospace';
-const SERIF = '"Playfair Carrusel", Georgia, serif';
-const MIN_FIT = 0.42;
-
-function alpha(hex: string, a: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
-}
-
-function isDark(hex: string): boolean {
-  const n = parseInt(hex.slice(1), 16);
-  return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) < 140;
-}
-
-const px = (n: number) => `calc(var(--fit, 1) * ${n}px)`;
-/** Igual que px, pero sin bajar de un mínimo legible en el teléfono (el texto de apoyo nunca queda diminuto). */
-const pxMin = (n: number, min = 32) => `max(${min}px, calc(var(--fit, 1) * ${n}px))`;
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-/** Prueba tamaños (variable --fit) hasta que el bloque de texto entra en su caja, a lo alto y a lo ancho. */
-function fitText(b: HTMLDivElement, el: HTMLDivElement) {
-  const fits = () => el.scrollHeight <= b.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1;
-  el.style.setProperty("--fit", "1");
-  if (fits()) {
-    el.dataset.fit = "1";
-    return;
-  }
-  let lo = MIN_FIT;
-  let hi = 1;
-  for (let i = 0; i < 9; i++) {
-    const mid = (lo + hi) / 2;
-    el.style.setProperty("--fit", String(mid));
-    if (fits()) lo = mid;
-    else hi = mid;
-  }
-  const value = String(Math.floor(lo * 1000) / 1000);
-  el.style.setProperty("--fit", value);
-  el.dataset.fit = value;
-}
-
-/**
- * Ajuste automático: baja el tamaño de todo el bloque de texto hasta que entra en su caja (una palabra muy larga
- * también cuenta). Corre igual en la vista previa y en la exportación, y otra vez cuando terminan de cargar las fuentes.
- */
-function Fit({ children, fitKey, justify = "center", style }: { children: ReactNode; fitKey: string; justify?: CSSProperties["justifyContent"]; style?: CSSProperties }) {
-  const box = useRef<HTMLDivElement>(null);
-  const inner = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const run = () => {
-      if (box.current && inner.current) fitText(box.current, inner.current);
-    };
-    run();
-    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
-    let alive = true;
-    fonts?.ready.then(() => alive && run());
-    fonts?.addEventListener?.("loadingdone", run);
-    return () => {
-      alive = false;
-      fonts?.removeEventListener?.("loadingdone", run);
-    };
-  }, [fitKey]);
-  return (
-    <div ref={box} style={{ flex: "1 1 0", minHeight: 0, display: "flex", flexDirection: "column", justifyContent: justify, overflow: "hidden", ...style }}>
-      <div ref={inner} data-fit-box="" style={{ width: "100%", overflowWrap: "normal", wordBreak: "normal", hyphens: "manual" }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/** Titular con la palabra resaltada en color (o con marcador de fondo). */
-function Highlighted({ text, highlight, color, marker }: { text: string; highlight: string; color: string; marker?: { bg: string; fg: string } }) {
-  const h = highlight.trim();
-  const at = h ? text.toLocaleLowerCase("es").indexOf(h.toLocaleLowerCase("es")) : -1;
-  if (at < 0) return <>{text}</>;
-  const part = text.slice(at, at + h.length);
-  return (
-    <>
-      {text.slice(0, at)}
-      {marker ? (
-        <span style={{ background: marker.bg, color: marker.fg, padding: "0 0.14em", margin: "0 -0.04em", borderRadius: "0.12em", boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>{part}</span>
-      ) : (
-        <span style={{ color }}>{part}</span>
-      )}
-      {text.slice(at + h.length)}
-    </>
-  );
-}
-
-function Frame({ theme, children, style }: { theme: ResolvedTheme; children: ReactNode; style?: CSSProperties }) {
-  return (
-    <div
-      data-slide=""
-      style={{
-        position: "relative",
-        width: SLIDE_WIDTH,
-        height: SLIDE_HEIGHT,
-        overflow: "hidden",
-        background: theme.bg,
-        color: theme.text,
-        fontFamily: theme.fontFamily,
-        fontKerning: "normal",
-        WebkitFontSmoothing: "antialiased",
-        textRendering: "geometricPrecision",
-        display: "flex",
-        flexDirection: "column",
-        boxSizing: "border-box",
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Backdrop({ theme, variant = "glow" }: { theme: ResolvedTheme; variant?: "glow" | "grid" | "none" }) {
-  if (variant === "none") return null;
-  const dark = isDark(theme.bg);
-  return (
-    <>
-      <div aria-hidden style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse 75% 45% at 88% -4%, ${alpha(theme.accent, dark ? 0.22 : 0.1)}, transparent 70%)` }} />
-      {variant === "grid" && (
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            backgroundImage: `linear-gradient(${alpha(theme.text, dark ? 0.045 : 0.05)} 2px, transparent 2px), linear-gradient(90deg, ${alpha(theme.text, dark ? 0.045 : 0.05)} 2px, transparent 2px)`,
-            backgroundSize: "90px 90px",
-            backgroundPosition: "-2px -2px",
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function Counter({ index, total, theme }: { index: number; total: number; theme: ResolvedTheme }) {
-  return (
-    <span style={{ fontFamily: MONO, fontSize: 26, fontWeight: 600, letterSpacing: "0.08em", color: theme.muted, whiteSpace: "nowrap" }}>
-      {pad2(index + 1)} <span style={{ opacity: 0.5 }}>/</span> {pad2(total)}
-    </span>
-  );
-}
-
-function Arrow({ color, size = 34 }: { color: string; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M5 12h14" />
-      <path d="m13 6 6 6-6 6" />
-    </svg>
-  );
-}
-
-function Footer({ index, total, theme, identity, swipe = true }: { index: number; total: number; theme: ResolvedTheme; identity: SlideIdentity; swipe?: boolean }) {
-  const last = index === total - 1;
-  return (
-    <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24, height: 56, flex: "none" }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 28, fontWeight: 600, color: theme.muted, fontFamily: '"Inter", sans-serif', whiteSpace: "nowrap" }}>
-        <span style={{ width: 12, height: 12, borderRadius: 99, background: theme.accent }} />
-        {identity.handle || identity.name}
-      </span>
-      {swipe && !last ? (
-        <span style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 26, fontWeight: 700, color: theme.muted, fontFamily: MONO, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-          {index === 0 ? "Desliza" : <Counter index={index} total={total} theme={theme} />}
-          <Arrow color={theme.accent} />
-        </span>
-      ) : (
-        <Counter index={index} total={total} theme={theme} />
-      )}
-    </div>
-  );
-}
-
-function CtaBox({ slide, theme, size = 46 }: { slide: CarouselSlide; theme: ResolvedTheme; size?: number }) {
-  if (!slide.cta.trim()) return null;
-  return (
-    <div
-      style={{
-        marginTop: px(56),
-        display: "inline-flex",
-        alignItems: "center",
-        gap: px(22),
-        background: theme.accent,
-        color: theme.accentText,
-        borderRadius: px(30),
-        padding: `${px(30)} ${px(44)}`,
-        fontSize: px(size),
-        fontWeight: 800,
-        lineHeight: 1.15,
-        letterSpacing: "-0.01em",
-        fontFamily: '"Inter", sans-serif',
-        maxWidth: "100%",
-        boxSizing: "border-box",
-      }}
-    >
-      <span>{slide.cta}</span>
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={theme.accentText} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ flex: "none", width: px(size), height: px(size) }}>
-        <path d="M7 17 17 7" />
-        <path d="M8 7h9v9" />
-      </svg>
-    </div>
-  );
-}
-
-function fitKeyOf(p: SlideProps) {
-  const s = p.slide;
-  return [p.template, p.theme.font, s.type, s.kicker, s.headline, s.highlight, s.body, s.cta, p.identity.name, p.identity.handle].join("\u0001");
-}
 
 // ─── Editorial ────────────────────────────────────────────────────────────
 
@@ -264,28 +72,6 @@ function Editorial(p: SlideProps) {
 
 // ─── Tweet ────────────────────────────────────────────────────────────────
 
-function Avatar({ identity, theme, size }: { identity: SlideIdentity; theme: ResolvedTheme; size: number }) {
-  if (identity.avatarUrl) {
-    // eslint-disable-next-line @next/next/no-img-element -- se exporta a imagen: necesita un <img> normal del mismo origen
-    return <img src={identity.avatarUrl} alt="" width={size} height={size} style={{ width: size, height: size, borderRadius: 999, objectFit: "cover", flex: "none", display: "block" }} />;
-  }
-  return (
-    <span style={{ width: size, height: size, borderRadius: 999, background: theme.accent, color: theme.accentText, display: "grid", placeItems: "center", fontSize: size * 0.38, fontWeight: 800, fontFamily: '"Inter", sans-serif', flex: "none", letterSpacing: "-0.02em" }}>
-      {initials(identity.name)}
-    </span>
-  );
-}
-
-function VerifiedLike({ color }: { color: string }) {
-  // Insignia decorativa propia (no imita la verificación de ninguna red): un punto con check en el color de acento.
-  return (
-    <svg width="38" height="38" viewBox="0 0 24 24" aria-hidden>
-      <circle cx="12" cy="12" r="10" fill={color} />
-      <path d="m8 12.5 2.6 2.5L16 9.5" fill="none" stroke="#fff" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function Tweet(p: SlideProps) {
   const { slide, theme, identity } = p;
   const cover = slide.type === "cover";
@@ -309,6 +95,11 @@ function Tweet(p: SlideProps) {
           <Highlighted text={slide.headline} highlight={slide.highlight} color={theme.accent} />
         </p>
         {slide.body.trim() && <p style={{ margin: `${px(36)} 0 0`, fontSize: pxMin(52), lineHeight: 1.36, fontWeight: 400, color: theme.text, opacity: 0.92 }}>{slide.body}</p>}
+        {slide.imageUrl && (
+          <div style={{ marginTop: px(40), height: px(460), borderRadius: px(32), overflow: "hidden", border: `2px solid ${alpha(theme.text, 0.12)}` }}>
+            <SlideImage url={slide.imageUrl} theme={theme} />
+          </div>
+        )}
         {slide.type === "cta" && <CtaBox slide={slide} theme={theme} size={44} />}
       </Fit>
       <div style={{ height: 2, background: alpha(theme.text, 0.12), margin: "0 0 32px", flex: "none" }} />
@@ -441,10 +232,48 @@ function Impacto(p: SlideProps) {
   );
 }
 
-const RENDERERS: Record<TemplateKey, (p: SlideProps) => ReactNode> = { editorial: Editorial, tweet: Tweet, lista: Lista, cita: Cita, impacto: Impacto };
+// ─── Foto + texto ─────────────────────────────────────────────────────────
+
+function Foto(p: SlideProps) {
+  const { slide, theme } = p;
+  const cover = slide.type === "cover";
+  return (
+    <Frame theme={theme}>
+      <div style={{ position: "relative", height: 900, flex: "none", overflow: "hidden" }}>
+        <SlideImage url={slide.imageUrl} theme={theme} />
+        <div aria-hidden style={{ position: "absolute", inset: "auto 0 0 0", height: 180, background: `linear-gradient(to bottom, transparent, ${theme.bg})` }} />
+        {slide.kicker.trim() && (
+          <span style={{ position: "absolute", left: 72, top: 64, display: "inline-flex", alignItems: "center", gap: 12, background: alpha(theme.bg, 0.78), color: theme.text, borderRadius: 99, padding: "10px 26px", fontFamily: MONO, fontSize: 24, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", whiteSpace: "nowrap", maxWidth: 820, overflow: "hidden", textOverflow: "ellipsis" }}>
+            <span style={{ width: 12, height: 12, borderRadius: 99, background: theme.accent, flex: "none" }} />
+            {slide.kicker}
+          </span>
+        )}
+      </div>
+      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "8px 76px 56px" }}>
+        <Fit fitKey={fitKeyOf(p)} justify="center">
+          <h2 style={{ margin: 0, fontFamily: theme.fontFamily, fontSize: px(cover ? 92 : 78), lineHeight: 1.04, fontWeight: theme.heavy, letterSpacing: theme.font === "playfair" || theme.font === "instrument" ? "-0.01em" : "-0.03em", color: theme.text }}>
+            <Highlighted text={slide.headline} highlight={slide.highlight} color={theme.accent} />
+          </h2>
+          {slide.body.trim() && <p style={{ margin: `${px(20)} 0 0`, fontSize: pxMin(34, 28), lineHeight: 1.36, fontWeight: 450, color: theme.muted, fontFamily: '"Inter", sans-serif' }}>{slide.body}</p>}
+          {slide.type === "cta" && <CtaBox slide={slide} theme={theme} size={38} />}
+        </Fit>
+        <Footer {...p} />
+      </div>
+    </Frame>
+  );
+}
+
+const RENDERERS: Record<TemplateKey, (p: SlideProps) => ReactNode> = { editorial: Editorial, tweet: Tweet, lista: Lista, cita: Cita, impacto: Impacto, foto: Foto };
 
 export function Slide(props: SlideProps) {
-  const Render = RENDERERS[props.template] ?? Editorial;
+  const customId = customIdOf(props.template);
+  const custom = useCustomTemplate(customId);
+  if (customId) {
+    if (custom) return <CustomSlide {...props} spec={custom.spec} />;
+    // Plantilla propia borrada o todavía sin cargar: se dibuja con Editorial para no dejar el slide vacío.
+    return <Editorial {...props} template="editorial" />;
+  }
+  const Render = isTemplate(props.template) ? RENDERERS[props.template] : Editorial;
   return <Render {...props} />;
 }
 

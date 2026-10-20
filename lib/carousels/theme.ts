@@ -13,6 +13,7 @@ export const TEMPLATES = {
   lista: { label: "Lista y datos", hint: "Números grandes para pasos y cifras." },
   cita: { label: "Cita", hint: "Una frase protagonista, con comillas." },
   impacto: { label: "Portada impacto", hint: "Titular enorme que frena el scroll." },
+  foto: { label: "Foto + texto", hint: "Imagen arriba (2/3) y el texto abajo." },
 } as const;
 export type TemplateKey = keyof typeof TEMPLATES;
 export const TEMPLATE_KEYS = Object.keys(TEMPLATES) as TemplateKey[];
@@ -20,6 +21,32 @@ export const TEMPLATE_KEYS = Object.keys(TEMPLATES) as TemplateKey[];
 export function isTemplate(value: unknown): value is TemplateKey {
   return typeof value === "string" && value in TEMPLATES;
 }
+
+/**
+ * Plantilla de un carrusel o de un slide: una de fábrica (`editorial`, `foto`…) o una propia creada desde una
+ * referencia (`custom:<uuid>`, ver lib/carousels/template-spec.ts).
+ */
+export type TemplateRef = TemplateKey | `custom:${string}`;
+const CUSTOM_RE = /^custom:[0-9a-f-]{36}$/i;
+
+export function isCustomRef(value: unknown): value is `custom:${string}` {
+  return typeof value === "string" && CUSTOM_RE.test(value);
+}
+
+export function isTemplateRef(value: unknown): value is TemplateRef {
+  return isTemplate(value) || isCustomRef(value);
+}
+
+export function customRef(id: string): `custom:${string}` {
+  return `custom:${id}`;
+}
+
+export function customIdOf(ref: string | null | undefined): string | null {
+  return ref && CUSTOM_RE.test(ref) ? ref.slice(7) : null;
+}
+
+/** Plantillas de fábrica que muestran la imagen del slide (las demás son solo texto). */
+export const PHOTO_TEMPLATES: TemplateKey[] = ["foto", "tweet"];
 
 export const SLIDE_TYPES = {
   cover: "Portada",
@@ -36,6 +63,11 @@ export const FONTS = {
   inter: { label: "Inter", family: '"Inter", system-ui, sans-serif', heavy: 800 },
   montserrat: { label: "Montserrat", family: '"Montserrat Carrusel", "Inter", sans-serif', heavy: 900 },
   playfair: { label: "Playfair Display", family: '"Playfair Carrusel", Georgia, serif', heavy: 800 },
+  instrument: { label: "Instrument Serif", family: '"Instrument Carrusel", Georgia, serif', heavy: 400 },
+  oswald: { label: "Oswald (condensada)", family: '"Oswald Carrusel", "Inter", sans-serif', heavy: 700 },
+  anton: { label: "Anton (impacto)", family: '"Anton Carrusel", "Oswald Carrusel", sans-serif', heavy: 400 },
+  caveat: { label: "Caveat (manuscrita)", family: '"Caveat Carrusel", cursive', heavy: 700 },
+  mono: { label: "JetBrains Mono", family: '"JetBrains Mono", ui-monospace, monospace', heavy: 800 },
 } as const;
 export type FontKey = keyof typeof FONTS;
 
@@ -49,7 +81,8 @@ export const PALETTES: Record<string, { label: string } & Palette> = {
   blanco: { label: "Blanco", bg: "#ffffff", surface: "#f2f4f7", text: "#0f1419", muted: "#536471", accent: "#0070f8", accentText: "#ffffff" },
   bosque: { label: "Bosque", bg: "#0f2a22", surface: "#163a2f", text: "#f1efe6", muted: "#a9bdb2", accent: "#f2c14e", accentText: "#0f2a22" },
 };
-export const PALETTE_KEYS = ["marca", ...Object.keys(PALETTES)] as const;
+/** "referencia" = los colores del carrusel copiado (solo con una plantilla propia). */
+export const PALETTE_KEYS = ["marca", "referencia", ...Object.keys(PALETTES)] as const;
 
 export type BrandLook = { colors: { primary?: string; secondary?: string; accent?: string } | null; fonts: { heading?: string; body?: string } | null };
 
@@ -105,16 +138,26 @@ function fontFromName(name: string | undefined): FontKey | null {
   if (!name) return null;
   const n = name.toLowerCase();
   if (n.includes("montserrat")) return "montserrat";
+  if (n.includes("instrument")) return "instrument";
+  if (n.includes("oswald") || n.includes("bebas") || n.includes("condensed")) return "oswald";
+  if (n.includes("anton")) return "anton";
+  if (n.includes("caveat") || n.includes("script")) return "caveat";
+  if (n.includes("mono")) return "mono";
   if (n.includes("playfair") || n.includes("serif")) return "playfair";
   if (n.includes("inter")) return "inter";
   return null;
 }
 
-export function resolveTheme(theme: Record<string, string> | null | undefined, brand: BrandLook): ResolvedTheme {
-  const paletteKey = theme?.palette && (theme.palette === "marca" || theme.palette in PALETTES) ? theme.palette : "marca";
-  const palette: Palette = paletteKey === "marca" ? brandPalette(brand.colors) : PALETTES[paletteKey]!;
+/**
+ * Tema resuelto. Con una plantilla propia (`reference`), la paleta "referencia" usa sus colores y, si no se eligió
+ * otra fuente, se usa la de la referencia.
+ */
+export function resolveTheme(theme: Record<string, string> | null | undefined, brand: BrandLook, reference?: { palette: Palette; font: FontKey } | null): ResolvedTheme {
+  const valid = theme?.palette && (theme.palette === "marca" || (theme.palette === "referencia" && reference) || theme.palette in PALETTES);
+  const paletteKey = valid ? theme!.palette! : "marca";
+  const palette: Palette = paletteKey === "marca" ? brandPalette(brand.colors) : paletteKey === "referencia" ? reference!.palette : PALETTES[paletteKey]!;
   const accent = theme?.accent && HEX.test(theme.accent) ? theme.accent : palette.accent;
-  const font: FontKey = theme?.font && theme.font in FONTS ? (theme.font as FontKey) : (fontFromName(brand.fonts?.heading) ?? "inter");
+  const font: FontKey = theme?.font && theme.font in FONTS ? (theme.font as FontKey) : (reference?.font ?? fontFromName(brand.fonts?.heading) ?? "inter");
   return {
     ...palette,
     accent,

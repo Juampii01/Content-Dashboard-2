@@ -16,9 +16,13 @@ const slideSchema = z.object({
 });
 export type GeneratedSlide = z.infer<typeof slideSchema>;
 
+const SCENE_HINT =
+  "Escena para la imagen del slide, SIN NINGÚN TEXTO: qué se ve (objetos, lugar, metáfora visual), encuadre y luz, en 1 o 2 frases. Nada de letras, carteles, pantallas con texto, logos ni personas reconocibles.";
+const ficheSlideSchema = slideSchema.extend({ scenePrompt: z.string().describe(SCENE_HINT) });
+
 export const carouselSchema = z.object({
   title: z.string().describe("Título interno corto del carrusel."),
-  slides: z.array(slideSchema).describe("Los slides en orden: el primero es cover y el último es cta."),
+  slides: z.array(ficheSlideSchema).describe("Los slides en orden: el primero es cover y el último es cta."),
   caption: z.string().describe("Caption para Instagram: primera línea que engancha, cuerpo breve y el mismo CTA del cierre. Sin hashtags."),
   hashtags: z.array(z.string()).describe("Exactamente 5 hashtags relevantes para el nicho, sin repetir, con #."),
 });
@@ -52,8 +56,12 @@ export function generateTask(input: {
   slides: number;
   keyword: string | null;
   offer: string | null;
+  /** Estructura de una plantilla copiada de una referencia: cantidad y tipo de cada slide, a respetar. */
+  structure?: string[] | null;
 }): string {
-  const structure = input.beats?.length
+  const structure = input.structure?.length
+    ? `ESTRUCTURA (copiada del diseño de referencia): exactamente ${input.structure.length} slides, con estos tipos en este orden: ${input.structure.map((t, i) => `${i + 1}. ${t}`).join(", ")}. El primero es la portada y el último el cierre.`
+    : input.beats?.length
     ? `ESTRUCTURA (sale del guion): slide 1 = portada con el gancho; después un slide por cada bloque, en este orden; último slide = cierre con CTA. Total: ${input.beats.length + 2} slides.
 ${input.beats.map((b, i) => `${i + 2}. ${b.purpose}: ${b.text}`).join("\n")}`
     : `Número de slides: exactamente ${input.slides} (portada + ${input.slides - 2} de contenido + cierre).`;
@@ -94,4 +102,90 @@ export function captionTask(all: string, keyword: string | null): string {
   return `TAREA: escribe un caption nuevo y 5 hashtags para este carrusel. Primera línea que engancha (distinta de la portada), cuerpo breve con el valor del carrusel y el mismo CTA del cierre${keyword ? ` con la palabra clave ${keyword}` : ""}. Máximo 2.200 caracteres. Los hashtags van aparte, no dentro del caption.
 CARRUSEL:
 ${all}`;
+}
+
+// ─── Escenas para imágenes con IA ─────────────────────────────────────────
+
+export const scenesSchema = z.object({
+  scenes: z.array(z.object({ index: z.number().int().describe("Número del slide, empezando en 1."), scenePrompt: z.string().describe(SCENE_HINT) })),
+});
+
+export function scenesTask(all: string, indexes: number[]): string {
+  return `TAREA: propone la escena de la imagen de estos slides: ${indexes.map((i) => i + 1).join(", ")}. La imagen va detrás o arriba del texto, que se dibuja aparte: la escena no lleva ningún texto. Que se entienda en menos de un segundo y acompañe la idea del slide.
+CARRUSEL:
+${all}`;
+}
+
+// ─── Copiar el estilo de un carrusel (plantillas desde referencia) ────────
+
+export const STYLE_RULES = `Eres director de arte de carruseles de Instagram. Te paso los slides de un carrusel de referencia y las medidas que sacamos con OCR (cajas de texto, tamaños de letra, colores por zona, foto y adornos). Tu trabajo: describir su DISEÑO como plantilla reutilizable para dibujarlo con otros textos.
+
+REGLAS
+- Copias el diseño, nunca el contenido: no transcribas textos, nombres, @, cifras ni marcas del original, y no describas personas ni logos.
+- Parte del BORRADOR medido: las posiciones, tamaños de letra (px sobre 1080 de ancho), colores y la fuente parecida ya están medidos. Corrígelo solo cuando las imágenes muestren claramente otra cosa.
+- Fuentes: elige la más parecida entre las disponibles (inter, montserrat, playfair, instrument, oswald, anton, caveat, mono). instrument = serif editorial fina; playfair = serif de alto contraste; oswald = sans condensada; anton = display condensada y pesada; caveat = manuscrita; mono = monoespaciada.
+- layouts.cover, layouts.content y layouts.cta: zona del texto (fracciones 0 a 1 del slide), alineación, dónde va la foto (none, top, bottom, left, right, full) y qué tamaño ocupa.
+- structure: el tipo de cada slide de la referencia, en orden (cover, item, step, data, quote, cta).
+- Adornos: numeración, línea divisoria, flecha, marco, sticker, handle, contador, barra de progreso y cabecera con avatar (tipo tweet), solo si se ven en la referencia.
+- highlight: cómo resaltan la palabra clave (color, marker = fondo de color, underline, italic = cursiva de color).
+- notes: una frase en español neutro que describa el estilo (sin nombrar la cuenta original).
+- Responde solo con el JSON del esquema.`;
+
+const loose = {
+  frac: z.number().describe("Fracción del slide, de 0 a 1."),
+  hex: z.string().describe("Color en hexadecimal, por ejemplo #0f1419."),
+};
+const styleLayout = z.object({
+  photo: z.object({
+    position: z.enum(["none", "top", "bottom", "left", "right", "full"]),
+    size: z.number().describe("Fracción del slide que ocupa la foto (alto si va arriba o abajo; ancho si va a un lado)."),
+    inset: z.number().describe("Margen alrededor de la foto en px (0 = a sangre)."),
+    radius: z.number().describe("Radio de las esquinas de la foto en px."),
+    overlay: z.number().describe("Velo oscuro sobre la foto, de 0 a 0.85 (solo si va de fondo)."),
+  }),
+  text: z.object({ x: loose.frac, y: loose.frac, w: loose.frac, h: loose.frac, align: z.enum(["left", "center", "right"]), vAlign: z.enum(["top", "center", "bottom"]) }),
+  headline: z.object({
+    size: z.number().describe("Tamaño del titular en px (sobre 1080 de ancho)."),
+    weight: z.number().describe("Peso de 300 a 900."),
+    uppercase: z.boolean(),
+    italic: z.boolean(),
+    tracking: z.number().describe("Espaciado entre letras en em (por ejemplo -0.02)."),
+    lineHeight: z.number(),
+  }),
+  body: z.object({ size: z.number(), weight: z.number(), lineHeight: z.number() }),
+  kicker: z.object({ style: z.enum(["none", "plain", "mono", "pill", "bar"]), at: z.enum(["top", "inline"]) }),
+  panel: z.object({ kind: z.enum(["none", "card", "band"]), color: loose.hex.nullable(), radius: z.number(), opacity: z.number() }),
+});
+export const styleSchema = z.object({
+  palette: z.object({ bg: loose.hex, surface: loose.hex, text: loose.hex, muted: loose.hex, accent: loose.hex, accentText: loose.hex }),
+  background: z.object({ kind: z.enum(["solid", "gradient", "photo", "texture"]), colors: z.array(loose.hex), angle: z.number(), texture: z.enum(["none", "grain", "paper", "dots", "grid", "lines"]) }),
+  fonts: z.object({ heading: z.enum(["inter", "montserrat", "playfair", "instrument", "oswald", "anton", "caveat", "mono"]), body: z.enum(["inter", "montserrat", "playfair", "instrument", "oswald", "anton", "caveat", "mono"]) }),
+  padding: z.object({ x: z.number(), y: z.number() }),
+  highlight: z.enum(["color", "marker", "underline", "italic"]),
+  ornaments: z.object({
+    numbering: z.enum(["none", "big", "badge", "plain"]),
+    divider: z.boolean(),
+    arrow: z.boolean(),
+    frame: z.enum(["none", "border", "inset"]),
+    sticker: z.boolean(),
+    handle: z.enum(["none", "top", "bottom"]),
+    counter: z.enum(["none", "top", "bottom"]),
+    progress: z.boolean(),
+    avatar: z.boolean(),
+  }),
+  usesPhoto: z.boolean(),
+  layouts: z.object({ cover: styleLayout, content: styleLayout, cta: styleLayout }),
+  structure: z.array(z.object({ type: z.enum(["cover", "item", "step", "data", "quote", "cta"]), layout: z.enum(["cover", "content", "cta"]), photo: z.boolean() })),
+  notes: z.string(),
+});
+
+/** El borrador va entre etiquetas para que el modo de prueba (AI_FAKE) pueda devolverlo tal cual. */
+export function styleTask(input: { slides: number; measurements: string; draft: string }): string {
+  return `TAREA: describe el diseño de este carrusel de ${input.slides} slides como plantilla. Las imágenes van en orden (slide 1, 2, 3…).
+
+MEDIDAS (OCR y colores; sin el texto del original)
+${input.measurements}
+
+BORRADOR MEDIDO (corrígelo mirando las imágenes)
+<borrador>${input.draft}</borrador>`;
 }

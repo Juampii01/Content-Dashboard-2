@@ -165,13 +165,13 @@ export function fakeResponse(feature: string, task = ""): unknown {
       return {
         title: "La primera llamada que llena tu agenda",
         slides: [
-          { type: "cover", kicker: "Clínicas dentales", headline: "Así pierdes pacientes en la primera llamada", highlight: "primera llamada", body: "", cta: "" },
-          { type: "item", kicker: "Error #1", headline: "Dar el precio antes de escuchar", highlight: "precio", body: "Si lo primero que oye es un número, el paciente compara precios y cuelga.", cta: "" },
-          { type: "item", kicker: "Error #2", headline: "Responder sin preguntar qué le pasa", highlight: "preguntar", body: "Pregunta qué le duele, desde cuándo y qué probó. Así sabe que lo escuchas.", cta: "" },
-          { type: "step", kicker: "Lo que sí funciona", headline: "Repite lo que dijo con sus palabras", highlight: "sus palabras", body: "“Entonces te duele al masticar desde hace una semana.” Recién ahí hablas de la solución.", cta: "" },
-          { type: "data", kicker: "Caso real", headline: "De 3 de cada 10 a 6 de cada 10 citas", highlight: "6 de cada 10", body: "Una clínica cambió solo el orden de la llamada y duplicó las citas agendadas en un mes.", cta: "" },
-          { type: "quote", kicker: "Recuerda", headline: "La primera llamada se gana escuchando, no explicando", highlight: "escuchando", body: "", cta: "" },
-          { type: "cta", kicker: "Guion de llamadas", headline: "¿Quieres el guion exacto para tu recepción?", highlight: "guion exacto", body: "Te lo mando gratis por mensaje directo.", cta: "Comenta AGENDA" },
+          { type: "cover", kicker: "Clínicas dentales", headline: "Así pierdes pacientes en la primera llamada", highlight: "primera llamada", body: "", cta: "", scenePrompt: "Teléfono de recepción sonando sobre un mostrador blanco de clínica, luz de mañana, plano cercano" },
+          { type: "item", kicker: "Error #1", headline: "Dar el precio antes de escuchar", highlight: "precio", body: "Si lo primero que oye es un número, el paciente compara precios y cuelga.", cta: "", scenePrompt: "Calculadora y factura sobre un escritorio, luz cálida lateral, fondo desenfocado" },
+          { type: "item", kicker: "Error #2", headline: "Responder sin preguntar qué le pasa", highlight: "preguntar", body: "Pregunta qué le duele, desde cuándo y qué probó. Así sabe que lo escuchas.", cta: "", scenePrompt: "Libreta abierta con un bolígrafo junto a una taza de café, vista cenital" },
+          { type: "step", kicker: "Lo que sí funciona", headline: "Repite lo que dijo con sus palabras", highlight: "sus palabras", body: "“Entonces te duele al masticar desde hace una semana.” Recién ahí hablas de la solución.", cta: "", scenePrompt: "Dos sillas frente a frente en una sala de espera luminosa, plano general" },
+          { type: "data", kicker: "Caso real", headline: "De 3 de cada 10 a 6 de cada 10 citas", highlight: "6 de cada 10", body: "Una clínica cambió solo el orden de la llamada y duplicó las citas agendadas en un mes.", cta: "", scenePrompt: "Calendario de pared lleno de marcas de colores, plano medio, luz suave" },
+          { type: "quote", kicker: "Recuerda", headline: "La primera llamada se gana escuchando, no explicando", highlight: "escuchando", body: "", cta: "", scenePrompt: "Ventana con luz natural entrando en una sala vacía y tranquila" },
+          { type: "cta", kicker: "Guion de llamadas", headline: "¿Quieres el guion exacto para tu recepción?", highlight: "guion exacto", body: "Te lo mando gratis por mensaje directo.", cta: "Comenta AGENDA", scenePrompt: "Auriculares de recepción sobre un escritorio ordenado, tono azul" },
         ],
         caption: "El error que comete casi toda clínica en la primera llamada 👇\n\nNo es el precio. Es el orden: primero escuchas, después explicas.\n\nComenta AGENDA y te mando el guion que usa mi equipo.",
         hashtags: ["#clinicadental", "#dentistas", "#marketingdental", "#recepcion", "#pacientesnuevos"],
@@ -191,6 +191,16 @@ export function fakeResponse(feature: string, task = ""): unknown {
         caption: "Tu agenda no se llena con más anuncios. Se llena en el teléfono.\n\nGuarda este carrusel y compártelo con tu recepción.\n\nComenta AGENDA y te mando el guion completo.",
         hashtags: ["#odontologia", "#clinicadental", "#recepcionista", "#agendallena", "#dentistaslatinos"],
       };
+    case "carruseles.escenas": {
+      const indexes = (task.match(/slides: ([\d, ]+)\./)?.[1] ?? "1").split(/,\s*/).map(Number).filter(Boolean);
+      const ideas = ["Escritorio ordenado con una planta y luz de ventana, vista cenital", "Taza de café humeante junto a una libreta abierta, luz cálida", "Ciudad al amanecer vista desde una terraza, tonos suaves", "Manos sosteniendo una brújula sobre un mapa, plano cercano"];
+      return { scenes: indexes.map((index, i) => ({ index, scenePrompt: ideas[i % ideas.length]! })) };
+    }
+    case "carruseles.estilo": {
+      // Sin IA: devuelve el borrador medido tal cual (así la prueba de fidelidad mide el motor de medidas).
+      const draft = task.match(/<borrador>([\s\S]*?)<\/borrador>/)?.[1];
+      return draft ? JSON.parse(draft) : {};
+    }
     case "calendario.plan":
       return {
         ideas: [

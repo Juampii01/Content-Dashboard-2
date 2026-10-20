@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { Headphones, PenLine, Scissors, Undo2, X } from "lucide-react";
+import { Clapperboard, Headphones, PenLine, Scissors, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
@@ -10,6 +10,8 @@ import type { RemovalReason, Word } from "@/lib/video/types";
 import { reasonLabel } from "./labels";
 
 type Range = { from: number; to: number };
+/** Un b-roll marcado sobre el texto (rango de palabras y miniatura del clip elegido). */
+export type BrollMark = { id: string; from: number; to: number; thumbUrl: string | null; empty: boolean };
 
 /**
  * Editor por transcript: cada palabra es un botón. Lo cortado aparece tachado con la etiqueta del motivo.
@@ -29,6 +31,10 @@ export function TranscriptEditor({
   onSetCut,
   onCorrect,
   onListen,
+  brollMarks = [],
+  activeBroll = null,
+  onBrollClick,
+  extraActions,
 }: {
   words: Word[];
   removed: Set<number>;
@@ -43,6 +49,11 @@ export function TranscriptEditor({
   onSetCut: (ids: number[], cut: boolean) => void;
   onCorrect: (id: number, text: string | null) => void;
   onListen: (id: number) => void;
+  brollMarks?: BrollMark[];
+  activeBroll?: string | null;
+  onBrollClick?: (id: string) => void;
+  /** Botones extra para la selección (por ejemplo "Poner b-roll aquí"). */
+  extraActions?: (range: Range, clear: () => void) => ReactNode;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(0);
@@ -174,6 +185,7 @@ export function TranscriptEditor({
             <Button size="sm" variant="ghost" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => onListen(selection.from)}>
               Escuchar desde aquí
             </Button>
+            {extraActions?.(selection, () => setSelection(null))}
             <Button size="sm" variant="subtle" icon={<X className="h-3.5 w-3.5" aria-hidden />} onClick={() => setSelection(null)} aria-label="Quitar la selección" />
           </>
         ) : (
@@ -203,6 +215,9 @@ export function TranscriptEditor({
           onWordClick={onWordClick}
           onKeyDown={onKeyDown}
           onRestore={(r) => onSetCut(ids(r), false)}
+          brollMarks={brollMarks}
+          activeBroll={activeBroll}
+          onBrollClick={onBrollClick}
         />
       </div>
 
@@ -257,6 +272,9 @@ const WordList = memo(function WordList({
   onWordClick,
   onKeyDown,
   onRestore,
+  brollMarks,
+  activeBroll,
+  onBrollClick,
 }: {
   words: Word[];
   removed: Set<number>;
@@ -270,6 +288,9 @@ const WordList = memo(function WordList({
   onWordClick: (e: MouseEvent<HTMLButtonElement>, id: number) => void;
   onKeyDown: (e: KeyboardEvent<HTMLButtonElement>, id: number) => void;
   onRestore: (r: Range) => void;
+  brollMarks: BrollMark[];
+  activeBroll: string | null;
+  onBrollClick?: (id: string) => void;
 }) {
   const nodes = useMemo(() => {
     const out: ReactNode[] = [];
@@ -305,6 +326,30 @@ const WordList = memo(function WordList({
           </span>,
         );
       }
+      const mark = brollMarks.find((b) => b.from === w.id);
+      if (mark) {
+        out.push(
+          <button
+            key={`b${mark.id}`}
+            type="button"
+            onClick={() => onBrollClick?.(mark.id)}
+            className={cn(
+              "mr-1 inline-flex items-center gap-1 rounded-full border py-0.5 pr-2 pl-0.5 align-middle text-[11px] leading-4 font-semibold transition",
+              mark.empty ? "border-warning/50 bg-warning/10 text-warning" : "border-success/45 bg-success/10 text-success",
+              activeBroll === mark.id && "ring-2 ring-accent-hi",
+            )}
+            aria-label={mark.empty ? "B-roll sin clip: elegir uno" : "Ver este b-roll"}
+          >
+            {mark.thumbUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={mark.thumbUrl} alt="" className="h-4 w-6 rounded-full object-cover" />
+            ) : (
+              <Clapperboard className="ml-1 h-3 w-3" aria-hidden />
+            )}
+            B-roll
+          </button>,
+        );
+      }
       if (hook && w.id === hook.from) {
         out.push(
           <span key={`h${w.id}`} className="mr-1 inline-flex rounded-full border border-accent-hi/50 bg-accent/20 px-2 py-0.5 align-middle text-[11px] leading-4 font-semibold text-accent-glow">
@@ -314,6 +359,7 @@ const WordList = memo(function WordList({
       }
       const inSel = selection && w.id >= selection.from && w.id <= selection.to;
       const inHook = hook && w.id >= hook.from && w.id <= hook.to;
+      const inBroll = brollMarks.some((b) => w.id >= b.from && w.id <= b.to);
       const corrected = corrections[String(w.id)];
       out.push(
         <button
@@ -333,6 +379,7 @@ const WordList = memo(function WordList({
             inSel && "bg-accent/35 text-white",
             offScript.has(w.id) && !cut && "underline decoration-warning/60 decoration-dotted underline-offset-4",
             corrected && !cut && "underline decoration-accent-hi decoration-dotted underline-offset-4",
+            inBroll && !cut && !corrected && "underline decoration-success/70 decoration-2 underline-offset-[6px]",
           )}
         >
           {corrected ?? w.text}
@@ -341,6 +388,6 @@ const WordList = memo(function WordList({
       out.push(" ");
     }
     return out;
-  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onKeyDown, onRestore]);
+  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick]);
   return <>{nodes}</>;
 });

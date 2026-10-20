@@ -6,6 +6,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/feedback";
 import { ProjectScreen } from "@/components/editor/project-screen";
 import { getBrand } from "@/lib/ai/brand-context";
+import { getStyle, signedBroll } from "@/lib/dal/editor-media";
 import { getProject } from "@/lib/dal/video";
 import { fileDriver } from "@/lib/storage";
 
@@ -19,6 +20,11 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
   if (!project) notFound();
   const brand = await getBrand();
   const accent = [brand?.colors?.accent, brand?.colors?.primary].find((c) => c && /^#[0-9a-f]{6}$/i.test(c)) ?? DEFAULT_ACCENT;
+  // Estilo y b-roll solo hacen falta en la revisión.
+  const reviewing = project.status === "AWAITING_REVIEW" && project.plan;
+  const styleId = project.plan?.style_id ?? project.styleId;
+  const style = reviewing && styleId ? await getStyle(styleId) : null;
+  const signed = reviewing ? await signedBroll(project.plan!.broll ?? []) : {};
   return (
     <ProjectScreen
       project={{
@@ -29,6 +35,12 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
         accent,
         uploadMode: fileDriver() === "blob" ? "blob" : "local",
       }}
+      signedBroll={signed}
+      style={
+        style?.status === "READY" && style.preset
+          ? { id: style.id, name: style.name, zoom: style.preset.zoom, captions: style.preset.captions, focusY: Math.max(0.25, Math.min(0.6, style.metrics?.faces.center?.y ?? 0.42)) }
+          : null
+      }
     />
   );
 }

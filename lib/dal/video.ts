@@ -85,6 +85,9 @@ export type OutputMeta = {
   truePeak?: number;
   bytes?: number;
   posterKey?: string;
+  creditsKey?: string;
+  broll?: number;
+  zooms?: number;
   qc?: { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
   replaced?: string[];
 };
@@ -96,6 +99,8 @@ export type ProjectView = {
   format: "9:16" | "16:9";
   captionPreset: string;
   scriptId: string | null;
+  styleId: string | null;
+  brollMode: string;
   sourceName: string | null;
   sourceBytes: number | null;
   sourceKey: string | null;
@@ -105,7 +110,7 @@ export type ProjectView = {
   plan: EditPlan | null;
   proxyUrl: string | null;
   posterUrl: string | null;
-  output: { url: string; downloadUrl: string; srtUrl: string | null; meta: OutputMeta } | null;
+  output: { url: string; downloadUrl: string; srtUrl: string | null; creditsUrl: string | null; meta: OutputMeta } | null;
   job: { type: string; status: string; progress: number; stage: string | null; attempts: number; maxAttempts: number; errorMessage: string | null } | null;
   worker: WorkerStatus;
   canEdit: boolean;
@@ -134,6 +139,8 @@ export async function getProject(id: string): Promise<ProjectView | null> {
     format: p.format === "16:9" ? "16:9" : "9:16",
     captionPreset: p.captionPreset,
     scriptId: p.scriptId,
+    styleId: p.styleId,
+    brollMode: p.brollMode,
     sourceName: p.sourceName,
     sourceBytes: p.sourceBytes,
     sourceKey: p.sourceKey,
@@ -145,7 +152,13 @@ export async function getProject(id: string): Promise<ProjectView | null> {
     posterUrl: await sign(meta.posterKey ?? media?.posterKey),
     output:
       outputUrl && p.outputKey
-        ? { url: outputUrl, downloadUrl: (await sign(p.outputKey, `${name}.mp4`)) ?? outputUrl, srtUrl: await sign(p.srtKey, `${name}.srt`), meta }
+        ? {
+            url: outputUrl,
+            downloadUrl: (await sign(p.outputKey, `${name}.mp4`)) ?? outputUrl,
+            srtUrl: await sign(p.srtKey, `${name}.srt`),
+            creditsUrl: await sign(meta.creditsKey, `${name}-creditos.txt`),
+            meta,
+          }
         : null,
     job: job
       ? { type: job.type, status: job.status, progress: job.progress, stage: job.stage, attempts: job.attempts, maxAttempts: job.maxAttempts, errorMessage: job.errorMessage }

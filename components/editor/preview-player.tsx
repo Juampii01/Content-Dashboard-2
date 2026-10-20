@@ -3,6 +3,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
+import type { OutputZoom } from "@/lib/video/effects";
+import type { CaptionStyle } from "@/lib/video/style";
 import { outputToSource } from "@/lib/video/timeline";
 import { FPS, type CaptionBlock, type CaptionPresetKey, type Clip, type VideoFormat } from "@/lib/video/types";
 import { CaptionOverlay } from "./caption-overlay";
@@ -12,9 +14,20 @@ export type PreviewHandle = {
   seekOutput: (out: number, play?: boolean) => void;
 };
 
+/** Un b-roll en la vista previa: tramo del video final y el clip (video liviano o, si no hay, su miniatura). */
+export type PreviewBroll = { id: string; start: number; end: number; previewUrl: string | null; thumbUrl: string | null };
+
+/** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
+export function zoomAt(zooms: OutputZoom[], t: number): number {
+  const z = zooms.find((x) => t >= x.start && t <= x.end);
+  if (!z) return 1;
+  return 1 + (z.scale - 1) * (z.ramp > 0 ? Math.min(1, (t - z.start) / z.ramp) : 1);
+}
+
 /**
  * Vista previa sin render: reproduce el proxy saltando los cortes con JS (los mismos tramos que va a renderizar
- * el worker), simula el encuadre final y dibuja los subtítulos en HTML. Así hay un solo render al final.
+ * el worker), simula el encuadre final, los zooms y el b-roll, y dibuja los subtítulos en HTML.
+ * Así hay un solo render al final.
  */
 export const PreviewPlayer = forwardRef<PreviewHandle, {
   src: string | null;
@@ -30,7 +43,15 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   offsetX: number;
   /** Se llama ~10 veces por segundo con el instante del original (para resaltar la palabra en el texto). */
   onSourceTime?: (t: number | null) => void;
-}>(function PreviewPlayer({ src, poster, clips, duration, blocks, preset, format, accent, sourceWidth, sourceHeight, offsetX, onSourceTime }, ref) {
+  captionStyle?: CaptionStyle | null;
+  broll?: PreviewBroll[];
+  zooms?: OutputZoom[];
+  /** Altura (0 a 1) hacia donde apuntan los zooms: la cara. */
+  focusY?: number;
+}>(function PreviewPlayer(
+  { src, poster, clips, duration, blocks, preset, format, accent, sourceWidth, sourceHeight, offsetX, onSourceTime, captionStyle = null, broll = [], zooms = [], focusY = 0.42 },
+  ref,
+) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const clipIndex = useRef(0);
@@ -174,6 +195,19 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
 
   const block = useMemo(() => blocks.find((b) => out >= b.start && out < b.end) ?? null, [blocks, out]);
   const pct = duration ? (out / duration) * 100 : 0;
+  const zoom = zoomAt(zooms, out);
+  const activeBroll = broll.find((b) => out >= b.start && out < b.end) ?? null;
+  const brollVideo = useRef<HTMLVideoElement>(null);
+
+  // El b-roll de la vista previa sigue al video principal: arranca en su punto y se pausa con él.
+  useEffect(() => {
+    const v = brollVideo.current;
+    if (!v || !activeBroll?.previewUrl) return;
+    const target = Math.max(0, out - activeBroll.start);
+    if (Math.abs(v.currentTime - target) > 0.35) v.currentTime = target;
+    if (playing && v.paused) void v.play().catch(() => undefined);
+    if (!playing && !v.paused) v.pause();
+  }, [activeBroll, out, playing]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -187,6 +221,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
           <img src={poster} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
         )}
         {src ? (
+          <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: `50% ${focusY * 100}%` }}>
           <video
             ref={video}
             src={src}
@@ -206,8 +241,17 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
             onClick={toggle}
             aria-label="Vista previa del video editado"
           />
+          </div>
         ) : null}
-        <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} />
+        {activeBroll &&
+          (activeBroll.previewUrl ? (
+            <video key={activeBroll.id} ref={brollVideo} src={activeBroll.previewUrl} muted playsInline preload="auto" className="absolute inset-0 h-full w-full object-cover" aria-hidden />
+          ) : activeBroll.thumbUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={activeBroll.thumbUrl} alt="" className="absolute inset-0 h-full w-full object-cover" aria-hidden />
+          ) : null)}
+        {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">B-roll</span>}
+        <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">
             {error ? "Este navegador no pudo reproducir la vista previa. Recarga la página o prueba con Chrome o Safari; el render final no se ve afectado." : "La vista previa todavía no está lista."}

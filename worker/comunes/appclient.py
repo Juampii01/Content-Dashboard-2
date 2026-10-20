@@ -12,6 +12,7 @@ import os
 import shutil
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
@@ -53,8 +54,9 @@ class AppClient:
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             raise JobError("No pudimos comunicarnos con la app. Vamos a reintentarlo.", detail=f"{path}: {exc}") from exc
 
-    def transfer(self, project_id: str, key: str, op: str, content_type: str | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"projectId": project_id, "key": key, "op": op}
+    def transfer(self, project_id: str | None, key: str, op: str, content_type: str | None = None, owner: dict[str, str] | None = None) -> dict[str, Any]:
+        """`owner` cambia el dueño del archivo: {"styleId": …} (estilos) o {"clipId": …} (biblioteca de b-roll)."""
+        payload: dict[str, Any] = {**(owner or {"projectId": project_id}), "key": key, "op": op}
         if content_type:
             payload["contentType"] = content_type
         return self._post("/api/worker/storage", payload, timeout=60)
@@ -62,12 +64,29 @@ class AppClient:
     def plan(self, project_id: str) -> dict[str, Any]:
         return self._post(f"/api/worker/projects/{project_id}/plan", {}, timeout=330)
 
-    def download(self, project_id: str, key: str, dest: Path, on_progress: Callable[[float], None] | None = None) -> Path:
+    def style_result(self, style_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Entrega lo medido en la referencia; la app arma y valida el preset y borra la referencia subida."""
+        return self._post(f"/api/worker/styles/{style_id}/result", payload, timeout=120)
+
+    def download(self, project_id: str | None, key: str, dest: Path, on_progress: Callable[[float], None] | None = None, owner: dict[str, str] | None = None) -> Path:
         """Baja un archivo a `dest` (escribe en un temporal y renombra: nunca queda un archivo a medias)."""
-        access = self.transfer(project_id, key, "get")
+        access = self.transfer(project_id, key, "get", owner=owner)
+        return self._fetch(access["url"], access.get("headers") or {}, dest, on_progress, key)
+
+    def download_url(self, url: str, dest: Path, allowed_hosts: tuple[str, ...], max_bytes: int = 600 * 1024 * 1024) -> Path:
+        """Baja un archivo público (b-roll de Pexels) directo de su CDN, solo desde los hosts permitidos."""
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        scheme = urllib.parse.urlsplit(url).scheme
+        ok_host = any(host == h or host.endswith("." + h) for h in allowed_hosts)
+        if not ok_host or scheme not in ("https", "http") or (scheme == "http" and host not in ("localhost", "127.0.0.1")):
+            raise JobError("Un clip de b-roll tiene una dirección no permitida. Cámbialo en la revisión.", retry=False, detail=f"host {host}")
+        return self._fetch(url, {}, dest, None, host, max_bytes=max_bytes)
+
+    def _fetch(self, url: str, headers: dict[str, str], dest: Path, on_progress: Callable[[float], None] | None, what: str, max_bytes: int | None = None) -> Path:
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(dest.name + ".part")
-        req = urllib.request.Request(access["url"], method="GET", headers=access.get("headers") or {})
+        key = what
+        req = urllib.request.Request(url, method="GET", headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=120) as res, open(tmp, "wb") as out:
                 total = int(res.headers.get("content-length") or 0)
@@ -81,6 +100,8 @@ class AppClient:
                         break
                     out.write(chunk)
                     done += len(chunk)
+                    if max_bytes and done > max_bytes:
+                        raise JobError("Un clip de b-roll es demasiado pesado. Cámbialo por otro en la revisión.", retry=False, detail=f"{key}: más de {max_bytes} bytes")
                     if on_progress and total and time.monotonic() - last > 1:
                         on_progress(done / total)
                         last = time.monotonic()
@@ -98,8 +119,8 @@ class AppClient:
             if tmp.exists():
                 tmp.unlink(missing_ok=True)
 
-    def upload(self, project_id: str, key: str, path: Path, content_type: str) -> None:
-        access = self.transfer(project_id, key, "put", content_type)
+    def upload(self, project_id: str | None, key: str, path: Path, content_type: str, owner: dict[str, str] | None = None) -> None:
+        access = self.transfer(project_id, key, "put", content_type, owner=owner)
         size = path.stat().st_size
         headers = {**(access.get("headers") or {}), "content-length": str(size)}
         headers.setdefault("content-type", content_type)

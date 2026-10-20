@@ -100,3 +100,70 @@ def test_full_render_9x16_from_16x9(prepared: tuple[Path, Path, Path]) -> None:
 def test_vertical_to_horizontal_uses_blurred_background() -> None:
     graph, w, h = render.framing_graph(1080, 1920, "16:9", 0, None, FONTS)
     assert (w, h) == (1920, 1080) and "boxblur" in graph
+
+
+def test_zoom_expression_is_piecewise_and_capped() -> None:
+    expr = render.zoom_expr([{"start": 1, "end": 2, "scale": 1.1}, {"start": 3, "end": 4, "scale": 2.0, "ramp": 0.25}, {"start": 3.5, "end": 5, "scale": 1.2}])
+    assert expr is not None and expr.startswith("1+")
+    assert "between(it,1.000,2.000)*0.1000" in expr
+    assert f"*{render.MAX_ZOOM - 1:.4f}*min(1,(it-3.000)/0.250)" in expr  # escala con tope y rampa
+    assert "3.500" not in expr  # el tramo que se superpone se descarta
+    assert render.zoom_expr([]) is None
+
+
+def test_render_with_style_captions_zoom_and_broll(prepared: tuple[Path, Path, Path]) -> None:
+    """Render 9:16 con subtítulos del estilo (amarillos, abajo), un punch-in y un b-roll a pantalla completa."""
+    work, mezz, wav = prepared
+    clips = [{"start": 0, "end": 180}]
+    segments = render.render_segments(mezz, wav, clips, work, lambda f: None)
+    joined = work / "joined3.mkv"
+    render.concat(segments, joined)
+    voice = work / "voice3.wav"
+    render.process_audio(joined, voice)
+    # B-roll: un clip verde de 2 s (horizontal, para probar el recorte al formato).
+    green = work / "green.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x00FF00:s=1280x720:r=25:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(green)], check=True)
+    ready = work / "green-ready.mp4"
+    render.prepare_broll(green, ready, 1.5, (1080, 1920))
+    captions = {
+        "preset": "estilo",
+        "style": {"size": 0.04, "position": 0.78, "uppercase": True, "textColor": "#FFE600", "highlightColor": None, "box": False, "outline": True},
+        "blocks": [{"start": 0.0, "end": 6.0, "words": [{"text": "subtítulos", "start": 0.0, "end": 3.0, "emphasis": False}, {"text": "amarillos", "start": 3.0, "end": 6.0, "emphasis": False}]}],
+    }
+    ass_path = work / "estilo.ass"
+    ass_path.write_text(ass.build_ass(captions, 1080, 1920, "9:16"), encoding="utf-8")
+    assert "\\an5\\pos(540,1498)" in ass_path.read_text() and "SUBTÍTULOS AMARILLOS" in ass_path.read_text()
+    graph, w, h = render.framing_graph(
+        1920, 1080, "9:16", 0, ass_path, FONTS,
+        zooms=[{"start": 1.0, "end": 2.5, "scale": 1.2, "ramp": 0}],
+        broll=[{"input": 2, "start": 3.5, "end": 5.0}],
+    )
+    out = work / "final-estilo.mp4"
+    render.final_encode(joined, voice, graph, 6.0, out, "veryfast", lambda f: None, extra_inputs=[ready])
+    qc = render.quality_check(out, 6.0, "9:16")
+    assert all(c["ok"] for c in qc["checks"] if c["name"] in ("Duración", "Tamaño", "Sincronía audio-video")), qc["checks"]
+
+    def frame(t: float) -> np.ndarray:
+        raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-ss", f"{t}", "-i", str(out), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
+        return np.frombuffer(raw, dtype=np.uint8).reshape(1920, 1080, 3).astype(np.int32)
+
+    # B-roll: a pantalla completa (arriba del todo, verde puro) solo dentro de su tramo, con la voz siguiendo.
+    top = frame(4.2)[100:400, 100:980].mean(axis=(0, 1))
+    assert top[1] > 200 and top[0] < 60 and top[2] < 60, top
+    assert frame(2.9)[100:400, 100:980].mean(axis=(0, 1))[1] < 200
+    # Subtítulos: píxeles amarillos en la banda del 78 % (también sobre el b-roll, que va debajo del texto).
+    for t in (0.5, 4.2):
+        band = frame(t)[1440:1560]
+        yellow = (band[..., 0] > 200) & (band[..., 1] > 190) & (band[..., 2] < 90)
+        assert yellow.sum() > 2000, (t, int(yellow.sum()))
+
+    # Punch-in: entre 0,9 s y 1,1 s la imagen pasa al 120 %. Se mide con el número blanco de testsrc2
+    # (el contador de cuadros, siempre del mismo alto): su alto crece un 20 % y vuelve al terminar el tramo.
+    def digits_height(t: float) -> int:
+        f = frame(t)[300:1350]
+        rows = np.where(((f[..., 0] > 235) & (f[..., 1] > 235) & (f[..., 2] > 235)).sum(axis=1) > 6)[0]
+        return int(rows.max() - rows.min())
+
+    before, during, after = digits_height(0.9), digits_height(1.1), digits_height(2.8)
+    assert during / before == pytest.approx(1.2, abs=0.04), (before, during)
+    assert after / before == pytest.approx(1.0, abs=0.04), (before, after)

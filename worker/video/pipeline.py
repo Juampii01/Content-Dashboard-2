@@ -9,6 +9,7 @@ retoma donde quedó. Si la carpeta de trabajo se perdió (otra máquina), se reh
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
@@ -19,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import JobError
 from comunes.runner import JobContext, register
 
-from . import ass, energy, ingest, render, transcribe
+from . import ass, energy, ingest, library, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 
 log = logging.getLogger("worker.video")
 
@@ -119,6 +120,41 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
     return {"plan": result.get("plannedBy"), "status": result.get("status")}
 
 
+PEXELS_HOSTS = ("pexels.com",)
+
+
+def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str, Any]], size: tuple[int, int], expected: float) -> list[Path]:
+    """Baja cada clip de b-roll (Pexels directo de su CDN; la biblioteca, del almacenamiento privado) y lo deja
+    listo para superponer. Los clips bajados se guardan en la carpeta del proyecto: un segundo render no los repite."""
+    cache = workdir / "broll"
+    cache.mkdir(exist_ok=True)
+    out: list[Path] = []
+    for i, item in enumerate(items):
+        ctx.check()
+        source = item.get("source")
+        start, end = float(item["start"]), min(float(item["end"]), expected)
+        if source == "pexels":
+            url = str(item.get("url") or "")
+            name = hashlib.sha1(url.encode()).hexdigest()[:16]
+            raw = cache / f"pexels-{name}.mp4"
+            if not raw.exists():
+                ctx.app.download_url(url, raw, (*PEXELS_HOSTS, *ctx.config.broll_extra_hosts))
+        elif source == "library":
+            clip_id, key = str(item.get("clipId") or ""), str(item.get("key") or "")
+            if not key.startswith(f"editor/biblioteca/{clip_id}/"):
+                raise JobError("Un clip de la biblioteca ya no está disponible. Cámbialo en la revisión.", retry=False)
+            raw = cache / f"lib-{clip_id}{Path(key).suffix or '.mp4'}"
+            if not raw.exists():
+                ctx.app.download(None, key, raw, owner={"clipId": clip_id})
+        else:
+            raise JobError("Un b-roll tiene un origen desconocido. Cámbialo en la revisión.", retry=False)
+        ready = cache / f"ready-{raw.stem}-{size[0]}x{size[1]}-{float(item.get('offset') or 0):.2f}-{end - start:.3f}.mp4"
+        render.prepare_broll(raw, ready, end - start, size, float(item.get("offset") or 0))
+        out.append(ready)
+        ctx.progress((i + 1) / len(items))
+    return out
+
+
 @register("VIDEO_RENDER")
 def render_job(ctx: JobContext) -> dict[str, Any]:
     project = _project(ctx)
@@ -149,18 +185,34 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     voice = out_dir / "voice.wav"
     audio_info = render.process_audio(joined, voice, float(data.get("audio", {}).get("targetLufs", -14)), float(data.get("audio", {}).get("truePeak", -1)))
 
-    ctx.stage("Renderizando", 0.45, 0.9)
     captions = data.get("captions") or {}
     ass_path = None
     out_w, out_h = render.OUTPUT_SIZE[fmt]
-    if captions.get("preset") in ass.PRESETS and captions.get("blocks"):
+    broll_items = [b for b in data.get("broll") or [] if float(b["end"]) - float(b["start"]) >= 0.5 and float(b["start"]) < expected]
+    broll_inputs: list[Path] = []
+    if broll_items:
+        ctx.stage("Preparando el b-roll", 0.45, 0.55)
+        broll_inputs = prepare_broll(ctx, pid, workdir, broll_items, (out_w, out_h), expected)
+
+    ctx.stage("Renderizando", 0.55 if broll_items else 0.45, 0.9)
+    if (captions.get("preset") in ass.PRESETS or (captions.get("preset") == "estilo" and captions.get("style"))) and captions.get("blocks"):
         ass_path = out_dir / "captions.ass"
         ass_path.write_text(ass.build_ass(captions, out_w, out_h, fmt), encoding="utf-8")
-    graph, _, _ = render.framing_graph(media["width"], media["height"], fmt, float((data.get("framing") or {}).get("offsetX", 0)), ass_path, ctx.config.fonts_dir)
+    graph, _, _ = render.framing_graph(
+        media["width"],
+        media["height"],
+        fmt,
+        float((data.get("framing") or {}).get("offsetX", 0)),
+        ass_path,
+        ctx.config.fonts_dir,
+        zooms=data.get("zooms") or [],
+        focus_y=float((data.get("framing") or {}).get("focusY", 0.42)),
+        broll=[{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected)} for i, b in enumerate(broll_items)],
+    )
     final = out_dir / "final.mp4"
     if final.exists():
         final.unlink()
-    render.final_encode(joined, voice, graph, expected, final, ctx.config.x264_preset, ctx.progress)
+    render.final_encode(joined, voice, graph, expected, final, ctx.config.x264_preset, ctx.progress, extra_inputs=broll_inputs)
 
     ctx.stage("Revisando la calidad", 0.9, 0.95)
     qc = render.quality_check(final, expected, fmt, float(data.get("audio", {}).get("targetLufs", -14)))
@@ -177,10 +229,18 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     ctx.app.upload(pid, data["outputKey"], final, "video/mp4")
     ctx.app.upload(pid, data["srtKey"], srt, "application/x-subrip")
     ctx.app.upload(pid, data["posterKey"], poster, "image/jpeg")
+    if data.get("credits") and data.get("creditsKey"):
+        # Atribución del b-roll de Pexels (lo pide su guía), junto a la descarga.
+        credits = out_dir / "creditos.txt"
+        credits.write_text(data["credits"], encoding="utf-8")
+        ctx.app.upload(pid, data["creditsKey"], credits, "text/plain; charset=utf-8")
     ctx.check()
     meta = {
         **{k: qc[k] for k in ("duration", "width", "height", "fps", "lufs", "truePeak", "bytes")},
         "posterKey": data["posterKey"],
+        **({"creditsKey": data["creditsKey"]} if data.get("credits") and data.get("creditsKey") else {}),
+        "broll": len(broll_items),
+        "zooms": len(data.get("zooms") or []),
         "qc": {"ok": qc["ok"], "checks": qc["checks"]},
         "audio": audio_info,
         "replaced": [k for k in data.get("previousKeys") or [] if k],

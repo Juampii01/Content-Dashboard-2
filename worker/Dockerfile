@@ -13,6 +13,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg fontconfig curl unzip ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# Editor de video (estilos): Tesseract con español e inglés para leer los subtítulos de un video de referencia.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
@@ -20,6 +25,13 @@ RUN pip install -r requirements.txt
 # Fuentes de los subtítulos (Montserrat e Inter, SIL Open Font License), bajadas de sus repos oficiales.
 COPY scripts/fetch_fonts.sh scripts/
 RUN sh scripts/fetch_fonts.sh /app/fonts && fc-cache -f /app/fonts
+
+# Editor de video: modelos open source (Parakeet + Silero VAD, faster-whisper small, YuNet), bajados una sola vez
+# al construir la imagen (~1,2 GB). Al ejecutar no se descarga nada: HF_HUB_OFFLINE impide que se intente.
+ENV MODELS_DIR=/app/models
+COPY scripts/fetch_models.py scripts/
+RUN python scripts/fetch_models.py /app/models
+ENV HF_HUB_OFFLINE=1
 
 COPY main.py .
 COPY comunes comunes

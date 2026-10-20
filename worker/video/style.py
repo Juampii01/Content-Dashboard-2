@@ -35,7 +35,7 @@ from typing import Any, Callable
 import numpy as np
 
 from comunes import ffmpeg
-from comunes.errors import JobError
+from comunes.errors import Cancelled, JobError
 
 log = logging.getLogger("worker.style")
 
@@ -73,7 +73,7 @@ def _frames(src: Path, vf: str, width: int, height: int, channels: int, seconds:
     try:
         while True:
             if ffmpeg.stop_event.is_set():
-                raise JobError("Cancelado", retry=False)
+                raise Cancelled()
             buf = proc.stdout.read(size)
             if len(buf) < size:
                 break

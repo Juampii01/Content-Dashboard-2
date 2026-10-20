@@ -29,12 +29,17 @@ PROGRESS_EVERY = 2.0
 HEARTBEAT_EVERY = 15.0
 
 Handler = Callable[["JobContext"], dict[str, Any]]
+# Se llama cuando un trabajo falla definitivamente (sin más reintentos), con el trabajo y el mensaje para la persona.
+FailHook = Callable[[psycopg.Connection, dict[str, Any], str], None]
 _handlers: dict[str, Handler] = {}
+_fail_hooks: dict[str, FailHook] = {}
 
 
-def register(job_type: str) -> Callable[[Handler], Handler]:
+def register(job_type: str, on_fail: FailHook | None = None) -> Callable[[Handler], Handler]:
     def deco(fn: Handler) -> Handler:
         _handlers[job_type] = fn
+        if on_fail:
+            _fail_hooks[job_type] = on_fail
         return fn
 
     return deco
@@ -185,6 +190,15 @@ class Worker:
         except Exception:  # noqa: BLE001
             log.exception("limpieza de la carpeta de trabajo falló")
 
+    def final_failure(self, job: dict[str, Any], message: str) -> None:
+        hook = _fail_hooks.get(job["type"])
+        if not hook:
+            return
+        try:
+            hook(self.conn, job, message)
+        except Exception:  # noqa: BLE001 — avisar del fallo nunca debe tumbar el worker
+            log.exception("trabajo %s: no se pudo marcar el fallo", job["id"])
+
     def process(self, job: dict[str, Any]) -> None:
         handler = _handlers[job["type"]]
         stop_event.clear()
@@ -219,11 +233,15 @@ class Worker:
             log.error("trabajo %s falló: %s", job["id"], exc.detail or exc.user_message)
             retried = db.fail(self.conn, job, self.config.worker_id, exc.user_message, exc.retry)
             log.info("→ %s", "se reintentará" if retried else "falló definitivamente")
+            if not retried:
+                self.final_failure(job, exc.user_message)
         except Exception as exc:  # noqa: BLE001 — cualquier error inesperado se reintenta
             with self.side_lock:
                 self.current = None
             log.exception("trabajo %s: error inesperado", job["id"])
-            db.fail(self.conn, job, self.config.worker_id, "Falló el procesamiento del video. Si vuelve a pasar, avísale a soporte.", True)
+            message = "Falló el procesamiento del video. Si vuelve a pasar, avísale a soporte."
+            if not db.fail(self.conn, job, self.config.worker_id, message, True):
+                self.final_failure(job, message)
             del exc
         finally:
             stop_event.clear()

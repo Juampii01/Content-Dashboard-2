@@ -31,7 +31,7 @@ FONTS_DIR = Path(__file__).resolve().parent / "fuentes"
 
 # Fuentes candidatas (las mismas claves que lib/carousels/theme.ts → FONTS) con los pesos que se prueban.
 FONT_CANDIDATES: dict[str, tuple[str, list[int | None]]] = {
-    "inter": ("inter-latin-wght-normal.woff2", [400, 600, 800]),
+    "inter": ("inter-latin-wght-normal.woff2", [400, 500, 600, 800]),
     "montserrat": ("montserrat-latin-wght-normal.woff2", [500, 800]),
     "playfair": ("playfair-display-latin-wght-normal.woff2", [400, 700]),
     "instrument": ("instrument-serif-latin-400-normal.woff2", [None]),

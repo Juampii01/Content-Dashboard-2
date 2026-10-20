@@ -41,7 +41,7 @@ export function TemplatePreview({
       <div className={className}>
         {slides.map((s, i) => (
           <div key={s.id} className="overflow-hidden rounded-xl border border-white/10 shadow-[0_16px_40px_rgba(0,6,30,0.45)]">
-            <ScaledSlide slide={s} index={i === slides.length - 1 && slides.length > 1 ? 6 : i} total={7} template={ref} theme={theme} identity={look.identity} label={`${name}: slide de muestra ${i + 1}`} />
+            <ScaledSlide slide={s} index={s.type === "cta" ? 6 : i} total={7} template={ref} theme={theme} identity={look.identity} label={`${name}: slide de muestra ${i + 1}`} />
           </div>
         ))}
       </div>

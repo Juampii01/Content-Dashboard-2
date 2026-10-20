@@ -43,7 +43,8 @@ const newCarousel = z
     pastedText: z.string().trim().max(12000, "El texto es demasiado largo: pega hasta 12.000 caracteres.").default(""),
     scriptId: z.string().default(""),
     objective: z.enum(Object.keys(CAROUSEL_OBJECTIVES) as [CarouselObjective, ...CarouselObjective[]]),
-    slides: z.coerce.number().int().min(LIMITS.minSlides).max(LIMITS.maxSlides),
+    // Con la estructura de una referencia puede ir de 3 a 20; si no, entre los límites de siempre (ver superRefine).
+    slides: z.coerce.number().int().min(3).max(20),
     keyword: z
       .string()
       .trim()
@@ -59,6 +60,7 @@ const newCarousel = z
     if (d.origin === "tema" && d.topic.length < 8) ctx.addIssue({ code: "custom", message: "Cuenta el tema en una o dos frases." });
     if (d.origin === "texto" && d.pastedText.length < 40) ctx.addIssue({ code: "custom", message: "Pega el texto de origen (al menos un par de frases)." });
     if (d.origin === "guion" && !/^[0-9a-f-]{36}$/i.test(d.scriptId)) ctx.addIssue({ code: "custom", message: "Elige un guion." });
+    if (!d.structure && (d.slides < LIMITS.minSlides || d.slides > LIMITS.maxSlides)) ctx.addIssue({ code: "custom", message: `Elige entre ${LIMITS.minSlides} y ${LIMITS.maxSlides} slides.` });
   });
 
 export type NewCarouselState = { error?: string };

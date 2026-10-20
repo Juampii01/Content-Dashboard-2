@@ -46,10 +46,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _auth(self) -> str | None:
         key = (self.headers.get("authorization") or "").removeprefix("Bearer ").strip()
-        if not key or key == "sk-invalida":
+        if not key or key.startswith("sk-invalida"):
             self._send(401, {"error": {"message": "Incorrect API key provided", "type": "invalid_request_error", "code": "invalid_api_key"}})
             return None
-        if key == "sk-sin-saldo":
+        if key.startswith("sk-sin-saldo"):
             self._send(429, {"error": {"message": "You exceeded your current quota", "type": "insufficient_quota", "code": "insufficient_quota"}})
             return None
         return key

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { Copy, ExternalLink, Eye, EyeOff, ImageIcon, KeyRound, Loader2, LogIn, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
 import { Button } from "@/components/ui/button";
@@ -137,14 +137,12 @@ function LoginFlow({ jobId, workerOnline, workerAutoStart, onDone, onCancel }: {
 }
 
 function PasteAuth() {
-  const [state, action, pending] = useActionState<KeyState, FormData>(saveChatGptAuthAction, {});
-  const handled = useRef<KeyState | null>(null);
-  useEffect(() => {
-    if (state.ok && handled.current !== state) {
-      handled.current = state;
-      toast.success("ChatGPT conectado.", { description: state.label });
-    }
-  }, [state]);
+  // El aviso va al terminar la acción: al guardarse, este formulario desaparece (la tarjeta pasa a "Conectado").
+  const [state, action, pending] = useActionState<KeyState, FormData>(async (prev, fd) => {
+    const res = await saveChatGptAuthAction(prev, fd);
+    if (res.ok) toast.success("ChatGPT conectado.", { description: res.label });
+    return res;
+  }, {});
   return (
     <details className="group rounded-xl border border-white/10 px-4 py-3">
       <summary className="cursor-pointer text-sm font-semibold text-muted transition hover:text-white">¿No te funciona el código? Pega tu auth.json</summary>
@@ -274,16 +272,15 @@ function ChatGptCard({ status }: { status: ImageKeysStatus }) {
 // ─── API key de OpenAI ────────────────────────────────────────────────────
 
 function OpenAiForm({ onDone }: { onDone?: () => void }) {
-  const [state, action, pending] = useActionState<KeyState, FormData>(saveOpenAiKeyAction, {});
-  const [visible, setVisible] = useState(false);
-  const handled = useRef<KeyState | null>(null);
-  useEffect(() => {
-    if (state.ok && handled.current !== state) {
-      handled.current = state;
-      toast.success("API key de OpenAI guardada.", { description: state.note });
+  const [state, action, pending] = useActionState<KeyState, FormData>(async (prev, fd) => {
+    const res = await saveOpenAiKeyAction(prev, fd);
+    if (res.ok) {
+      toast.success("API key de OpenAI guardada.", { description: res.note });
       onDone?.();
     }
-  }, [state, onDone]);
+    return res;
+  }, {});
+  const [visible, setVisible] = useState(false);
   return (
     <form action={action} className="flex flex-col gap-3" noValidate>
       {state.error && <Notice tone="danger">{state.error}</Notice>}

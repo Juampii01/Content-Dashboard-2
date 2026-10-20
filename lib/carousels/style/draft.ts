@@ -124,8 +124,10 @@ function layoutFrom(slides: MSlide[], role: LayoutKey, pad: { x: number; y: numb
   // Si la etiqueta va arriba del todo (lejos del titular), el texto empieza debajo de ella.
   const headTop = median(heads.map((b) => b.y), 0.4);
   const kickerTop = median(kickers.map((b) => b.y), -1);
-  const kickerAt: "top" | "inline" = kickers.length && headTop - kickerTop > 0.18 ? "top" : "inline";
-  if (kickerAt === "top" && photo.position !== "top") y0 = Math.max(y0, kickerTop + 0.07);
+  // Sin etiqueta medida en este tipo de slide (el OCR no lee bien las etiquetas muy espaciadas): se hereda la del contenido.
+  const inherited = !kickers.length && fallback && fallback.kicker.style !== "none" ? fallback.kicker : null;
+  const kickerAt: "top" | "inline" = inherited ? inherited.at : kickers.length && headTop - kickerTop > 0.18 ? "top" : "inline";
+  if (kickerAt === "top" && photo.position !== "top") y0 = Math.max(y0, inherited ? fallback!.text.y : kickerTop + 0.07);
   const textBlocks = blocks.filter((b) => !(kickerAt === "top" && b.role === "kicker"));
   const top = median(textBlocks.map((b) => b.y), (y0 + y1) / 2);
   const bottom = median(textBlocks.map((b) => b.y + b.h), (y0 + y1) / 2);
@@ -152,7 +154,7 @@ function layoutFrom(slides: MSlide[], role: LayoutKey, pad: { x: number; y: numb
     text: { x: x0, y: y0, w: Math.max(0.2, x1 - x0), h: Math.max(0.15, y1 - y0), align, vAlign },
     headline: { size: Math.round(Math.min(220, Math.max(28, headSize))), weight: 700, uppercase: upper, italic: false, tracking: upper ? 0.005 : -0.015, lineHeight: Math.min(1.6, Math.max(0.85, Number(lineHeight.toFixed(2)))) },
     body: { size: Math.round(Math.min(80, Math.max(18, bodySize))), weight: 400, lineHeight: Math.min(1.8, Math.max(1.1, Number(bodyLh.toFixed(2)))) },
-    kicker: { style: kickers.length ? (kickerUpper ? "mono" : "plain") : "none", at: kickerAt },
+    kicker: inherited ?? { style: kickers.length ? (kickerUpper ? "mono" : "plain") : "none", at: kickerAt },
     panel,
   };
 }
@@ -234,8 +236,9 @@ export function draftSpec(m: Measurements): TemplateSpec {
 }
 
 function describe(d: { bg: string; heading: FontKey; accent: string; photo: boolean; avatar: boolean; kind: string }): string {
-  const fondo = d.kind === "gradient" ? "degradado" : d.kind === "texture" ? "con textura" : d.kind === "photo" ? "de foto" : "liso";
-  const parts = [`Fondo ${fondo} ${d.bg}`, `titulares en ${FONTS[d.heading].label}`, `acento ${d.accent}`];
+  const fondo = d.kind === "gradient" ? "con degradado" : d.kind === "texture" ? "con textura" : d.kind === "photo" ? "de foto" : "liso";
+  const tono = contrast("#ffffff", d.bg) > contrast("#111111", d.bg) ? "oscuro" : "claro";
+  const parts = [`Fondo ${tono} ${fondo}`, `titulares en ${FONTS[d.heading].label}`, "un color de acento"];
   if (d.photo) parts.push("con foto");
   if (d.avatar) parts.push("cabecera con foto de perfil");
   return `${parts.join(", ")}.`;

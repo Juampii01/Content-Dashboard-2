@@ -17,9 +17,9 @@ export function StyleDetail({ metrics, preset, thumbUrl }: { metrics: StyleMetri
     <div className="grid gap-6 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
       <div className="flex flex-col gap-3">
         <div className={vertical ? "relative mx-auto aspect-[9/16] w-full max-w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-black" : "relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-black"}>
+          {/* Desenfocada: la referencia trae sus propios subtítulos y no deben mezclarse con la muestra. */}
           {thumbUrl && (
             // eslint-disable-next-line @next/next/no-img-element
-            // Desenfocada: la referencia trae sus propios subtítulos y no deben mezclarse con la muestra.
             <img src={thumbUrl} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-55 blur-lg" />
           )}
           {preset.captions && <CaptionOverlay block={sample} time={0.45} preset="estilo" format={vertical ? "9:16" : "16:9"} accent="#FFD84D" height={vertical ? 533 : 300} captionStyle={preset.captions} />}

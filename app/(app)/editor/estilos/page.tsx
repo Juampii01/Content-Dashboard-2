@@ -17,7 +17,9 @@ export const metadata: Metadata = { title: "Estilos de edición" };
 
 /** /editor/estilos — "Edita como este": estilos copiados de videos de referencia. */
 async function Styles() {
-  const [me, styles, worker] = await Promise.all([getCurrentUser(), listStyles(), workerStatus()]);
+  // La sesión primero: así el build (sin variables de entorno) no toca la base.
+  const me = await getCurrentUser();
+  const [styles, worker] = await Promise.all([listStyles(), workerStatus()]);
   const canEdit = me.role !== "VIEWER";
   return (
     <div className="flex flex-col gap-6">

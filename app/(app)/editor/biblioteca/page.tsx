@@ -16,7 +16,9 @@ export const metadata: Metadata = { title: "Biblioteca de b-roll" };
 
 /** /editor/biblioteca — clips propios del cliente para usar como b-roll. */
 async function LibraryContent() {
-  const [me, clips, worker, availability] = await Promise.all([getCurrentUser(), listClips(), workerStatus(), brollAvailability()]);
+  // La sesión primero: así el build (sin variables de entorno) no toca la base.
+  const me = await getCurrentUser();
+  const [clips, worker, availability] = await Promise.all([listClips(), workerStatus(), brollAvailability()]);
   const canEdit = me.role !== "VIEWER" && Boolean(fileDriver());
   return (
     <div className="flex flex-col gap-6">

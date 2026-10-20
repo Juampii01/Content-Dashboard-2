@@ -15,7 +15,8 @@ export const metadata: Metadata = { title: "Estilo" };
 
 async function Style({ params }: { params: PageProps<"/editor/estilos/[id]">["params"] }) {
   const { id } = await params;
-  const [me, style] = await Promise.all([getCurrentUser(), getStyle(id)]);
+  const me = await getCurrentUser();
+  const style = await getStyle(id);
   if (!style) notFound();
   return (
     <div className="flex flex-col gap-6">

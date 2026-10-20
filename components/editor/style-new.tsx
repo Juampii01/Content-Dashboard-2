@@ -137,11 +137,16 @@ export function NewStyle({ canEdit }: { canEdit: boolean }) {
         </Field>
       )}
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <Field label="Nombre del estilo" htmlFor="style-name" className="min-w-0 flex-1">
           <Input id="style-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="Por ejemplo: Reels rápidos con zooms" disabled={!canEdit || pending} />
         </Field>
-        <Button onClick={submit} disabled={!canEdit || pending || (source === "upload" ? !file : link.trim().length < 8)} icon={<Sparkles className="h-4 w-4" aria-hidden />}>
+        <Button
+          className="w-full sm:w-auto"
+          onClick={submit}
+          disabled={!canEdit || pending || (source === "upload" ? !file : link.trim().length < 8)}
+          icon={<Sparkles className="h-4 w-4" aria-hidden />}
+        >
           {uploading ? `Subiendo ${Math.round(progress ?? 0)} %…` : pending ? "Enviando…" : "Analizar estilo"}
         </Button>
       </div>

@@ -32,6 +32,22 @@ MAX_LINK_BYTES = 500 * 1024 * 1024
 MAX_LINK_SECONDS = 15 * 60
 
 
+class _QuietLogger:
+    """yt-dlp escribe sus errores en stderr aunque esté en silencio; aquí van al log del worker, cortos."""
+
+    def debug(self, msg: str) -> None:
+        pass
+
+    def info(self, msg: str) -> None:
+        pass
+
+    def warning(self, msg: str) -> None:
+        log.debug("yt-dlp: %s", msg[:300])
+
+    def error(self, msg: str) -> None:
+        log.info("yt-dlp: %s", msg[:300])
+
+
 def link_allowed(url: str) -> bool:
     try:
         parts = urllib.parse.urlsplit(url)
@@ -73,6 +89,7 @@ def download_link(url: str, dest_dir: Path) -> Path:
         "match_filter": too_long,
         "progress_hooks": [hook],
         "cachedir": False,
+        "logger": _QuietLogger(),
     }
     try:
         with YoutubeDL(opts) as ydl:

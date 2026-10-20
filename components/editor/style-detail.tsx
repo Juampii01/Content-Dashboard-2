@@ -19,7 +19,8 @@ export function StyleDetail({ metrics, preset, thumbUrl }: { metrics: StyleMetri
         <div className={vertical ? "relative mx-auto aspect-[9/16] w-full max-w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-black" : "relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-black"}>
           {thumbUrl && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={thumbUrl} alt="Cuadro del video de referencia" className="absolute inset-0 h-full w-full object-cover opacity-70" />
+            // Desenfocada: la referencia trae sus propios subtítulos y no deben mezclarse con la muestra.
+            <img src={thumbUrl} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-55 blur-lg" />
           )}
           {preset.captions && <CaptionOverlay block={sample} time={0.45} preset="estilo" format={vertical ? "9:16" : "16:9"} accent="#FFD84D" height={vertical ? 533 : 300} captionStyle={preset.captions} />}
         </div>

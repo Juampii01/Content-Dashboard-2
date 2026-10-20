@@ -160,7 +160,10 @@ export function describeMetrics(m: StyleMetrics): { rhythm: StyleFact[]; visual:
   const visual: StyleFact[] = [
     {
       label: "Zooms",
-      value: m.zooms.punchIns + m.zooms.smooth === 0 ? "sin zooms" : `${m.zooms.punchIns} punch-ins y ${m.zooms.smooth} suaves`,
+      value:
+        m.zooms.punchIns + m.zooms.smooth === 0
+          ? "sin zooms"
+          : [m.zooms.punchIns && `${m.zooms.punchIns} ${m.zooms.punchIns === 1 ? "punch-in" : "punch-ins"}`, m.zooms.smooth && `${m.zooms.smooth} ${m.zooms.smooth === 1 ? "suave" : "suaves"}`].filter(Boolean).join(" y "),
       hint: m.zooms.punchIns + m.zooms.smooth ? `al ${Math.round(m.zooms.avgScale * 100)} %` : undefined,
     },
     m.broll.reliable
@@ -186,7 +189,7 @@ export function describeMetrics(m: StyleMetrics): { rhythm: StyleFact[]; visual:
 
 /** Cómo se aplica el preset, en frases cortas (para el paso "Estilo" y la revisión). */
 export function describePreset(p: StylePreset): string[] {
-  const out = [`Pausas de hasta ${decimal(p.pacing.longPause)} s`, `Gancho de unos ${decimal(p.hook.targetSeconds, 0)} s`];
+  const out = [`Recorta pausas de más de ${decimal(p.pacing.longPause)} s`, `Gancho de unos ${decimal(p.hook.targetSeconds, 0)} s`];
   if (p.zoom.enabled) out.push(`Un zoom cada ${decimal(p.zoom.everySeconds, 0)} s`);
   if (p.broll.enabled) out.push(`B-roll cada ${decimal(p.broll.everySeconds, 0)} s`);
   if (p.captions) out.push("Subtítulos copiados");

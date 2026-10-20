@@ -14,13 +14,15 @@ const isDev = process.env.NODE_ENV !== "production";
  * (HEYGEN_API_BASE=http://localhost:…), que sirve sus archivos por http.
  */
 const heygenMock = isDev && process.env.HEYGEN_API_BASE?.startsWith("http://") ? ` ${new URL(process.env.HEYGEN_API_BASE).origin}` : "";
+/** Igual con el simulador de Pexels del Editor (PEXELS_API_BASE=http://localhost:…): los de verdad ya son https. */
+const pexelsMock = isDev && process.env.PEXELS_API_BASE?.startsWith("http://") ? ` ${new URL(process.env.PEXELS_API_BASE).origin}` : "";
 
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: https:${heygenMock}`,
-  `media-src 'self' blob: https:${heygenMock}`,
+  `img-src 'self' data: blob: https:${heygenMock}${pexelsMock}`,
+  `media-src 'self' blob: https:${heygenMock}${pexelsMock}`,
   "font-src 'self'",
   "connect-src 'self' https:",
   "frame-ancestors 'none'",

@@ -216,13 +216,13 @@ export function BrollPicker({
         {tab === "buscar" && <p className="-mt-2 text-xs text-muted">En inglés encuentra más videos de stock. También busca en las etiquetas de tu biblioteca.</p>}
         {notice && <Notice tone="warning">{notice}</Notice>}
         {pending && !list ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {Array.from({ length: 6 }, (_, i) => (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
               <Skeleton key={i} className="aspect-[9/16]" />
             ))}
           </div>
         ) : list && list.length > 0 ? (
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <ul className={cn("grid gap-3", format === "9:16" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-1 sm:grid-cols-2")}>
             {list.map((o) => {
               const chosen = item.choice && optionKey(item.choice) === optionKey(o);
               const key = optionKey(o);
@@ -239,6 +239,7 @@ export function BrollPicker({
                         <Clapperboard className="m-auto h-6 w-6 text-placeholder" aria-hidden />
                       )}
                     </button>
+                    {chosen && <span className="pointer-events-none absolute top-2 left-2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-semibold text-white">Elegido</span>}
                     {o.previewUrl && (
                       <button
                         type="button"

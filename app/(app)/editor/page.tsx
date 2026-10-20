@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Clapperboard, Upload } from "lucide-react";
+import { Clapperboard, Library, Palette, Upload } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -52,9 +52,17 @@ export default function EditorPage() {
         description="Cortamos silencios y tomas malas, ponemos el mejor gancho al inicio y agregamos subtítulos. Tú revisas cada corte antes del render."
         icon={<Clapperboard className="h-5 w-5" aria-hidden />}
         actions={
-          <ButtonLink href="/editor/nuevo" icon={<Upload className="h-4 w-4" aria-hidden />}>
-            Subir un video
-          </ButtonLink>
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink href="/editor/estilos" variant="ghost" icon={<Palette className="h-4 w-4" aria-hidden />}>
+              Estilos
+            </ButtonLink>
+            <ButtonLink href="/editor/biblioteca" variant="ghost" icon={<Library className="h-4 w-4" aria-hidden />}>
+              Biblioteca de b-roll
+            </ButtonLink>
+            <ButtonLink href="/editor/nuevo" icon={<Upload className="h-4 w-4" aria-hidden />}>
+              Subir un video
+            </ButtonLink>
+          </div>
         }
       />
       <Suspense fallback={<Skeleton className="h-64" />}>

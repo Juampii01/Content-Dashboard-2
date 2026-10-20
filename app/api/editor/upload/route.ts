@@ -3,7 +3,9 @@ import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/b
 import { getOptionalUser } from "@/lib/auth";
 import { fileDriver, VIDEO_TYPES } from "@/lib/storage";
 import { uploadDelegation } from "@/lib/storage/files";
+import { loadClip } from "@/lib/video/library";
 import { loadProject } from "@/lib/video/service";
+import { loadStyle } from "@/lib/video/styles";
 
 /**
  * POST /api/editor/upload — firma la subida directa del navegador a Vercel Blob (store privado).
@@ -25,13 +27,25 @@ export async function POST(request: NextRequest) {
       body,
       request,
       getSignedToken: async (pathname, clientPayload) => {
-        const project = clientPayload ? await loadProject(clientPayload) : null;
-        if (!project || project.status !== "UPLOADING" || project.sourceKey !== pathname) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
+        // clientPayload: el id del proyecto, o "estilo:<id>" (referencia de un estilo) o "clip:<id>" (biblioteca).
+        const [kind, ref] = clientPayload?.includes(":") ? clientPayload.split(":", 2) : ["proyecto", clientPayload];
+        let size: number | null = null;
+        if (kind === "estilo" && ref) {
+          const style = await loadStyle(ref);
+          if (style?.status === "UPLOADING" && style.sourceKey === pathname) size = style.sourceBytes ?? 0;
+        } else if (kind === "clip" && ref) {
+          const clip = await loadClip(ref);
+          if (clip?.status === "UPLOADING" && clip.fileKey === pathname) size = clip.fileBytes ?? 0;
+        } else if (ref) {
+          const project = await loadProject(ref);
+          if (project?.status === "UPLOADING" && project.sourceKey === pathname) size = project.sourceBytes ?? 0;
+        }
+        if (size == null) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
         return {
           token: await uploadDelegation(pathname),
           urlOptions: {
             allowedContentTypes: Object.keys(VIDEO_TYPES),
-            maximumSizeInBytes: project.sourceBytes ?? undefined,
+            maximumSizeInBytes: size || undefined,
             allowOverwrite: true,
             addRandomSuffix: false,
             validUntil: Date.now() + 6 * 3600_000,

@@ -30,7 +30,7 @@ export function removedIds(plan: Pick<EditPlan, "removals">, wordCount: number):
 type Run = { first: number; last: number; start: number; end: number };
 
 /** Agrupa palabras que quedan en tramos continuos y calcula sus bordes en segundos. */
-function runsFor(words: Word[], keep: (id: number) => boolean, duration: number): Run[] {
+function runsFor(words: Word[], keep: (id: number) => boolean, duration: number, longPause: number = TIMING.longPause): Run[] {
   const runs: Run[] = [];
   let current: { first: number; last: number } | null = null;
   const close = () => {
@@ -50,7 +50,7 @@ function runsFor(words: Word[], keep: (id: number) => boolean, duration: number)
       close();
       continue;
     }
-    if (current && (w.id !== current.last + 1 || w.start - words[current.last]!.end > TIMING.longPause)) close();
+    if (current && (w.id !== current.last + 1 || w.start - words[current.last]!.end > longPause)) close();
     if (!current) current = { first: w.id, last: w.id };
     else current.last = w.id;
   }
@@ -91,9 +91,11 @@ export type Timeline = {
  */
 export function buildTimeline(
   words: Word[],
-  plan: Pick<EditPlan, "removals" | "hook_candidates" | "selected_hook" | "corrections" | "captions">,
+  plan: Pick<EditPlan, "removals" | "hook_candidates" | "selected_hook" | "corrections" | "captions"> & Partial<Pick<EditPlan, "pacing">>,
   duration: number,
 ): Timeline {
+  // Tolerancia de silencios: la del estilo (si hay), dentro de un rango sensato.
+  const longPause = plan.pacing?.long_pause ? Math.max(0.2, Math.min(1.2, plan.pacing.long_pause)) : TIMING.longPause;
   const removed = removedIds(plan, words.length);
   const hook = plan.selected_hook != null ? plan.hook_candidates[plan.selected_hook] : undefined;
   const inHook = (id: number) => Boolean(hook && id >= hook.from_word && id <= hook.to_word);
@@ -101,8 +103,8 @@ export function buildTimeline(
   const firstKept = words.find((w) => !removed.has(w.id));
   const hookIsOpening = Boolean(hook && firstKept && hook.from_word <= firstKept.id);
 
-  const hookRuns = hook && !hookIsOpening ? runsFor(words, (id) => inHook(id) && !removed.has(id), duration) : [];
-  const bodyRuns = runsFor(words, (id) => !removed.has(id) && (hookIsOpening || !inHook(id)), duration);
+  const hookRuns = hook && !hookIsOpening ? runsFor(words, (id) => inHook(id) && !removed.has(id), duration, longPause) : [];
+  const bodyRuns = runsFor(words, (id) => !removed.has(id) && (hookIsOpening || !inHook(id)), duration, longPause);
   const clips = [...toClips(hookRuns, "hook"), ...toClips(bodyRuns, "body")];
 
   const emphasis = new Set(plan.captions.emphasis_words);
@@ -155,4 +157,21 @@ export function outputToSource(clips: Clip[], out: number): { clipIndex: number;
     offset += dur;
   }
   return { clipIndex: 0, source: 0 };
+}
+
+/**
+ * Tramo del video final que cubre un rango de palabras del original (para b-roll y zooms).
+ * Usa las palabras que quedan dentro del rango; null si todas se cortaron.
+ * Si el rango quedó partido por el gancho (palabras en dos lugares del final), se toma el primer tramo continuo.
+ */
+export function outputRange(timeline: Pick<Timeline, "words">, fromWord: number, toWord: number): { start: number; end: number } | null {
+  const inside = timeline.words.filter((w) => w.id >= fromWord && w.id <= toWord);
+  if (!inside.length) return null;
+  let end = inside[0]!.end;
+  for (let i = 1; i < inside.length; i++) {
+    const w = inside[i]!;
+    if (w.id < inside[i - 1]!.id || w.start - end > 1.5) break;
+    end = w.end;
+  }
+  return { start: inside[0]!.start, end };
 }

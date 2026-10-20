@@ -7,6 +7,8 @@ import { z } from "zod";
 import { isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
+import { brollItemSchema } from "@/lib/video/plan";
+import type { CaptionPresetKey } from "@/lib/video/types";
 import {
   completeUpload,
   createFromClone,
@@ -31,8 +33,9 @@ function fail(error: unknown): { ok: false; error: string } {
 }
 
 const formatSchema = z.enum(["9:16", "16:9"]);
-const presetSchema = z.enum(["clasico", "pop", "ninguno"]);
+const presetSchema = z.enum(["clasico", "pop", "estilo", "ninguno"]);
 const idSchema = z.uuid();
+const brollModeSchema = z.enum(["auto", "off"]);
 
 const newProject = z.object({
   title: z.string().trim().min(1, "Ponle un nombre al video.").max(120, "El nombre es demasiado largo."),
@@ -42,6 +45,8 @@ const newProject = z.object({
   format: formatSchema,
   preset: presetSchema,
   scriptId: z.uuid().nullable(),
+  styleId: z.uuid().nullable().optional(),
+  brollMode: brollModeSchema.optional(),
 });
 
 /** Paso 1 de la subida: reserva el proyecto y la ruta del original. El archivo va directo al almacenamiento. */
@@ -63,6 +68,8 @@ const settingsSchema = z.object({
   format: formatSchema,
   preset: presetSchema,
   scriptId: z.uuid().nullable(),
+  styleId: z.uuid().nullable().optional(),
+  brollMode: brollModeSchema.optional(),
 });
 
 /** Paso 2: la subida terminó y la persona tocó "Procesar". Se verifica el archivo y se encola el análisis. */
@@ -88,14 +95,21 @@ export async function updateDraftAction(projectId: string, settings: DraftSettin
   return { ok: true };
 }
 
-export async function createFromCloneAction(cloneId: string, format: "9:16" | "16:9", preset: "clasico" | "pop" | "ninguno"): Promise<ActionResult> {
+export async function createFromCloneAction(
+  cloneId: string,
+  format: "9:16" | "16:9",
+  preset: CaptionPresetKey,
+  extra: { styleId?: string | null; brollMode?: "auto" | "off" } = {},
+): Promise<ActionResult> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
-  const parsed = z.object({ cloneId: idSchema, format: formatSchema, preset: presetSchema }).safeParse({ cloneId, format, preset });
+  const parsed = z
+    .object({ cloneId: idSchema, format: formatSchema, preset: presetSchema, styleId: z.uuid().nullable().optional(), brollMode: brollModeSchema.optional() })
+    .safeParse({ cloneId, format, preset, ...extra });
   if (!parsed.success) return { ok: false, error: "Datos no válidos." };
   let id: string;
   try {
-    id = await createFromClone(parsed.data.cloneId, parsed.data.format, parsed.data.preset, user.id);
+    id = await createFromClone(parsed.data.cloneId, parsed.data.format, parsed.data.preset, user.id, { styleId: parsed.data.styleId, brollMode: parsed.data.brollMode });
   } catch (error) {
     return fail(error);
   }
@@ -108,6 +122,8 @@ const reviewSchema = z.object({
   preset: presetSchema,
   offsetX: z.number().min(-1).max(1),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
+  broll: z.array(brollItemSchema).max(20).optional(),
+  zooms: z.boolean().optional(),
 });
 
 export async function saveReviewAction(projectId: string, review: Review, format: "9:16" | "16:9"): Promise<ActionResult> {

@@ -43,7 +43,8 @@ export type MediaInfo = {
 };
 
 export type VideoFormat = "9:16" | "16:9";
-export type CaptionPresetKey = "clasico" | "pop" | "ninguno";
+/** "estilo": los subtítulos copian los de un video de referencia (ver lib/video/style.ts). */
+export type CaptionPresetKey = "clasico" | "pop" | "estilo" | "ninguno";
 
 export const REMOVAL_REASONS = ["retake", "false_start", "filler", "silence", "off_topic", "manual"] as const;
 export type RemovalReason = (typeof REMOVAL_REASONS)[number];
@@ -78,7 +79,14 @@ export type EditPlan = {
   /** Texto corregido de palabras puntuales para los subtítulos (por guion o a mano). */
   corrections: Record<string, string>;
   overlays: { text: string; from_word: number; to_word: number; position: "top" | "center" }[];
-  broll: { from_word: number; to_word: number; query_en: string; source: "pexels" | "upload" }[];
+  /** Tomas de b-roll sobre rangos de palabras (las propone Claude; la persona las cambia en la revisión). */
+  broll: BrollItem[];
+  /** Zooms y punch-ins del estilo (se calculan en cada render a partir del timeline; aquí solo si van o no). */
+  zooms_enabled?: boolean;
+  /** Pausa máxima que queda entre palabras (la tolerancia de silencios del estilo). Sin estilo, la de TIMING. */
+  pacing?: { long_pause: number };
+  /** Estilo con el que se armó el plan (id de video_styles), si hay. */
+  style_id?: string | null;
   audio: { music_asset_id: string | null; music_db: number; target_lufs: number };
   /** Recorte para 16:9 → 9:16. offset_x va de -1 (izquierda) a 1 (derecha); 0 es el centro. */
   framing: { mode: "center" | "manual"; offset_x: number };
@@ -88,6 +96,39 @@ export type EditPlan = {
   warning: string;
   /** "ai" si lo armó Claude, "auto" si se armó sin IA (la IA no respondió). */
   planned_by: "ai" | "auto";
+};
+
+/** Una alternativa de b-roll: un video de Pexels o un clip de la biblioteca del cliente. */
+export type BrollOption = {
+  source: "pexels" | "library";
+  /** Id en su fuente (id de Pexels o id del clip en broll_clips). */
+  id: string;
+  duration: number;
+  width: number;
+  height: number;
+  /** Pexels: miniatura pública, video liviano para la vista previa y archivo para el render. */
+  thumb?: string | null;
+  preview?: string | null;
+  file?: string | null;
+  /** Atribución que pide Pexels: autor y página del video. */
+  credit?: { name: string; url: string; page: string } | null;
+  /** Biblioteca: claves privadas (se firman al mostrarlas). */
+  key?: string | null;
+  thumbKey?: string | null;
+  title?: string | null;
+};
+
+export type BrollItem = {
+  id: string;
+  from_word: number;
+  to_word: number;
+  /** Qué buscar en Pexels (en inglés) y palabras clave para la biblioteca. */
+  query_en: string;
+  keywords: string[];
+  why?: string;
+  /** La elegida (null = sin clip: no se renderiza) y las alternativas para "Cambiar". */
+  choice: BrollOption | null;
+  options: BrollOption[];
 };
 
 /** Un tramo del video original que queda en el video final, en cuadros de 30 fps. */

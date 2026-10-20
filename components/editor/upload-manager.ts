@@ -10,7 +10,7 @@ import type { CaptionPresetKey, VideoFormat } from "@/lib/video/types";
  * El archivo va directo del navegador al almacenamiento (Vercel Blob con URL firmada, o disco local en desarrollo).
  * Cuando la subida terminó y la persona ya tocó "Procesar", se avisa a la app para que encole el análisis.
  */
-export type Settings = { title: string; format: VideoFormat; preset: CaptionPresetKey; scriptId: string | null };
+export type Settings = { title: string; format: VideoFormat; preset: CaptionPresetKey; scriptId: string | null; styleId?: string | null; brollMode?: "auto" | "off" };
 
 export type UploadState = {
   projectId: string;
@@ -91,6 +91,16 @@ async function uploadBlob(file: File, key: string, projectId: string, signal: Ab
     abortSignal: signal,
     onUploadProgress: (e) => onProgress(e.loaded),
   });
+}
+
+/**
+ * Sube un archivo directo al almacenamiento (sin pasar por la app). Lo usan también los estilos
+ * (`clientPayload` = "estilo:<id>") y la biblioteca de b-roll ("clip:<id>").
+ */
+export function putFile(input: { file: File; key: string; mode: "blob" | "local"; clientPayload: string; signal: AbortSignal; onProgress: (loaded: number) => void }): Promise<void> {
+  return input.mode === "blob"
+    ? uploadBlob(input.file, input.key, input.clientPayload, input.signal, input.onProgress)
+    : uploadLocal(input.file, input.key, input.signal, input.onProgress);
 }
 
 async function finish(projectId: string) {

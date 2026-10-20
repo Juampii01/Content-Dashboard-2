@@ -106,6 +106,8 @@ export function planTask(input: {
   format: string;
   script: string | null;
   scriptCoverage: number | null;
+  /** Estilo de un video de referencia que la persona quiere copiar (solo el ritmo, nunca el contenido). */
+  style?: { cutsPerMinute: number; hookSeconds: number; longPause: number; aggressiveness: string } | null;
 }): string {
   const { words, candidates } = input;
   const transcript = words
@@ -131,7 +133,16 @@ DATOS
 - Formato de salida: ${input.format}
 - Palabras: ${words.length}
 ${input.script ? `- Hay guion (coincide con el ${Math.round((input.scriptCoverage ?? 0) * 100)} % de lo dicho).` : "- No hay guion."}
-
+${
+  input.style
+    ? `
+ESTILO A COPIAR (de un video de referencia; copia el ritmo, no el contenido)
+- Ritmo de edición: ${input.style.aggressiveness} (${s(input.style.cutsPerMinute)} cortes por minuto en la referencia). Con ritmo alto, corta también muletillas y arranques dudosos.
+- Pausas: no quedan pausas de más de ${s(input.style.longPause)} s (eso se recorta solo).
+- Gancho: la referencia abre con una frase de unos ${s(input.style.hookSeconds)} s; prefiere ganchos de ese largo.
+`
+    : ""
+}
 FRASES (id de la frase, rango de palabras, duración y tiempos)
 ${frases}
 
@@ -140,6 +151,70 @@ ${cands}
 
 ${input.script ? `GUION ORIGINAL\n<guion>\n${input.script.slice(0, 12000)}\n</guion>\n` : ""}
 TRANSCRIPCIÓN PALABRA POR PALABRA (id:palabra)
+<transcripcion>
+${transcript}
+</transcripcion>`;
+}
+
+// ─── B-roll (feature "video.broll") ────────────────────────────────────────
+
+/**
+ * Claude elige dónde va cada b-roll (rangos de palabras) y qué buscar: una consulta corta en inglés para Pexels
+ * y palabras clave en español para la biblioteca del cliente. Nunca tapa el gancho ni el llamado a la acción.
+ */
+export const BROLL_RULES = `Eres el editor de b-roll de este creador. El b-roll son tomas de apoyo que tapan por unos segundos al creador mientras su voz sigue (por ejemplo, alguien atendiendo un teléfono mientras dice "contestan el teléfono").
+
+REGLAS
+- Elige tramos donde la frase describe algo que se puede mostrar: un objeto, un lugar, una acción, un resultado. Nunca en frases abstractas ni emocionales donde importa ver la cara.
+- Nunca dentro del gancho (los primeros segundos) ni del llamado a la acción del final: ahí se ve al creador.
+- Cada tramo dura entre DURACIÓN mínima y máxima, empieza y termina en palabras de la misma frase, y no se superpone con otro.
+- Separa los b-roll de forma pareja a lo largo del video, más o menos con la cadencia pedida.
+- query_en: 2 a 5 palabras en inglés, concretas y visuales, como se busca en un banco de videos (por ejemplo "receptionist answering phone"). Sin marcas ni personas famosas.
+- keywords: 2 a 4 palabras en español, en minúsculas, para buscar en los clips propios del creador (por ejemplo "teléfono", "recepción").
+- Usa solo ids que existan. "why" va en una frase corta para el creador, en español neutro con trato de "tú".`;
+
+export const brollAiSchema = z.object({
+  broll: z
+    .array(
+      z.object({
+        from_word: z.number().int(),
+        to_word: z.number().int(),
+        query_en: z.string().describe("Consulta en inglés para Pexels, 2 a 5 palabras."),
+        keywords: z.array(z.string()).describe("2 a 4 palabras clave en español para la biblioteca."),
+        why: z.string().describe("Por qué ahí, en una frase."),
+      }),
+    )
+    .describe("Tramos de b-roll en orden, sin superponerse."),
+});
+export type BrollAiOutput = z.infer<typeof brollAiSchema>;
+
+export function brollTask(input: {
+  words: Word[];
+  count: number;
+  minSeconds: number;
+  maxSeconds: number;
+  /** Rangos donde no puede ir b-roll (gancho, llamado a la acción). */
+  forbidden: { from: number; to: number; label: string }[];
+  format: string;
+  libraryTags: string[];
+}): string {
+  const frases = sentences(input.words)
+    .map((f) => `F${f.index} [${f.from}–${f.to}] ${s(f.end - f.start)} s (${s(f.start)}–${s(f.end)}): ${f.text}`)
+    .join("\n");
+  const transcript = input.words.map((w) => `${w.id}:${w.text}`).join(" ");
+  return `Elige dónde va el b-roll de este video.
+
+DATOS
+- Formato: ${input.format}
+- CANTIDAD: ${input.count} tramos como máximo (menos si no hay frases que se puedan mostrar)
+- DURACIÓN: ${s(input.minSeconds)}–${s(input.maxSeconds)} s por tramo
+${input.forbidden.map((f) => `- PROHIBIDO [${f.from}–${f.to}]: ${f.label}`).join("\n")}
+- Clips propios del creador (etiquetas): ${input.libraryTags.length ? input.libraryTags.slice(0, 60).join(", ") : "(no tiene)"}
+
+FRASES (id, rango de palabras, duración y tiempos)
+${frases}
+
+TRANSCRIPCIÓN (id:palabra)
 <transcripcion>
 ${transcript}
 </transcripcion>`;

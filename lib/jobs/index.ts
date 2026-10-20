@@ -78,7 +78,7 @@ export async function workerStatus(): Promise<WorkerStatus> {
   const [stuck] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.jobs)
-    .where(and(inArray(schema.jobs.type, ["VIDEO_ANALYZE", "VIDEO_RENDER"]), eq(schema.jobs.status, "QUEUED"), sql`${schema.jobs.runAfter} < now() - interval '3 minutes'`));
+    .where(and(inArray(schema.jobs.type, ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP"]), eq(schema.jobs.status, "QUEUED"), sql`${schema.jobs.runAfter} < now() - interval '3 minutes'`));
   const lastSeen = beat?.seenAt ?? null;
   return {
     online: Boolean(lastSeen && Date.now() - lastSeen.getTime() < HEARTBEAT_STALE_MS),

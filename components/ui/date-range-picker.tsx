@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { formatDateRange, toDate, toISODate } from "@/lib/format";
 import { rovingIndex, useClickOutside } from "./hooks";
 
-export type DatePreset = "7d" | "28d" | "90d" | "month" | "custom";
+export type DatePreset = "7d" | "28d" | "90d" | "365d" | "month" | "custom";
 
 /** Rango de fechas en formato de <input type="date"> ("2026-10-12"), ambos extremos incluidos. */
 export type DateRangeValue = { preset: DatePreset; from: string; to: string };
@@ -15,6 +15,7 @@ export const DATE_PRESETS: { value: Exclude<DatePreset, "custom">; label: string
   { value: "7d", label: "Últimos 7 días" },
   { value: "28d", label: "Últimos 28 días" },
   { value: "90d", label: "Últimos 90 días" },
+  { value: "365d", label: "Últimos 12 meses" },
   { value: "month", label: "Este mes" },
 ];
 

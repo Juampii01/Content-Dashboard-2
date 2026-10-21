@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Circle, Info, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatMultiplier, formatPercent } from "@/lib/format";
+import { formatMultiplier, formatNumber, formatPercent } from "@/lib/format";
 
 export type StatusTone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -79,9 +79,13 @@ export function DeltaBadge({
   const up = value > 0;
   const good = flat ? null : up !== invert;
   const sizes = size === "md" ? "px-2 py-1 text-xs gap-1" : "px-1.5 py-0.5 text-[11px] gap-0.5";
+  // Con una base muy chica (de 3 a 1,366) un "+45,433%" no se lee: a partir de +1,000% se muestra "×456".
+  const multiple = up && value >= 1000 ? `×${formatNumber(Math.round(1 + value / 100))}` : null;
   const srText = flat
     ? `Sin cambio${comparisonLabel ? ` ${comparisonLabel}` : ""}`
-    : `${up ? "Subió" : "Bajó"} ${formatPercent(Math.abs(value), { digits })}${comparisonLabel ? ` ${comparisonLabel}` : ""}`;
+    : multiple
+      ? `${multiple.replace("×", "")} veces más${comparisonLabel ? ` ${comparisonLabel}` : ""}`
+      : `${up ? "Subió" : "Bajó"} ${formatPercent(Math.abs(value), { digits })}${comparisonLabel ? ` ${comparisonLabel}` : ""}`;
 
   return (
     <span
@@ -100,7 +104,7 @@ export function DeltaBadge({
         ) : (
           <>
             <span className="text-[0.8em]">{up ? "▲" : "▼"}</span>
-            {formatPercent(value, { digits, signed: true })}
+            {multiple ?? formatPercent(value, { digits, signed: true })}
           </>
         )}
       </span>

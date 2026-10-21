@@ -61,6 +61,8 @@ async function MetricsContent({ searchParams }: { searchParams: PageProps<"/metr
     getCurrentUser(),
   ]);
   const importing = connections.some((c) => !c.backfillDone);
+  const storedTotal = Object.values(stored).reduce((a, n) => a + (n ?? 0), 0);
+  const onlyDateFilter = filters.platforms.length === 0 && filters.types.length === 0 && !filters.q && filters.minViews == null && filters.maxViews == null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -95,7 +97,21 @@ async function MetricsContent({ searchParams }: { searchParams: PageProps<"/metr
         description={`${formatNumber(content.total)} ${content.total === 1 ? "pieza publicada" : "piezas publicadas"} · ${formatDateRange(filters.from, filters.to)}`}
       >
         {content.rows.length === 0 ? (
-          <EmptyState icon={<SearchX className="h-5 w-5" aria-hidden />} title="Ninguna pieza coincide con los filtros" description="Prueba con otro rango de fechas o quita algún filtro." />
+          onlyDateFilter && storedTotal > 0 && filters.preset !== "365d" ? (
+            // Sin otros filtros: lo que falta es rango. Pasa mucho con quien publica poco.
+            <EmptyState
+              icon={<SearchX className="h-5 w-5" aria-hidden />}
+              title="No publicaste en estas fechas"
+              description={`Tienes ${formatNumber(storedTotal)} ${storedTotal === 1 ? "pieza guardada" : "piezas guardadas"} de otras fechas. Amplía el rango para verlas.`}
+              action={
+                <ButtonLink href="/metricas?rango=365d" variant="ghost">
+                  Ver los últimos 12 meses
+                </ButtonLink>
+              }
+            />
+          ) : (
+            <EmptyState icon={<SearchX className="h-5 w-5" aria-hidden />} title="Ninguna pieza coincide con los filtros" description="Prueba con otro rango de fechas o quita algún filtro." />
+          )
         ) : filters.view === "cuadricula" ? (
           <ContentGrid rows={content.rows} />
         ) : (

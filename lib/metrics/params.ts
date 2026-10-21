@@ -10,7 +10,7 @@ export const TYPE_PARAM: Record<string, ContentType> = { reel: "REEL", carrusel:
 export const SORT_KEYS = ["fecha", "views", "alcance", "likes", "comentarios", "compartidos", "guardados", "interaccion", "retencion", "puntaje"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 
-export type RangePreset = "7d" | "28d" | "90d" | "month" | "custom";
+export type RangePreset = "7d" | "28d" | "90d" | "365d" | "month" | "custom";
 
 export type MetricsFilters = {
   preset: RangePreset;
@@ -61,7 +61,7 @@ export function daysBetween(from: string, to: string): number {
 
 export function presetRange(preset: Exclude<RangePreset, "custom">, today: string): { from: string; to: string } {
   if (preset === "month") return { from: `${today.slice(0, 8)}01`, to: today };
-  const days = preset === "7d" ? 7 : preset === "28d" ? 28 : 90;
+  const days = Number.parseInt(preset, 10);
   return { from: addDays(today, -(days - 1)), to: today };
 }
 
@@ -74,7 +74,7 @@ export function previousRange(from: string, to: string): { from: string; to: str
 export function parseFilters(params: Params, timeZone: string): MetricsFilters {
   const today = todayIn(timeZone);
   const presetRaw = one(params.rango);
-  let preset: RangePreset = (["7d", "28d", "90d", "month"] as const).includes(presetRaw as never) ? (presetRaw as RangePreset) : "28d";
+  let preset: RangePreset = (["7d", "28d", "90d", "365d", "month"] as const).includes(presetRaw as never) ? (presetRaw as RangePreset) : "28d";
   let { from, to } = presetRange(preset === "custom" ? "28d" : (preset as Exclude<RangePreset, "custom">), today);
 
   const desde = one(params.desde);

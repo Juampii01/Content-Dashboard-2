@@ -34,12 +34,24 @@ export async function analyzePiece(id: string, userId: string): Promise<PieceAna
       percentile_cont(0.5) within group (order by coalesce(follows, subscribers_gained)) as follows
     from content_items
     where platform = ${item.platform} and type = ${item.type} and available and id <> ${id}
-      and published_at > now() - interval '180 days' and published_at < now() - interval '7 days'
+      and published_at < now() - interval '7 days'
       and (views_7d is not null) = ${item.views7d != null}
+      -- Últimos 180 días; si ahí no hay 4 piezas parecidas (cuentas que publican poco), todo el histórico.
+      and (
+        published_at > now() - interval '180 days'
+        or (
+          select count(*) from content_items p
+          where p.platform = ${item.platform} and p.type = ${item.type} and p.available and p.id <> ${id}
+            and p.published_at > now() - interval '180 days' and p.published_at < now() - interval '7 days'
+            and (p.views_7d is not null) = ${item.views7d != null}
+        ) < 4
+      )
   `);
   const m = peers.rows[0] as unknown as Medians;
   const num = (v: unknown) => (v == null ? null : Number(v));
   const per = (v: number | null) => (v != null && item.views ? v / item.views : null);
+  // Las redes dan estos dos ya en porcentaje (55.1); el prompt espera fracciones (0.551) para todo lo que lleva "%".
+  const pct = (v: number | null | undefined) => (v == null ? null : v / 100);
   const interactions = (item.likes ?? 0) + (item.comments ?? 0) + (item.shares ?? 0) + (item.saves ?? 0);
   const compare = item.views7d ?? (Date.now() - item.publishedAt.getTime() > 7 * 86_400_000 ? item.views : null);
   const median7d = num(m.views7d);
@@ -52,8 +64,8 @@ export async function analyzePiece(id: string, userId: string): Promise<PieceAna
     { label: "Guardados por visualización", value: per(item.saves), median: num(m.saves), unit: "%" as const },
     { label: "Compartidos por visualización", value: per(item.shares), median: num(m.shares), unit: "%" as const },
     { label: "Comentarios por visualización", value: per(item.comments), median: num(m.comments), unit: "%" as const },
-    { label: "Porcentaje visto", value: item.avgViewPercentage, median: num(m.avp), unit: "%" as const },
-    { label: "Saltan en los primeros 3 s", value: item.skipRate, median: num(m.skip), unit: "%" as const },
+    { label: "Porcentaje visto", value: pct(item.avgViewPercentage), median: pct(num(m.avp)), unit: "%" as const },
+    { label: "Saltan en los primeros 3 s", value: pct(item.skipRate), median: pct(num(m.skip)), unit: "%" as const },
     { label: "Tiempo medio visto", value: item.avgWatchSec, median: num(m.avgWatch), unit: "s" as const },
     { label: "Seguidores ganados", value: item.follows ?? item.subscribersGained, median: num(m.follows) },
   ].filter((x) => x.value != null);

@@ -450,13 +450,18 @@ export async function getContentDetail(id: string): Promise<ContentDetail | null
       .where(eq(schema.metricSnapshots.contentItemId, id))
       .orderBy(asc(schema.metricSnapshots.capturedOn)),
     db.select().from(schema.retentionCurves).where(eq(schema.retentionCurves.contentItemId, id)).limit(1),
-    db.execute<{ m: number | null }>(sql`
-      select percentile_cont(0.5) within group (order by coalesce(views_7d, views)) as m
-      from content_items
-      where platform = ${ci.platform} and type = ${ci.type} and available and id <> ${id}
-        and published_at > now() - interval '180 days' and published_at < now() - interval '7 days'
-        -- Mismo grupo que el puntaje: a 7 días contra a 7 días, importadas contra importadas.
-        and (views_7d is not null) = ${ci.views7d != null}
+    db.execute<{ m: number | null; n: number }>(sql`
+      -- Mismo grupo que el puntaje: a 7 días contra a 7 días, importadas contra importadas. Se usan los últimos
+      -- 180 días; si ahí no hay 4 piezas (cuentas que publican poco), se usa todo el histórico.
+      with c as (
+        select coalesce(views_7d, views) as v, published_at > now() - interval '180 days' as recent
+        from content_items
+        where platform = ${ci.platform} and type = ${ci.type} and available and id <> ${id}
+          and published_at < now() - interval '7 days'
+          and (views_7d is not null) = ${ci.views7d != null}
+      ), pick as (select count(*) filter (where recent) >= 4 as only_recent from c)
+      select percentile_cont(0.5) within group (order by v) as m, count(*)::int as n
+      from c, pick where c.recent or not pick.only_recent
     `),
   ]);
 
@@ -479,7 +484,8 @@ export async function getContentDetail(id: string): Promise<ContentDetail | null
     },
     snapshots,
     retention: retention[0]?.points ?? null,
-    peerMedian7d: peer.rows[0]?.m != null ? Number(peer.rows[0].m) : null,
+    // Igual que el puntaje de la tabla: con menos de 4 piezas parecidas la mediana no dice nada.
+    peerMedian7d: peer.rows[0]?.m != null && Number(peer.rows[0].n) >= 4 ? Number(peer.rows[0].m) : null,
     compareViews: ci.views7d ?? (Date.now() - ci.publishedAt.getTime() > 7 * 86_400_000 ? ci.views : null),
   };
 }

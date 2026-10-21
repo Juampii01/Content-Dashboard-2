@@ -152,7 +152,7 @@ export async function fixCheckpoints(accountId: string): Promise<void> {
 }
 
 /**
- * Puntaje de rendimiento: views ÷ mediana de su red y tipo (últimos 180 días, mínimo 5 piezas), comparando
+ * Puntaje de rendimiento: views ÷ mediana de su red y tipo (últimos 180 días, o todo el histórico si ahí no hay 5; mínimo 5 piezas), comparando
  * siempre piezas comparables: las que tienen dato a 7 días contra las que tienen dato a 7 días, y las importadas
  * viejas (solo tienen el total de por vida) contra otras importadas. Si un grupo no llega a 5 piezas, no hay puntaje.
  */
@@ -163,10 +163,16 @@ export async function recomputePerfScores(): Promise<void> {
         coalesce(views_7d, case when published_at < now() - interval '7 days' then views end)::float8 as v
       from content_items
       where available
-    ), med as (
-      select platform, type, fresh, percentile_cont(0.5) within group (order by v) as m, count(*) as n
+    ), recent as (
+      select platform, type, fresh, count(*) as n
       from base where v is not null and published_at > now() - interval '180 days'
       group by platform, type, fresh
+    ), med as (
+      -- Últimos 180 días; si el grupo no llega a 5 ahí (cuentas que publican poco), todo el histórico.
+      select b.platform, b.type, b.fresh, percentile_cont(0.5) within group (order by b.v) as m, count(*) as n
+      from base b left join recent r on r.platform = b.platform and r.type = b.type and r.fresh = b.fresh
+      where b.v is not null and (b.published_at > now() - interval '180 days' or coalesce(r.n, 0) < 5)
+      group by b.platform, b.type, b.fresh
     ), scored as (
       select b.id, case when b.v is not null and med.n >= 5 and med.m > 0 then round((b.v / med.m)::numeric, 2)::real end as score
       from base b left join med on med.platform = b.platform and med.type = b.type and med.fresh = b.fresh

@@ -22,6 +22,7 @@ export type ConnectionView = {
   backfillDone: boolean;
   itemCount: number;
   lastError: string | null;
+  demo: boolean;
 };
 
 const statusView: Record<Status, { tone: "success" | "warning" | "danger" | "neutral"; label: string }> = {
@@ -87,9 +88,17 @@ export function ConnectionCard({
           <div className="flex flex-wrap items-center gap-2">
             <PlatformBadge platform={platform} />
             {connection ? <span className="truncate text-sm font-semibold text-white">@{connection.handle.replace(/^@/, "")}</span> : null}
-            {connection ? <StatusBadge tone={statusView[connection.status].tone}>{statusView[connection.status].label}</StatusBadge> : null}
+            {connection?.demo ? (
+              <StatusBadge tone="info">Demo</StatusBadge>
+            ) : connection ? (
+              <StatusBadge tone={statusView[connection.status].tone}>{statusView[connection.status].label}</StatusBadge>
+            ) : null}
           </div>
-          {connection ? (
+          {connection?.demo ? (
+            <p className="text-sm text-muted">
+              Datos de ejemplo ({formatNumber(connection.itemCount)} piezas). Al conectar tu cuenta se borran solos.
+            </p>
+          ) : connection ? (
             <p className="text-sm text-muted">
               {needsReconnect && connection.statusMessage
                 ? connection.statusMessage
@@ -107,7 +116,7 @@ export function ConnectionCard({
       <div className="flex flex-none flex-wrap items-center gap-2">
         {!configured ? (
           <span className="text-xs text-muted">Falta configurar la app de {platformLabel[platform]} en la instalación.</span>
-        ) : !connection ? (
+        ) : !connection || connection.demo ? (
           canConnect ? (
             <ButtonLink href={connectHref} prefetch={false} icon={<Link2 className="h-4 w-4" aria-hidden />}>
               Conectar

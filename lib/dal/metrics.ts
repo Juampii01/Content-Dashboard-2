@@ -32,6 +32,8 @@ export type ConnectionSummary = {
   backfillDone: boolean;
   lastRun: { status: string; kind: string; finishedAt: Date | null; errorMessage: string | null; itemsUpserted: number } | null;
   itemCount: number;
+  /** Cuenta de los datos de demostración (no es una conexión real). */
+  demo: boolean;
 };
 
 export async function listConnections(): Promise<ConnectionSummary[]> {
@@ -68,6 +70,7 @@ export async function listConnections(): Promise<ConnectionSummary[]> {
         backfillDone: Boolean(a.backfillCompletedAt),
         lastRun: run ?? null,
         itemCount: count?.n ?? 0,
+        demo: a.meta?.demo === true,
       };
     }),
   );

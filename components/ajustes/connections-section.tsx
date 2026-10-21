@@ -33,6 +33,7 @@ export async function ConnectionsSection() {
                 lastSyncedAt: c.lastSyncedAt?.toISOString() ?? null,
                 backfillDone: c.backfillDone,
                 itemCount: c.itemCount,
+                demo: c.demo,
                 lastError: c.lastRun?.status === "FAILED" ? c.lastRun.errorMessage : null,
               }
             }

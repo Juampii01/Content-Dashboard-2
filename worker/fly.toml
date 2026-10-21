@@ -1,8 +1,8 @@
 # Worker de video de Content 2 en Fly Machines (una app por cliente).
 # Sin servicios ni puertos públicos: el worker solo sale a buscar trabajos a la base y habla con la app.
 # Se apaga solo después de IDLE_EXIT_MINUTES sin trabajos; la app lo enciende con la Machines API al encolar.
-# Cambia `app` por el nombre de la app de este cliente (por ejemplo content2-worker-<cliente>).
-app = "content2-worker-CAMBIAR"
+# `app` es el worker de esta instalación; en la de cada cliente cámbialo por content2-worker-<cliente> (solo minúsculas, números y guiones).
+app = "content2-worker-juampi"
 primary_region = "iad"
 kill_signal = "SIGTERM"
 kill_timeout = "60s"

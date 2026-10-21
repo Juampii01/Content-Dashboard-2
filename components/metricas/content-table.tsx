@@ -1,7 +1,7 @@
 import { DataTableView, type DataTableColumn } from "@/components/ui/data-table-view";
 import { OutlierBadge } from "@/components/ui/badges";
 import { PlatformBadge } from "@/components/ui/platform";
-import { formatCompact, formatDate, formatDuration, formatMultiplier, formatNumber, formatPercent } from "@/lib/format";
+import { formatDate, formatDuration, formatMultiplier, formatNumber, formatPercent } from "@/lib/format";
 import type { ContentRow } from "@/lib/dal/metrics";
 import { typeLabel } from "@/lib/metrics/labels";
 import { filtersToSearch, type MetricsFilters, type SortKey } from "@/lib/metrics/params";

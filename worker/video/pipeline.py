@@ -120,11 +120,12 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
     return {"plan": result.get("plannedBy"), "status": result.get("status")}
 
 
-PEXELS_HOSTS = ("pexels.com",)
+# Bancos de videos de stock y los hosts desde donde se bajan sus archivos.
+STOCK_HOSTS = {"pexels": ("pexels.com",), "pixabay": ("pixabay.com",)}
 
 
 def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str, Any]], size: tuple[int, int], expected: float) -> list[Path]:
-    """Baja cada clip de b-roll (Pexels directo de su CDN; la biblioteca, del almacenamiento privado) y lo deja
+    """Baja cada clip de b-roll (stock de Pixabay o Pexels directo de su CDN; la biblioteca, del almacenamiento privado) y lo deja
     listo para superponer. Los clips bajados se guardan en la carpeta del proyecto: un segundo render no los repite."""
     cache = workdir / "broll"
     cache.mkdir(exist_ok=True)
@@ -133,12 +134,12 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
         ctx.check()
         source = item.get("source")
         start, end = float(item["start"]), min(float(item["end"]), expected)
-        if source == "pexels":
+        if source in STOCK_HOSTS:
             url = str(item.get("url") or "")
             name = hashlib.sha1(url.encode()).hexdigest()[:16]
-            raw = cache / f"pexels-{name}.mp4"
+            raw = cache / f"{source}-{name}.mp4"
             if not raw.exists():
-                ctx.app.download_url(url, raw, (*PEXELS_HOSTS, *ctx.config.broll_extra_hosts))
+                ctx.app.download_url(url, raw, (*STOCK_HOSTS[source], *ctx.config.broll_extra_hosts))
         elif source == "library":
             clip_id, key = str(item.get("clipId") or ""), str(item.get("key") or "")
             if not key.startswith(f"editor/biblioteca/{clip_id}/"):
@@ -230,7 +231,7 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     ctx.app.upload(pid, data["srtKey"], srt, "application/x-subrip")
     ctx.app.upload(pid, data["posterKey"], poster, "image/jpeg")
     if data.get("credits") and data.get("creditsKey"):
-        # Atribución del b-roll de Pexels (lo pide su guía), junto a la descarga.
+        # Atribución del b-roll de stock (Pexels la pide), junto a la descarga.
         credits = out_dir / "creditos.txt"
         credits.write_text(data["credits"], encoding="utf-8")
         ctx.app.upload(pid, data["creditsKey"], credits, "text/plain; charset=utf-8")

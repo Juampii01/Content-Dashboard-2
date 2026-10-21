@@ -42,6 +42,48 @@ export function mapPexelsVideo(video: PexelsVideo, format: VideoFormat): BrollOp
   };
 }
 
+/** Lo que usamos de un video de la API de Pixabay (GET /api/videos/). */
+export type PixabayVideo = {
+  id: number;
+  pageURL: string;
+  duration: number;
+  user?: string | null;
+  user_id?: number | null;
+  videos?: Partial<Record<"large" | "medium" | "small" | "tiny", { url?: string | null; width?: number | null; height?: number | null; thumbnail?: string | null } | null>>;
+};
+
+/**
+ * Un video de Pixabay como alternativa: para el render, el más chico que cubre 1080 en el lado corto (si no hay,
+ * el más grande); para la vista previa, uno liviano. Pixabay no filtra por orientación: lo hacemos aquí.
+ */
+export function mapPixabayVideo(video: PixabayVideo, format: VideoFormat): BrollOption | null {
+  const files = (["tiny", "small", "medium", "large"] as const)
+    .map((k) => video.videos?.[k])
+    .filter((f): f is { url: string; width: number; height: number; thumbnail?: string | null } => Boolean(f?.url && f.width && f.height && /^https?:\/\//.test(f.url)));
+  if (!files.length || !video.duration) return null;
+  const short = (f: (typeof files)[number]) => Math.min(f.width, f.height);
+  const sorted = [...files].sort((a, b) => short(a) - short(b));
+  const render = sorted.find((f) => short(f) >= 1080 && short(f) <= 2160) ?? [...sorted].reverse().find((f) => short(f) <= 2160) ?? sorted[0]!;
+  const preview = sorted.find((f) => short(f) >= 360) ?? sorted[0]!;
+  const { width, height } = render;
+  const portrait = height >= width;
+  // En vertical se aceptan clips verticales o apaisados normales (se recortan al centro); en horizontal, solo horizontales.
+  if (format === "9:16" && !portrait && width / height > 2.2) return null;
+  if (format === "16:9" && portrait) return null;
+  const name = video.user?.trim() || "Autor de Pixabay";
+  return {
+    source: "pixabay",
+    id: String(video.id),
+    duration: video.duration,
+    width,
+    height,
+    thumb: files.find((f) => f.thumbnail)?.thumbnail ?? null,
+    preview: preview.url,
+    file: render.url,
+    credit: { name, url: video.user_id ? `https://pixabay.com/users/${video.user_id}/` : "https://pixabay.com", page: video.pageURL },
+  };
+}
+
 /** Minúsculas y sin tildes, para comparar palabras clave con etiquetas. */
 export function normalizeWord(text: string): string {
   return text

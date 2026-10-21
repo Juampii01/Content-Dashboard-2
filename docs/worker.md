@@ -29,7 +29,7 @@ App (Vercel) ── INSERT en jobs ──▶ Postgres (Neon) ◀── toma trab
 - **Latido**: `worker_heartbeats` cada 15 s. La app muestra "El servicio de procesamiento está apagado" si no hay latido y no puede encenderlo sola.
 - **Apagado**: sin trabajos durante `IDLE_EXIT_MINUTES`, el proceso termina y la máquina queda detenida (solo se paga el volumen). Mientras está apagada no consulta la base, así Neon puede suspenderse.
 - **Encendido**: si la app tiene `FLY_API_TOKEN` y `FLY_WORKER_APP`, al encolar llama a la Machines API (`POST /v1/apps/<app>/machines/<id>/start`). Si no, asume un worker siempre encendido.
-- **Archivos**: el worker nunca tiene la clave de Blob. Pide a la app un acceso (método, URL firmada y cabeceras) por archivo con `/api/worker/storage`. Solo se firman archivos del dueño que indica: proyecto (`editor/<id>/…`), estilo (`editor/estilos/<id>/…`) o clip de la biblioteca (`editor/biblioteca/<id>/…`). El b-roll de Pexels lo baja directo del CDN de Pexels (solo de `*.pexels.com`).
+- **Archivos**: el worker nunca tiene la clave de Blob. Pide a la app un acceso (método, URL firmada y cabeceras) por archivo con `/api/worker/storage`. Solo se firman archivos del dueño que indica: proyecto (`editor/<id>/…`), estilo (`editor/estilos/<id>/…`) o clip de la biblioteca (`editor/biblioteca/<id>/…`). El b-roll de stock lo baja directo del CDN de su banco (solo de `*.pixabay.com` o `*.pexels.com`).
 - **Plan**: al terminar de transcribir, el worker llama a `POST /api/worker/projects/<id>/plan`. La app calcula los candidatos a cortar, Claude arma el plan v2, se valida con Zod y el proyecto queda en revisión. Es idempotente; si la llamada falla, el trabajo se reintenta. Si la IA falla, se arma un plan sin IA (solo cortes muy seguros) y se avisa en la revisión.
 - **Caché de trabajo**: `/data/work/<proyecto>` en un volumen de Fly (original, mezzanine, WAV, tramos). Cada etapa se saltea si su salida ya existe; un reintento no rehace lo hecho. Si el volumen se pierde, se rehace desde el original.
 
@@ -68,7 +68,8 @@ App (Vercel) ── INSERT en jobs ──▶ Postgres (Neon) ◀── toma trab
 | `OPENAI_API_BASE` | Opcional (`https://api.openai.com/v1`). Solo para probar con un simulador. |
 | `OPENAI_IMAGE_MODEL` | Opcional (`gpt-image-2.5-flare`). Modelo de imágenes cuando el cliente usa su API key de OpenAI. |
 | `CODEX_MODEL` | Opcional (`gpt-5.6-terra`). Modelo con el que Codex llama a su herramienta de imágenes con la cuenta de ChatGPT del cliente. |
-| `PEXELS_API_KEY` | Opcional. B-roll de stock de [Pexels](https://www.pexels.com/api/) (clave gratuita, uso comercial). Sin ella, el b-roll sale solo de la biblioteca del cliente. |
+| `PIXABAY_API_KEY` | Opcional. B-roll de stock de [Pixabay](https://pixabay.com/api/docs/) (clave gratuita al instante, uso comercial sin atribución obligatoria). |
+| `PEXELS_API_KEY` | Opcional. B-roll de stock de [Pexels](https://www.pexels.com/api/) (clave gratuita, uso comercial). Sin ninguna de las dos, el b-roll sale solo de la biblioteca del cliente. |
 | `PEXELS_API_BASE` | Solo pruebas: dirección del simulador (`tests/mocks/pexels-mock.mjs`). Por defecto, la API oficial. |
 
 ### Store de Blob privado
@@ -117,7 +118,7 @@ Después, en Vercel: `FLY_API_TOKEN`, `FLY_WORKER_APP=content2-worker-<cliente>`
 
 Comprobar: subir un video corto. En los logs (`fly logs -a …`) aparece `trabajo … (VIDEO_ANALYZE)` y, a los 5 minutos sin trabajos, `me apago`.
 
-La máquina sin puertos públicos: el worker solo hace conexiones salientes (Neon, la app, Blob, Pexels y, para "Edita como este" con link, Instagram/TikTok/YouTube; Deepgram/Groq solo si se configuran).
+La máquina sin puertos públicos: el worker solo hace conexiones salientes (Neon, la app, Blob, Pixabay/Pexels y, para "Edita como este" con link, Instagram/TikTok/YouTube; Deepgram/Groq solo si se configuran).
 
 ## Transcripción open source (por defecto)
 
@@ -148,12 +149,12 @@ Análisis de un reel de 30 s en 2 vCPU de desarrollo: unos 30–60 s (lo más le
 
 ## B-roll
 
-- **Fuentes** (`lib/video/broll.ts`, interfaz `BrollSource`): Pexels (si hay `PEXELS_API_KEY`) y la biblioteca del cliente (`/editor/biblioteca`, clips con etiquetas). Videos generados con IA: todavía no; la interfaz está lista para sumar una fuente `ai`.
-- **Plan**: Claude (`video.broll`) elige rangos de palabras (nunca en el gancho, la apertura ni el llamado a la acción) y qué buscar (consulta en inglés para Pexels y palabras clave para la biblioteca). Primero van los clips propios que coinciden; después Pexels. Hasta 6 alternativas por tramo.
+- **Fuentes** (`lib/video/broll.ts`, interfaz `BrollSource`): Pixabay (si hay `PIXABAY_API_KEY`), Pexels (si hay `PEXELS_API_KEY`) y la biblioteca del cliente (`/editor/biblioteca`, clips con etiquetas). Videos generados con IA: todavía no; la interfaz está lista para sumar una fuente `ai`.
+- **Plan**: Claude (`video.broll`) elige rangos de palabras (nunca en el gancho, la apertura ni el llamado a la acción) y qué buscar (consulta en inglés para el stock y palabras clave para la biblioteca). Primero van los clips propios que coinciden; después el stock, intercalando Pixabay y Pexels. Hasta 6 alternativas por tramo.
 - **Revisión**: los b-roll aparecen sobre el texto; se cambian (sugeridos, biblioteca o una búsqueda nueva), se quitan, se mueven a otra selección o se agregan. La vista previa los muestra.
-- **Render**: a pantalla completa, recortado al formato, sin su audio (la voz sigue), con fundido de 0,2 s. Los de Pexels se bajan directo de su CDN.
-- **Atribución** (guía de Pexels): visible en la revisión ("Video de X en Pexels") y en un `creditos.txt` que se descarga junto al video.
-- Límite de Pexels: 200 búsquedas por hora por clave; si se pasa, el editor avisa y sigue con la biblioteca.
+- **Render**: a pantalla completa, recortado al formato, sin su audio (la voz sigue), con fundido de 0,2 s. Los de stock se bajan directo del CDN de su banco.
+- **Atribución** (la pide Pexels; en Pixabay es cortesía): visible en la revisión ("Video de X en Pixabay/Pexels") y en un `creditos.txt` que se descarga junto al video.
+- Límites: Pixabay 100 búsquedas por minuto, Pexels 200 por hora; si se pasa, el editor avisa y sigue con la biblioteca.
 
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 

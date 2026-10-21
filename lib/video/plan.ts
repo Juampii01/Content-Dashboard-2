@@ -28,7 +28,7 @@ const hookSchema = z.object({
 });
 
 const brollOptionSchema = z.object({
-  source: z.enum(["pexels", "library"]),
+  source: z.enum(["pixabay", "pexels", "library"]),
   id: z.string().min(1).max(80),
   duration: z.number().min(0).max(36000),
   width: z.number().int().min(0).max(10000),

@@ -4,7 +4,7 @@ import { AiError, generateStructured } from "@/lib/ai/client";
 import { BROLL_RULES, brollAiSchema, brollTask, sentences } from "@/lib/ai/prompts/editor";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
-import { libraryOption, libraryScore, mapPexelsVideo, type LibraryClip, type PexelsVideo } from "./broll-options";
+import { libraryOption, libraryScore, mapPexelsVideo, mapPixabayVideo, type LibraryClip, type PexelsVideo, type PixabayVideo } from "./broll-options";
 import type { StylePreset } from "./style";
 import { removedIds } from "./timeline";
 import type { BrollItem, BrollOption, EditPlan, VideoFormat, Word } from "./types";
@@ -13,8 +13,11 @@ import type { BrollItem, BrollOption, EditPlan, VideoFormat, Word } from "./type
  * B-roll de video para el Editor (solo videos, no imágenes).
  *
  * Fuentes detrás de una sola interfaz (`BrollSource`):
+ * - Pixabay: videos de stock gratis con uso comercial y sin atribución obligatoria (igual la mostramos).
+ *   Clave gratuita en PIXABAY_API_KEY. Se baja el archivo al render (no se enlaza de forma permanente).
  * - Pexels: videos de stock gratis con uso comercial; la guía pide atribución visible (en la revisión y en
- *   creditos.txt junto a la descarga). Clave gratuita en PEXELS_API_KEY; sin clave, esta fuente no se usa.
+ *   creditos.txt junto a la descarga). Clave gratuita en PEXELS_API_KEY.
+ * Sin ninguna de las dos claves, el stock no se usa.
  * - Biblioteca del cliente: clips que sube una vez (broll_clips), con etiquetas.
  * - Videos generados con IA: todavía no (caros, lentos y se notan artificiales). Cuando se sumen, se agrega
  *   una fuente con `kind: "ai"` que devuelva `BrollOption` y el resto del flujo no cambia.
@@ -22,7 +25,7 @@ import type { BrollItem, BrollOption, EditPlan, VideoFormat, Word } from "./type
 export type BrollQuery = { queryEn: string; keywords: string[]; format: VideoFormat; minDuration: number };
 
 export interface BrollSource {
-  kind: "pexels" | "library" | "ai";
+  kind: "pixabay" | "pexels" | "library" | "ai";
   available(): boolean;
   search(query: BrollQuery, limit: number): Promise<BrollOption[]>;
 }
@@ -58,6 +61,39 @@ export const pexelsSource: BrollSource = {
   },
 };
 
+export const pixabaySource: BrollSource = {
+  kind: "pixabay",
+  available: () => Boolean(env().PIXABAY_API_KEY),
+  async search(query, limit) {
+    const key = env().PIXABAY_API_KEY;
+    if (!key || !query.queryEn.trim()) return [];
+    const params = new URLSearchParams({
+      key,
+      q: query.queryEn.trim().slice(0, 100),
+      lang: "en",
+      safesearch: "true",
+      // Pixabay no filtra por orientación: se piden más y se descartan las que no sirven.
+      per_page: String(Math.min(30, Math.max(6, limit * 3))),
+    });
+    let res: Response;
+    try {
+      res = await fetch(`${env().PIXABAY_API_BASE}/api/videos/?${params}`, { signal: AbortSignal.timeout(12_000) });
+    } catch {
+      throw new BrollError("Pixabay no respondió. Prueba de nuevo en un momento.");
+    }
+    if (res.status === 400 || res.status === 401 || res.status === 403) throw new BrollError("La clave de Pixabay no es válida. Avísale a soporte.");
+    if (res.status === 429) throw new BrollError("Llegamos al límite de búsquedas de Pixabay por ahora. Prueba en un minuto o usa tu biblioteca.");
+    if (!res.ok) throw new BrollError("Pixabay no respondió bien. Prueba de nuevo en un momento.");
+    const body = (await res.json().catch(() => null)) as { hits?: PixabayVideo[] } | null;
+    return (body?.hits ?? [])
+      .map((v) => mapPixabayVideo(v, query.format))
+      .filter((o): o is BrollOption => Boolean(o && o.duration >= Math.min(query.minDuration, 3)))
+      .slice(0, limit);
+  },
+};
+
+const stockSources = [pixabaySource, pexelsSource];
+
 async function readyClips(): Promise<LibraryClip[]> {
   const rows = await getDb()
     .select()
@@ -92,23 +128,33 @@ export async function libraryTags(): Promise<string[]> {
   return [...new Set(clips.flatMap((c) => [...c.tags, ...c.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3)]))].slice(0, 80);
 }
 
-/** Hasta 6 alternativas: primero los clips propios que coinciden, después Pexels. */
+/** Hasta 6 alternativas: primero los clips propios que coinciden, después el stock (Pixabay y Pexels, mezclados). */
 export async function searchOptions(query: BrollQuery, limit = 6): Promise<{ options: BrollOption[]; warning: string | null }> {
   const own = await librarySource.search(query, 3);
+  const active = stockSources.filter((s) => s.available());
+  const room = limit - own.length;
   let warning: string | null = null;
-  let stock: BrollOption[] = [];
-  if (pexelsSource.available()) {
-    try {
-      stock = await pexelsSource.search(query, limit - own.length);
-    } catch (error) {
-      warning = error instanceof BrollError ? error.message : "No pudimos buscar en Pexels.";
-    }
-  }
+  const results = await Promise.all(
+    active.map(async (source) => {
+      try {
+        return await source.search(query, room);
+      } catch (error) {
+        warning ??= error instanceof BrollError ? error.message : "No pudimos buscar videos de stock.";
+        return [];
+      }
+    }),
+  );
+  // Intercalados (uno de cada fuente) para que una no tape a la otra.
+  const stock: BrollOption[] = [];
+  for (let i = 0; stock.length < room && results.some((r) => r[i]); i++) for (const r of results) if (r[i] && stock.length < room) stock.push(r[i]!);
+  // Si una fuente falló pero la otra trajo clips, no hace falta avisar.
+  if (stock.length) warning = null;
   return { options: [...own, ...stock].slice(0, limit), warning };
 }
 
-export function brollSourcesReady(): { pexels: boolean } {
-  return { pexels: pexelsSource.available() };
+/** Si hay videos de stock activos (alguna clave cargada). */
+export function brollSourcesReady(): { stock: boolean } {
+  return { stock: stockSources.some((s) => s.available()) };
 }
 
 // ─── Plan de b-roll (lo arma Claude) ──────────────────────────────────────
@@ -121,7 +167,7 @@ const newId = () => `b${Date.now().toString(36)}${(counter++).toString(36)}`;
 
 /**
  * Dónde va cada b-roll y con qué clip. Nunca dentro del gancho elegido ni de la última frase (el llamado a la
- * acción). La cadencia sale del estilo (si hay) o de 0–1 cada 8–12 s en reels. Si la IA o Pexels fallan,
+ * acción). La cadencia sale del estilo (si hay) o de 0–1 cada 8–12 s en reels. Si la IA o el stock fallan,
  * el video se edita igual, sin b-roll o con menos alternativas, y se avisa.
  */
 export async function planBroll(input: {
@@ -195,9 +241,9 @@ export async function planBroll(input: {
     item.choice = options[0] ?? null;
   }
   if (chosen.length && chosen.every((c) => !c.choice)) {
-    warning ??= pexelsSource.available()
+    warning ??= brollSourcesReady().stock
       ? "No encontramos clips para el b-roll. Puedes buscar otros o subir los tuyos a la biblioteca."
-      : "Para el b-roll automático sube clips a tu biblioteca (o pide que activen Pexels).";
+      : "Para el b-roll automático sube clips a tu biblioteca (o pide que activen los videos de stock).";
   }
   return { items: chosen, warning };
 }

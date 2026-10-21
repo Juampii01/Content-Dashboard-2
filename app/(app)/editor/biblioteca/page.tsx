@@ -28,9 +28,9 @@ async function LibraryContent() {
         </Notice>
       )}
       <WorkerNotice online={worker.online} autoStart={worker.autoStart} waiting={!worker.autoStart && clips.some((c) => c.status === "PROCESSING")} />
-      {!availability.pexels && (
+      {!availability.stock && (
         <Notice tone="info" title="El b-roll sale solo de tu biblioteca">
-          Esta instalación no tiene activados los videos de stock de Pexels. Sube aquí tus clips y el editor los usa donde encajan.
+          Esta instalación no tiene activados los videos de stock. Sube aquí tus clips y el editor los usa donde encajan.
         </Notice>
       )}
       <LibraryManager clips={clips.map((c) => ({ ...c, job: c.job ? { progress: c.job.progress, stage: c.job.stage } : null }))} canEdit={canEdit} />

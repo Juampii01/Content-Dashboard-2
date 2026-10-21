@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { libraryScore, mapPexelsVideo, type PexelsVideo } from "../lib/video/broll-options";
+import { libraryScore, mapPexelsVideo, mapPixabayVideo, type PexelsVideo, type PixabayVideo } from "../lib/video/broll-options";
 import { captionBlocks, blockText } from "../lib/video/captions";
 import { brollCredits, brollSegments, computeZooms, cutTimes } from "../lib/video/effects";
 import { planSchemaFor } from "../lib/video/plan";
@@ -212,6 +212,38 @@ describe("fuentes de b-roll", () => {
     assert.deepEqual(o.credit, { name: "Ana Pérez", url: "https://www.pexels.com/@ana", page: video.url });
     assert.equal(mapPexelsVideo({ ...video, video_files: [] }, "9:16"), null);
     assert.equal(mapPexelsVideo({ ...video, width: 3000, height: 1000 }, "9:16"), null); // panorama
+  });
+
+  test("Pixabay: archivo de 1080 para el render, liviano para la vista previa, orientación y crédito", () => {
+    const pv: PixabayVideo = {
+      id: 125,
+      pageURL: "https://pixabay.com/videos/id-125/",
+      duration: 9,
+      user: "Coverr-Free-Footage",
+      user_id: 1281706,
+      videos: {
+        large: { url: "https://cdn.pixabay.com/video/125/large.mp4", width: 2160, height: 3840, thumbnail: "https://cdn.pixabay.com/video/125/large.jpg" },
+        medium: { url: "https://cdn.pixabay.com/video/125/medium.mp4", width: 1080, height: 1920, thumbnail: "https://cdn.pixabay.com/video/125/medium.jpg" },
+        small: { url: "https://cdn.pixabay.com/video/125/small.mp4", width: 720, height: 1280, thumbnail: null },
+        tiny: { url: "https://cdn.pixabay.com/video/125/tiny.mp4", width: 360, height: 640 },
+      },
+    };
+    const o = mapPixabayVideo(pv, "9:16")!;
+    assert.equal(o.source, "pixabay");
+    assert.equal(o.file, "https://cdn.pixabay.com/video/125/medium.mp4");
+    assert.equal(o.preview, "https://cdn.pixabay.com/video/125/tiny.mp4");
+    assert.equal(o.credit?.page, pv.pageURL);
+    assert.equal(o.credit?.url, "https://pixabay.com/users/1281706/");
+    assert.equal(mapPixabayVideo(pv, "16:9"), null); // vertical no sirve para horizontal
+    assert.equal(mapPixabayVideo({ ...pv, videos: {} }, "9:16"), null);
+  });
+
+  test("créditos: un bloque por banco de stock", () => {
+    const px = { source: "pixabay" as const, id: "9", duration: 5, width: 1080, height: 1920, file: "https://cdn.pixabay.com/a.mp4", credit: { name: "Luis", url: "https://pixabay.com/users/1/", page: "https://pixabay.com/videos/id-9/" } };
+    const credits = brollCredits([{ start: 0, end: 2, option: px }, { start: 3, end: 5, option: { source: "pexels", id: "1", duration: 10, width: 1080, height: 1920, file: "https://videos.pexels.com/a.mp4", credit: { name: "Ana", url: "https://www.pexels.com/@ana", page: "https://www.pexels.com/video/1/" } } }] as never);
+    assert.match(credits, /^Videos de stock de Pixabay/);
+    assert.match(credits, /Video de Luis en Pixabay/);
+    assert.match(credits, /Videos de stock de Pexels/);
   });
 
   test("biblioteca: etiquetas valen más que el título y no importan las tildes", () => {

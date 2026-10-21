@@ -98,19 +98,19 @@ export type EditPlan = {
   planned_by: "ai" | "auto";
 };
 
-/** Una alternativa de b-roll: un video de Pexels o un clip de la biblioteca del cliente. */
+/** Una alternativa de b-roll: un video de stock (Pixabay o Pexels) o un clip de la biblioteca del cliente. */
 export type BrollOption = {
-  source: "pexels" | "library";
-  /** Id en su fuente (id de Pexels o id del clip en broll_clips). */
+  source: "pixabay" | "pexels" | "library";
+  /** Id en su fuente (id en Pixabay o Pexels, o id del clip en broll_clips). */
   id: string;
   duration: number;
   width: number;
   height: number;
-  /** Pexels: miniatura pública, video liviano para la vista previa y archivo para el render. */
+  /** Stock: miniatura pública, video liviano para la vista previa y archivo para el render. */
   thumb?: string | null;
   preview?: string | null;
   file?: string | null;
-  /** Atribución que pide Pexels: autor y página del video. */
+  /** Autor y página del video de stock (Pexels pide atribución; en Pixabay es cortesía). */
   credit?: { name: string; url: string; page: string } | null;
   /** Biblioteca: claves privadas (se firman al mostrarlas). */
   key?: string | null;

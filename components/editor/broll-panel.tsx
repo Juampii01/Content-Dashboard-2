@@ -117,12 +117,15 @@ function SourceLine({ option }: { option: BrollOption }) {
   }
   return (
     <p className="truncate text-xs text-muted">
-      <a href={option.credit?.page ?? "https://www.pexels.com"} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-accent-hi hover:underline">
-        Video de {option.credit?.name ?? "Pexels"} en Pexels <ExternalLink className="h-3 w-3" aria-hidden />
+      <a href={option.credit?.page ?? stockHome(option.source)} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-accent-hi hover:underline">
+        Video de {option.credit?.name ?? stockLabel(option.source)} en {stockLabel(option.source)} <ExternalLink className="h-3 w-3" aria-hidden />
       </a>
     </p>
   );
 }
+
+const stockLabel = (source: BrollOption["source"]) => (source === "pixabay" ? "Pixabay" : "Pexels");
+const stockHome = (source: BrollOption["source"]) => (source === "pixabay" ? "https://pixabay.com" : "https://www.pexels.com");
 
 type Tab = "sugeridos" | "biblioteca" | "buscar";
 
@@ -229,7 +232,7 @@ export function BrollPicker({
               return (
                 <li key={key}>
                   <div className={cn("group relative overflow-hidden rounded-xl border bg-black/40", chosen ? "border-accent ring-2 ring-accent/60" : "border-white/10")}>
-                    <button type="button" onClick={() => onPick(o)} className={cn("block w-full", format === "9:16" ? "aspect-[9/16]" : "aspect-video")} aria-label={`Usar ${o.source === "pexels" ? `el video de ${o.credit?.name ?? "Pexels"}` : (o.title ?? "este clip")}`}>
+                    <button type="button" onClick={() => onPick(o)} className={cn("block w-full", format === "9:16" ? "aspect-[9/16]" : "aspect-video")} aria-label={`Usar ${o.source !== "library" ? `el video de ${o.credit?.name ?? stockLabel(o.source)}` : (o.title ?? "este clip")}`}>
                       {previewing === key && o.previewUrl ? (
                         <video src={o.previewUrl} autoPlay muted loop playsInline className="h-full w-full object-cover" />
                       ) : o.thumbUrl ? (
@@ -251,7 +254,7 @@ export function BrollPicker({
                       </button>
                     )}
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pt-6 pb-1.5 text-[11px] text-white">
-                      <span className="font-mono">{formatDuration(o.duration)}</span> · {o.source === "pexels" ? `${o.credit?.name ?? "Pexels"} · Pexels` : (o.title ?? "Tu biblioteca")}
+                      <span className="font-mono">{formatDuration(o.duration)}</span> · {o.source !== "library" ? `${o.credit?.name ?? stockLabel(o.source)} · ${stockLabel(o.source)}` : (o.title ?? "Tu biblioteca")}
                     </div>
                   </div>
                 </li>

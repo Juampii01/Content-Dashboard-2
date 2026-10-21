@@ -159,7 +159,7 @@ ${transcript}
 // ─── B-roll (feature "video.broll") ────────────────────────────────────────
 
 /**
- * Claude elige dónde va cada b-roll (rangos de palabras) y qué buscar: una consulta corta en inglés para Pexels
+ * Claude elige dónde va cada b-roll (rangos de palabras) y qué buscar: una consulta corta en inglés para el stock
  * y palabras clave en español para la biblioteca del cliente. Nunca tapa el gancho ni el llamado a la acción.
  */
 export const BROLL_RULES = `Eres el editor de b-roll de este creador. El b-roll son tomas de apoyo que tapan por unos segundos al creador mientras su voz sigue (por ejemplo, alguien atendiendo un teléfono mientras dice "contestan el teléfono").
@@ -179,7 +179,7 @@ export const brollAiSchema = z.object({
       z.object({
         from_word: z.number().int(),
         to_word: z.number().int(),
-        query_en: z.string().describe("Consulta en inglés para Pexels, 2 a 5 palabras."),
+        query_en: z.string().describe("Consulta en inglés para bancos de videos de stock, 2 a 5 palabras."),
         keywords: z.array(z.string()).describe("2 a 4 palabras clave en español para la biblioteca."),
         why: z.string().describe("Por qué ahí, en una frase."),
       }),

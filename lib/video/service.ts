@@ -381,8 +381,8 @@ export async function startRender(projectId: string, review: Review, format: Vid
       },
       zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
       broll: broll.map((b) =>
-        b.option.source === "pexels"
-          ? { start: b.start, end: b.end, source: "pexels", url: b.option.file }
+        b.option.source !== "library"
+          ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file }
           : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key },
       ),
       credits,
@@ -404,7 +404,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
 
 /**
  * Deja solo los b-roll que se pueden renderizar: un clip de la biblioteca que existe y está listo (con su clave
- * real, de la base) o un video de Pexels con su archivo en el CDN de Pexels.
+ * real, de la base) o un video de stock con su archivo en el CDN de su banco (Pixabay o Pexels).
  */
 async function verifiedBroll(segments: ReturnType<typeof brollSegments>): Promise<ReturnType<typeof brollSegments>> {
   if (!segments.length) return [];
@@ -419,19 +419,21 @@ async function verifiedBroll(segments: ReturnType<typeof brollSegments>): Promis
     if (seg.option.source === "library") {
       const clip = library.get(seg.option.id);
       if (clip?.key) out.push({ ...seg, option: clip });
-    } else if (seg.option.file && pexelsFileAllowed(seg.option.file)) {
+    } else if (seg.option.file && stockFileAllowed(seg.option.source, seg.option.file)) {
       out.push(seg);
     }
   }
   return out;
 }
 
-/** Los archivos de Pexels vienen de su CDN; con un simulador (PEXELS_API_BASE), del mismo host. */
-function pexelsFileAllowed(url: string): boolean {
+/** Los archivos de stock vienen del CDN de su banco; con un simulador (*_API_BASE), del mismo host. */
+function stockFileAllowed(source: BrollOption["source"], url: string): boolean {
+  const base = source === "pixabay" ? { domain: "pixabay.com", api: env().PIXABAY_API_BASE } : source === "pexels" ? { domain: "pexels.com", api: env().PEXELS_API_BASE } : null;
+  if (!base) return false;
   try {
     const host = new URL(url).hostname.toLowerCase();
-    if (host === "pexels.com" || host.endsWith(".pexels.com")) return true;
-    return host === new URL(env().PEXELS_API_BASE).hostname.toLowerCase();
+    if (host === base.domain || host.endsWith(`.${base.domain}`)) return true;
+    return host === new URL(base.api).hostname.toLowerCase();
   } catch {
     return false;
   }

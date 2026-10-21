@@ -74,13 +74,14 @@ class AppClient:
         return self._fetch(access["url"], access.get("headers") or {}, dest, on_progress, key)
 
     def download_url(self, url: str, dest: Path, allowed_hosts: tuple[str, ...], max_bytes: int = 600 * 1024 * 1024) -> Path:
-        """Baja un archivo público (b-roll de Pexels) directo de su CDN, solo desde los hosts permitidos."""
+        """Baja un archivo público (b-roll de stock) directo de su CDN, solo desde los hosts permitidos."""
         host = (urllib.parse.urlsplit(url).hostname or "").lower()
         scheme = urllib.parse.urlsplit(url).scheme
         ok_host = any(host == h or host.endswith("." + h) for h in allowed_hosts)
         if not ok_host or scheme not in ("https", "http") or (scheme == "http" and host not in ("localhost", "127.0.0.1")):
             raise JobError("Un clip de b-roll tiene una dirección no permitida. Cámbialo en la revisión.", retry=False, detail=f"host {host}")
-        return self._fetch(url, {}, dest, None, host, max_bytes=max_bytes)
+        # Algunos CDN (Pixabay) rechazan el agente por defecto de urllib.
+        return self._fetch(url, {"User-Agent": "ContentStudio-Worker/1.0"}, dest, None, host, max_bytes=max_bytes)
 
     def _fetch(self, url: str, headers: dict[str, str], dest: Path, on_progress: Callable[[float], None] | None, what: str, max_bytes: int | None = None) -> Path:
         dest.parent.mkdir(parents=True, exist_ok=True)

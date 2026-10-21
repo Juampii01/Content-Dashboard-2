@@ -125,7 +125,7 @@ export async function listClips(): Promise<ClipView[]> {
   );
 }
 
-export async function brollAvailability(): Promise<{ pexels: boolean; libraryClips: number }> {
+export async function brollAvailability(): Promise<{ stock: boolean; libraryClips: number }> {
   await getCurrentUser();
   const [row] = await getDb().select({ n: sql<number>`count(*)::int` }).from(schema.brollClips).where(eq(schema.brollClips.status, "READY"));
   return { ...brollSourcesReady(), libraryClips: row?.n ?? 0 };

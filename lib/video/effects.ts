@@ -96,17 +96,25 @@ export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBro
   return out;
 }
 
-/** creditos.txt: la atribución de Pexels (la pide su guía) y el origen de cada clip de la biblioteca. */
+/** creditos.txt: autor y página de cada video de stock (Pexels lo pide; en Pixabay es cortesía). */
 export function brollCredits(segments: OutputBroll[]): string {
-  const pexels = segments.filter((s) => s.option.source === "pexels" && s.option.credit);
-  if (!pexels.length) return "";
-  const seen = new Set<string>();
-  const lines = ["Videos de stock de Pexels (https://www.pexels.com)", ""];
-  for (const s of pexels) {
-    const c = s.option.credit!;
-    if (seen.has(c.page)) continue;
-    seen.add(c.page);
-    lines.push(`Video de ${c.name} en Pexels: ${c.page}`);
+  const banks = [
+    { source: "pixabay", label: "Pixabay", url: "https://pixabay.com" },
+    { source: "pexels", label: "Pexels", url: "https://www.pexels.com" },
+  ] as const;
+  const blocks: string[] = [];
+  for (const bank of banks) {
+    const items = segments.filter((s) => s.option.source === bank.source && s.option.credit);
+    if (!items.length) continue;
+    const seen = new Set<string>();
+    const lines = [`Videos de stock de ${bank.label} (${bank.url})`, ""];
+    for (const s of items) {
+      const c = s.option.credit!;
+      if (seen.has(c.page)) continue;
+      seen.add(c.page);
+      lines.push(`Video de ${c.name} en ${bank.label}: ${c.page}`);
+    }
+    blocks.push(lines.join("\n"));
   }
-  return `${lines.join("\n")}\n`;
+  return blocks.length ? `${blocks.join("\n\n")}\n` : "";
 }

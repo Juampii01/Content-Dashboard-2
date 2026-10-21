@@ -43,7 +43,7 @@ class Config:
     transcribe_order: tuple[str, ...] = ("parakeet", "whisper", "deepgram", "groq")
     # Solo pruebas locales: transcripción del video de referencia de un estilo (en Fly se ignora).
     test_style_transcript: str | None = None
-    # Hosts extra desde donde se puede bajar b-roll (además de Pexels). Solo para pruebas con un simulador.
+    # Hosts extra desde donde se puede bajar b-roll (además de Pixabay y Pexels). Solo para pruebas con un simulador.
     broll_extra_hosts: tuple[str, ...] = ()
     capabilities: list[str] = field(default_factory=lambda: ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CODEX_LOGIN"])
 

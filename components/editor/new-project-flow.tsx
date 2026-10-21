@@ -22,7 +22,7 @@ import { cancelUpload, startUpload, submitUpload, useUpload } from "./upload-man
 type ScriptOption = { id: string; title: string; status: string };
 type CloneSource = { id: string; title: string; aspectRatio: string; ready: boolean } | null;
 export type StyleOption = { id: string; name: string; thumbUrl: string | null; preset: StylePreset; aspect: string };
-type BrollAvailability = { pexels: boolean; libraryClips: number };
+type BrollAvailability = { stock: boolean; libraryClips: number };
 
 const STEPS = [
   { id: "video", label: "Tu video" },
@@ -59,7 +59,7 @@ export function NewProjectFlow({
   clone,
   styles = [],
   initialStyleId = null,
-  broll = { pexels: false, libraryClips: 0 },
+  broll = { stock: false, libraryClips: 0 },
 }: {
   scripts: ScriptOption[];
   initialScriptId: string | null;
@@ -81,7 +81,7 @@ export function NewProjectFlow({
   const [styleId, setStyleId] = useState<string | null>(initialStyle?.id ?? null);
   const [preset, setPreset] = useState<CaptionPresetKey>(initialStyle?.preset.captions ? "estilo" : "clasico");
   const [presetTouched, setPresetTouched] = useState(false);
-  const brollReady = broll.pexels || broll.libraryClips > 0;
+  const brollReady = broll.stock || broll.libraryClips > 0;
   const [brollMode, setBrollMode] = useState<"auto" | "off">(brollReady ? "auto" : "off");
   const style = styles.find((st) => st.id === styleId) ?? null;
   const presetKeys = (Object.keys(CAPTION_PRESETS) as CaptionPresetKey[]).filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
@@ -328,7 +328,7 @@ export function NewProjectFlow({
                 </div>
                 <div role="radiogroup" aria-label="B-roll" className="grid gap-3 sm:grid-cols-2">
                   {[
-                    { value: "auto" as const, label: "Agregar b-roll", hint: [broll.libraryClips ? `${broll.libraryClips} clips de tu biblioteca` : null, broll.pexels ? "videos de stock de Pexels" : null].filter(Boolean).join(" y ") || "Sube clips a tu biblioteca para usarlo", icon: Clapperboard },
+                    { value: "auto" as const, label: "Agregar b-roll", hint: [broll.libraryClips ? `${broll.libraryClips} clips de tu biblioteca` : null, broll.stock ? "videos de stock" : null].filter(Boolean).join(" y ") || "Sube clips a tu biblioteca para usarlo", icon: Clapperboard },
                     { value: "off" as const, label: "Sin b-roll", hint: "Solo tú en cámara.", icon: Ban },
                   ].map((o) => (
                     <button

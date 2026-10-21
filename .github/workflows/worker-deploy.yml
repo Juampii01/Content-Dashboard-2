@@ -7,6 +7,11 @@ on:
     branches: [main]
     paths: ["worker/**", ".github/workflows/worker-deploy.yml"]
   workflow_dispatch:
+    inputs:
+      recrear_volumen:
+        description: "Borrar el volumen de caché sin máquina y crear uno nuevo (si Fly dice que no hay capacidad en ese host)"
+        type: boolean
+        default: false
 
 concurrency:
   group: worker-deploy
@@ -22,6 +27,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Recrear volumen de caché
+        if: ${{ inputs.recrear_volumen }}
+        # El volumen solo guarda caché de trabajo: borrarlo no pierde nada del cliente.
+        run: |
+          for id in $(flyctl volumes list --config fly.toml --json | jq -r '.[] | select(.name=="work" and (.attached_machine_id // "") == "") | .id'); do
+            flyctl volumes destroy "$id" --config fly.toml --yes
+          done
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Desplegar
         run: flyctl deploy --config fly.toml --remote-only --ha=false
         env:

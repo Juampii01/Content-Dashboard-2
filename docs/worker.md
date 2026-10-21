@@ -84,6 +84,10 @@ En desarrollo, sin esa variable, se usa disco local (`.data/storage/`, fuera de 
 
 ## Desplegar el worker para un cliente
 
+**Sin terminal (recomendado):** el repo trae `.github/workflows/worker-deploy.yml`. Crea la app y el volumen en Fly (o con el primer intento del panel), pon el nombre de la app en `worker/fly.toml`, crea un token de deploy en Fly → app → **Tokens** y guárdalo en GitHub → Settings → Secrets and variables → Actions como `FLY_API_TOKEN`. Después: Actions → **Desplegar worker** → Run workflow. Cada cambio en `worker/` se despliega solo. No uses "Launch an app from GitHub" del panel de Fly para los deploys: agrega un servicio HTTP con apagado automático que corta los trabajos a la mitad.
+
+**Con terminal:**
+
 Requiere [flyctl](https://fly.io/docs/flyctl/) y una cuenta de Fly del cliente (o una organización por cliente).
 
 ```bash

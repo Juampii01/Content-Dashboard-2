@@ -2,6 +2,7 @@ import { after, NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { getOptionalUser } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
+import { clearDemo } from "@/lib/demo";
 import { saveConnection } from "@/lib/social/connections";
 import { exchangeCode } from "@/lib/social/providers";
 import { syncAccount } from "@/lib/social/sync/runner";
@@ -47,6 +48,8 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/api/s
   try {
     const connection = await exchangeCode(platform, code);
     const { accountId } = await saveConnection(platform, connection, user.id);
+    // También se van el calendario y los carruseles de la demo: desde ahora la app muestra solo lo real.
+    await clearDemo();
     after(async () => {
       await syncAccount(accountId, "BACKFILL", 270_000);
     });

@@ -27,8 +27,8 @@ export function DemoControls({ active }: { active: boolean }) {
             Datos de demostración {active && <StatusBadge tone="info">Activos</StatusBadge>}
           </p>
           <p className="mt-1 max-w-xl text-sm text-muted">
-            Llena la app con 6 meses de contenido de ejemplo en las redes que todavía no conectaste. Sirve para mostrarla o probarla. No se
-            mezcla con tus datos reales y se borra con un clic.
+            Llena la app con 6 meses de contenido de ejemplo para mostrarla o probarla. Solo se carga si todavía no conectaste ninguna
+            red, y se borra sola al conectar la primera.
           </p>
         </div>
       </div>

@@ -23,12 +23,12 @@ export async function saveConnection(platform: Platform, connection: Connection,
       .where(and(eq(schema.socialAccounts.platform, platform), eq(schema.socialAccounts.externalId, profile.externalId)))
       .limit(1);
 
-    // Si había datos de demostración de esta red, se borran: nunca se mezclan con los reales
-    // (las medianas, el puntaje y lo que lee la IA saldrían de números inventados).
+    // Al conectar la primera red real se borran las métricas demo de TODAS las redes: nunca se mezclan con
+    // las reales (los totales, las medianas, el puntaje y lo que lee la IA saldrían de números inventados).
     const demo = await tx
       .select({ id: schema.socialAccounts.id })
       .from(schema.socialAccounts)
-      .where(and(eq(schema.socialAccounts.platform, platform), sql`(${schema.socialAccounts.meta} ->> 'demo') = 'true'`));
+      .where(sql`(${schema.socialAccounts.meta} ->> 'demo') = 'true'`);
     if (demo.length > 0) {
       const ids = demo.map((d) => d.id);
       await tx.delete(schema.contentItems).where(inArray(schema.contentItems.socialAccountId, ids));

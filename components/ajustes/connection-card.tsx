@@ -96,7 +96,7 @@ export function ConnectionCard({
           </div>
           {connection?.demo ? (
             <p className="text-sm text-muted">
-              Datos de ejemplo ({formatNumber(connection.itemCount)} piezas). Al conectar tu cuenta se borran solos.
+              Datos de ejemplo ({formatNumber(connection.itemCount)} piezas). Al conectar cualquier red real se borran solos.
             </p>
           ) : connection ? (
             <p className="text-sm text-muted">

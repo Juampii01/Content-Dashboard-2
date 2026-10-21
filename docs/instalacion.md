@@ -97,7 +97,7 @@ El editor necesita el servicio de procesamiento en Fly.io. Pasos y costos en `do
 
 ## 10. Demo para ventas
 
-En una instalación sin redes reales, **Ajustes → Datos de demostración → Cargar** llena 6 meses de métricas, el calendario y dos carruseles. Se borra con un clic y nunca se mezcla con cuentas reales: si ya hay una red conectada, la demo no se carga, y al conectar una red se borran los datos demo de esa red.
+En una instalación sin redes reales, **Ajustes → Datos de demostración → Cargar** llena 6 meses de métricas, el calendario y dos carruseles. Se borra con un clic y nunca se mezcla con cuentas reales: si ya hay una red conectada, la demo no se carga, y al conectar la primera red real se borra toda la demo (métricas, calendario y carruseles).
 
 ## Costos mensuales de referencia (por cliente)
 

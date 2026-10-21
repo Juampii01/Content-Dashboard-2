@@ -20,7 +20,7 @@ Las claves van en Vercel → proyecto → Settings → Environment Variables, en
 4. Copiar el **Instagram app ID** y el **Instagram app secret** de esa misma pantalla. No sirven los de la app de Facebook.
 5. Permisos: solo `instagram_business_basic` e `instagram_business_manage_insights`. No pedir mensajes, comentarios ni publicación.
 6. Mientras no pase App Review: **App roles → Roles → Instagram Testers**, agregar la cuenta de Instagram del cliente. El cliente acepta en Instagram → Configuración → Apps y sitios web → Invitaciones de tester.
-7. App Review (para cuentas sin rol): pedir acceso avanzado a `instagram_business_manage_insights`. Pide política de privacidad, términos, verificación del negocio y un video del flujo.
+7. App Review (para cuentas sin rol): pasos, textos y guion del video en `docs/meta-app-review.md`.
 
 Variables: `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` (Secret).
 

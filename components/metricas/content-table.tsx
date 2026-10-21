@@ -1,7 +1,7 @@
 import { DataTableView, type DataTableColumn } from "@/components/ui/data-table-view";
 import { OutlierBadge } from "@/components/ui/badges";
 import { PlatformBadge } from "@/components/ui/platform";
-import { formatCompact, formatDate, formatDuration, formatNumber, formatPercent } from "@/lib/format";
+import { formatCompact, formatDate, formatDuration, formatMultiplier, formatNumber, formatPercent } from "@/lib/format";
 import type { ContentRow } from "@/lib/dal/metrics";
 import { typeLabel } from "@/lib/metrics/labels";
 import { filtersToSearch, type MetricsFilters, type SortKey } from "@/lib/metrics/params";
@@ -53,7 +53,7 @@ export function ContentTable({ rows, filters }: { rows: ContentRow[]; filters: M
       numeric: true,
       sortable: true,
       accessor: (r) => r.perfScore,
-      cell: (r) => (r.perfScore == null ? dash : r.perfScore >= 1.5 ? <OutlierBadge ratio={r.perfScore} /> : <span className="text-muted">×{formatCompact(r.perfScore)}</span>),
+      cell: (r) => (r.perfScore == null ? dash : r.perfScore >= 1.5 ? <OutlierBadge ratio={r.perfScore} /> : <span className="text-muted">{formatMultiplier(r.perfScore)}</span>),
     },
   ];
 

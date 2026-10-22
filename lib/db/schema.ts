@@ -7,6 +7,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   date,
   index,
   integer,
@@ -19,6 +20,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { MonthlyReportData } from "@/lib/reports/types";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -877,3 +879,38 @@ export const notifications = pgTable(
   },
   (t) => [index("notifications_created_at_idx").on(t.createdAt)],
 );
+
+// ─── Informe mensual ───────────────────────────────────────────────────────
+
+/** Archivo binario (el PDF del informe). `pg` lo devuelve como Buffer. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+/**
+ * Informe mensual en PDF (Inicio → Informes). Uno por mes: se guarda la foto de los datos y el PDF ya dibujado
+ * para no regenerarlo (ni volver a pagar la IA) cada vez que alguien lo baja o se reenvía.
+ */
+export const monthlyReports = pgTable("monthly_reports", {
+  month: text("month").primaryKey(), // "2026-10"
+  data: jsonb("data").$type<MonthlyReportData>().notNull(),
+  pdf: bytea("pdf").notNull(),
+  pdfBytes: integer("pdf_bytes").notNull(),
+  /** true si se generó con el mes en curso: el cron lo rehace cuando el mes cierra. */
+  partial: boolean("partial").notNull().default(false),
+  generatedBy: text("generated_by").references(() => users.id, { onDelete: "set null" }),
+  /** Último envío (manual o automático) y a quiénes. */
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  sentTo: text("sent_to").array().notNull().default(sql`'{}'::text[]`),
+  /** Envío automático del día 1: se marca antes de mandar para que salga una sola vez. */
+  autoSentAt: timestamp("auto_sent_at", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Ajustes del informe mensual (una sola fila): destinatarios y envío automático. */
+export const reportSettings = pgTable("report_settings", {
+  id: text("id").primaryKey().default("report"),
+  recipients: text("recipients").array().notNull().default(sql`'{}'::text[]`), // correos del equipo o externos (máx. 10)
+  autoSend: boolean("auto_send").notNull().default(false),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});

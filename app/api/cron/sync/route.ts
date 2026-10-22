@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { dueKinds, syncAccount, type SyncOutcome } from "@/lib/social/sync/runner";
 import { classifyPendingHooks } from "@/lib/metrics/hooks";
 import { ensureWeeklyReport } from "@/lib/home/weekly-report";
+import { ensureMonthlyReport } from "@/lib/reports/service";
 import { sweepCloneVideos } from "@/lib/heygen/service";
 import { sweepJobNotifications } from "@/lib/notifications";
 
@@ -56,6 +57,15 @@ export async function GET(request: NextRequest) {
     await ensureWeeklyReport().catch((error: unknown) => console.error("[cron] resumen semanal", error instanceof Error ? error.message : error));
   }
 
+  // Informe mensual del mes anterior (el día 1 desde las 9:00 hora de la marca; se envía una sola vez).
+  let monthly: Awaited<ReturnType<typeof ensureMonthlyReport>> = null;
+  if (deadline - Date.now() > 60_000) {
+    monthly = await ensureMonthlyReport().catch((error: unknown) => {
+      console.error("[cron] informe mensual", error instanceof Error ? error.message : error);
+      return null;
+    });
+  }
+
   await db.delete(schema.oauthStates).where(lt(schema.oauthStates.expiresAt, new Date()));
   await db.delete(schema.rateLimits).where(lt(schema.rateLimits.windowStartedAt, new Date(Date.now() - 86_400_000)));
   await db.delete(schema.syncRuns).where(lt(schema.syncRuns.startedAt, new Date(Date.now() - 90 * 86_400_000)));
@@ -77,5 +87,5 @@ export async function GET(request: NextRequest) {
     return 0;
   });
 
-  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone, notified });
+  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone, notified, monthly });
 }

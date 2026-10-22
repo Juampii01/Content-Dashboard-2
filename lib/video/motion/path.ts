@@ -15,10 +15,42 @@ export type SubPath = { segs: Seg[]; lens: number[]; length: number; closed: boo
 export type ParsedPath = { subs: SubPath[]; length: number };
 
 function tokenize(d: string): (string | number)[] {
+  // Lectura con cursor: en los arcos, las banderas (large-arc y sweep) son un solo carácter y pueden ir pegadas
+  // ("a1.5 1.5 0 00-2.4-1.5"), así que no se pueden leer como números comunes.
   const out: (string | number)[] = [];
-  const re = /([MmLlHhVvCcSsQqTtAaZz])|(-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(d))) out.push(m[1] ?? Number(m[2]));
+  const num = /-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/iy;
+  let i = 0;
+  let cmd = "";
+  let argIndex = 0;
+  while (i < d.length) {
+    const ch = d[i]!;
+    if (/[MmLlHhVvCcSsQqTtAaZz]/.test(ch)) {
+      out.push(ch);
+      cmd = ch.toUpperCase();
+      argIndex = 0;
+      i++;
+      continue;
+    }
+    if (/[\s,]/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (cmd === "A" && (argIndex % 7 === 3 || argIndex % 7 === 4) && (ch === "0" || ch === "1")) {
+      out.push(ch === "1" ? 1 : 0);
+      argIndex++;
+      i++;
+      continue;
+    }
+    num.lastIndex = i;
+    const m = num.exec(d);
+    if (!m) {
+      i++;
+      continue;
+    }
+    out.push(Number(m[0]));
+    argIndex++;
+    i += m[0].length;
+  }
   return out;
 }
 

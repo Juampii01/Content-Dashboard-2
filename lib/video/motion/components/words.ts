@@ -105,7 +105,7 @@ export const quote = defineComponent({
 export const keyword = defineComponent({
   label: "Palabra clave",
   hint: "Una idea en grande (1 a 3 palabras), con marcador o subrayado de pincel.",
-  props: z.object({ text: req(28), label: str(36).default(""), emphasis: z.enum(["marker", "underline"]).default("marker") }),
+  props: z.object({ text: req(28), label: str(48).default(""), emphasis: z.enum(["marker", "underline"]).default("marker") }),
   example: { text: "Seguimiento", label: "La clave", emphasis: "marker" },
   texts: (p) => [p.text, p.label],
   build: (p, k0) =>

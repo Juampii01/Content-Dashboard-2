@@ -53,7 +53,7 @@ export const comparison = defineComponent({
           const chipBg = ellipse({ cx: cxh, cy: cyh, rx: chip / 2, fill: good ? rgba(k.theme.accentText, 0.18) : rgba(k.theme.negative, 0.18), role: "decor" });
           const mark = good ? checkPath(k, cxh, cyh, chip * 0.95, { color: ink, width: chip * 0.1 }) : crossPath(k, cxh, cyh, chip, { color: k.theme.negative, width: chip * 0.09 });
           const lbl = fit(k, s.label, eyebrowFont(k), { max: 28 * k.s, min: 20 * k.s, maxW: maxW - chip - 20 * k.s, maxLines: 1, balance: false, leading: 1.2 });
-          const lblN = textNode(k, lbl, cxh + chip / 2 + 20 * k.s, cyh - lbl.height / 2, lbl.widths[0]!, { color: good ? rgba(ink, 0.85) : col(k, "muted"), on: ground });
+          const lblN = textNode(k, lbl, cxh + chip / 2 + 20 * k.s, cyh - lbl.height / 2, lbl.widths[0]!, { color: good ? ink : col(k, "muted"), on: ground });
           const text = textNode(k, f, b.x + pad, b.y + pad + head + textGap, maxW, {
             color: good ? ink : rgba(k.theme.text, 0.62),
             on: ground,

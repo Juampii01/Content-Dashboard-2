@@ -60,14 +60,15 @@ export function safeZone(W: number, H: number): Box {
 
 /** Botones de la derecha de Reels (me gusta, comentar, compartir): ahí no va texto. */
 export function reelsButtons(W: number, H: number): Box | null {
-  return H > W ? frac(W, H, 0.87, 0.5, 1, 0.92) : null;
+  return H > W ? frac(W, H, 0.88, 0.6, 1, 0.9) : null;
 }
 
 /** Caja del contenido. Pantalla completa: centrada un poco arriba; sobre el video: franja de arriba o la de abajo. */
 export function contentRegion(W: number, H: number, mode: Mode, position: Position): Box {
   const vertical = H > W;
   if (mode === "full") return vertical ? frac(W, H, 0.085, 0.12, 0.915, 0.76) : frac(W, H, 0.1, 0.12, 0.9, 0.88);
-  if (vertical) return position === "top" ? frac(W, H, 0.075, 0.07, 0.925, 0.355) : frac(W, H, 0.075, 0.56, 0.925, 0.825);
+  // Abajo se corre un poco a la izquierda: a la derecha están los botones de Reels.
+  if (vertical) return position === "top" ? frac(W, H, 0.075, 0.07, 0.925, 0.355) : frac(W, H, 0.065, 0.56, 0.865, 0.825);
   return position === "top" ? frac(W, H, 0.12, 0.07, 0.88, 0.46) : frac(W, H, 0.12, 0.55, 0.88, 0.92);
 }
 

@@ -102,7 +102,7 @@ export const funnel = defineComponent({
               while (counterWidth(k, lv.value, vs, display(k, 900, -0.03)) > inner && vs > 30 * k.s) vs *= 0.94;
               const num = counter(k, lv.value, { x, top: vy, size: vs, font: display(k, 900, -0.03), color: ink, on: color, overlap: true, label: `la cifra del nivel ${i + 1}` });
               out.push(countUp(fadeUp(num, { at: at + each * 0.55, dist: 16 * k.s }), { at: at + each * 0.55, dur: 0.7 }));
-              out.push(fadeUp(textNode(k, lf, x - inner / 2, vy + vSize + 8 * k.s, inner, { align: "center", color: rgba(ink, 0.85), on: color, overlap: true, label: `el nivel ${i + 1}` }), { at: at + each * 0.65, dist: 16 * k.s }));
+              out.push(fadeUp(textNode(k, lf, x - inner / 2, vy + vSize + 8 * k.s, inner, { align: "center", color: ink, on: color, overlap: true, label: `el nivel ${i + 1}` }), { at: at + each * 0.65, dist: 16 * k.s }));
             } else {
               const lf = fit(k, lv.label, display(k, 800, -0.02), { max: 50 * k.s, min: 26 * k.s, maxW: inner, maxLines: 1, leading: 1.2 });
               out.push(fadeUp(textNode(k, lf, x - inner / 2, top + (levelH - lf.height) / 2, inner, { align: "center", color: ink, on: color, overlap: true, label: `el nivel ${i + 1}` }), { at: at + each * 0.55, dist: 16 * k.s }));
@@ -132,7 +132,7 @@ export const barChart = defineComponent({
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const n = p.bars.length;
-      const w = Math.min(k.region.w, (k.vertical ? 900 : 1300) * k.s);
+      const w = Math.min(k.region.w * (k.vertical ? 0.86 : 1), (k.vertical ? 900 : 1300) * k.s);
       const x0 = cx(k) - w / 2;
       const chartH = Math.min((k.vertical ? 620 : 470) * k.s, k.region.h * 0.62);
       const gapRatio = 0.34;
@@ -215,7 +215,7 @@ export const lineChart = defineComponent({
   texts: (p) => [p.title, p.value, p.startLabel, p.endLabel],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
-      const w = Math.min(k.region.w, (k.vertical ? 900 : 1300) * k.s);
+      const w = Math.min(k.region.w * (k.vertical ? 0.86 : 1), (k.vertical ? 900 : 1300) * k.s);
       const x0 = cx(k) - w / 2;
       const chartH = Math.min((k.vertical ? 560 : 440) * k.s, k.region.h * 0.6);
       const tagH = p.value ? 84 * k.s : 0;

@@ -184,7 +184,7 @@ export const steps = defineComponent({
             }
             if (!horizontal) ty = by + (nodeH - (numSize * 1.4 + 10 * k.s + fits[i]!.height)) / 2;
             const num = fit(k, `PASO ${i + 1}`, { family: k.families.body, weight: 700, tracking: 0.16 }, { max: numSize, min: numSize, maxW: innerW, maxLines: 1, balance: false, leading: 1.4 });
-            parts.push(textNode(k, num, tx, ty, innerW, { color: last ? rgba(ink, 0.75) : col(k, "accent"), on: ground }));
+            parts.push(textNode(k, num, tx, ty, innerW, { color: last ? ink : col(k, "accent"), on: ground }));
             parts.push(textNode(k, fits[i]!, tx, ty + numSize * 1.4 + (horizontal ? 12 : 10) * k.s, innerW, { color: ink, on: ground, label: `el paso ${i + 1}` }));
             out.push(pop(c, { at, from: 0.88, dur: 0.6, bounce: 0.2 }));
             parts.forEach((pn, j) => out.push(fadeUp(pn, { at: at + 0.08 + j * 0.05, dist: 18 * k.s })));

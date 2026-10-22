@@ -5,6 +5,7 @@
  * Los tiempos de la transcripción están en segundos del video original.
  * Los del timeline final ("out") están en segundos del video editado.
  */
+import type { BrollEditInput } from "./broll-edit";
 import type { GraphicSpec } from "./graphics";
 import type { MotionScene } from "./motion/schema";
 
@@ -148,6 +149,11 @@ export type BrollItem = {
   /** La elegida (null = sin clip: no se renderiza) y las alternativas para "Cambiar". */
   choice: BrollOption | null;
   options: BrollOption[];
+  /**
+   * Cómo se ve en el video: ubicación, encuadre, look y tiempo (lib/video/broll-edit.ts). Sin esto (planes guardados
+   * antes), pantalla completa recortada al centro con fundido, como siempre.
+   */
+  edit?: BrollEditInput;
 };
 
 /** Un tramo del video original que queda en el video final, en cuadros de 30 fps. */

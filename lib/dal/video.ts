@@ -110,6 +110,8 @@ export type ProjectView = {
   plan: EditPlan | null;
   proxyUrl: string | null;
   posterUrl: string | null;
+  /** Cuadro del video original (sin el render encima): la vista previa de la revisión. */
+  sourcePosterUrl: string | null;
   output: { url: string; downloadUrl: string; srtUrl: string | null; creditsUrl: string | null; meta: OutputMeta } | null;
   job: { type: string; status: string; progress: number; stage: string | null; attempts: number; maxAttempts: number; errorMessage: string | null } | null;
   worker: WorkerStatus;
@@ -150,6 +152,7 @@ export async function getProject(id: string): Promise<ProjectView | null> {
     plan: (p.plan ?? null) as EditPlan | null,
     proxyUrl: await sign(media?.proxyKey),
     posterUrl: await sign(meta.posterKey ?? media?.posterKey),
+    sourcePosterUrl: await sign(media?.posterKey),
     output:
       outputUrl && p.outputKey
         ? {

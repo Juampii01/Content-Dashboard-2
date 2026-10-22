@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { PlanAiOutput } from "@/lib/ai/prompts/editor";
 import { sentences } from "@/lib/ai/prompts/editor";
 import { confidentRemovals, type Candidate } from "./candidates";
+import { brollEditSchema } from "./broll-edit";
 import { brollGraphicSchema } from "./motion-graphics";
 import { buildTimeline, planSegments } from "./timeline";
 import { CAPTION_PRESET_KEYS, REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
@@ -54,6 +55,8 @@ export const brollItemSchema = z.object({
   why: z.string().max(300).optional(),
   choice: brollOptionSchema.nullable(),
   options: z.array(brollOptionSchema).max(12),
+  /** Ubicación, encuadre, look y tiempo. Opcional: los planes viejos no lo tienen. */
+  edit: brollEditSchema.optional(),
 });
 
 export const planSchema = z.object({

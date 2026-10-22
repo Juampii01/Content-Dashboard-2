@@ -13,7 +13,8 @@ import type { Box, CountFormat, CounterNode, EllipseNode, Fill, GroupNode, Node,
 
 export type Format = "9:16" | "16:9";
 export type Mode = "full" | "overlay";
-export type Position = "top" | "bottom";
+/** Sobre el video: franja de arriba o de abajo; en 16:9 también a la izquierda o a la derecha (la persona al otro lado). */
+export type Position = "top" | "bottom" | "left" | "right";
 
 export type Kit = {
   W: number;

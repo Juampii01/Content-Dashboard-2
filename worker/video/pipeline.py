@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import JobError
 from comunes.runner import JobContext, register
 
-from . import ass, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, broll_edit, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 
 log = logging.getLogger("worker.video")
 
@@ -160,9 +160,10 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
                 ctx.app.download(None, key, raw, owner={"clipId": clip_id})
         else:
             raise JobError("Un b-roll tiene un origen desconocido. Cámbialo en la revisión.", retry=False)
-        ready = cache / f"ready-{raw.stem}-{size[0]}x{size[1]}-{float(item.get('offset') or 0):.2f}-{end - start:.3f}.mp4"
-        render.prepare_broll(raw, ready, end - start, size, float(item.get("offset") or 0))
-        out.append(ready)
+        edit = item.get("edit") or None
+        offset = float((edit or {}).get("clipStart", item.get("offset") or 0) or 0)
+        ready = cache / f"ready-{raw.stem}-{size[0]}x{size[1]}-{offset:.2f}-{end - start:.3f}-{broll_edit.edit_key(edit)}.mp4"
+        out.append(render.prepare_broll(raw, ready, end - start, size, offset, edit))
         ctx.progress((i + 1) / len(items))
     return out
 
@@ -253,7 +254,7 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         ctx.config.fonts_dir,
         zooms=data.get("zooms") or [],
         focus_y=float((data.get("framing") or {}).get("focusY", 0.42)),
-        broll=[{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected)} for i, b in enumerate(broll_items)],
+        broll=[{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected), "edit": b.get("edit")} for i, b in enumerate(broll_items)],
         stickers=[{**s, "input": emoji_base + i} for i, s in enumerate(stickers)],
     )
     final = out_dir / "final.mp4"

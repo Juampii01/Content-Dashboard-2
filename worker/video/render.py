@@ -25,6 +25,8 @@ from typing import Any, Callable
 from comunes import ffmpeg
 from comunes.errors import JobError
 
+from . import broll_edit
+
 log = logging.getLogger("worker.render")
 
 FPS = 30
@@ -247,30 +249,74 @@ def zoom_expr(zooms: list[dict[str, Any]]) -> str | None:
     return f"1+{'+'.join(terms)}" if terms else None
 
 
-def prepare_broll(src: Path, out: Path, duration: float, size: tuple[int, int], offset: float = 0.0) -> None:
-    """Clip de b-roll listo para superponer: a pantalla completa (recortado al formato), 30 fps, sin audio,
-    con la duración exacta del tramo (si el clip es más corto, se repite)."""
+def prepare_broll(src: Path, out: Path, duration: float, size: tuple[int, int], offset: float = 0.0, edit: dict[str, Any] | None = None) -> Path:
+    """Clip de b-roll listo para superponer, con la duración exacta del tramo (si el clip es más corto, se repite),
+    30 fps y sin audio. Sin edición: a pantalla completa (`size`), recortado al centro, como siempre.
+
+    Con la edición de la revisión (`edit`, ver `broll_edit.py`): al tamaño de su marco (`edit.box`), con el encuadre
+    (zoom y recorte corrido), el look (LUT 3D) y el zoom de entrada. Una tarjeta sale como capa con alfa (esquinas
+    redondeadas, sombra y borde) en MKV con FFV1; el resto, en H.264. Devuelve la ruta del archivo (la extensión puede
+    cambiar a .mkv)."""
+    card = edit.get("card") if edit and edit.get("layout") == "card" else None
+    if card:
+        out = out.with_suffix(".mkv")
     if out.exists() and out.stat().st_size > 0:
-        return
-    w, h = size
+        return out
+    if edit and edit.get("box"):
+        bw, bh = int(edit["box"]["w"]), int(edit["box"]["h"])
+    else:
+        bw, bh = size
     frames = max(1, int(round(duration * FPS)))
     info = ffmpeg.probe(src)
     clip_dur = float(info.get("format", {}).get("duration") or 0)
+    vstream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+    src_w, src_h = int(vstream.get("width") or 0), int(vstream.get("height") or 0)
+    rotation = abs(int(float((vstream.get("tags") or {}).get("rotate") or 0))) % 180
+    if rotation == 90:
+        src_w, src_h = src_h, src_w
     offset = max(0.0, min(offset, max(0.0, clip_dur - duration))) if clip_dur else 0.0
     loop = ["-stream_loop", "-1"] if clip_dur and clip_dur - offset < duration else []
+    sw, sh, cx, cy = broll_edit.frame_crop(src_w, src_h, bw, bh, (edit or {}).get("frame"))
+    chain = [f"scale={sw}:{sh}:flags=lanczos", f"crop={bw}:{bh}:{cx}:{cy}", f"fps={FPS}", "setsar=1"]
+    zoom = broll_edit.zoom_filter((edit or {}).get("zoom"), bw, bh)
+    if zoom:
+        chain.append(zoom)
+    color = (edit or {}).get("color")
+    if broll_edit.is_finite_matrix(color):
+        cube = broll_edit.write_cube(color, out.parent / broll_edit.lut_name(color))
+        chain.append(f"lut3d=file='{cube}':interp=trilinear")
     tmp = _atomic(out)
-    ffmpeg.run(
-        [
-            *loop, "-ss", f"{offset:.3f}", "-i", str(src),
-            "-an", "-map", "0:v:0",
-            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},fps={FPS},setsar=1,format=yuv420p",
-            "-frames:v", str(frames),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-g", str(FPS),
-            str(tmp),
-        ],
-        what="b-roll",
-    )
+    if card:
+        mask, shadow, border, pad = broll_edit.card_assets(card, bw, bh, out.parent)
+        graph = (
+            f"[0:v]{','.join(chain)},format=rgba[c];[1:v]format=gray[m];[c][m]alphamerge[cm];"
+            f"[2:v]format=rgba[sh];[sh][cm]overlay={pad}:{pad}:format=auto[s];[s][3:v]overlay=0:0:format=auto,format=yuva420p[v]"
+        )
+        ffmpeg.run(
+            [
+                *loop, "-ss", f"{offset:.3f}", "-i", str(src),
+                "-loop", "1", "-i", str(mask), "-loop", "1", "-i", str(shadow), "-loop", "1", "-i", str(border),
+                "-filter_complex", graph, "-map", "[v]", "-an",
+                "-frames:v", str(frames), "-r", str(FPS),
+                "-c:v", "ffv1", "-level", "3", "-pix_fmt", "yuva420p",
+                str(tmp),
+            ],
+            what="b-roll",
+        )
+    else:
+        ffmpeg.run(
+            [
+                *loop, "-ss", f"{offset:.3f}", "-i", str(src),
+                "-an", "-map", "0:v:0",
+                "-vf", ",".join([*chain, "format=yuv420p"]) if edit else f"scale={bw}:{bh}:force_original_aspect_ratio=increase:flags=lanczos,crop={bw}:{bh},fps={FPS},setsar=1,format=yuv420p",
+                "-frames:v", str(frames),
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-g", str(FPS),
+                str(tmp),
+            ],
+            what="b-roll",
+        )
     os.replace(tmp, out)
+    return out
 
 
 def framing_graph(
@@ -285,7 +331,8 @@ def framing_graph(
     broll: list[dict[str, Any]] | None = None,
     stickers: list[dict[str, Any]] | None = None,
 ) -> tuple[str, int, int]:
-    """Grafo del video final. `broll`: [{"input": índice de la entrada de ffmpeg, "start", "end"}] en segundos del final."""
+    """Grafo del video final. `broll`: [{"input": índice de la entrada de ffmpeg, "start", "end", "edit"?}] en segundos del
+    final; `edit` (de la app) trae la ubicación, la persona en pantalla dividida, la opacidad y el fundido."""
     out_w, out_h = OUTPUT_SIZE[fmt]
     target_ratio = out_w / out_h
     src_ratio = src_w / src_h
@@ -317,14 +364,31 @@ def framing_graph(
     for i, b in enumerate(broll or []):
         start, end = float(b["start"]), float(b["end"])
         dur = end - start
-        fade = min(BROLL_FADE, dur / 4)
+        edit = b.get("edit")
+        fade = broll_edit.fade_of(edit, dur, BROLL_FADE)
+        opacity = broll_edit.opacity_of(edit)
+        on = f"enable='between(t,{start:.3f},{end:.3f})'"
+        person = (edit or {}).get("person")
+        if person:
+            # Pantalla dividida o a un lado: la persona pasa a su mitad (un corte) y el resto queda con el fondo de la marca.
+            f, t = person["from"], person["to"]
+            graph += (
+                f";[{label}]split[pa{i}][pb{i}];[pa{i}]drawbox=x=0:y=0:w=iw:h=ih:color={broll_edit.ground_hex(edit.get('ground'))}@1:t=fill:{on}[pg{i}];"
+                f"[pb{i}]crop={int(f['w'])}:{int(f['h'])}:{int(f['x'])}:{int(f['y'])}[pc{i}];"
+                f"[pg{i}][pc{i}]overlay={int(t['x'])}:{int(t['y'])}:{on}[ps{i}]"
+            )
+            label = f"ps{i}"
         clip = f"br{i}"
-        graph += (
-            f";[{int(b['input'])}:v]format=yuva420p,fade=t=in:st=0:d={fade:.3f}:alpha=1,fade=t=out:st={max(0.0, dur - fade):.3f}:d={fade:.3f}:alpha=1,"
-            f"setpts=PTS-STARTPTS+{start:.3f}/TB[{clip}]"
-        )
+        steps = ["format=yuva420p"]
+        if opacity < 0.999:
+            steps.append(f"lutyuv=a='val*{opacity:.3f}'")
+        if fade > 0:
+            steps.append(f"fade=t=in:st=0:d={fade:.3f}:alpha=1,fade=t=out:st={max(0.0, dur - fade):.3f}:d={fade:.3f}:alpha=1")
+        steps.append(f"setpts=PTS-STARTPTS+{start:.3f}/TB")
+        graph += f";[{int(b['input'])}:v]{','.join(steps)}[{clip}]"
+        x, y = broll_edit.placement(edit)
         nxt = f"ov{i}"
-        graph += f";[{label}][{clip}]overlay=eof_action=pass:enable='between(t,{start:.3f},{end:.3f})'[{nxt}]"
+        graph += f";[{label}][{clip}]overlay=x={x}:y={y}:eof_action=pass:{on}[{nxt}]"
         label = nxt
     graph += f";[{label}]"
     if ass:

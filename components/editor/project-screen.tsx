@@ -58,7 +58,7 @@ export function ProjectScreen({
           sourceWidth={project.media?.width ?? 1080}
           sourceHeight={project.media?.height ?? 1920}
           proxyUrl={project.proxyUrl}
-          posterUrl={project.posterUrl}
+          posterUrl={project.sourcePosterUrl ?? project.posterUrl}
           accent={project.accent}
           canEdit={project.canEdit}
           signedBroll={signedBroll}

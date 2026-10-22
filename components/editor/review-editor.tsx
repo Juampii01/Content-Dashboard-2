@@ -8,9 +8,11 @@ import { Notice } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { formatDuration, formatNumber } from "@/lib/format";
-import { CAPTION_PRESETS, captionBlocks } from "@/lib/video/captions";
+import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
+import { CAPTION_PICKER_ORDER, CAPTION_PRESETS, captionBlocks } from "@/lib/video/captions";
 import { brollSegments, computeZooms } from "@/lib/video/effects";
 import { rangesFromIds } from "@/lib/video/plan";
+import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
 import { buildTimeline } from "@/lib/video/timeline";
 import type { GraphicLook } from "@/lib/video/graphics";
@@ -18,8 +20,11 @@ import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, RemovalReason,
 import { cn } from "@/lib/utils";
 import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-edit";
 import { renderAction, saveReviewAction } from "./actions";
+import { AudioPanel } from "./audio-panel";
 import { BrollEditPanel } from "./broll-edit-panel";
 import { BrollPanel, BrollPicker, optionKey, type PickerTab, type SignedOption } from "./broll-panel";
+import { CaptionPicker } from "./caption-picker";
+import type { TrackItem } from "./music-manager";
 import { PreviewPlayer, type PreviewHandle } from "./preview-player";
 import { TranscriptEditor, type BrollMark } from "./transcript-editor";
 
@@ -46,6 +51,7 @@ export function ReviewEditor({
   signedBroll = {},
   style = null,
   graphicLook,
+  tracks = [],
 }: {
   projectId: string;
   plan: EditPlan;
@@ -63,6 +69,8 @@ export function ReviewEditor({
   style?: { id: string; name: string; zoom: StylePreset["zoom"]; captions: CaptionStyle | null; focusY: number } | null;
   /** Colores y fuente de Mi marca para los gráficos nuevos del b-roll. */
   graphicLook: GraphicLook;
+  /** Pistas de música listas de la biblioteca. */
+  tracks?: TrackItem[];
 }) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
@@ -81,6 +89,10 @@ export function ReviewEditor({
   const [picking, setPicking] = useState<string | null>(null);
   const [pickTab, setPickTab] = useState<PickerTab | undefined>(undefined);
   const [askFocus, setAskFocus] = useState(false);
+  const [emoji, setEmoji] = useState(plan.captions.emoji === true);
+  // Planes de antes de los efectos: sin efectos (así el video no cambia si se vuelve a renderizar).
+  const [sfx, setSfx] = useState<SfxLevel>(sfxLevel(plan.audio.sfx));
+  const [music, setMusic] = useState<{ trackId: string | null; db: number }>({ trackId: plan.audio.music_asset_id, db: plan.audio.music_db });
   const [editing, setEditing] = useState<string | null>(null);
   const captionStyle = style?.captions ?? null;
 
@@ -93,8 +105,19 @@ export function ReviewEditor({
   const offScript = useMemo(() => new Set(plan.off_script), [plan.off_script]);
 
   const review = useMemo(
-    () => ({ removed: [...removed].sort((a, b) => a - b), selectedHook, preset, offsetX, corrections, broll: brollItems, ...(style ? { zooms: zoomsOn } : {}) }),
-    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn],
+    () => ({
+      removed: [...removed].sort((a, b) => a - b),
+      selectedHook,
+      preset,
+      offsetX,
+      corrections,
+      broll: brollItems,
+      ...(style ? { zooms: zoomsOn } : {}),
+      emoji,
+      sfx,
+      music: { trackId: music.trackId && tracks.some((t) => t.id === music.trackId) ? music.trackId : null, db: Math.max(-30, Math.min(-8, music.db)) },
+    }),
+    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, music, tracks],
   );
 
   const timeline = useMemo(
@@ -114,6 +137,8 @@ export function ReviewEditor({
     [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, plan.pacing, selectedHook, corrections, preset, duration],
   );
   const blocks = useMemo(() => (preset === "ninguno" ? [] : captionBlocks(timeline.words, preset, captionStyle)), [timeline.words, preset, captionStyle]);
+  // Diseño del estilo de la galería con la marca: el mismo que arma el render (lib/video/service.ts).
+  const capLook = useMemo(() => (isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: graphicLook.font, emoji }) : null), [preset, format, accent, graphicLook.font, emoji]);
   const segments = useMemo(() => brollSegments(timeline, brollItems), [timeline, brollItems]);
   const zooms = useMemo(
     () => (style && zoomsOn ? computeZooms(timeline, style.zoom, { emphasis: plan.captions.emphasis_words, avoid: segments }) : []),
@@ -517,6 +542,7 @@ export function ReviewEditor({
               offsetX={showFraming ? offsetX : 0}
               onSourceTime={setActiveTime}
               captionStyle={preset === "estilo" ? captionStyle : null}
+              captionLook={capLook}
               broll={previewBroll}
               zooms={zooms}
               focusY={style?.focusY ?? 0.42}
@@ -556,13 +582,28 @@ export function ReviewEditor({
             </div>
             <div className="flex flex-col gap-2">
               <span className="text-sm font-semibold text-white">Subtítulos</span>
-              <SegmentedControl
-                label="Estilo de subtítulos"
+              <CaptionPicker
                 value={preset}
-                onValueChange={(v) => canEdit && setPreset(v)}
-                options={(Object.keys(CAPTION_PRESETS) as CaptionPresetKey[]).filter((k) => k !== "estilo" || Boolean(captionStyle)).map((k) => ({ value: k, label: CAPTION_PRESETS[k].label }))}
+                onChange={(v) => canEdit && setPreset(v)}
+                options={CAPTION_PICKER_ORDER.filter((k) => k !== "estilo" || Boolean(captionStyle))}
+                accent={accent}
+                brandFont={graphicLook.font}
+                emoji={emoji}
+                captionStyle={captionStyle}
+                disabled={!canEdit}
               />
-              <p className="text-xs text-muted">{CAPTION_PRESETS[preset].description}</p>
+              <p className="text-xs text-muted" aria-live="polite">
+                <span className="font-semibold text-text">{CAPTION_PRESETS[preset].label}:</span> {CAPTION_PRESETS[preset].description}
+              </p>
+              {isCaptionStyle(preset) && (
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+                  <span className="flex flex-col">
+                    <span className="text-sm text-text">Emojis en las palabras clave</span>
+                    <span className="text-xs text-muted">Uno por frase, solo donde encaja (dinero, tiempo, idea…).</span>
+                  </span>
+                  <input type="checkbox" className="h-4 w-4 flex-none accent-[#0070f8]" checked={emoji} disabled={!canEdit} onChange={(e) => setEmoji(e.target.checked)} />
+                </label>
+              )}
             </div>
             {style && (
               <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
@@ -608,6 +649,10 @@ export function ReviewEditor({
                 <p className="text-xs text-muted">Tu video es horizontal: mueve el recorte para que tu cara quede al centro.</p>
               </div>
             )}
+          </div>
+
+          <div className="card flex flex-col gap-4 p-4">
+            <AudioPanel sfx={sfx} onSfx={setSfx} musicId={music.trackId} musicDb={music.db} onMusic={setMusic} tracks={tracks} canEdit={canEdit} />
           </div>
 
           {canEdit && (

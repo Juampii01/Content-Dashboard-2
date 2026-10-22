@@ -36,7 +36,7 @@ FADE = 0.010
 
 OUTPUT_SIZE = {"9:16": (1080, 1920), "16:9": (1920, 1080)}
 
-# Cadena de voz (antes de la normalización). Sin música en el MVP: el sidechain queda para cuando haya pista.
+# Cadena de voz (antes de la normalización). La música y los efectos se suman después (mix_audio).
 VOICE_CHAIN = [
     "highpass=f=80",
     "afftdn=nr=10:nf=-30:tn=1",
@@ -147,6 +147,81 @@ def process_audio(src: Path, out: Path, target: float = -14.0, tp: float = -1.0)
     return {"gain": round(gain, 2), "normalization": result.get("normalization_type"), "input_i": measured_i}
 
 
+# Efectos de sonido (worker/assets/sfx, generados con scripts/make_sfx.py) y música de fondo bajo la voz.
+SFX_DIR = Path(__file__).resolve().parent.parent / "assets" / "sfx"
+SFX_NAMES = ("whoosh", "pop", "riser")
+# Ducking: con la voz a -14 LUFS (≈ -17 dBFS RMS al hablar) la música baja unos 9 dB mientras hablas y vuelve en
+# las pausas (ataque 20 ms, salida 450 ms: sin "bombeo" entre palabras).
+DUCKING = "sidechaincompress=threshold=0.04:ratio=2:attack=20:release=450:knee=4:makeup=1"
+MUSIC_FADE_IN = 0.8
+MUSIC_FADE_OUT = 1.5
+
+
+def mix_audio(
+    voice: Path,
+    out: Path,
+    duration: float,
+    sfx: list[dict[str, Any]] | None = None,
+    music: Path | None = None,
+    music_db: float = -16.0,
+    target: float = -14.0,
+    sfx_dir: Path = SFX_DIR,
+) -> dict[str, Any]:
+    """Voz (ya normalizada) + efectos + música con ducking. La voz no se toca: los efectos y la música van debajo.
+
+    `sfx`: [{"name": "whoosh" | "pop" | "riser", "at": segundos del inicio del archivo, "gain": dB}].
+    `music_db`: sonoridad de la música respecto del objetivo de la voz (la pista se mide y se lleva a target + db).
+    El resultado pasa por un limitador a -1 dBFS que la voz sola no activa (los efectos no pueden recortar).
+    """
+    cues = [c for c in sfx or [] if c.get("name") in SFX_NAMES and 0 <= float(c.get("at", -1)) < duration][:60]
+    inputs: list[str] = ["-i", str(voice)]
+    parts: list[str] = [f"[0:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,apad,atrim=0:{duration:.6f}" + (",asplit=2[voice][key]" if music else "[voice]")]
+    mix = ["[voice]"]
+    names = sorted({c["name"] for c in cues})
+    for j, name in enumerate(names):
+        mine = [c for c in cues if c["name"] == name]
+        inputs += ["-i", str(sfx_dir / f"{name}.wav")]
+        idx = 1 + j
+        labels = [f"[{name}{k}]" for k in range(len(mine))]
+        parts.append(f"[{idx}:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono" + (f",asplit={len(mine)}" if len(mine) > 1 else "") + "".join(labels))
+        for k, c in enumerate(mine):
+            delay = round(float(c["at"]) * 1000)
+            gain = max(-40.0, min(0.0, float(c.get("gain", -16))))
+            parts.append(f"{labels[k]}volume={gain:.1f}dB,adelay={delay}:all=1[{name}d{k}]")
+            mix.append(f"[{name}d{k}]")
+    music_info: dict[str, Any] | None = None
+    if music:
+        try:
+            measured = measure(music, [], -23.0, -1.0)
+        except JobError as exc:
+            raise JobError("No pudimos leer la música elegida. Súbela de nuevo (MP3 o M4A) o quítala en la revisión.", retry=False, detail=str(exc)) from exc
+        music_i = float(measured["input_i"])
+        if music_i < -60:
+            raise JobError("La música elegida está en silencio. Elige otra pista en la revisión.", retry=False, detail=f"input_i {music_i}")
+        gain = max(-40.0, min(20.0, target + music_db - music_i))
+        idx = 1 + len(names)
+        inputs += ["-stream_loop", "-1", "-i", str(music)]
+        fade_out = max(0.0, duration - MUSIC_FADE_OUT)
+        parts.append(
+            f"[{idx}:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,atrim=0:{duration:.6f},asetpts=PTS-STARTPTS,volume={gain:.2f}dB,"
+            f"afade=t=in:d={MUSIC_FADE_IN},afade=t=out:st={fade_out:.3f}:d={MUSIC_FADE_OUT}[music]"
+        )
+        parts.append(f"[music][key]{DUCKING}[ducked]")
+        mix.append("[ducked]")
+        music_info = {"input_i": music_i, "gain": round(gain, 2), "db": music_db}
+    if len(mix) == 1:
+        parts.append("[voice]anull[mixed]")
+    else:
+        parts.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:normalize=0:dropout_transition=0[mixed]")
+    # Limitador al techo de la voz (-1 dBFS, el pico que deja loudnorm): la voz sola nunca lo toca, solo actúa si un
+    # efecto o la música suman por encima. latency=1: mira 5 ms adelante y lo compensa (la mezcla no se corre).
+    parts.append("[mixed]alimiter=limit=0.891:attack=5:release=60:level=disabled:latency=1[a]")
+    tmp = _atomic(out)
+    ffmpeg.run([*inputs, "-filter_complex", ";".join(parts), "-map", "[a]", "-t", f"{duration:.6f}", "-ac", "1", "-c:a", "pcm_s16le", str(tmp)], what="mezcla de música y efectos")
+    os.replace(tmp, out)
+    return {"sfx": len(cues), "music": music_info}
+
+
 # ─── 4. Video final ────────────────────────────────────────────────────────
 
 
@@ -254,6 +329,7 @@ def framing_graph(
     zooms: list[dict[str, Any]] | None = None,
     focus_y: float = 0.42,
     broll: list[dict[str, Any]] | None = None,
+    stickers: list[dict[str, Any]] | None = None,
 ) -> tuple[str, int, int]:
     """Grafo del video final. `broll`: [{"input": índice de la entrada de ffmpeg, "start", "end", "edit"?}] en segundos del
     final; `edit` (de la app) trae la ubicación, la persona en pantalla dividida, la opacidad y el fundido."""
@@ -317,15 +393,40 @@ def framing_graph(
     graph += f";[{label}]"
     if ass:
         graph += f"ass=filename={ass}:fontsdir={fonts_dir},"
+    if stickers:
+        # Emojis de los subtítulos (PNG con alfa, entradas con -loop 1): encima del texto, con su fundido de entrada.
+        graph += "format=yuv420p[subs]"
+        label = "subs"
+        for i, st in enumerate(stickers):
+            size = max(8, int(round(float(st["size"]) / 2)) * 2)
+            start, end = float(st["start"]), float(st["end"])
+            fade = max(0.0, float(st.get("fadeIn") or 0))
+            graph += (
+                f";[{int(st['input'])}:v]trim=duration={max(0.05, end - start):.3f},setpts=PTS-STARTPTS+{start:.3f}/TB,"
+                f"scale={size}:{size}:flags=lanczos,format=rgba" + (f",fade=t=in:st={start:.3f}:d={fade:.3f}:alpha=1" if fade > 0 else "") + f"[em{i}]"
+            )
+            graph += f";[{label}][em{i}]overlay=x={float(st['x']):.1f}:y={float(st['y']):.1f}:eof_action=pass:enable='between(t,{start:.3f},{end:.3f})'[eo{i}]"
+            label = f"eo{i}"
+        graph += f";[{label}]"
     graph += "format=yuv420p[v]"
     return graph, out_w, out_h
 
 
 def final_encode(
-    video: Path, audio: Path, graph: str, duration: float, out: Path, preset: str, on_progress: Callable[[float], None], extra_inputs: list[Path] | None = None
+    video: Path,
+    audio: Path,
+    graph: str,
+    duration: float,
+    out: Path,
+    preset: str,
+    on_progress: Callable[[float], None],
+    extra_inputs: list[Path] | None = None,
+    image_inputs: list[Path] | None = None,
 ) -> None:
+    """`extra_inputs` (b-roll) van como entradas 2…; `image_inputs` (emojis, en bucle) a continuación."""
     tmp = _atomic(out)
     extra = [arg for p in extra_inputs or [] for arg in ("-i", str(p))]
+    extra += [arg for p in image_inputs or [] for arg in ("-loop", "1", "-framerate", str(FPS), "-i", str(p))]
     ffmpeg.run(
         [
             "-i", str(video), "-i", str(audio), *extra,

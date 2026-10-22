@@ -764,6 +764,27 @@ export const brollClips = pgTable(
   (t) => [index("broll_clips_updated_at_idx").on(t.updatedAt)],
 );
 
+/**
+ * Música propia del cliente para el fondo de sus videos (Biblioteca → Música). Solo pistas que el cliente sube:
+ * la app no trae música de terceros. Ciclo: UPLOADING → READY (el worker la valida al renderizar).
+ */
+export const musicTracks = pgTable(
+  "music_tracks",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    status: brollClipStatusEnum("status").notNull().default("UPLOADING"),
+    fileKey: text("file_key").notNull(),
+    fileName: text("file_name"),
+    fileBytes: bigint("file_bytes", { mode: "number" }),
+    duration: real("duration"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("music_tracks_created_at_idx").on(t.createdAt)],
+);
+
 // ─── Trabajos en segundo plano ─────────────────────────────────────────────
 
 export const jobTypeEnum = pgEnum("job_type", [

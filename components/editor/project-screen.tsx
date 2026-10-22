@@ -29,8 +29,10 @@ export function ProjectScreen({
   signedBroll = {},
   style = null,
   graphicLook,
+  tracks = [],
 }: {
   project: View;
+  tracks?: ComponentProps<typeof ReviewEditor>["tracks"];
   graphicLook: GraphicLook;
   signedBroll?: Record<string, SignedOption>;
   style?: ComponentProps<typeof ReviewEditor>["style"];
@@ -62,6 +64,7 @@ export function ProjectScreen({
           signedBroll={signedBroll}
           style={style}
           graphicLook={graphicLook}
+          tracks={tracks}
         />
       )}
       {status === "DONE" && project.output && (

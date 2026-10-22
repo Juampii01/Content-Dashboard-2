@@ -1,5 +1,9 @@
+"use client";
+
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import localFont from "next/font/local";
 import { cn } from "@/lib/utils";
+import { captionTracks, colorAt, valueAt, type CaptionLook, type WordTrack } from "@/lib/video/caption-styles";
 import type { CaptionStyle } from "@/lib/video/style";
 import type { CaptionBlock, CaptionPresetKey, VideoFormat } from "@/lib/video/types";
 
@@ -26,6 +30,7 @@ export function CaptionOverlay({
   accent,
   height,
   captionStyle,
+  look,
 }: {
   block: CaptionBlock | null;
   /** Instante del video final. */
@@ -37,8 +42,11 @@ export function CaptionOverlay({
   height: number;
   /** Parámetros del estilo (solo con el preset "estilo"). */
   captionStyle?: CaptionStyle | null;
+  /** Diseño de un estilo de la galería (lib/video/caption-styles.ts). */
+  look?: CaptionLook | null;
 }) {
   if (!block || preset === "ninguno") return null;
+  if (look && look.style === preset) return <GalleryCaption block={block} time={time} look={look} format={format} accent={accent} height={height} />;
   const activeIndex = block.words.findIndex((w, i) => time >= (i === 0 ? block.start : w.start) && (i + 1 >= block.words.length || time < block.words[i + 1]!.start));
   if (preset === "estilo" && captionStyle) return <StyledCaption block={block} activeIndex={activeIndex} height={height} st={captionStyle} />;
   const key = preset === "pop" ? "pop" : "clasico";
@@ -106,5 +114,119 @@ function StyledCaption({ block, activeIndex, height, st }: { block: CaptionBlock
         ))}
       </p>
     </div>
+  );
+}
+
+/** Fuente de un estilo de la galería: Montserrat con los mismos archivos que el worker; Inter, la de la app (variable). */
+function fontStyle(look: CaptionLook): { className?: string; style: CSSProperties } {
+  if (look.font.family === "Montserrat") return { className: look.font.weight >= 900 ? black.className : extraBold.className, style: {} };
+  // Tamaño óptico de texto (14), igual que los archivos estáticos de Inter que usa el worker.
+  return { style: { fontFamily: "Inter, sans-serif", fontWeight: look.font.weight, fontVariationSettings: "'opsz' 14", fontOpticalSizing: "none" } };
+}
+
+const rgba = (hex: string, alpha: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+};
+
+/**
+ * Un bloque con un estilo de la galería. Igual que build_look_ass del worker: renglones centrados en `look.y`,
+ * cada palabra centrada en su lugar (la escala no mueve a las demás), la caja y el resaltador detrás, la sombra
+ * con el contorno, y si un renglón no entra en `maxWidth` el bloque entero se achica.
+ */
+function GalleryCaption({ block, time, look, format, accent, height }: { block: CaptionBlock; time: number; look: CaptionLook; format: VideoFormat; accent: string; height: number }) {
+  const laid = useMemo(() => captionTracks(look, block, format, accent), [look, block, format, accent]);
+  const width = format === "9:16" ? (height * 9) / 16 : (height * 16) / 9;
+  const em = look.size * height;
+  const rows = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(1);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = rows.current;
+      if (!el) return;
+      const widest = Math.max(0, ...[...el.children].map((row) => (row as HTMLElement).scrollWidth));
+      const next = widest > 0 ? Math.min(1, (look.maxWidth * width) / widest) : 1;
+      setFit((prev) => (Math.abs(prev - next) > 0.005 ? next : prev));
+    };
+    measure();
+    if (typeof document !== "undefined" && document.fonts) void document.fonts.ready.then(measure);
+  }, [laid, em, width, look.maxWidth]);
+  const font = fontStyle(look);
+  const lines: WordTrack[][] = Array.from({ length: laid.lines }, (_, i) => laid.words.filter((w) => w.line === i));
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div
+        ref={rows}
+        className={cn("absolute left-1/2 flex flex-col items-center", font.className)}
+        style={{ ...font.style, top: `${look.y * 100}%`, fontSize: `${em}px`, transform: `translate(-50%, -50%) scale(${fit})`, letterSpacing: 0, whiteSpace: "nowrap" }}
+      >
+        {lines.map((line, li) => (
+          <div key={li} className="flex items-center" style={{ columnGap: `${look.gap}em` }}>
+            {line.map((w, wi) => (
+              <GalleryWord key={wi} w={w} time={time} look={look} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GalleryWord({ w, time, look }: { w: WordTrack; time: number; look: CaptionLook }) {
+  const alpha = valueAt(w.alpha, time);
+  const scale = valueAt(w.scale, time);
+  const color = colorAt(w.color, time);
+  const stroke = look.outline > 0 ? `${look.outline * 2}em` : undefined;
+  const shadow = look.shadow ? `drop-shadow(0 ${look.shadow.y}em ${look.shadow.blur}em ${rgba(look.shadow.color, look.shadow.alpha)})` : undefined;
+  return (
+    <span className="relative inline-block" style={{ fontSize: `${w.size}em`, lineHeight: look.lineHeight }}>
+      {look.box && w.box && (
+        <span
+          className="absolute"
+          style={{
+            left: `${-look.box.padX}em`,
+            right: `${-look.box.padX}em`,
+            top: "50%",
+            height: `${1 + 2 * look.box.padY}em`,
+            marginTop: `${-(1 + 2 * look.box.padY) / 2}em`,
+            borderRadius: `${look.box.radius}em`,
+            background: look.box.color,
+            opacity: valueAt(w.box.alpha, time),
+            transform: `scale(${valueAt(w.box.scale, time)})`,
+          }}
+        />
+      )}
+      {look.marker && w.marker && (
+        <span
+          className="absolute"
+          style={{
+            left: `${-look.marker.padX}em`,
+            right: `${-look.marker.padX}em`,
+            top: "50%",
+            height: `${look.marker.height}em`,
+            marginTop: `${-look.marker.height / 2}em`,
+            borderRadius: `${look.marker.radius}em`,
+            background: rgba(look.marker.color, look.marker.alpha),
+            transformOrigin: "left center",
+            transform: `scaleX(${valueAt(w.marker.grow, time)})`,
+          }}
+        />
+      )}
+      {w.emoji && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/emoji/${w.emoji.name}.png`}
+          alt=""
+          className="absolute left-1/2 max-w-none"
+          style={{ width: "1.1em", height: "1.1em", top: "-1.15em", marginLeft: "-0.55em", opacity: valueAt(w.emoji.alpha, time) }}
+        />
+      )}
+      <span
+        className="relative inline-block"
+        style={{ color, opacity: alpha, transform: scale !== 1 ? `scale(${scale})` : undefined, WebkitTextStroke: stroke ? `${stroke} ${look.outlineColor}` : undefined, paintOrder: "stroke fill", filter: shadow }}
+      >
+        {w.text}
+      </span>
+    </span>
   );
 }

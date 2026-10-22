@@ -24,6 +24,9 @@ from . import ass, broll_edit, energy, ingest, library, motion, render, style_jo
 
 log = logging.getLogger("worker.video")
 
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+EMOJI_DIR = ASSETS_DIR / "emoji"
+
 
 def _project(ctx: JobContext) -> dict[str, Any]:
     project = db.get_project(ctx.conn, ctx.input["projectId"])
@@ -165,6 +168,28 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
     return out
 
 
+def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: Path, audio_cfg: dict[str, Any], duration: float, info: dict[str, Any]) -> Path:
+    """Efectos de sonido y música de fondo debajo de la voz. Sin ninguno de los dos, la voz queda tal cual."""
+    sfx = [c for c in audio_cfg.get("sfx") or [] if isinstance(c, dict)]
+    music_cfg = audio_cfg.get("music") if isinstance(audio_cfg.get("music"), dict) else None
+    if not sfx and not music_cfg:
+        return voice
+    music_path = None
+    if music_cfg:
+        track_id, key = str(music_cfg.get("trackId") or ""), str(music_cfg.get("key") or "")
+        if not key.startswith(f"editor/musica/{track_id}/"):
+            raise JobError("La música elegida no es válida. Elígela de nuevo en la revisión.", retry=False, detail=f"clave {key}")
+        cache = workdir / "musica"
+        cache.mkdir(exist_ok=True)
+        music_path = cache / f"{track_id}{Path(key).suffix or '.mp3'}"
+        if not music_path.exists():
+            ctx.app.download(None, key, music_path, owner={"trackId": track_id})
+    mixed = out_dir / "mix.wav"
+    result = render.mix_audio(voice, mixed, duration, sfx=sfx, music=music_path, music_db=float((music_cfg or {}).get("db", -16)), target=float(audio_cfg.get("targetLufs", -14)))
+    info.update(result)
+    return mixed
+
+
 @register("VIDEO_RENDER")
 def render_job(ctx: JobContext) -> dict[str, Any]:
     project = _project(ctx)
@@ -193,7 +218,9 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
 
     ctx.stage("Mezclando el audio", 0.35, 0.45)
     voice = out_dir / "voice.wav"
-    audio_info = render.process_audio(joined, voice, float(data.get("audio", {}).get("targetLufs", -14)), float(data.get("audio", {}).get("truePeak", -1)))
+    audio_cfg = data.get("audio") or {}
+    audio_info = render.process_audio(joined, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)))
+    voice = mix_extras(ctx, pid, workdir, out_dir, voice, audio_cfg, expected, audio_info)
 
     captions = data.get("captions") or {}
     ass_path = None
@@ -205,9 +232,19 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         broll_inputs = prepare_broll(ctx, pid, workdir, broll_items, (out_w, out_h), expected)
 
     ctx.stage("Renderizando", 0.55 if broll_items else 0.45, 0.9)
-    if (captions.get("preset") in ass.PRESETS or (captions.get("preset") == "estilo" and captions.get("style"))) and captions.get("blocks"):
+    stickers: list[dict[str, Any]] = []
+    if ass.is_look(captions):
+        # Galería de estilos animados: el ASS y los emojis (imágenes) que van encima.
+        ass_path = out_dir / "captions.ass"
+        text, stickers = ass.build_look_ass(captions, out_w, out_h, ctx.config.fonts_dir)
+        ass_path.write_text(text, encoding="utf-8")
+        stickers = [s for s in stickers if (EMOJI_DIR / f"{s['name']}.png").exists()][:24]
+    elif (captions.get("preset") in ass.PRESETS or (captions.get("preset") == "estilo" and captions.get("style"))) and captions.get("blocks"):
         ass_path = out_dir / "captions.ass"
         ass_path.write_text(ass.build_ass(captions, out_w, out_h, fmt), encoding="utf-8")
+    # Una entrada por emoji en pantalla (en ffmpeg cada entrada se usa una sola vez; son pocos: solo palabras clave).
+    emoji_files = [s["name"] for s in stickers]
+    emoji_base = 2 + len(broll_items)
     graph, _, _ = render.framing_graph(
         media["width"],
         media["height"],
@@ -218,11 +255,12 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         zooms=data.get("zooms") or [],
         focus_y=float((data.get("framing") or {}).get("focusY", 0.42)),
         broll=[{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected), "edit": b.get("edit")} for i, b in enumerate(broll_items)],
+        stickers=[{**s, "input": emoji_base + i} for i, s in enumerate(stickers)],
     )
     final = out_dir / "final.mp4"
     if final.exists():
         final.unlink()
-    render.final_encode(joined, voice, graph, expected, final, ctx.config.x264_preset, ctx.progress, extra_inputs=broll_inputs)
+    render.final_encode(joined, voice, graph, expected, final, ctx.config.x264_preset, ctx.progress, extra_inputs=broll_inputs, image_inputs=[EMOJI_DIR / f"{n}.png" for n in emoji_files])
 
     ctx.stage("Revisando la calidad", 0.9, 0.95)
     qc = render.quality_check(final, expected, fmt, float(data.get("audio", {}).get("targetLufs", -14)))

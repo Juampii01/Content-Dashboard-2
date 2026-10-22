@@ -7,6 +7,7 @@ import { signBrollOptions, type SignedOption } from "@/lib/dal/editor-media";
 import { fileDriver } from "@/lib/storage";
 import { BrollError, libraryOptions, searchOptions } from "@/lib/video/broll";
 import { completeClipUpload, createClipUpload, deleteClip, LibraryError, retryClip, updateClip } from "@/lib/video/library";
+import { completeTrackUpload, createTrackUpload, deleteTrack, MusicError, renameTrack } from "@/lib/video/music";
 import { completeStyleUpload, createStyleFromLink, createStyleUpload, deleteStyle, renameStyle, retryStyle, StyleError } from "@/lib/video/styles";
 
 /**
@@ -16,7 +17,7 @@ import { completeStyleUpload, createStyleFromLink, createStyleUpload, deleteStyl
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
 function fail(error: unknown): { ok: false; error: string } {
-  if (error instanceof StyleError || error instanceof LibraryError || error instanceof BrollError) return { ok: false, error: error.message };
+  if (error instanceof StyleError || error instanceof LibraryError || error instanceof BrollError || error instanceof MusicError) return { ok: false, error: error.message };
   console.error("[editor]", error instanceof Error ? error.message : error);
   return { ok: false, error: "Algo salió mal. Prueba de nuevo." };
 }
@@ -188,4 +189,56 @@ export async function libraryOptionsAction(): Promise<ActionResult<{ options: Si
   const user = await requireEditor();
   if (isDenied(user)) return user;
   return { ok: true, data: { options: await signBrollOptions(await libraryOptions()) } };
+}
+
+// ─── Música ───────────────────────────────────────────────────────────────
+
+export async function createTrackUploadAction(input: z.input<typeof fileSchema>): Promise<ActionResult<{ id: string; key: string; mode: "blob" | "local" }>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = fileSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos no válidos." };
+  try {
+    const { id, key } = await createTrackUpload({ ...parsed.data, userId: user.id });
+    return { ok: true, data: { id, key, mode: mode() } };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function completeTrackUploadAction(id: string, duration: number | null): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = z.object({ id: idSchema, duration: z.number().nonnegative().max(24 * 3600).nullable() }).safeParse({ id, duration });
+  if (!parsed.success) return { ok: false, error: "Pista no válida." };
+  try {
+    await completeTrackUpload(parsed.data.id, parsed.data.duration);
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function renameTrackAction(id: string, title: string): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = z.object({ id: idSchema, title: z.string().trim().min(1, "Ponle un nombre a la pista.").max(120, "El nombre es demasiado largo.") }).safeParse({ id, title });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Pista no válida." };
+  await renameTrack(parsed.data.id, parsed.data.title);
+  refresh();
+  return { ok: true };
+}
+
+export async function deleteTrackAction(id: string): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Pista no válida." };
+  try {
+    await deleteTrack(id);
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
 }

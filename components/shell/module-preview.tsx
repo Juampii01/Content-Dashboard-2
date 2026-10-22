@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { Check, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 
 /**
- * Vista temporal de un módulo que todavía no está construido.
- * Explica qué va a hacer, sin datos inventados. Se reemplaza cuando el módulo se construye (CLAUDE.md §7).
+ * Vista previa de un módulo que todavía no tiene datos (por ejemplo, Métricas sin redes conectadas): qué falta,
+ * el botón para hacerlo y qué vas a ver después. Sin datos inventados.
  */
 export function ModulePreview({
   icon,
@@ -25,20 +25,19 @@ export function ModulePreview({
           <div className="tile-icon mb-4 h-12 w-12">{icon}</div>
           <h2 className="text-xl font-semibold">{title}</h2>
           <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">{description}</p>
-          <span className="pill mt-5">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Próximamente
-          </span>
           {action && <div className="mt-6">{action}</div>}
         </div>
-        <ul className="stagger flex flex-1 flex-col gap-2.5">
-          {features.map((feature) => (
-            <li key={feature} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm">
-              <Check className="mt-0.5 h-4 w-4 flex-none text-accent-hi" />
-              <span>{feature}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-1 flex-col gap-3">
+          <p className="eyebrow">Lo que vas a ver</p>
+          <ul className="stagger flex flex-col gap-2.5">
+            {features.map((feature) => (
+              <li key={feature} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm">
+                <Check className="mt-0.5 h-4 w-4 flex-none text-accent-hi" />
+                <span>{feature}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );

@@ -159,6 +159,14 @@ export function jobNotification(job: JobRow): Omit<NotificationInput, "email" | 
         ? { tone: "success", title: "Ya sabemos qué decías en cada caída", body: "Trajimos los subtítulos de YouTube: en «Dónde se fue la gente» verás lo que estabas diciendo cuando se fue el público.", href, emailable: false }
         : { tone: "error", title: "No pudimos traer los subtítulos de YouTube", body: failure, href, emailable: false };
     }
+    case "REEL_COPY": {
+      const copyId = id("reelCopyId");
+      if (!copyId) return null;
+      const href = `/guiones/copiar/${copyId}`;
+      return ok
+        ? { tone: "success", title: "Tu versión del reel está lista", body: "Analizamos la estructura del original y escribimos tu guion con tu voz. También quedó listo su estilo de edición.", href, emailable: true }
+        : { tone: "error", title: "No pudimos copiar ese reel", body: failure, href, emailable: true };
+    }
     default:
       return null;
   }
@@ -179,7 +187,7 @@ export async function sweepJobNotifications(limit = 50): Promise<number> {
     left join yt_packages yp on j.type = 'YT_THUMBNAILS' and yp.id::text = j.input->>'packageId'
     where j.status in ('SUCCEEDED', 'FAILED')
       and j.finished_at > now() - interval '2 days'
-      and j.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER', 'CAROUSEL_IMAGES', 'CAROUSEL_STYLE', 'VIDEO_STYLE', 'LONG_VIDEO_CLIPS', 'YT_THUMBNAILS', 'YOUTUBE_TRANSCRIPT')
+      and j.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER', 'CAROUSEL_IMAGES', 'CAROUSEL_STYLE', 'VIDEO_STYLE', 'LONG_VIDEO_CLIPS', 'YT_THUMBNAILS', 'YOUTUBE_TRANSCRIPT', 'REEL_COPY')
       and not exists (select 1 from notifications n where n.key = 'job:' || j.id::text)
     order by j.finished_at
     limit ${limit}

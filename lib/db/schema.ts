@@ -21,6 +21,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { MonthlyReportData } from "@/lib/reports/types";
+import type { ReelCopyAnalysis } from "@/lib/scripts/reel-copy";
 import type { RetentionDrop, RetentionExplanation, RetentionPoint, ThumbnailConcept, TitleBasis, TitleGroup, TranscriptSegment, TranscriptSource } from "@/lib/youtube/types";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
@@ -121,6 +122,7 @@ export const teamMembers = pgTable("team_members", {
   active: boolean("active").notNull().default(true),
   invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
   notificationsSeenAt: timestamp("notifications_seen_at", { withTimezone: true }), // hasta cuándo vio los avisos (null = nunca)
+  onboardingDismissedAt: timestamp("onboarding_dismissed_at", { withTimezone: true }), // cerró la guía de primer uso ("Ya lo conozco")
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -492,6 +494,38 @@ export const scriptVersions = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("script_versions_script_idx").on(t.scriptId, t.createdAt)],
+);
+
+export const reelCopyStatusEnum = pgEnum("reel_copy_status", ["UPLOADING", "ANALYZING", "WRITING", "READY", "FAILED"]);
+
+/**
+ * "Copia este reel": a partir de un reel, TikTok o short ajeno se arma la versión propia de la persona.
+ * El worker baja el video, lo transcribe y mide su edición (REEL_COPY); la app analiza la estructura con Claude y
+ * escribe un guion nuevo sobre el tema de la persona. Se guarda solo la estructura (`analysis`), el guion y el
+ * estilo de edición: el video y su transcripción nunca se guardan.
+ * El archivo subido (si no vino de un link) vive en la ruta del estilo (`editor/estilos/<styleId>/referencia.<ext>`)
+ * y se borra al terminar.
+ */
+export const reelCopies = pgTable(
+  "reel_copies",
+  {
+    id: id(),
+    status: reelCopyStatusEnum("status").notNull().default("ANALYZING"),
+    sourceKind: text("source_kind").notNull(), // "upload" | "link"
+    sourceUrl: text("source_url"), // link del reel original (se muestra como origen)
+    platform: text("platform"), // "Instagram" | "TikTok" | "YouTube" | null (subido)
+    topic: text("topic"), // el tema de la persona para su versión (vacío = lo elige la IA según la marca)
+    objective: text("objective"), // alcance | seguidores | ventas
+    format: scriptFormatEnum("format").notNull().default("REEL"),
+    analysis: jsonb("analysis").$type<ReelCopyAnalysis>(), // estructura del original (ver lib/scripts/reel-copy.ts)
+    styleId: uuid("style_id").references(() => videoStyles.id, { onDelete: "set null" }),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("reel_copies_updated_at_idx").on(t.updatedAt)],
 );
 
 export const calendarStatusEnum = pgEnum("calendar_status", ["IDEA", "SCRIPTING", "PRODUCTION", "READY", "PUBLISHED"]);
@@ -876,6 +910,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "LONG_VIDEO_CLIPS", // clips desde un video largo: transcribir, elegir momentos y seguir caras (input.longVideoId)
   "YT_THUMBNAILS", // fondos sin texto de las miniaturas de YouTube y recorte de fotos del personaje (input.packageId)
   "YOUTUBE_TRANSCRIPT", // subtítulos de un video publicado de YouTube con yt-dlp (input.contentItemId)
+  "REEL_COPY", // "Copia este reel": bajar, transcribir y medir un reel ajeno; la app escribe la versión propia (input.reelCopyId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 

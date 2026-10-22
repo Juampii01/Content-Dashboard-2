@@ -415,7 +415,7 @@ export function StrategistChat({
           </div>
         )}
 
-        <section className="card flex min-h-[420px] flex-col p-4 sm:p-6" aria-label="Conversación con el estratega">
+        <section className="card flex min-h-[300px] flex-col p-4 sm:min-h-[420px] sm:p-6" aria-label="Conversación con el estratega">
           {empty ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-5 py-6 text-center">
               <span className="tile-icon h-12 w-12 animate-float">
@@ -459,7 +459,15 @@ export function StrategistChat({
           <Notice tone="warning">Llegaste al límite de {limit} preguntas por hoy. Vuelve mañana.</Notice>
         ) : null}
 
-        <form onSubmit={submit} className="card sticky bottom-3 z-10 flex flex-col gap-2 !bg-card/95 p-3 shadow-[0_-12px_32px_rgba(2,6,26,0.7)] backdrop-blur-xl sm:p-4">
+        {/* Fija abajo solo durante una conversación y en pantallas con altura suficiente: en un teléfono bajo (o con las
+            sugerencias a la vista) taparía lo que hay que tocar. */}
+        <form
+          onSubmit={submit}
+          className={cn(
+            "card z-10 flex flex-col gap-2 !bg-card/95 p-3 backdrop-blur-xl sm:p-4",
+            !empty && "[@media(min-height:700px)]:sticky [@media(min-height:700px)]:bottom-3 [@media(min-height:700px)]:shadow-[0_-12px_32px_rgba(2,6,26,0.7)]",
+          )}
+        >
           <label htmlFor="pregunta" className="sr-only">
             Tu pregunta
           </label>

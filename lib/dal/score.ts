@@ -14,6 +14,14 @@ const HOOK_KINDS = new Set<string>(["contraste", "curiosidad", "dolor", "resulta
  */
 export async function getScoreHistory(): Promise<HistoryPiece[]> {
   await getCurrentUser();
+  return readScoreHistory();
+}
+
+/**
+ * La misma lectura sin revisar la sesión: solo para procesos del servidor que ya están autorizados (por ejemplo,
+ * "Copia este reel" ordena los ganchos por puntaje cuando el worker entrega el análisis). Nunca desde una página.
+ */
+export async function readScoreHistory(): Promise<HistoryPiece[]> {
   const result = await getDb().execute<{
     id: string;
     platform: HistoryPiece["platform"];

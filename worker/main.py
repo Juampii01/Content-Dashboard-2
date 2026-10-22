@@ -18,6 +18,7 @@ from comunes.runner import Worker
 import video.pipeline  # noqa: F401  (VIDEO_ANALYZE, VIDEO_RENDER, VIDEO_STYLE, VIDEO_CLIP, LONG_VIDEO_CLIPS)
 import carruseles  # noqa: F401  (CAROUSEL_STYLE, CAROUSEL_IMAGES, CODEX_LOGIN)
 import youtube  # noqa: F401  (YT_THUMBNAILS, YOUTUBE_TRANSCRIPT)
+import video.reel_copy  # noqa: F401  (REEL_COPY)
 
 
 def main() -> int:

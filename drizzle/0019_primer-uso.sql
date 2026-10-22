@@ -1,0 +1,1 @@
+ALTER TABLE "team_members" ADD COLUMN "onboarding_dismissed_at" timestamp with time zone;

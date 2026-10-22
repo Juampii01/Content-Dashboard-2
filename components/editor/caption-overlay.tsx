@@ -31,6 +31,7 @@ export function CaptionOverlay({
   height,
   captionStyle,
   look,
+  extraGap = 0,
 }: {
   block: CaptionBlock | null;
   /** Instante del video final. */
@@ -44,9 +45,14 @@ export function CaptionOverlay({
   captionStyle?: CaptionStyle | null;
   /** Diseño de un estilo de la galería (lib/video/caption-styles.ts). */
   look?: CaptionLook | null;
+  /**
+   * Espacio extra entre palabras, en em (solo las miniaturas del selector). A tamaño chico, el salto de la palabra
+   * activa y su caja tapan el espacio y dos palabras se leen pegadas. La vista previa y el render no lo usan (0).
+   */
+  extraGap?: number;
 }) {
   if (!block || preset === "ninguno") return null;
-  if (look && look.style === preset) return <GalleryCaption block={block} time={time} look={look} format={format} accent={accent} height={height} />;
+  if (look && look.style === preset) return <GalleryCaption block={block} time={time} look={look} format={format} accent={accent} height={height} extraGap={extraGap} />;
   const activeIndex = block.words.findIndex((w, i) => time >= (i === 0 ? block.start : w.start) && (i + 1 >= block.words.length || time < block.words[i + 1]!.start));
   if (preset === "estilo" && captionStyle) return <StyledCaption block={block} activeIndex={activeIndex} height={height} st={captionStyle} />;
   const key = preset === "pop" ? "pop" : "clasico";
@@ -134,7 +140,7 @@ const rgba = (hex: string, alpha: number) => {
  * cada palabra centrada en su lugar (la escala no mueve a las demás), la caja y el resaltador detrás, la sombra
  * con el contorno, y si un renglón no entra en `maxWidth` el bloque entero se achica.
  */
-function GalleryCaption({ block, time, look, format, accent, height }: { block: CaptionBlock; time: number; look: CaptionLook; format: VideoFormat; accent: string; height: number }) {
+function GalleryCaption({ block, time, look, format, accent, height, extraGap = 0 }: { block: CaptionBlock; time: number; look: CaptionLook; format: VideoFormat; accent: string; height: number; extraGap?: number }) {
   const laid = useMemo(() => captionTracks(look, block, format, accent), [look, block, format, accent]);
   const width = format === "9:16" ? (height * 9) / 16 : (height * 16) / 9;
   const em = look.size * height;
@@ -161,7 +167,7 @@ function GalleryCaption({ block, time, look, format, accent, height }: { block: 
         style={{ ...font.style, top: `${look.y * 100}%`, fontSize: `${em}px`, transform: `translate(-50%, -50%) scale(${fit})`, letterSpacing: 0, whiteSpace: "nowrap" }}
       >
         {lines.map((line, li) => (
-          <div key={li} className="flex items-center" style={{ columnGap: `${look.gap}em` }}>
+          <div key={li} className="flex items-center" style={{ columnGap: `${look.gap + extraGap}em` }}>
             {line.map((w, wi) => (
               <GalleryWord key={wi} w={w} time={time} look={look} />
             ))}

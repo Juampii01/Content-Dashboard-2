@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import JobError
 from comunes.runner import JobContext, register
 
-from . import ass, energy, ingest, library, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, energy, graphics, ingest, library, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 
 log = logging.getLogger("worker.video")
 
@@ -125,8 +125,9 @@ STOCK_HOSTS = {"pexels": ("pexels.com",), "pixabay": ("pixabay.com",)}
 
 
 def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str, Any]], size: tuple[int, int], expected: float) -> list[Path]:
-    """Baja cada clip de b-roll (stock de Pixabay o Pexels directo de su CDN; la biblioteca, del almacenamiento privado) y lo deja
-    listo para superponer. Los clips bajados se guardan en la carpeta del proyecto: un segundo render no los repite."""
+    """Deja cada b-roll listo para superponer: baja los clips (stock de Pixabay o Pexels directo de su CDN; la biblioteca,
+    del almacenamiento privado) y dibuja los gráficos con la marca (worker/video/graphics.py). Todo se guarda en la
+    carpeta del proyecto por hash: un segundo render no repite lo que no cambió."""
     cache = workdir / "broll"
     cache.mkdir(exist_ok=True)
     out: list[Path] = []
@@ -134,6 +135,14 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
         ctx.check()
         source = item.get("source")
         start, end = float(item["start"]), min(float(item["end"]), expected)
+        if source == "graphic":
+            # Ya sale a la medida del tramo (tamaño, 30 fps y duración): no pasa por render.prepare_broll.
+            spec = graphics.validate_spec(item.get("spec"))
+            path = cache / graphics.cache_name(spec, size, end - start)
+            graphics.render_graphic(spec, end - start, size, path, ctx.config.fonts_dir)
+            out.append(path)
+            ctx.progress((i + 1) / len(items))
+            continue
         if source in STOCK_HOSTS:
             url = str(item.get("url") or "")
             name = hashlib.sha1(url.encode()).hexdigest()[:16]
@@ -241,6 +250,7 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         "posterKey": data["posterKey"],
         **({"creditsKey": data["creditsKey"]} if data.get("credits") and data.get("creditsKey") else {}),
         "broll": len(broll_items),
+        "graphics": sum(1 for b in broll_items if b.get("source") == "graphic"),
         "zooms": len(data.get("zooms") or []),
         "qc": {"ok": qc["ok"], "checks": qc["checks"]},
         "audio": audio_info,

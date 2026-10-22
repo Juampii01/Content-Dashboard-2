@@ -12,11 +12,28 @@ type Ownership = "private" | "public";
 type PageState = { items: AvatarOption[]; nextToken: string | null; error: string | null; loadingMore: boolean };
 
 /** Grilla de avatares de la cuenta de HeyGen, con paginación por cursor. "Mis avatares" primero. */
-export function AvatarPicker({ selectedId, onSelect }: { selectedId: string | null; onSelect: (avatar: AvatarOption) => void }) {
+export function AvatarPicker({
+  selectedId,
+  onSelect,
+  autoSelectId = null,
+}: {
+  selectedId: string | null;
+  onSelect: (avatar: AvatarOption) => void;
+  /** Si llega en la primera página de "Mis avatares" y no hay nada elegido, se elige solo (Traducir: el clon del video original). */
+  autoSelectId?: string | null;
+}) {
   const [ownership, setOwnership] = useState<Ownership>("private");
   const [pages, setPages] = useState<Partial<Record<Ownership, PageState>>>({});
   const [reloadKey, setReloadKey] = useState(0);
   const current = pages[ownership];
+
+  useEffect(() => {
+    if (!autoSelectId || selectedId) return;
+    const found = pages.private?.items.find((a) => a.id === autoSelectId && a.status !== "processing" && a.status !== "failed");
+    if (found) onSelect(found);
+    // Solo cuando llega la lista: elegir a mano después no se pisa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages.private, autoSelectId]);
 
   useEffect(() => {
     if (pages[ownership] && !pages[ownership]!.error) return;

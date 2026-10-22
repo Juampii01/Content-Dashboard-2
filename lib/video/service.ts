@@ -22,6 +22,7 @@ import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme } fro
 import { sceneSchema } from "./motion/schema";
 import { loadTrack } from "./music";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
+import { phraseFixesForRender } from "./phrase-fix-service";
 import { alignScript } from "./script-align";
 import { hookEnd, MUSIC_DB, sfxCues, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
@@ -453,6 +454,8 @@ export async function startRender(projectId: string, review: Review, format: Vid
   // Música: solo una pista lista de la biblioteca (la clave sale de la base, no del navegador).
   const track = next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
   const music = track?.status === "READY" ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db } : null;
+  // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
+  const phraseFixes = await phraseFixesForRender(projectId);
 
   await getDb()
     .update(schema.videoProjects)
@@ -493,6 +496,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
       creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
       srt: toSrt(timeline.words),
       audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music, studio: studioLevel(next.audio.studio) },
+      phraseFixes,
       outputKey: `${keyPrefix(projectId)}render-${stamp}.mp4`,
       srtKey: `${keyPrefix(projectId)}render-${stamp}.srt`,
       posterKey: `${keyPrefix(projectId)}render-${stamp}.jpg`,

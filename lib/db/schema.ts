@@ -668,9 +668,23 @@ export const cloneVideos = pgTable(
     title: text("title").notNull(),
     scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
     scriptText: text("script_text").notNull(),
-    avatarId: text("avatar_id").notNull(),
+    /** "avatar": video nuevo con el clon (POST /v3/videos) · "translation": traducción de un video (POST /v3/video-translations). */
+    kind: text("kind").notNull().default("avatar"),
+    // En una traducción no hay avatar ni voz elegidos: HeyGen clona la voz del video original.
+    avatarId: text("avatar_id"),
     avatarName: text("avatar_name"),
-    voiceId: text("voice_id").notNull(),
+    voiceId: text("voice_id"),
+    /** Idioma de salida: el nombre que da HeyGen ("English") en una traducción, o el idioma del texto en un video nuevo. */
+    language: text("language"),
+    /** Acento que se le pide a la voz (voice_settings.locale, BCP-47 como "en-US"). Solo en videos nuevos. */
+    voiceLocale: text("voice_locale"),
+    /**
+     * De dónde salió: { type: "editor" | "clone" | "upload", id, title } (traducciones y videos traducidos con el clon).
+     * `mode` (traducción): speed | precision | audio_only.
+     */
+    source: jsonb("source").$type<{ type: "editor" | "clone" | "upload"; id: string | null; title: string; mode?: "speed" | "precision" | "audio_only"; key?: string | null } | null>(),
+    /** Duración del video original (las traducciones se cobran por la duración del original). */
+    sourceSeconds: real("source_seconds"),
     engine: text("engine").notNull(), // avatar_iii | avatar_iv | avatar_v
     aspectRatio: text("aspect_ratio").notNull().default("9:16"),
     resolution: text("resolution").notNull().default("1080p"),
@@ -911,6 +925,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "YT_THUMBNAILS", // fondos sin texto de las miniaturas de YouTube y recorte de fotos del personaje (input.packageId)
   "YOUTUBE_TRANSCRIPT", // subtítulos de un video publicado de YouTube con yt-dlp (input.contentItemId)
   "REEL_COPY", // "Copia este reel": bajar, transcribir y medir un reel ajeno; la app escribe la versión propia (input.reelCopyId)
+  "VIDEO_PHRASE_CLIP", // tramo de una frase corregida (video + voz nueva) para la sincronía de labios (input.fixId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 
@@ -1281,3 +1296,65 @@ export const characterCutouts = pgTable("character_cutouts", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+// ─── Editor: frases corregidas con la voz clonada ─────────────────────────
+
+/**
+ * "Corregir una frase sin regrabar" (revisión del Editor): un tramo de palabras del original que se reemplaza por la
+ * misma frase bien dicha con la voz clonada del cliente (HeyGen). La imagen del tramo se tapa con b-roll, se deja
+ * como está o se redibuja la boca con la sincronía de labios de HeyGen (/v3/lipsyncs).
+ * Los tiempos están en segundos del video original (como la transcripción).
+ * VOICE: generando la voz · READY: lista para el render · LIPSYNC: preparando la boca · FAILED: no se pudo.
+ */
+export const phraseFixStatusEnum = pgEnum("phrase_fix_status", ["VOICE", "READY", "LIPSYNC", "FAILED"]);
+
+export type PhraseFixLipsync = {
+  mode: "speed" | "precision";
+  /** clip: el worker corta el tramo · sent: HeyGen redibuja la boca · done: listo para el render. */
+  stage: "clip" | "sent" | "done";
+  jobId?: string | null;
+  clipKey?: string | null;
+  clipAudioKey?: string | null;
+  clipStart?: number;
+  clipEnd?: number;
+  heygenId?: string | null;
+  resultKey?: string | null;
+  estimatedUsd?: number;
+  checkedAt?: string | null;
+};
+
+export const videoPhraseFixes = pgTable(
+  "video_phrase_fixes",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => videoProjects.id, { onDelete: "cascade" }),
+    fromWord: integer("from_word").notNull(),
+    toWord: integer("to_word").notNull(),
+    originalText: text("original_text").notNull(),
+    newText: text("new_text").notNull(),
+    voiceId: text("voice_id").notNull(),
+    voiceName: text("voice_name"),
+    status: phraseFixStatusEnum("status").notNull().default("VOICE"),
+    /** Ventana del original que se reemplaza (de la primera palabra a la última, con parte del silencio de alrededor). */
+    windowStart: real("window_start").notNull(),
+    windowEnd: real("window_end").notNull(),
+    /** Voz nueva guardada (`editor/<id>/frases/<fix>/voz.<ext>`), su duración y el ajuste de velocidad para que entre. */
+    audioKey: text("audio_key"),
+    audioSeconds: real("audio_seconds"),
+    /** Dónde empieza y termina lo hablado dentro del audio nuevo (sin el silencio de los bordes). */
+    speechStart: real("speech_start"),
+    speechEnd: real("speech_end"),
+    tempo: real("tempo").notNull().default(1),
+    /** Qué se ve durante la frase: "broll" (se tapa), "none" (la cara tal cual) o "lipsync" (boca redibujada por HeyGen). */
+    cover: text("cover").notNull().default("broll"),
+    lipsync: jsonb("lipsync").$type<PhraseFixLipsync | null>(),
+    estimatedCostUsd: real("estimated_cost_usd"),
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("video_phrase_fixes_project_idx").on(t.projectId)],
+);

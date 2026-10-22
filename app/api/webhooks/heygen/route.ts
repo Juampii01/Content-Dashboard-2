@@ -4,7 +4,8 @@ import { getDb, schema } from "@/lib/db";
 import { findVideoForEvent, getWebhookSecret, refreshCloneVideo } from "@/lib/heygen/service";
 
 /**
- * POST /api/webhooks/heygen: avisos de HeyGen cuando un video termina (avatar_video.success | avatar_video.fail).
+ * POST /api/webhooks/heygen: avisos de HeyGen cuando un video termina (avatar_video.success | avatar_video.fail)
+ * o cuando termina una traducción (video_translate.success | video_translate.fail).
  *
  * - Firma: HMAC-SHA256 en hex del body crudo con el secreto del endpoint, en el header `signature`
  *   (developers.heygen.com/docs/webhooks.md). Se verifica sobre el texto tal cual llegó, sin re-serializar,
@@ -22,7 +23,11 @@ function validSignature(raw: string, signature: string, secret: string): boolean
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-type HeyGenEvent = { event_id?: string; event_type?: string; event_data?: { video_id?: string; callback_id?: string | null } };
+type HeyGenEvent = {
+  event_id?: string;
+  event_type?: string;
+  event_data?: { video_id?: string; video_translation_id?: string; video_translate_id?: string; id?: string; callback_id?: string | null };
+};
 
 export async function POST(request: NextRequest) {
   const raw = await request.text();
@@ -44,13 +49,17 @@ export async function POST(request: NextRequest) {
   }
 
   const type = event.event_type ?? "";
-  const videoId = event.event_data?.video_id ?? null;
-  if (!type.startsWith("avatar_video.") || !videoId) {
+  const data = event.event_data ?? {};
+  const translation = type.startsWith("video_translate.");
+  // HeyGen no documenta el payload de las traducciones: se acepta cualquiera de los nombres posibles del id y,
+  // sobre todo, nuestro callback_id (el id de la fila). El estado se consulta después en GET /v3/video-translations/{id}.
+  const videoId = (translation ? (data.video_translation_id ?? data.video_translate_id ?? data.id ?? data.video_id) : data.video_id) ?? null;
+  if (!(type.startsWith("avatar_video.") || translation) || !(videoId || (translation && data.callback_id))) {
     // Otros eventos (o sin video): se aceptan para que HeyGen no reintente, pero no se procesan.
     return NextResponse.json({ ok: true, ignored: true });
   }
 
-  const key = `heygen:${type}:${videoId}`;
+  const key = `heygen:${type}:${videoId ?? data.callback_id}`;
   const inserted = await getDb().insert(schema.webhookEvents).values({ key }).onConflictDoNothing().returning({ key: schema.webhookEvents.key });
   if (inserted.length === 0) return NextResponse.json({ ok: true, duplicate: true });
 

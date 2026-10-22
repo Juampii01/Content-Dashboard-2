@@ -20,6 +20,7 @@
     "test:clips": "node --import tsx --test tests/clips.test.mts",
     "test:youtube": "node --import tsx --test tests/youtube.test.mts",
     "test:youtube-db": "node --conditions=react-server --experimental-test-module-mocks --import tsx --test tests/youtube-retention.test.mts",
+    "test:clon": "node --conditions=react-server --import tsx --test tests/heygen-translation.test.mts",
     "test:score": "node --import tsx --test tests/score.test.mts",
     "test:copia": "node --conditions=react-server --import tsx --test tests/reel-copy.test.mts",
     "test:sistema": "node --import tsx --test tests/onboarding.test.mts tests/system-status.test.mts",

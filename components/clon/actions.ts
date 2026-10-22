@@ -6,7 +6,9 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getCurrentUser, isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
-import { getCloneVideoRow, getCloneVideosByIds, type CloneVideoItem } from "@/lib/dal/clone";
+import { getCloneVideoRow, getCloneVideosByIds, getTranslationSource, type CloneVideoItem } from "@/lib/dal/clone";
+import { cloneLanguage } from "@/lib/heygen/languages";
+import { retryTranslation } from "@/lib/heygen/translation";
 import { balanceFromUser, HeyGenError, type HeyGenBalance } from "@/lib/heygen/client";
 import { countWords, ENGINE_ORDER, estimateCost, formatCredits, formatUsd, type EngineKey } from "@/lib/heygen/pricing";
 import { loadHeyGen, pollCloneVideos, type CloneVideoRow } from "@/lib/heygen/service";
@@ -120,6 +122,9 @@ const createSchema = z.object({
   speed: z.number().min(0.5).max(1.5),
   captions: z.boolean(),
   confirmedCostUsd: z.number().min(0),
+  /** Video en otro idioma (Traducir → "Video nuevo con tu clon"): clave de CLONE_LANGUAGES y video de origen. */
+  languageKey: z.string().max(10).nullish(),
+  translatedFrom: z.object({ type: z.enum(["editor", "clone"]), id: z.uuid() }).nullish(),
 });
 
 export type CreateCloneVideoInput = z.input<typeof createSchema>;
@@ -142,13 +147,13 @@ async function submitToHeyGen(row: CloneVideoRow): Promise<CloneVideoRow> {
   const created = await conn.client.createVideo(
     {
       type: "avatar",
-      avatar_id: row.avatarId,
-      voice_id: row.voiceId,
+      avatar_id: row.avatarId ?? "",
+      voice_id: row.voiceId ?? "",
       script: row.scriptText,
       // Siempre explícito: si no se manda, HeyGen usa Avatar IV, que cuesta 8 veces más que el III.
       engine: { type: row.engine as EngineKey },
       title: row.title,
-      voice_settings: { speed: row.speed },
+      voice_settings: { speed: row.speed, ...(row.voiceLocale ? { locale: row.voiceLocale } : {}) },
       ...(row.background ? { background: row.background } : {}),
       // El SRT llega siempre; `style: default` además los quema en el video.
       caption: { file_format: "srt", style: row.captions ? "default" : null },
@@ -191,6 +196,12 @@ export async function createCloneVideoAction(input: CreateCloneVideoInput): Prom
     return fail(error, "saldo antes de crear");
   }
 
+  // Idioma y origen (si es una versión traducida de otro video): se leen de nuevo en el servidor.
+  const lang = d.languageKey ? cloneLanguage(d.languageKey) : null;
+  if (d.languageKey && !lang) return { ok: false, error: "Ese idioma no está disponible." };
+  const origin = d.translatedFrom ? await getTranslationSource(d.translatedFrom.type, d.translatedFrom.id) : null;
+  if (d.translatedFrom && !origin) return { ok: false, error: "El video original ya no está disponible." };
+
   let scriptId = d.scriptId ?? null;
   if (scriptId) {
     const [script] = await getDb().select({ id: schema.scripts.id }).from(schema.scripts).where(eq(schema.scripts.id, scriptId)).limit(1);
@@ -214,6 +225,9 @@ export async function createCloneVideoAction(input: CreateCloneVideoInput): Prom
       speed: d.speed,
       estimatedSeconds: estimate.seconds,
       estimatedCostUsd: estimate.usd,
+      language: lang?.heygenName ?? null,
+      voiceLocale: lang?.locale ?? null,
+      source: origin ? { type: origin.type, id: origin.id, title: origin.title } : null,
       createdBy: user.id,
     })
     .returning();
@@ -242,6 +256,8 @@ export async function retryCloneVideoAction(id: string): Promise<ActionResult<{ 
   if (row.status !== "FAILED") return { ok: false, error: "Ese video no falló: no hace falta reintentarlo." };
 
   if (row.retriedInto) return { ok: true, data: { id: row.retriedInto } };
+  // Las traducciones se reintentan por su lado (vuelven a subir el video original).
+  if (row.kind === "translation") return retryTranslation(row, user.id);
 
   try {
     if (!row.heygenVideoId) {
@@ -294,6 +310,9 @@ export async function retryCloneVideoAction(id: string): Promise<ActionResult<{ 
         speed: row.speed,
         estimatedSeconds: row.estimatedSeconds,
         estimatedCostUsd: row.estimatedCostUsd,
+        language: row.language,
+        voiceLocale: row.voiceLocale,
+        source: row.source,
         createdBy: user.id,
       })
       .returning();

@@ -81,3 +81,66 @@ export function describeBalance(balance: BalanceLike): { value: string; note: st
 /** Ayuda oficial de HeyGen sobre cómo se paga la API (aparte del plan web) y página para cargar saldo. */
 export const HEYGEN_API_BILLING_HELP = "https://help.heygen.com/en/articles/10060327-heygen-api-pricing-explained";
 export const HEYGEN_API_USAGE_URL = "https://app.heygen.com/developers/usage";
+
+// ─── Traducción, voz y sincronía de labios (tabla oficial actualizada el 19-oct-2026) ─────────────
+
+/**
+ * Tarifas de pago por uso de la API, de la tabla de https://help.heygen.com/en/articles/10060327-heygen-api-pricing-explained
+ * ("Last updated on October 19, 2026"), consultada el 22-oct-2026. Créditos tal como los publica HeyGen.
+ * - Video Translation, por minuto: Speed sin labios (solo audio) US$ 0.57 / 11 · Speed con labios US$ 0.81 / 16 ·
+ *   Precision con labios US$ 1.50 / 30. La documentación aclara que "translations are always charged on the source
+ *   duration" (/docs/video-translate): se cobra por la duración del video original.
+ * - "Lipsync Audio mode", por minuto: Speed US$ 0.84 / 17 · Precision US$ 1.74 / 35. La tabla no dice sobre qué duración
+ *   se cobra: estimamos sobre el tramo que mandamos (el clip recortado), que es lo único que recibe HeyGen.
+ * - Text-to-Speech "Speech, Starfish": US$ 0.12 / 2 créditos por minuto. Las voces "HeyGen Voice" instantáneas cobran
+ *   US$ 15 por millón de caracteres. Una frase corregida cuesta menos de un centavo con cualquiera de las dos.
+ */
+export const TRANSLATION_PRICING_CHECKED_ON = "2026-10-22";
+export const TRANSLATION_PRICING_UPDATED_ON = "2026-10-19";
+
+export type TranslationModeKey = "speed" | "precision" | "audio_only";
+
+export const TRANSLATION_MODES: Record<TranslationModeKey, { label: string; usdPerMinute: number; creditsPerMinute: number; hint: string; lipsync: boolean }> = {
+  speed: { label: "Rápido", usdPerMinute: 0.81, creditsPerMinute: 16, lipsync: true, hint: "Tu voz en el otro idioma y labios sincronizados. Ideal si casi no te mueves." },
+  precision: { label: "Precisión", usdPerMinute: 1.5, creditsPerMinute: 30, lipsync: true, hint: "Labios más naturales y una traducción que cuida el contexto. Para el video final." },
+  audio_only: { label: "Solo audio", usdPerMinute: 0.57, creditsPerMinute: 11, lipsync: false, hint: "Tu voz en el otro idioma, sin tocar la imagen: la boca no coincide." },
+};
+export const TRANSLATION_MODE_ORDER: TranslationModeKey[] = ["speed", "precision", "audio_only"];
+
+export const LIPSYNC_MODES: Record<"speed" | "precision", { label: string; usdPerMinute: number; creditsPerMinute: number }> = {
+  speed: { label: "Rápido", usdPerMinute: 0.84, creditsPerMinute: 17 },
+  precision: { label: "Precisión", usdPerMinute: 1.74, creditsPerMinute: 35 },
+};
+
+export const SPEECH_USD_PER_MINUTE = 0.12;
+export const SPEECH_CREDITS_PER_MINUTE = 2;
+
+export type SimpleEstimate = { seconds: number; usd: number; credits: number; usdPerMinute: number };
+
+/** Costo por minuto con redondeo hacia arriba al centavo (y al crédito). */
+export function perMinuteCost(seconds: number, usdPerMinute: number, creditsPerMinute: number): SimpleEstimate {
+  const minutes = Math.max(0, seconds) / 60;
+  return { seconds, usd: Math.ceil(minutes * usdPerMinute * 100) / 100, credits: Math.ceil(minutes * creditsPerMinute), usdPerMinute };
+}
+
+export function estimateTranslation(seconds: number, mode: TranslationModeKey): SimpleEstimate {
+  const m = TRANSLATION_MODES[mode];
+  return perMinuteCost(seconds, m.usdPerMinute, m.creditsPerMinute);
+}
+
+export function estimateLipsync(seconds: number, mode: "speed" | "precision"): SimpleEstimate {
+  const m = LIPSYNC_MODES[mode];
+  return perMinuteCost(seconds, m.usdPerMinute, m.creditsPerMinute);
+}
+
+export function estimateSpeech(seconds: number): SimpleEstimate {
+  return perMinuteCost(seconds, SPEECH_USD_PER_MINUTE, SPEECH_CREDITS_PER_MINUTE);
+}
+
+/** Saldo que no alcanza para `usd` (o `credits`), con el texto para mostrar. null = alcanza o no se puede saber. */
+export function balanceShortfall(balance: BalanceLike | null, cost: { usd: number; credits: number }): string | null {
+  if (!balance || balance.amount == null) return null;
+  if (balance.unit === "usd" && balance.amount < cost.usd) return `Tu saldo de API en HeyGen (${formatUsd(balance.amount)}) no alcanza: esto cuesta unos ${formatUsd(cost.usd)}.`;
+  if (balance.unit === "credits" && balance.amount < cost.credits) return `Tu saldo de API en HeyGen (${formatCredits(balance.amount)}) no alcanza: esto cuesta unos ${formatCredits(cost.credits)}.`;
+  return null;
+}

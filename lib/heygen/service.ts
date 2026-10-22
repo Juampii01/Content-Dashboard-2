@@ -7,6 +7,8 @@ import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { blobConfigured, copyRemoteFile } from "@/lib/storage/copy";
 import { balanceFromUser, createHeyGenClient, HeyGenError, type HeyGenBalance, type HeyGenClient, type HeyGenVideo } from "./client";
+import { languageLabel } from "./languages";
+import { cleanupUploadedSource, translationAsVideo } from "./translation";
 
 /**
  * Lógica del módulo de clon que no depende de la interfaz: la key del cliente, el webhook,
@@ -17,7 +19,8 @@ import { balanceFromUser, createHeyGenClient, HeyGenError, type HeyGenBalance, t
 
 const KEY_CONTEXT = "heygen.api_key";
 const WEBHOOK_CONTEXT = "heygen.webhook_secret";
-export const WEBHOOK_EVENTS = ["avatar_video.success", "avatar_video.fail"];
+/** Videos con clon y traducciones (los eventos de traducción están en /docs/webhook-events.md, sin su payload documentado). */
+export const WEBHOOK_EVENTS = ["avatar_video.success", "avatar_video.fail", "video_translate.success", "video_translate.fail"];
 
 export type CloneVideoRow = typeof schema.cloneVideos.$inferSelect;
 
@@ -152,8 +155,19 @@ async function claim(id: string, minAgeSec: number): Promise<CloneVideoRow | nul
   return row ?? null;
 }
 
-function failureMessage(video: HeyGenVideo): string {
+/** El video (o la traducción, con la misma forma) tal como lo informa HeyGen ahora. */
+async function fetchRemote(client: HeyGenClient, row: CloneVideoRow): Promise<HeyGenVideo> {
+  if (row.kind === "translation") return translationAsVideo(await client.getVideoTranslation(row.heygenVideoId!)) as HeyGenVideo;
+  return client.getVideo(row.heygenVideoId!);
+}
+
+function failureMessage(video: HeyGenVideo, row?: CloneVideoRow): string {
   const reason = video.failure_message?.trim().replace(/[.\s]+$/, "");
+  if (row?.kind === "translation") {
+    return reason
+      ? `HeyGen no pudo traducir el video. Motivo que informa HeyGen (en inglés): «${reason.slice(0, 300)}». Revisa que se escuche una sola persona y sin música fuerte, y vuelve a intentarlo.`
+      : "HeyGen no pudo traducir el video y no informó el motivo. Vuelve a intentarlo; si se repite, revisa la traducción en tu cuenta de HeyGen.";
+  }
   return reason
     ? `HeyGen no pudo generar el video. Motivo que informa HeyGen (en inglés): «${reason.slice(0, 300)}». Revisa el texto y el avatar, y vuelve a intentarlo.`
     : "HeyGen no pudo generar el video y no informó el motivo. Vuelve a intentarlo; si se repite, revisa el video en tu cuenta de HeyGen.";
@@ -204,7 +218,7 @@ export async function refreshCloneVideo(id: string, options: { minAgeSec?: numbe
 
   let video: HeyGenVideo;
   try {
-    video = await conn.client.getVideo(row.heygenVideoId);
+    video = await fetchRemote(conn.client, row);
   } catch (error) {
     if (error instanceof HeyGenError && error.kind === "NOT_FOUND" && row.status !== "COMPLETED") {
       const [updated] = await db
@@ -245,16 +259,34 @@ export async function refreshCloneVideo(id: string, options: { minAgeSec?: numbe
       })
       .where(eq(schema.cloneVideos.id, id))
       .returning();
-    await notify({ key: `clone-video:${id}`, userId: row.createdBy, tone: "success", title: "Tu video con clon está listo", body: `"${row.title}" ya se puede ver y descargar.`, href: `/clon/${id}`, email: true });
+    await cleanupUploadedSource(row);
+    const translated = row.kind === "translation";
+    await notify({
+      key: `clone-video:${id}`,
+      userId: row.createdBy,
+      tone: "success",
+      title: translated ? `Tu video en ${languageLabel(row.language).toLowerCase()} está listo` : "Tu video con clon está listo",
+      body: `"${row.title}" ya se puede ver y descargar.`,
+      href: `/clon/${id}`,
+      email: true,
+    });
     return updated ?? row;
   }
   if (status === "FAILED") {
     const [updated] = await db
       .update(schema.cloneVideos)
-      .set({ status: "FAILED", errorMessage: failureMessage(video) })
+      .set({ status: "FAILED", errorMessage: failureMessage(video, row) })
       .where(eq(schema.cloneVideos.id, id))
       .returning();
-    await notify({ key: `clone-video:${id}`, userId: row.createdBy, tone: "error", title: "No pudimos generar tu video con clon", body: failureMessage(video), href: `/clon/${id}`, email: true });
+    await notify({
+      key: `clone-video:${id}`,
+      userId: row.createdBy,
+      tone: "error",
+      title: row.kind === "translation" ? "No pudimos traducir tu video" : "No pudimos generar tu video con clon",
+      body: failureMessage(video, row),
+      href: `/clon/${id}`,
+      email: true,
+    });
     return updated ?? row;
   }
   if (status !== row.status) {
@@ -303,7 +335,17 @@ export async function sweepCloneVideos(): Promise<{ checked: number; abandoned: 
   const abandoned = await db
     .update(schema.cloneVideos)
     .set({ status: "FAILED", errorMessage: "El pedido no llegó a HeyGen. No se cobró nada: vuelve a intentarlo." })
-    .where(and(eq(schema.cloneVideos.status, "QUEUED"), sql`${schema.cloneVideos.heygenVideoId} is null`, lt(schema.cloneVideos.createdAt, new Date(Date.now() - 15 * 60_000))))
+    .where(
+      and(
+        eq(schema.cloneVideos.status, "QUEUED"),
+        sql`${schema.cloneVideos.heygenVideoId} is null`,
+        // Una traducción sube antes el video a HeyGen (hasta 200 MB): se le da más margen.
+        or(
+          and(eq(schema.cloneVideos.kind, "avatar"), lt(schema.cloneVideos.createdAt, new Date(Date.now() - 15 * 60_000))),
+          lt(schema.cloneVideos.createdAt, new Date(Date.now() - 45 * 60_000)),
+        ),
+      ),
+    )
     .returning({ id: schema.cloneVideos.id });
   if (!(await getCredentialRow())) return { checked: 0, abandoned: abandoned.length };
   const checked = await pollCloneVideos({ limit: 20, minAgeSec: 60 });
@@ -315,7 +357,7 @@ export async function freshHeyGenFileUrl(row: CloneVideoRow, kind: "video" | "sr
   if (!row.heygenVideoId) return null;
   const conn = await loadHeyGen();
   if (!conn) return null;
-  const video = await conn.client.getVideo(row.heygenVideoId);
+  const video = await fetchRemote(conn.client, row);
   if (kind === "srt") return video.subtitle_url ?? null;
   if (kind === "miniatura") return video.thumbnail_url ?? null;
   return (row.captions ? video.captioned_video_url : null) ?? video.video_url ?? null;

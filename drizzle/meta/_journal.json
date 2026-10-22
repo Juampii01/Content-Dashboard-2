@@ -155,6 +155,13 @@
       "when": 1792694161161,
       "tag": "0021_hazlo-por-mi",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792694287594,
+      "tag": "0022_clon-traduccion-frases",
+      "breakpoints": true
     }
   ]
 }

@@ -173,7 +173,7 @@ export function captionLook(style: CaptionStyleKey, options: { format: VideoForm
     case "caja":
       return { ...base, gap: 0.34, outline: 0.05, shadow: { y: 0.05, blur: 0.12, color: BLACK, alpha: 0.4 }, box: { color: accent, radius: 0.2, padX: 0.16, padY: 0.06 } };
     case "hormozi":
-      return { ...base, lineHeight: 1.08, gap: 0.24, outline: 0.09, shadow: { y: 0.07, blur: 0, color: BLACK, alpha: 0.85 } };
+      return { ...base, lineHeight: 1.08, gap: 0.32, outline: 0.09, shadow: { y: 0.07, blur: 0, color: BLACK, alpha: 0.85 } };
     case "karaoke":
       return { ...base, outline: 0.055 };
     case "palabra":
@@ -371,7 +371,8 @@ export function captionTracks(look: CaptionLook, block: CaptionBlock, format: Vi
       case "hormozi":
         size = w.emphasis ? 1.18 : 1;
         color = [{ t: start, c: w.emphasis ? accent : look.text }];
-        scale = mul(pop(start, 0.72, 1.07, 0.08, 0.07), pulse(1, 1.1, a, nx, 0.07));
+        // El salto de la palabra activa es chico: con palabras largas, más de 6 % invade el espacio de la vecina.
+        scale = mul(pop(start, 0.72, 1.07, 0.08, 0.07), pulse(1, 1.06, a, nx, 0.07));
         break;
       case "karaoke":
         alpha = mul(entrance, pulse(0.42, 1, a, null, 0.06));

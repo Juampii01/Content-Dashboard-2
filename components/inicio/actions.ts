@@ -2,7 +2,8 @@
 
 import { refresh } from "next/cache";
 import { z } from "zod";
-import { isDenied, requireEditor } from "@/lib/auth";
+import { getCurrentUser, isDenied, requireEditor } from "@/lib/auth";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { AiError, aiConfigured } from "@/lib/ai/client";
 import { generateWeeklyReport } from "@/lib/home/weekly-report";
@@ -51,4 +52,12 @@ export async function generateWeeklyReportAction(): Promise<{ ok: true } | { ok:
     console.error("[inicio] resumen", error instanceof Error ? error.message : error);
     return { ok: false, error: "No pudimos generar el resumen. Prueba de nuevo." };
   }
+}
+
+/** "Ya lo conozco": cierra la guía de primer uso para esta persona (no para todo el equipo). */
+export async function dismissOnboardingAction(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  await getDb().update(schema.teamMembers).set({ onboardingDismissedAt: new Date() }).where(eq(schema.teamMembers.userId, user.id));
+  refresh();
+  return { ok: true };
 }

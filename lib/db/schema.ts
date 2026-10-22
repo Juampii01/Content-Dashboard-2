@@ -120,6 +120,7 @@ export const teamMembers = pgTable("team_members", {
   active: boolean("active").notNull().default(true),
   invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
   notificationsSeenAt: timestamp("notifications_seen_at", { withTimezone: true }), // hasta cuándo vio los avisos (null = nunca)
+  onboardingDismissedAt: timestamp("onboarding_dismissed_at", { withTimezone: true }), // cerró la guía de primer uso ("Ya lo conozco")
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarDays, FileText, Flame, House, Palette, Plug, Trophy } from "lucide-react";
+import { ArrowRight, BarChart3, FileText, Flame, House, Plug, Trophy } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Section } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/button";
@@ -11,7 +11,10 @@ import { Skeleton } from "@/components/ui/feedback";
 import { Kpis } from "@/components/metricas/kpis";
 import { ContentGrid } from "@/components/metricas/content-grid";
 import { getOverview, getRisingPieces, getTopPieces } from "@/lib/dal/metrics";
-import { getActiveWork, getFollowerSummary, getSetupProgress } from "@/lib/dal/home";
+import { getActiveWork, getFollowerSummary, getSetupProgress, hasAnyConnection } from "@/lib/dal/home";
+import { buildOnboarding } from "@/lib/home/onboarding";
+import { OnboardingGuide } from "@/components/inicio/onboarding-guide";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ActiveWork } from "@/components/inicio/active-work";
 import { getGrowth } from "@/lib/dal/growth";
 import { GrowthGoal } from "@/components/inicio/growth-goal";
@@ -32,38 +35,37 @@ import { platformLabel } from "@/lib/social/types";
 
 export const metadata: Metadata = { title: "Inicio" };
 
-const steps = [
-  { key: "connected", href: "/ajustes", icon: Plug, title: "Conecta tus redes", description: "Instagram, YouTube y TikTok. Con eso empiezan a llegar tus métricas." },
-  { key: "brand", href: "/marca", icon: Palette, title: "Completa tu marca", description: "Tu tono, tu público y tu estilo. Todo lo que generes va a sonar a ti." },
-  { key: "planned", href: "/calendario", icon: CalendarDays, title: "Planea tu primera pieza", description: "Pon en el calendario lo próximo que vas a publicar." },
-] as const;
-
+/** Guía de primer uso: reemplaza al antiguo bloque "Primeros pasos". Se va sola al completar los cinco pasos. */
 async function FirstSteps() {
-  const progress = await getSetupProgress();
-  const pending = steps.filter((s) => !progress[s.key]);
-  if (pending.length === 0) return null;
+  const [progress, user] = await Promise.all([getSetupProgress(), getCurrentUser()]);
+  if (user.role === "VIEWER") return null;
+  const onboarding = buildOnboarding(progress);
+  if (!onboarding.visible) return null;
+  return <OnboardingGuide onboarding={onboarding} canConnect={user.role === "OWNER"} />;
+}
+
+/** Sin redes: en lugar de un resumen vacío, qué falta y el botón para hacerlo. */
+async function NoNetworks() {
+  const [user, progress] = await Promise.all([getCurrentUser(), getSetupProgress()]);
+  // Si la guía de primer uso está a la vista, ella ya pide conectar las redes: no se repite.
+  if (user.role !== "VIEWER" && buildOnboarding(progress).visible) return null;
   return (
-    <Section title="Primeros pasos" description={`Te ${pending.length === 1 ? "falta 1 paso" : `faltan ${pending.length} pasos`} para dejar tu espacio listo.`}>
-      <ol className="stagger grid gap-3 md:grid-cols-3">
-        {pending.map(({ href, icon: Icon, title, description }, i) => (
-          <li key={href}>
-            <Link href={href} className="card card-lift group flex h-full flex-col gap-3 p-5">
-              <div className="flex items-center justify-between">
-                <span className="tile-icon h-10 w-10">
-                  <Icon className="h-5 w-5" aria-hidden />
-                </span>
-                <span className="font-mono text-xs font-semibold text-muted">0{i + 1}</span>
-              </div>
-              <h3 className="font-semibold">{title}</h3>
-              <p className="text-sm leading-relaxed text-muted">{description}</p>
-              <span className="mt-auto inline-flex items-center gap-1.5 text-sm font-semibold text-accent-hi">
-                Empezar <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" aria-hidden />
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ol>
-    </Section>
+    <EmptyState
+      icon={<BarChart3 className="h-6 w-6" aria-hidden />}
+      title="Tu resumen de la semana aparece aquí"
+      description={
+        user.role === "OWNER"
+          ? "Conecta Instagram, YouTube o TikTok y en unos minutos ves tus seguidores, lo que mejor te funcionó y cómo vas contra la semana anterior."
+          : "Cuando el dueño de la cuenta conecte Instagram, YouTube o TikTok, aquí ves tus seguidores, lo que mejor te funcionó y cómo vas contra la semana anterior."
+      }
+      action={
+        user.role === "OWNER" ? (
+          <ButtonLink href="/ajustes" icon={<Plug className="h-4 w-4" aria-hidden />}>
+            Conectar mis redes
+          </ButtonLink>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -72,8 +74,7 @@ async function Working() {
 }
 
 async function Week() {
-  const progress = await getSetupProgress();
-  if (!progress.connected) return null;
+  if (!(await hasAnyConnection())) return <NoNetworks />;
   const tz = env().APP_TIMEZONE;
   const week = parseFilters({ rango: "7d" }, tz);
   const month = parseFilters({ rango: "28d" }, tz);
@@ -188,6 +189,9 @@ export default function InicioPage() {
       />
       <div className="flex flex-col gap-6">
         <Suspense fallback={null}>
+          <FirstSteps />
+        </Suspense>
+        <Suspense fallback={null}>
           <WeekReadyBanner />
         </Suspense>
         <Suspense fallback={null}>
@@ -195,9 +199,6 @@ export default function InicioPage() {
         </Suspense>
         <Suspense fallback={<Skeleton className="h-48" />}>
           <Week />
-        </Suspense>
-        <Suspense fallback={null}>
-          <FirstSteps />
         </Suspense>
       </div>
     </>

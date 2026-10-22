@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ArrowRight, Check, Clock, Rocket } from "lucide-react";
+import { ArrowRight, Check, Clapperboard, Clock, Compass, Palette, Plug, ScrollText, type LucideIcon } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Progress } from "@/components/ui/feedback";
 import type { Onboarding, OnboardingStepKey } from "@/lib/home/onboarding";
 import { dismissOnboardingAction } from "./actions";
+
+const icons: Record<OnboardingStepKey, LucideIcon> = { connected: Plug, brand: Palette, video: Clapperboard, script: ScrollText, strategist: Compass };
 
 /**
  * Guía de los primeros 10 minutos. A la izquierda la ruta de pasos (fila con scroll en el teléfono), a la derecha
@@ -20,6 +22,7 @@ export function OnboardingGuide({ onboarding, canConnect }: { onboarding: Onboar
   const index = onboarding.steps.findIndex((s) => s.key === selected);
   const step = onboarding.steps[index]!;
   const minutesLeft = onboarding.steps.filter((s) => !s.done).reduce((n, s) => n + s.minutes, 0);
+  const Icon = icons[step.key];
   const connectBlocked = step.key === "connected" && !canConnect;
 
   return (
@@ -80,7 +83,7 @@ export function OnboardingGuide({ onboarding, canConnect }: { onboarding: Onboar
         <div key={step.key} className="card flex animate-step-in flex-col gap-4 p-5 sm:p-6">
           <div className="flex flex-wrap items-center gap-3">
             <span className="tile-icon h-10 w-10">
-              {step.done ? <Check className="h-5 w-5" aria-hidden /> : <Rocket className="h-5 w-5" aria-hidden />}
+              <Icon className="h-5 w-5" aria-hidden />
             </span>
             <span className="font-mono text-xs font-semibold text-accent-glow">
               PASO {String(index + 1).padStart(2, "0")} DE {String(onboarding.total).padStart(2, "0")}

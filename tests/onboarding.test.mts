@@ -1,7 +1,7 @@
 // Pruebas de la guía de primer uso (lib/home/onboarding.ts). Correr con: pnpm test:sistema
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildOnboarding, type SetupProgress } from "../lib/home/onboarding.ts";
+import { buildOnboarding, type SetupProgress } from "../lib/home/onboarding";
 
 const none: SetupProgress = { connected: false, brand: false, video: false, script: false, strategist: false, planned: false, dismissed: false };
 

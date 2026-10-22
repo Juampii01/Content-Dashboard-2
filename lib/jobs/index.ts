@@ -66,6 +66,8 @@ export type WorkerStatus = {
   autoStart: boolean;
   /** Trabajos esperando que nadie tomó en más de 3 minutos. */
   stuck: number;
+  /** Versión que reportó el worker en su último latido (null = nunca se conectó o no la manda). */
+  version: string | null;
 };
 
 export function flyConfigured(): boolean {
@@ -74,7 +76,7 @@ export function flyConfigured(): boolean {
 
 export async function workerStatus(): Promise<WorkerStatus> {
   const db = getDb();
-  const [beat] = await db.select({ seenAt: schema.workerHeartbeats.seenAt }).from(schema.workerHeartbeats).orderBy(desc(schema.workerHeartbeats.seenAt)).limit(1);
+  const [beat] = await db.select({ seenAt: schema.workerHeartbeats.seenAt, version: schema.workerHeartbeats.version }).from(schema.workerHeartbeats).orderBy(desc(schema.workerHeartbeats.seenAt)).limit(1);
   const [stuck] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.jobs)
@@ -85,6 +87,7 @@ export async function workerStatus(): Promise<WorkerStatus> {
     lastSeen,
     autoStart: flyConfigured(),
     stuck: stuck?.n ?? 0,
+    version: beat?.version ?? null,
   };
 }
 

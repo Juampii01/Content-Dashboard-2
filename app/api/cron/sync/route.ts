@@ -10,6 +10,7 @@ import { ensureMonthlyReport } from "@/lib/reports/service";
 import { ensureWeeklyPack } from "@/lib/autopilot/service";
 import { sweepCloneVideos } from "@/lib/heygen/service";
 import { sweepJobNotifications } from "@/lib/notifications";
+import { sweepSystemAlerts } from "@/lib/system/alerts";
 
 export const maxDuration = 300;
 
@@ -97,5 +98,8 @@ export async function GET(request: NextRequest) {
     return 0;
   });
 
-  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone, notified, monthly, autopilot });
+  // Avisos al dueño: conexiones rotas y el worker fallando varios trabajos seguidos.
+  const systemAlerts = await sweepSystemAlerts();
+
+  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone, notified, systemAlerts, monthly, autopilot });
 }

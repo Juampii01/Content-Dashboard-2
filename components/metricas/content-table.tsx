@@ -40,7 +40,7 @@ export function ContentTable({ rows, filters }: { rows: ContentRow[]; filters: M
         </div>
       ),
     },
-    { key: "fecha", header: "Publicada", sortable: true, accessor: (r) => r.publishedAt, cell: (r) => formatDate(r.publishedAt), firstDirection: "desc" },
+    { key: "fecha", header: "Publicada", sortable: true, accessor: (r) => r.publishedAt, cell: (r) => <span className="whitespace-nowrap">{formatDate(r.publishedAt)}</span>, firstDirection: "desc" },
     { key: "views", header: "Visualizaciones", numeric: true, sortable: true, accessor: (r) => r.views, cell: (r) => n(r.views) },
     { key: "alcance", header: "Alcance", numeric: true, sortable: true, accessor: (r) => r.reach, cell: (r) => n(r.reach) },
     { key: "interaccion", header: "Interacción", numeric: true, sortable: true, accessor: (r) => r.engagementRate, cell: (r) => (r.engagementRate == null ? dash : formatPercent(r.engagementRate)) },

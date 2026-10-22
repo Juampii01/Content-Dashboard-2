@@ -66,12 +66,14 @@ export function OnboardingGuide({ onboarding, canConnect }: { onboarding: Onboar
               <button
                 type="button"
                 className="step"
+                title={s.title}
                 data-state={s.done ? "done" : s.key === selected ? "active" : "pending"}
                 aria-current={s.key === selected ? "step" : undefined}
                 onClick={() => setSelected(s.key)}
               >
                 <span className="step-node">{s.done ? <Check className="h-3.5 w-3.5" aria-hidden /> : i + 1}</span>
-                <span>
+                {/* En el teléfono la ruta muestra solo los números (el nombre está en la tarjeta): entran los cinco sin scroll. */}
+                <span className="sr-only lg:not-sr-only">
                   {s.title}
                   {s.done && <span className="sr-only"> (listo)</span>}
                 </span>

@@ -13,6 +13,7 @@ import { CAPTION_PICKER_ORDER, CAPTION_PRESETS, captionBlocks } from "@/lib/vide
 import { brollSegments, computeZooms } from "@/lib/video/effects";
 import { rangesFromIds } from "@/lib/video/plan";
 import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
+import { studioLevel, type AudioPreview, type StudioLevel } from "@/lib/video/studio-audio";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
 import { buildTimeline } from "@/lib/video/timeline";
 import type { GraphicLook } from "@/lib/video/graphics";
@@ -52,6 +53,7 @@ export function ReviewEditor({
   style = null,
   graphicLook,
   tracks = [],
+  audioPreview = null,
 }: {
   projectId: string;
   plan: EditPlan;
@@ -71,6 +73,8 @@ export function ReviewEditor({
   graphicLook: GraphicLook;
   /** Pistas de música listas de la biblioteca. */
   tracks?: TrackItem[];
+  /** Muestra de 10 s de "Audio de estudio" (antes y después), si ya está. */
+  audioPreview?: AudioPreview | null;
 }) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
@@ -93,6 +97,8 @@ export function ReviewEditor({
   // Planes de antes de los efectos: sin efectos (así el video no cambia si se vuelve a renderizar).
   const [sfx, setSfx] = useState<SfxLevel>(sfxLevel(plan.audio.sfx));
   const [music, setMusic] = useState<{ trackId: string | null; db: number }>({ trackId: plan.audio.music_asset_id, db: plan.audio.music_db });
+  // Planes de antes del audio de estudio: apagado (el audio sale como antes).
+  const [studio, setStudio] = useState<StudioLevel>(studioLevel(plan.audio.studio));
   const [editing, setEditing] = useState<string | null>(null);
   const captionStyle = style?.captions ?? null;
 
@@ -115,9 +121,10 @@ export function ReviewEditor({
       ...(style ? { zooms: zoomsOn } : {}),
       emoji,
       sfx,
+      studio,
       music: { trackId: music.trackId && tracks.some((t) => t.id === music.trackId) ? music.trackId : null, db: Math.max(-30, Math.min(-8, music.db)) },
     }),
-    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, music, tracks],
+    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks],
   );
 
   const timeline = useMemo(
@@ -652,7 +659,7 @@ export function ReviewEditor({
           </div>
 
           <div className="card flex flex-col gap-4 p-4">
-            <AudioPanel sfx={sfx} onSfx={setSfx} musicId={music.trackId} musicDb={music.db} onMusic={setMusic} tracks={tracks} canEdit={canEdit} />
+            <AudioPanel studio={studio} onStudio={setStudio} audioPreview={audioPreview} sfx={sfx} onSfx={setSfx} musicId={music.trackId} musicDb={music.db} onMusic={setMusic} tracks={tracks} canEdit={canEdit} />
           </div>
 
           {canEdit && (

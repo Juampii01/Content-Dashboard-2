@@ -24,6 +24,7 @@ import { loadTrack } from "./music";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
 import { alignScript } from "./script-align";
 import { hookEnd, MUSIC_DB, sfxCues, sfxLevel, type SfxLevel } from "./sfx";
+import { studioLevel, type StudioLevel } from "./studio-audio";
 import type { StyleMetrics } from "./style";
 import { stylePreset } from "./styles";
 import { buildTimeline } from "./timeline";
@@ -290,6 +291,8 @@ export type Review = {
   emoji?: boolean;
   /** Efectos de sonido. */
   sfx?: SfxLevel;
+  /** Audio de estudio (ruido y eco fuera). */
+  studio?: StudioLevel;
   /** Música de fondo: pista de la biblioteca (o null) y su volumen respecto de la voz. */
   music?: { trackId: string | null; db: number };
 };
@@ -311,6 +314,7 @@ function applyReview(plan: EditPlan, review: Review, words: Transcript["words"],
     audio: {
       ...plan.audio,
       ...(review.sfx ? { sfx: sfxLevel(review.sfx) } : {}),
+      ...(review.studio ? { studio: studioLevel(review.studio) } : {}),
       ...(review.music
         ? { music_asset_id: review.music.trackId, music_db: Math.round(Math.max(MUSIC_DB.min, Math.min(MUSIC_DB.max, review.music.db))) }
         : {}),
@@ -442,7 +446,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
       credits,
       creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
       srt: toSrt(timeline.words),
-      audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music },
+      audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music, studio: studioLevel(next.audio.studio) },
       outputKey: `${keyPrefix(projectId)}render-${stamp}.mp4`,
       srtKey: `${keyPrefix(projectId)}render-${stamp}.srt`,
       posterKey: `${keyPrefix(projectId)}render-${stamp}.jpg`,

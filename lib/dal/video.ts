@@ -7,6 +7,7 @@ import { latestProjectJob, workerStatus, type WorkerStatus } from "@/lib/jobs";
 import { fileDriver, readUrl } from "@/lib/storage";
 import { cleanupReplaced } from "@/lib/video/service";
 import type { EditPlan, MediaInfo, Transcript } from "@/lib/video/types";
+import type { AudioPreview, AudioPreviewMedia } from "@/lib/video/studio-audio";
 
 export type ProjectStatus = (typeof schema.videoProjectStatusEnum.enumValues)[number];
 
@@ -106,6 +107,8 @@ export type ProjectView = {
   sourceKey: string | null;
   errorMessage: string | null;
   media: MediaInfo | null;
+  /** Muestra de "Audio de estudio" (10 s antes y después), si el worker la armó al analizar. */
+  audioPreview: AudioPreview | null;
   transcript: Transcript | null;
   plan: EditPlan | null;
   proxyUrl: string | null;
@@ -121,6 +124,12 @@ export type ProjectView = {
 };
 
 const safeName = (title: string) => title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "video";
+
+async function previewUrls(preview: AudioPreviewMedia | undefined, sign: (key: string | undefined) => Promise<string | null>): Promise<AudioPreview | null> {
+  if (!preview?.keys?.original) return null;
+  const [original, soft, strong] = await Promise.all([sign(preview.keys.original), sign(preview.keys.soft), sign(preview.keys.strong)]);
+  return original ? { start: preview.start, duration: preview.duration, urls: { original, soft, strong } } : null;
+}
 
 export async function getProject(id: string): Promise<ProjectView | null> {
   const me = await getCurrentUser();
@@ -148,6 +157,7 @@ export async function getProject(id: string): Promise<ProjectView | null> {
     sourceKey: p.sourceKey,
     errorMessage: p.errorMessage,
     media,
+    audioPreview: await previewUrls(media?.audioPreview, sign),
     transcript: (p.transcript ?? null) as Transcript | null,
     plan: (p.plan ?? null) as EditPlan | null,
     proxyUrl: await sign(media?.proxyKey),

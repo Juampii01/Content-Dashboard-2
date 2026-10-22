@@ -189,6 +189,35 @@ Seis estilos además de Clásico, Pop y "Del estilo": **Caja** (píldora del ace
 - **Mezcla** (`render.mix_audio`): la voz ya normalizada a -14 LUFS no se toca; los efectos van con `adelay` y su ganancia, la música se mide, se lleva a "voz + volumen", se repite hasta el final con fundidos y baja ~9 dB mientras hablas (`sidechaincompress` con la voz como llave, ataque 20 ms, salida 450 ms). `amix` sin normalizar y un limitador al techo de la voz (-1 dBFS, que la voz sola no toca, con la latencia compensada).
 - **Medido** en un render real de 24 s (Caja con emojis, Marcado y música a -12 dB): sonoridad -14,3 LUFS con y sin efectos y música (igual), pico -3,8 dBFS; en los whoosh, el efecto queda 11 a 14 dB por debajo de la voz cuando hablas; la música, unos 19 dB por debajo bajo la voz. Pruebas: `tests/test_audio_mix.py`.
 
+## Audio de estudio
+
+Para que una toma con el teléfono en una habitación con eco y ruido suene limpia. En la revisión, panel de sonido: **Apagado / Suave / Fuerte** (`plan.audio.studio`; los planes nuevos arrancan en Suave y los de antes, sin el campo, quedan apagados y suenan igual que antes).
+
+- **Ruido**: [DeepFilterNet3](https://github.com/Rikorose/DeepFilterNet) (MIT o Apache-2.0, a elección), un modelo de 8,6 MB que corre en CPU. Sus tres redes ONNX (`enc`, `erb_dec`, `df_dec`) corren con **onnxruntime** (ya venía en la imagen por la transcripción) sobre el audio entero, en tramos de 45 s con 15 s de contexto; el procesado de señal de libDF (STFT de 960 con ventana de Vorbis, 32 bandas ERB, normalizaciones exponenciales, máscara por banda y filtro profundo de orden 5 en los primeros 96 bins) está reescrito en numpy (`worker/video/studio.py`). La salida es igual a la del binario oficial `deep-filter -D` (diferencia por debajo de -55 dB con el audio entero de una vez; -41 dB por tramos) y **~12 veces más rápida** que ese binario, que procesa cuadro a cuadro.
+- **Eco**: DeepFilterNet3 se entrenó también con reverberación y ya recorta parte de la cola. Encima, supresión de la reverberación tardía (modelo estadístico de Lebart/Habets: la cola es la energía de hace 50 ms caída según el tiempo de reverberación), con el T60 estimado a ciegas por la velocidad de caída de la energía al final de las palabras. Si la sala es seca (estimación < 0,17 s) no se toca. Suave usa el T60 estimado y un piso de -8 dB; Fuerte, 1,8 veces el estimado y un piso de -14 dB.
+- **Zumbido de la red** (50 o 60 Hz y armónicos): DeepFilterNet no lo quita bien. Se detecta en los silencios (un armónico que sobresale 10 dB de sus vecinos) y se corta con filtros angostos.
+- **Voz** (después, en ffmpeg, sin volver a reducir ruido): pasa altos (80 Hz Suave, 90 Hz Fuerte), -2/-3 dB en 250 Hz (menos "caja"), +2/+3 dB en 3,5 kHz (presencia), +1,5/+2 dB arriba de 10 kHz, de-esser y compresión 3:1 / 4:1. Apagado usa la cadena de siempre (`afftdn`).
+- **Suave** deja el ruido unos 28 dB más bajo en vez de borrarlo (mezcla el original por debajo): suena natural. **Fuerte** lo borra del todo y quita más eco; la voz puede sonar más seca.
+- **Muestra "Escuchar antes y después"**: el worker la arma **al analizar** (después de transcribir): la ventana de 10 s con más voz, en tres MP3 (original, Suave y Fuerte) a -14 LUFS, en `editor/<id>/audio-estudio/`. Se eligió hacerlo ahí y no con un trabajo aparte porque cuesta unos segundos, no necesita tipo de trabajo nuevo (ni migración), y cuando la persona abre la revisión suena al instante sin encender el worker. Si falla, el análisis sigue y la revisión lo dice. MP3 y no AAC: Chromium sin códecs propietarios no reproduce AAC.
+- **Modelo en la imagen**: `scripts/fetch_models.py` lo baja al construir (`/app/models/deepfilternet3`), primero del `.tar.gz` del repo en v0.5.6 y, si no responde, del binario oficial de la misma versión (lo trae adentro); en los dos casos se comprueba el sha256 de cada archivo. Sin el modelo (solo en desarrollo), el render usa la cadena de siempre y lo anota en `outputMeta.audio.studio`.
+
+**Sincronía**: `afftdn` (la reducción de ruido de ffmpeg de la cadena de siempre) corría la voz **25 ms** respecto del video y el limitador sin `latency=1`, otros **5 ms**. Ahora el retraso de la cadena se mide con una señal de prueba (una vez por proceso, `render.chain_latency`) y se compensa, y el limitador compensa su anticipación: la voz queda alineada muestra a muestra en los tres niveles (prueba en `tests/test_studio_audio.py`).
+
+**Normalización**: el `loudnorm` final con `linear=true` caía casi siempre al modo dinámico (con "bombeo"): le alcanzaba con que la ganancia final llevara el pico verdadero apenas por encima de -1 dBTP. Ahora la última pasada es la ganancia exacta (lo que haría el modo lineal) con un limitador a -1,5 dBFS, y una vuelta de corrección si el limitador se comió más de 0,25 dB.
+
+**Medido** (60 s de voz de MS-SNSD, MIT, con reverberación por convolución —RT60 0,7 s— y ruido real de aire acondicionado con zumbido a 12 dB de SNR; "piso" = RMS en una pausa de 0,6 s; SNR y cola estimados contra la voz limpia; todo a -14 LUFS):
+
+| | LUFS | Pico (dBTP) | Piso en la pausa | SNR estimado | Cola de eco (0–250 ms) | STOI |
+|---|---|---|---|---|---|---|
+| Grabación | -13,9 | — | -25,2 dB | 12,5 dB | -8,1 dB | 0,706 |
+| Apagado | -14,0 | -1,3 | -30,6 dB | 17,7 dB | -9,0 dB | 0,687 |
+| Suave | -14,1 | -1,0 | -49,5 dB | 36,1 dB | -13,4 dB | 0,750 |
+| Fuerte | -14,2 | -1,0 | -68,6 dB | 51,9 dB | -15,5 dB | 0,752 |
+
+Con ruido no estacionario (tecleo, vecinos, puertas): SNR 13,7 → 31,6 (Suave) y 37,4 dB (Fuerte). En una toma **seca** con ruido, Suave y Fuerte no aplican la quita de eco (sala seca detectada) y la inteligibilidad (STOI) queda igual que Apagado.
+
+**Velocidad**: unos 4,6 s de CPU por minuto de audio (Suave) y 5,4 s (Fuerte) en la máquina de desarrollo (2 vCPU compartidas, con carga); el modelo solo, ~2 s de CPU por minuto. En una performance-4x (4 vCPU dedicadas) se estima ~2–3 s por minuto de video final; la muestra de 10 s, ~1 s por nivel. Memoria: ~1,1 GB de pico con 5 min de audio (sin la reserva de memoria de onnxruntime). Pruebas: `tests/test_studio_audio.py`.
+
 ## Clips desde un video largo
 
 El cliente sube un podcast, un live o un video de YouTube de 10 a 120 minutos (hasta 2 h 30 min y 8 GB; mínimo 3 min), o pega un link que el worker baja con **yt-dlp** (hasta 1080p y 6 GB; YouTube suele funcionar, Instagram suele pedir sesión). Pantalla: Editor de video → **Clips desde un video largo** (`/editor/clips`).

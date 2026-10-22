@@ -739,6 +739,69 @@ export const videoStyles = pgTable(
   (t) => [index("video_styles_updated_at_idx").on(t.updatedAt)],
 );
 
+export const longVideoStatusEnum = pgEnum("long_video_status", ["UPLOADING", "PROCESSING", "READY", "FAILED"]);
+
+/**
+ * "Clips desde un video largo": un podcast, un live o un video de YouTube del que se sacan shorts.
+ * El worker lo transcribe, la app elige los momentos (reglas + Claude) y el worker sigue las caras de cada uno.
+ */
+export const longVideos = pgTable(
+  "long_videos",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    status: longVideoStatusEnum("status").notNull().default("UPLOADING"),
+    sourceKind: text("source_kind").notNull(), // "upload" | "link"
+    sourceUrl: text("source_url"), // link de YouTube (o Instagram, TikTok) que baja el worker con yt-dlp
+    sourceKey: text("source_key"), // `editor/largos/<id>/original.<ext>` (subido o bajado)
+    sourceName: text("source_name"),
+    sourceBytes: bigint("source_bytes", { mode: "number" }),
+    media: jsonb("media").$type<Record<string, unknown>>(), // duración, tamaño, fps y póster
+    transcript: jsonb("transcript").$type<unknown>(), // palabras con id, inicio y fin (como en video_projects)
+    analysis: jsonb("analysis").$type<Record<string, unknown>>(), // quién eligió (IA o reglas), avisos y candidatos vistos
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("long_videos_updated_at_idx").on(t.updatedAt)],
+);
+
+/** Un momento de un video largo que funciona solo como short, con su puntaje, su explicación y su reencuadre. */
+export const longVideoClips = pgTable(
+  "long_video_clips",
+  {
+    id: id(),
+    longVideoId: uuid("long_video_id")
+      .notNull()
+      .references(() => longVideos.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(), // orden por puntaje dentro del video (1 = el mejor)
+    discarded: boolean("discarded").notNull().default(false),
+    fromWord: integer("from_word").notNull(),
+    toWord: integer("to_word").notNull(),
+    start: real("start").notNull(), // segundos del video largo (con un margen corto antes de la primera palabra)
+    end: real("end").notNull(),
+    // Tramo de la vista previa y del reencuadre: el clip con margen, para poder mover el inicio y el fin.
+    windowStart: real("window_start").notNull(),
+    windowEnd: real("window_end").notNull(),
+    title: text("title").notNull(),
+    hookText: text("hook_text").notNull(), // texto de gancho sugerido para poner arriba del video
+    reason: text("reason").notNull(), // "por qué este momento"
+    hookType: text("hook_type"), // tipo de gancho (las mismas categorías que el ranking de Métricas)
+    score: integer("score").notNull(), // 0 a 100, relativo dentro del video (no es una probabilidad de nada)
+    scoreDetail: jsonb("score_detail").$type<Record<string, unknown>>().notNull(),
+    framing: jsonb("framing").$type<Record<string, unknown>>(), // camino de la cámara virtual (ver worker/video/reframe.py)
+    previewKey: text("preview_key"),
+    posterKey: text("poster_key"),
+    // Proyecto del Editor creado a partir del clip ("Abrir en el editor" o "Exportar directo").
+    projectId: uuid("project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    exportMode: text("export_mode"), // "editor" | "export"
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("long_video_clips_video_idx").on(t.longVideoId, t.rank)],
+);
+
 export const brollClipStatusEnum = pgEnum("broll_clip_status", ["UPLOADING", "PROCESSING", "READY", "FAILED"]);
 
 /** Biblioteca de b-roll del cliente: clips propios que sube una vez y el editor reutiliza. */
@@ -779,6 +842,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "CODEX_LOGIN", // conectar la cuenta de ChatGPT del cliente (login por código de dispositivo)
   "VIDEO_STYLE", // análisis de un video de referencia (input.styleId)
   "VIDEO_CLIP", // miniatura y datos de un clip de la biblioteca de b-roll (input.clipId)
+  "LONG_VIDEO_CLIPS", // clips desde un video largo: transcribir, elegir momentos y seguir caras (input.longVideoId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 

@@ -57,6 +57,11 @@ const NUMBER_WORDS = new Set([
 ]);
 const STRONG_HOOK = /\b(nadie|error(es)?|secreto|deja de|nunca|la verdad|el problema|la razón|por qué|c[oó]mo (hacer|lograr|conseguir)|si (t[uú] )?(quieres|tienes|eres|est[aá]s)|te voy a (contar|mostrar|explicar)|lo que (nadie|nunca)|aprend[ií]|no es (que|el|la|por)|en realidad|todo el mundo|la mayor[ií]a)\b/i;
 
+/** Minúsculas sin tildes (así `\b` funciona con "empecé", "aprendí"…); conserva signos y dígitos. */
+function fold(text: string): string {
+  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 /** Una palabra es una cifra si tiene dígitos o es un número dicho con letras ("tres", "mil"). */
 export function isNumberWord(text: string): boolean {
   return /\d/.test(text) || NUMBER_WORDS.has(norm(text)) || /%/.test(text);
@@ -64,7 +69,7 @@ export function isNumberWord(text: string): boolean {
 
 /** Tipo de gancho por reglas (las mismas categorías del ranking de Métricas). Claude lo confirma después. */
 export function classifyHook(text: string): HookCategory {
-  const t = text.toLowerCase();
+  const t = fold(text);
   if (/\b(\d+|dos|tres|cuatro|cinco|seis|siete|diez)\s+(cosas|pasos|errores|formas|maneras|claves|razones|reglas|trucos|tips)\b/.test(t)) return "lista";
   if (/[¿?]/.test(t)) return "pregunta";
   if (/(\d|mil|millones|doble|triple)/.test(t) && /\b(pas[eéó]|gan[eéó]|logr[eéó]|sub[ií]|factur|duplic|tripl|de \S+ a \S+|vend[ií])/.test(t)) return "resultado";
@@ -150,7 +155,7 @@ export function ruleParts(f: RuleFeatures, stats: VideoStats): RuleParts {
   let hook = 0.4;
   if (f.hookType === "pregunta") hook += 0.2;
   if (/\d|mil|millones/.test(f.hookText)) hook += 0.15;
-  if (STRONG_HOOK.test(f.hookText)) hook += 0.2;
+  if (STRONG_HOOK.test(fold(f.hookText))) hook += 0.2;
   if (f.hookType !== "otro" && f.hookType !== "pregunta") hook += 0.1;
   if (f.startsWithConnector) hook -= 0.35;
   if (f.hookSeconds > 14) hook -= 0.15;

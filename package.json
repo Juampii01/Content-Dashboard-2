@@ -17,6 +17,7 @@
     "test:video": "node --import tsx --test tests/video.test.mts tests/video-style.test.mts tests/video-graphics.test.mts tests/video-broll-edit.test.mts",
     "test:motion": "node --conditions=react-server --import tsx --test tests/motion.test.mts tests/motion-ai.test.mts",
     "test:report": "node --import tsx --test tests/report.test.mts",
+    "test:clips": "node --import tsx --test tests/clips.test.mts",
     "motion:icons": "node scripts/motion-icons.mjs",
     "motion:bundle": "node scripts/motion-bundle.mjs",
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",

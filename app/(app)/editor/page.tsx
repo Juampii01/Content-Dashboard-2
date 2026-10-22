@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Clapperboard, Library, Palette, Upload } from "lucide-react";
+import { Clapperboard, Library, Palette, Scissors, Upload } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,6 +53,9 @@ export default function EditorPage() {
         icon={<Clapperboard className="h-5 w-5" aria-hidden />}
         actions={
           <div className="flex flex-wrap gap-2">
+            <ButtonLink href="/editor/clips" variant="ghost" icon={<Scissors className="h-4 w-4" aria-hidden />}>
+              Clips desde un video largo
+            </ButtonLink>
             <ButtonLink href="/editor/estilos" variant="ghost" icon={<Palette className="h-4 w-4" aria-hidden />}>
               Estilos
             </ButtonLink>

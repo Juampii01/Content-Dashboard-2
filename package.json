@@ -30,7 +30,8 @@
     "motion:bundle": "node scripts/motion-bundle.mjs",
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",
     "vercel-build": "pnpm preparar && next build",
-    "demo": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/demo.ts"
+    "demo": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/demo.ts",
+    "test:director": "node --import tsx --test tests/director.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",

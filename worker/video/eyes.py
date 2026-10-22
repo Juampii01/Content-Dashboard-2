@@ -194,7 +194,7 @@ def text_boxes(gray: np.ndarray, limit: int = 3) -> list[tuple[int, int, int, in
         if bh < h * 0.012 or bh > h * 0.12 or bw_ < bh * 2.2 or bw_ < w * 0.12:
             continue
         fill = cv2.countNonZero(bw[y : y + bh, x : x + bw_]) / float(bw_ * bh)
-        if fill < 0.18 or fill > 0.85:
+        if fill < 0.08 or fill > 0.85:
             continue
         boxes.append((x, y, bw_, bh))
     boxes.sort(key=lambda b: -(b[2] * b[3]))

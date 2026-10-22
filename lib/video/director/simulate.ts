@@ -185,6 +185,10 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
     .filter((f) => NUMBER_WORD.test(f.text) && !broll.some((b) => overlaps({ from: b.from_word, to: b.to_word }, { from: f.from, to: f.to })) && !removed.has(f.from))
     .slice(0, 4)
     .map((f) => ({ from_word: f.from, to_word: Math.min(f.to, f.from + 3), strength: pace === "fast" ? "marcado" : "suave", why: "Énfasis en el dato." }));
+  if (/sin zoom|quita el zoom|menos zoom|saca el zoom/.test(instruction)) {
+    zooms.length = 0;
+    changes.push("Sin zooms.");
+  }
   const emphasis = words.filter((w) => NUMBER_WORD.test(w.text) && !removed.has(w.id)).map((w) => w.id).slice(0, 8);
 
   // Versión corta: quita frases de la mitad (puntos, no cifras ni CTA) hasta unos 30 s.

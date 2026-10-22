@@ -20,6 +20,8 @@ export type NotificationInput = {
   href: string;
   /** Mandar correo además del aviso en la app. */
   email: boolean;
+  /** Nota al pie del correo (por defecto, la de los trabajos que tardan más de un minuto). */
+  footnote?: string;
 };
 
 const EMAIL_AFTER_SECONDS = 60;
@@ -43,7 +45,7 @@ export async function notify(input: NotificationInput): Promise<void> {
       intro: input.body,
       actionLabel: input.tone === "success" ? "Abrir" : "Ver qué pasó",
       actionUrl: `${env().NEXT_PUBLIC_APP_URL}${input.href}`,
-      footnote: "Te avisamos por correo cuando termina un trabajo que tarda más de un minuto, así no tienes que esperar con la pestaña abierta.",
+      footnote: input.footnote ?? "Te avisamos por correo cuando termina un trabajo que tarda más de un minuto, así no tienes que esperar con la pestaña abierta.",
     });
     await db.execute(sql`update notifications set emailed_at = now() where id = ${row.id}`);
   } catch (error) {

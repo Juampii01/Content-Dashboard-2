@@ -388,7 +388,7 @@ export function NewProjectFlow({
                 accent={captionBrand.accent}
                 brandFont={captionBrand.font}
                 captionStyle={style?.preset.captions ?? null}
-                className="sm:grid-cols-4 lg:grid-cols-5"
+                className="sm:grid-cols-3 lg:grid-cols-5"
               />
               <p className="text-sm text-muted" aria-live="polite">
                 <span className="font-semibold text-white">{CAPTION_PRESETS[preset].label}:</span> {CAPTION_PRESETS[preset].description} Los emojis y el sonido se eligen en la revisión.

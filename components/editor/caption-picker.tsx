@@ -94,20 +94,21 @@ export function CaptionSample({
   const blocks = useMemo(() => (preset === "ninguno" ? [] : captionBlocks(SAMPLE_WORDS, preset, preset === "estilo" ? captionStyle : null)), [preset, captionStyle]);
   const look = useMemo(() => (isCaptionStyle(preset) ? captionLook(preset, { format: "9:16", accent, brandFont, emoji }) : null), [preset, accent, brandFont, emoji]);
   const block = blocks.find((b) => time >= b.start && time < b.end) ?? null;
-  // La caja de la miniatura es 3:4; el cuadro virtual es 1,5 veces más alto y su 66 % cae al 60 % de la caja.
-  const boxH = (width * 4) / 3;
-  const frameH = boxH * 1.5;
-  const frameW = (frameH * 9) / 16;
+  // La miniatura es 5:4 y muestra la franja de los subtítulos de un cuadro 9:16 virtual tan ancho que el 80 %
+  // de su ancho (el máximo de un renglón) ocupa casi toda la miniatura: así el texto se lee a tamaño chico.
+  const boxH = (width * 4) / 5;
+  const frameW = width / 0.86;
+  const frameH = (frameW * 16) / 9;
   const anchor = preset === "estilo" && captionStyle ? captionStyle.position : preset === "clasico" || preset === "pop" ? 0.66 : (look?.y ?? 0.665);
   return (
-    <div ref={box} className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-gradient-to-b from-[#1b2b55] via-[#0c1838] to-[#050b20]" aria-hidden>
-      <div className="absolute top-[10%] left-1/2 h-[42%] w-[52%] -translate-x-1/2 rounded-[45%] bg-white/[0.07]" />
-      <div className="absolute top-[46%] left-1/2 h-[60%] w-[86%] -translate-x-1/2 rounded-t-[45%] bg-white/[0.05]" />
+    <div ref={box} className="relative aspect-[5/4] w-full overflow-hidden rounded-xl bg-gradient-to-b from-[#1b2b55] via-[#0c1838] to-[#050b20]" aria-hidden>
+      <div className="absolute top-[-6%] left-1/2 h-[48%] w-[34%] -translate-x-1/2 rounded-[45%] bg-white/[0.07]" />
+      <div className="absolute top-[38%] left-1/2 h-[80%] w-[70%] -translate-x-1/2 rounded-t-[45%] bg-white/[0.05]" />
       {preset === "ninguno" ? (
-        <span className="absolute inset-x-0 top-[56%] text-center text-xs text-muted">Sin texto en pantalla</span>
+        <span className="absolute inset-x-0 top-[48%] text-center text-xs text-muted">Sin texto en pantalla</span>
       ) : (
         width > 0 && (
-          <div className="absolute" style={{ width: frameW, height: frameH, left: (width - frameW) / 2, top: boxH * 0.6 - anchor * frameH }}>
+          <div className="absolute" style={{ width: frameW, height: frameH, left: (width - frameW) / 2, top: boxH * 0.56 - anchor * frameH }}>
             <CaptionOverlay block={block} time={time} preset={preset} format="9:16" accent={accent} height={frameH} captionStyle={captionStyle} look={look} />
           </div>
         )
@@ -140,7 +141,7 @@ export function CaptionPicker({
   const [ref, inView] = useInView<HTMLDivElement>();
   const time = useLoopTime(inView);
   return (
-    <div ref={ref} role="radiogroup" aria-label="Estilo de subtítulos" className={cn("grid grid-cols-2 gap-2.5 sm:grid-cols-3", className)}>
+    <div ref={ref} role="radiogroup" aria-label="Estilo de subtítulos" className={cn("grid grid-cols-2 gap-2.5", className)}>
       {options.map((k) => {
         const active = value === k;
         return (

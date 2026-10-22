@@ -5,8 +5,11 @@
    miden lo mismo en cada tramo, así no hay desfase acumulado. Fundido de 10 ms en cada borde (sin clics).
    Los tramos se guardan con un nombre que depende de sus cuadros: un segundo render reutiliza los que no cambiaron.
 2. Unión con el demuxer concat (sin recodificar; el audio va en PCM, que no agrega relleno entre tramos).
-3. Audio: pasa altos 80 Hz, reducción de ruido, +2 dB entre 3 y 5 kHz, de-esser, compresor 3:1, limitador y
-   `loudnorm` en dos pasadas con `linear=true` a -14 LUFS y -1 dBTP (solo ganancia, sin "bombeo").
+3. Audio: con "Audio de estudio" (Suave o Fuerte), ruido y eco fuera con DeepFilterNet3 (`studio.py`) y después
+   ecualización de voz, de-esser y compresión; apagado (y en los planes de antes), la cadena de siempre (pasa altos
+   80 Hz, reducción de ruido de ffmpeg, +2 dB entre 3 y 5 kHz, de-esser, compresor 3:1). Luego limitador y
+   `loudnorm` en dos pasadas con `linear=true` a -14 LUFS y -1 dBTP (solo ganancia, sin "bombeo"). El retraso que
+   agregan los filtros (afftdn corre la voz 25 ms) se mide y se compensa: la voz queda alineada con el video.
 4. Video final: reencuadre (16:9 → 9:16 con recorte estático y ajuste horizontal), subtítulos ASS y
    H.264 High, yuv420p, 30 fps, CRF 18, BT.709, AAC 48 kHz 192k, `+faststart`.
 5. Control de calidad: duración, tamaño, cuadros por segundo, sonoridad y sincronía.
@@ -14,18 +17,20 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
 from comunes import ffmpeg
 from comunes.errors import JobError
 
-from . import broll_edit
+from . import broll_edit, studio
 
 log = logging.getLogger("worker.render")
 
@@ -37,6 +42,7 @@ FADE = 0.010
 OUTPUT_SIZE = {"9:16": (1080, 1920), "16:9": (1920, 1080)}
 
 # Cadena de voz (antes de la normalización). La música y los efectos se suman después (mix_audio).
+# Audio de estudio apagado (y planes de antes): la de siempre, con la reducción de ruido de ffmpeg.
 VOICE_CHAIN = [
     "highpass=f=80",
     "afftdn=nr=10:nf=-30:tn=1",
@@ -44,6 +50,64 @@ VOICE_CHAIN = [
     "deesser=i=0.4:m=0.5:f=0.5",
     "acompressor=threshold=-20dB:ratio=3:attack=8:release=120:makeup=1",
 ]
+# Audio de estudio: el ruido y el eco ya los quitó studio.enhance, así que aquí no se reduce ruido otra vez. Corte de
+# graves (rumor, golpes en la mesa), menos "caja" de habitación en 250 Hz, presencia en 3,5 kHz, un poco de aire
+# arriba de 10 kHz, de-esser (después del realce, que es donde las eses suben) y compresión.
+STUDIO_CHAINS = {
+    "soft": [
+        "highpass=f=80",
+        "equalizer=f=250:t=q:w=1:g=-2",
+        "equalizer=f=3500:t=q:w=0.9:g=2",
+        "highshelf=f=10000:g=1.5",
+        "deesser=i=0.4:m=0.5:f=0.5",
+        "acompressor=threshold=-20dB:ratio=3:attack=8:release=120:makeup=1",
+    ],
+    "strong": [
+        "highpass=f=90",
+        "equalizer=f=250:t=q:w=1:g=-3",
+        "equalizer=f=3500:t=q:w=0.9:g=3",
+        "highshelf=f=10000:g=2",
+        "deesser=i=0.5:m=0.5:f=0.5",
+        "acompressor=threshold=-22dB:ratio=4:attack=6:release=100:makeup=1",
+    ],
+}
+
+
+def voice_chain(level: str = "off") -> list[str]:
+    return list(STUDIO_CHAINS.get(level, VOICE_CHAIN))
+
+
+@functools.lru_cache(maxsize=16)
+def chain_latency(chain: tuple[str, ...]) -> int:
+    """Retraso (muestras a 48 kHz) que agrega una cadena de filtros, medido con una señal de prueba: ráfagas de ruido
+    con silencios entre medio, correlación cruzada entre la entrada y la salida (hasta 100 ms). Depende de la versión de
+    ffmpeg (por eso se mide y no se fija a mano); se mide una vez por proceso."""
+    import numpy as np
+
+    rng = np.random.default_rng(1)
+    n = int(2.5 * SAMPLE_RATE)
+    probe = np.zeros(n, dtype=np.float32)
+    for k in range(5):
+        a = int((0.2 + k * 0.45) * SAMPLE_RATE)
+        probe[a : a + int(0.25 * SAMPLE_RATE)] = rng.standard_normal(int(0.25 * SAMPLE_RATE)).astype(np.float32) * 0.1
+    with tempfile.TemporaryDirectory(prefix="latencia-") as tmp:
+        src, dst = Path(tmp) / "in.wav", Path(tmp) / "out.wav"
+        studio.write_wav(src, probe)
+        ffmpeg.run(["-i", str(src), "-af", ",".join(chain) or "anull", "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_f32le", str(dst)], what="medición de retraso")
+        out = studio.read_audio(dst)
+    m = min(len(out), n)
+    corr = np.fft.irfft(np.fft.rfft(out[:m], 2 * m) * np.conj(np.fft.rfft(probe[:m], 2 * m)))
+    window = int(0.1 * SAMPLE_RATE)
+    lag = int(np.argmax(np.abs(corr[: window + 1])))
+    return lag if lag > 1 else 0
+
+
+def aligned_chain(chain: list[str]) -> list[str]:
+    """La cadena con su retraso compensado: se descartan las primeras muestras y se rellena el final (mismo largo)."""
+    lag = chain_latency(tuple(chain))
+    if not lag:
+        return chain
+    return [*chain, f"atrim=start_sample={lag}", "asetpts=PTS-STARTPTS", f"apad=pad_len={lag}"]
 
 
 def _atomic(out: Path) -> Path:
@@ -121,15 +185,33 @@ def measure(src: Path, chain: list[str], target: float, tp: float) -> dict[str, 
     return _loudnorm_json(stderr)
 
 
-def process_audio(src: Path, out: Path, target: float = -14.0, tp: float = -1.0) -> dict[str, Any]:
-    """Tres pasadas cortas (solo audio): ganancia previa + limitador, medición y normalización lineal."""
-    first = measure(src, VOICE_CHAIN, target, tp)
+def process_audio(src: Path, out: Path, target: float = -14.0, tp: float = -1.0, studio_level: str = "off", models_dir: Path | None = None) -> dict[str, Any]:
+    """Audio de estudio (si está encendido) y tres pasadas cortas (solo audio): ganancia previa + limitador, medición y
+    normalización lineal. La salida queda alineada muestra a muestra con `src`."""
+    level = studio.level_of(studio_level)
+    studio_info: dict[str, Any] | None = None
+    if level != "off":
+        if models_dir is not None and studio.model_available(models_dir):
+            clean = out.with_name(f"{out.stem}-estudio.wav")
+            studio_info = studio.enhance(src, clean, level, models_dir)
+            src = clean
+        else:
+            # Sin el modelo (solo pasa en desarrollo): el video sale con el procesado de siempre, y queda anotado.
+            log.warning("audio de estudio %s sin el modelo en %s: se usa la cadena de siempre", level, models_dir)
+            studio_info = {"level": level, "applied": False, "reason": "sin modelo"}
+            level = "off"
+    chain = voice_chain(level)
+    if studio_info and studio_info.get("hum"):
+        chain = [*studio.hum_filters(studio_info["hum"]), *chain]
+    voice = aligned_chain(chain)
+    first = measure(src, voice, target, tp)
     measured_i = float(first["input_i"])
     if measured_i < -60:
         raise JobError("El audio está prácticamente en silencio. Revisa que el micrófono haya grabado.", retry=False, detail=f"input_i {measured_i}")
     # Ganancia para llegar cerca del objetivo y limitador a -1.5 dBFS: después loudnorm solo ajusta en modo lineal.
     gain = max(-20.0, min(30.0, target - measured_i))
-    chain = [*VOICE_CHAIN, f"volume={gain:.2f}dB", "alimiter=limit=0.84:attack=5:release=60:level=disabled"]
+    # latency=1: el limitador mira 5 ms adelante y lo compensa (sin eso, la voz se corría 5 ms respecto del video).
+    chain = [*voice, f"volume={gain:.2f}dB", "alimiter=limit=0.84:attack=5:release=60:level=disabled:latency=1"]
     second = measure(src, chain, target, tp)
     # loudnorm solo usa el modo lineal si el LRA medido es mayor que 0 (un tono puro mide 0).
     lra = max(0.1, float(second["input_lra"]))
@@ -144,7 +226,9 @@ def process_audio(src: Path, out: Path, target: float = -14.0, tp: float = -1.0)
     )
     os.replace(tmp, out)
     result = _loudnorm_json(stderr)
-    return {"gain": round(gain, 2), "normalization": result.get("normalization_type"), "input_i": measured_i}
+    if studio_info and studio_info.get("applied"):
+        clean.unlink(missing_ok=True)
+    return {"gain": round(gain, 2), "normalization": result.get("normalization_type"), "input_i": measured_i, **({"studio": studio_info} if studio_info else {})}
 
 
 # Efectos de sonido (worker/assets/sfx, generados con scripts/make_sfx.py) y música de fondo bajo la voz.

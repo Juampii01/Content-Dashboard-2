@@ -40,8 +40,8 @@ RUN pip install -r requirements.txt
 COPY scripts/fetch_fonts.sh scripts/
 RUN sh scripts/fetch_fonts.sh /app/fonts && fc-cache -f /app/fonts
 
-# Editor de video: modelos open source (Parakeet + Silero VAD, faster-whisper small, YuNet), bajados una sola vez
-# al construir la imagen (~1,2 GB). Al ejecutar no se descarga nada: HF_HUB_OFFLINE impide que se intente.
+# Editor de video: modelos open source (Parakeet + Silero VAD, faster-whisper small, YuNet, DeepFilterNet3 para el
+# audio de estudio), bajados una sola vez al construir la imagen (~1,2 GB). Al ejecutar no se descarga nada: HF_HUB_OFFLINE impide que se intente.
 ENV MODELS_DIR=/app/models
 COPY scripts/fetch_models.py scripts/
 RUN python scripts/fetch_models.py /app/models

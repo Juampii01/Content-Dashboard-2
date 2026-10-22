@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from comunes import db, ffmpeg
-from comunes.errors import JobError
+from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import ass, broll_edit, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, audio_preview, broll_edit, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 
 log = logging.getLogger("worker.video")
 
@@ -117,8 +117,22 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
             "words": [{"id": i, **{k: w[k] for k in ("text", "start", "end")}, **({"conf": w["conf"]} if "conf" in w else {})} for i, w in enumerate(words)],
         }
         db.update_project(ctx.conn, pid, transcript=transcript)
+        project["transcript"] = transcript
 
-    ctx.stage("Armando el plan de edición", 0.85, 1.0)
+    if not media.get("audioPreview") and project.get("transcript"):
+        # Muestra de "Audio de estudio" (10 s antes y después). Si falla, el análisis sigue: no es imprescindible.
+        ctx.stage("Preparando la muestra de audio", 0.85, 0.88)
+        try:
+            preview = audio_preview.make(ctx, pid, workdir, project["transcript"].get("words") or [], float(media["duration"]))
+            if preview:
+                media = {**media, "audioPreview": preview}
+                db.update_project(ctx.conn, pid, media=media)
+        except Cancelled:
+            raise
+        except Exception:  # noqa: BLE001
+            log.warning("no se pudo armar la muestra de audio de %s", pid, exc_info=True)
+
+    ctx.stage("Armando el plan de edición", 0.88, 1.0)
     result = ctx.app.plan(pid)
     return {"plan": result.get("plannedBy"), "status": result.get("status")}
 
@@ -219,7 +233,9 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     ctx.stage("Mezclando el audio", 0.35, 0.45)
     voice = out_dir / "voice.wav"
     audio_cfg = data.get("audio") or {}
-    audio_info = render.process_audio(joined, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)))
+    audio_info = render.process_audio(
+        joined, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)), studio_level=str(audio_cfg.get("studio") or "off"), models_dir=ctx.config.models_dir
+    )
     voice = mix_extras(ctx, pid, workdir, out_dir, voice, audio_cfg, expected, audio_info)
 
     captions = data.get("captions") or {}

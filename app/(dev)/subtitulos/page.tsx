@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { CaptionLab } from "./lab";
 
 export const metadata: Metadata = { title: "Subtítulos animados (solo desarrollo)" };
@@ -11,5 +12,9 @@ export const metadata: Metadata = { title: "Subtítulos animados (solo desarroll
  */
 export default function CaptionLabPage() {
   if (process.env.NODE_ENV === "production") notFound();
-  return <CaptionLab />;
+  return (
+    <Suspense fallback={null}>
+      <CaptionLab />
+    </Suspense>
+  );
 }

@@ -22,6 +22,9 @@ const MAX_GAP = 0.45;
 /** Si el siguiente bloque empieza casi enseguida, el actual se estira hasta él (sin parpadeo). */
 const BRIDGE = 0.35;
 
+/** Orden de los selectores: primero la referencia (si hay), la galería animada, los clásicos y sin subtítulos. */
+export const CAPTION_PICKER_ORDER: CaptionPresetKey[] = ["estilo", "caja", "hormozi", "karaoke", "palabra", "minimal", "resaltador", "clasico", "pop", "ninguno"];
+
 export function captionBlocks(words: TimedWord[], preset: CaptionPresetKey, style?: { wordsPerBlock: number } | null): CaptionBlock[] {
   const styled = preset === "estilo" ? Math.max(1, Math.min(6, style?.wordsPerBlock ?? 3)) : null;
   const gallery = isCaptionStyle(preset) ? styleBlockLimits(preset) : null;

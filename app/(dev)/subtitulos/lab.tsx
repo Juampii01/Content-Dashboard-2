@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CaptionOverlay } from "@/components/editor/caption-overlay";
 import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
 import { captionBlocks } from "@/lib/video/captions";
@@ -19,14 +19,13 @@ function sampleWords(): TimedWord[] {
 }
 
 export function CaptionLab() {
-  const [params, setParams] = useState<URLSearchParams | null>(null);
-  useEffect(() => setParams(new URLSearchParams(window.location.search)), []);
-  const style = params?.get("style") ?? "caja";
-  const format = (params?.get("format") === "16:9" ? "16:9" : "9:16") as VideoFormat;
-  const time = Number(params?.get("t") ?? "2.9");
-  const accent = params?.get("accent") ?? "#0070F8";
-  const words = useMemo(sampleWords, []);
-  if (!params || !isCaptionStyle(style)) return null;
+  const params = useSearchParams();
+  const style = params.get("style") ?? "caja";
+  const format = (params.get("format") === "16:9" ? "16:9" : "9:16") as VideoFormat;
+  const time = Number(params.get("t") ?? "2.9");
+  const accent = params.get("accent") ?? "#0070F8";
+  if (!isCaptionStyle(style)) return null;
+  const words = sampleWords();
   const look = captionLook(style, { format, accent, brandFont: "montserrat", emoji: true });
   const blocks = captionBlocks(words, style);
   const block = blocks.find((b) => time >= b.start && time < b.end) ?? null;

@@ -74,6 +74,41 @@ def analyze_probe(probe: dict[str, Any], *, max_duration: float = MAX_DURATION, 
     return info
 
 
+def probe_duration(probe: dict[str, Any]) -> float:
+    """Duración que trae la cabecera (0 si no la trae)."""
+    streams = probe.get("streams", [])
+    video = next((s for s in streams if s.get("codec_type") == "video"), {})
+    for raw in (probe.get("format", {}).get("duration"), video.get("duration")):
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0.0
+
+
+def needs_remux(probe: dict[str, Any]) -> bool:
+    """Las grabaciones del navegador (MediaRecorder: WebM de Chrome y Firefox) no escriben la duración en la cabecera."""
+    return probe_duration(probe) <= 0 and any(s.get("codec_type") == "video" for s in probe.get("streams", []))
+
+
+def remux_for_duration(src: Path, out: Path) -> Path:
+    """Re-empaqueta sin recodificar (copia de pistas) a MKV, que sí escribe la duración y un índice para buscar.
+
+    Si la grabación quedó cortada al final (se cerró la pestaña a mitad), se conserva hasta el último cuadro bueno.
+    """
+    if _done(out):
+        return out
+    tmp = _atomic(out)
+    ffmpeg.run(
+        ["-fflags", "+genpts+discardcorrupt", "-err_detect", "ignore_err", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", str(tmp)],
+        what="duración de la grabación",
+    )
+    os.replace(tmp, out)
+    return out
+
+
 def even(n: float) -> int:
     return max(2, int(round(n / 2)) * 2)
 

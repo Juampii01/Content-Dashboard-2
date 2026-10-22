@@ -62,7 +62,12 @@ def prepare(ctx: JobContext, project: dict[str, Any], start: float, end: float, 
             ctx.stage("Bajando el video", start, start + span * 0.15)
             ctx.app.download(pid, key, src, ctx.progress)
         ctx.stage("Preparando el video", start + span * 0.15, start + span * (0.75 if need_proxy else 0.95))
-        info = ingest.analyze_probe(ffmpeg.probe(src))
+        probe = ffmpeg.probe(src)
+        if ingest.needs_remux(probe):
+            # Grabado en el navegador (WebM sin duración): se re-empaqueta sin recodificar antes de seguir.
+            src = ingest.remux_for_duration(src, workdir / "original.fixed.mkv")
+            probe = ffmpeg.probe(src)
+        info = ingest.analyze_probe(probe)
         ingest.build_mezzanine(src, info, mezz, ctx.progress)
         ingest.extract_audio(src, info, wav)
     else:

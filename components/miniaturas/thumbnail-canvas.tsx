@@ -38,15 +38,31 @@ export const ThumbnailCanvas = forwardRef<HTMLDivElement, ThumbnailCanvasProps>(
   useLayoutEffect(() => {
     const el = textRef.current;
     if (!el) return;
-    let scale = 1;
-    el.style.setProperty("--fit", "1");
-    for (let i = 0; i < 14; i++) {
-      const over = el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
-      if (!over) break;
-      scale *= 0.93;
-      el.style.setProperty("--fit", String(scale));
-    }
-    setFit(scale);
+    let alive = true;
+    const run = () => {
+      if (!alive) return;
+      let scale = 1;
+      el.style.setProperty("--fit", "1");
+      for (let i = 0; i < 14; i++) {
+        // Se mide cada renglón (no el scroll de la caja: las letras de Anton sobresalen del renglón y lo engañan).
+        const lines = [...el.children].map((c) => c.getBoundingClientRect());
+        const ratio = el.getBoundingClientRect().width / (el.clientWidth || 1);
+        const width = Math.max(0, ...lines.map((r) => r.width)) / ratio;
+        const height = lines.reduce((sum, r) => sum + r.height, 0) / ratio;
+        if (width <= el.clientWidth + 1 && height <= el.clientHeight + 1) break;
+        scale *= 0.93;
+        el.style.setProperty("--fit", String(scale));
+      }
+      setFit(scale);
+    };
+    run();
+    // Con la fuente todavía cargando se mide con la de respaldo: se vuelve a medir cuando llega.
+    void document.fonts?.ready.then(run);
+    document.fonts?.addEventListener("loadingdone", run);
+    return () => {
+      alive = false;
+      document.fonts?.removeEventListener("loadingdone", run);
+    };
   }, [signature]);
 
   const t = plan.textBox;

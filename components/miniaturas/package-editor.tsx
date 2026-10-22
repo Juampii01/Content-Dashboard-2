@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Copy, Download, ImagePlus, Loader2, RefreshCw, Sparkles, Star, Trash2, UserRound, Wand2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -418,19 +418,35 @@ function ConceptCard({
   const words = useMemo(() => thumbWords(draft.text), [draft.text]);
   const issues = thumbTextIssues(draft.text);
 
-  // Guarda solo (medio segundo después del último cambio). Nada de esto regenera el fondo.
+  // Guarda solo (medio segundo después del último cambio), juntando todos los cambios pendientes.
+  // Nada de esto regenera el fondo.
+  const queued = useRef<Partial<typeof draft>>({});
+  const conceptId = concept.id;
+  const flush = useCallback(() => {
+    const patch = queued.current;
+    queued.current = {};
+    if (!Object.keys(patch).length) return;
+    void updateConceptAction(packageId, conceptId, patch).then((res) => {
+      setSaving(false);
+      if (!res.ok) toast.error(res.error);
+    });
+  }, [packageId, conceptId]);
   const change = (patch: Partial<typeof draft>) => {
     setDraft((d) => ({ ...d, ...patch }));
     if (!canEdit) return;
+    queued.current = { ...queued.current, ...patch };
     if (timer.current) clearTimeout(timer.current);
     setSaving(true);
-    timer.current = setTimeout(async () => {
-      const res = await updateConceptAction(packageId, concept.id, patch);
-      setSaving(false);
-      if (!res.ok) toast.error(res.error);
-    }, 600);
+    timer.current = setTimeout(flush, 600);
   };
-  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+  // Si la tarjeta se desmonta (por ejemplo, al llegar un fondo nuevo), lo pendiente se guarda igual.
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      flush();
+    },
+    [flush],
+  );
 
   const download = async () => {
     if (!node.current) return;

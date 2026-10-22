@@ -54,7 +54,6 @@ async function Editor({ params }: { params: PageProps<"/miniaturas/[id]">["param
         {user.role !== "VIEWER" && <DeletePackageButton id={pkg.id} />}
       </header>
       <PackageEditor
-        key={pkg.updatedAt.toISOString()}
         pkg={data}
         photos={editorPhotos}
         colors={thumbColors(brand?.colors ?? null)}

@@ -349,7 +349,7 @@ export function fakeResponse(feature: string, task = ""): unknown {
     case "youtube.miniaturas":
       return {
         concepts: [
-          { name: "Tu cara y el resultado", idea: "Tú con cara de sorpresa junto a un gráfico que sube.", text: "3 clientes en 30 días", highlight: "30 días", scene: "Oficina moderna de noche con luz azul neón y un monitor con un gráfico de barras que sube, desenfocado, sin letras", layout: "texto-izquierda", withPhoto: true },
+          { name: "Tu cara y el resultado", idea: "Tú con cara de sorpresa junto a un gráfico que sube.", text: "Clientes en 30 días", highlight: "30 días", scene: "Oficina moderna de noche con luz azul neón y un monitor con un gráfico de barras que sube, desenfocado, sin letras", layout: "texto-izquierda", withPhoto: true },
           { name: "Antes y después", idea: "Contraste: escritorio vacío contra escritorio lleno de pedidos.", text: "Deja de cobrar barato", highlight: "barato", scene: "Escritorio de madera dividido: a la izquierda vacío y gris, a la derecha lleno de cajas y luz cálida, sin letras", layout: "texto-derecha", withPhoto: true },
           { name: "El error", idea: "Un botón rojo gigante de alerta, sin la persona.", text: "El error caro", highlight: "caro", scene: "Botón rojo de alarma gigante sobre fondo azul oscuro con humo y luz dramática, sin letras ni símbolos", layout: "texto-centro", withPhoto: false },
         ],

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from psycopg.types.json import Jsonb
 
 from carruseles import codex, openai_api
 from comunes.errors import Cancelled, JobError
@@ -85,7 +86,34 @@ def _cutouts(ctx: JobContext, app: YoutubeApp, work: Path, photos: list[str], st
     return done
 
 
-@register("YT_THUMBNAILS")
+def _on_final_failure(conn: Any, job: dict[str, Any], message: str) -> None:
+    """Si el trabajo falla del todo (por ejemplo, sin conexión con la app), nada queda "en curso" para siempre."""
+    data = job.get("input") or {}
+    photos = [str(p) for p in (data.get("photos") or [])]
+    if photos:
+        conn.execute(
+            "UPDATE character_cutouts SET status = 'failed', error = %s, updated_at = now() WHERE photo_key = ANY(%s) AND status = 'pending'",
+            (message[:300], photos),
+        )
+    package_id = data.get("packageId")
+    pending = {str(c.get("conceptId")) for c in (data.get("concepts") or [])}
+    if package_id and pending:
+        with conn.transaction():
+            row = conn.execute("SELECT concepts FROM yt_packages WHERE id = %s FOR UPDATE", (package_id,)).fetchone()
+            if not row:
+                return
+            concepts = row["concepts"]
+            changed = False
+            for c in concepts:
+                if c.get("id") in pending and c.get("backgroundStatus") == "pending":
+                    c["backgroundStatus"] = "ready" if c.get("backgroundKey") else "failed"
+                    c["backgroundError"] = message[:300]
+                    changed = True
+            if changed:
+                conn.execute("UPDATE yt_packages SET concepts = %s WHERE id = %s", (Jsonb(concepts), package_id))
+
+
+@register("YT_THUMBNAILS", on_fail=_on_final_failure)
 def yt_thumbnails(ctx: JobContext) -> dict[str, Any]:
     data = ctx.input
     package_id = str(data.get("packageId") or "")

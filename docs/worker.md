@@ -233,6 +233,28 @@ El cliente sube un podcast, un live o un video de YouTube de 10 a 120 minutos (h
 
 Probar en local: `python scripts/make_podcast_video.py /tmp/podcast` (podcast sintético de ~3,5 min con dos personas que se turnan, una lámina sin caras al principio y su transcripción) y el worker con `WORKER_TEST_TRANSCRIPT=/tmp/podcast/transcript.json`. Pruebas: `pytest tests/test_reframe.py` y `pnpm test:clips`.
 
+## "Hazlo por mí" (exportar sin revisión)
+
+Un solo mecanismo para todo lo que se exporta solo: `video_projects.auto_export` (`lib/video/auto-export.ts`). Lo encienden el interruptor del flujo de subida, la grabación en el navegador, la pantalla de progreso (mientras se prepara se puede encender o apagar) y "Exportar directo" de los clips (antes era `long_video_clips.export_mode`; la migración 0023 pasó los que había).
+
+1. El análisis es el mismo (`VIDEO_ANALYZE`). Al pedir el plan, la ruta del worker (`/api/worker/projects/<id>/plan`) llama a `maybeAutoExport`: si el proyecto tiene `auto_export`, se arma la revisión que haría la persona aceptando la propuesta (`lib/video/auto-review.ts`: cortes, gancho —salvo en un clip—, b-roll y gráficos, subtítulos, emojis, audio de estudio, efectos y música) y se encola el `VIDEO_RENDER` en el mismo pedido.
+2. Valores por defecto del editor (Mi marca → "Cómo salen tus videos", `brand_profile.editor_defaults`, `lib/video/defaults.ts`): formato, subtítulos (y emojis), b-roll sí o no, audio de estudio, efectos y música con su volumen. Los usa todo plan nuevo (no solo "Hazlo por mí"): el flujo de subida arranca con ellos y `generatePlan` pone el sonido y la música en el plan. `subtitle_preset` se sigue leyendo (y se escribe en sincronía) para no romper lo que ya lo usaba.
+3. Progreso: una sola barra para análisis (primera mitad) y render (segunda), con seis etapas. El instante entre el plan y el render no muestra la revisión; si en 90 s el render no arrancó, se muestra la revisión.
+4. Si no se puede exportar solo (por ejemplo, el plan cortó todo), el proyecto queda en revisión con el motivo a la vista y se avisa en la campana y por correo. Avisos: no sale "listo para revisar", solo "Tu video está listo" al terminar el render.
+5. "Revisar y volver a exportar" (en el resultado) lo devuelve a la revisión y apaga `auto_export`: lo que siga lo decide la persona.
+
+## Grabar en el navegador y "Día de grabación"
+
+`/editor/grabar` (`components/editor/recorder/`): cámara y micrófono con MediaRecorder, elección de dispositivos, 9:16 o 16:9, cuenta regresiva, repetir toma y un teleprompter con velocidad en palabras por minuto. "Seguir mi voz" detiene el texto mientras no hablas (energía del micrófono con Web Audio y un piso de ruido que se adapta, sin servicios externos). **No reconoce palabras**: el reconocimiento de voz del navegador (Web Speech API) en Chrome manda el audio a los servidores de Google, en Firefox no existe y en Safari depende del sistema; correr un modelo de voz dentro de la página pesaría cientos de MB. Por eso no se usa: si la persona se salta una frase, mueve el texto con la rueda o el dedo.
+
+- **Formato**: se graba lo que entrega la cámara (en computadoras, horizontal) y el Editor recorta al formato elegido, como con un video subido; la pantalla marca el recorte. Se pide `video/mp4` (Safari en iPhone y Mac, y Chrome reciente) y si no, WebM (Chrome, Firefox). El worker acepta los dos; los WebM de MediaRecorder no traen la duración en la cabecera y se re-empaquetan a MKV sin recodificar antes de la ingesta (`ingest.remux_for_duration`, también si la toma quedó cortada). El MP4 fragmentado de Safari pasa por el mismo arreglo si le faltara la duración. 5 Mb/s de video (unos 37 MB por minuto).
+- **Que no se pierda una toma**: mientras se graba, cada segundo se guarda en IndexedDB (`take-store.ts`); al terminar se une en un archivo. Si se cierra la pestaña a mitad de una toma o de una subida, al volver a `/editor/grabar` se arma la toma con lo que quedó y se sigue subiendo (el Editor muestra "Tienes N tomas sin subir"). La toma se borra del navegador cuando el Editor confirma que el archivo llegó entero. Sin IndexedDB (algunas ventanas privadas) se graba igual y se avisa que no se cierre la pestaña.
+- **Subida**: directa al Blob privado como el resto del Editor (`putFile`: en partes y con reintentos por parte a partir de 100 MB), una toma a la vez, con reintentos de toda la subida (3 s a 3 min) y espera a que vuelva la conexión. Si la ruta reservada venció, se reserva otra. No se retoma a mitad de un archivo: se vuelve a subir la toma completa (son de pocos minutos).
+- **Día de grabación**: se eligen varios guiones (de Guiones y de "Tu semana lista") y se graban seguidos; **cada toma es su propio proyecto del Editor** (con el guion asociado, que mejora los cortes y los subtítulos, y el guion pasa a "Grabado"). Se eligió esto y no grabar todo de corrido y cortar por guion con la transcripción porque es más robusto: una toma mala se repite sola, una subida que falla no arrastra a las demás, no depende de que la transcripción encuentre bien el borde entre guiones y cada video arranca a procesarse apenas termina su toma.
+- Permisos: errores en español para permiso negado (con cómo darlo en iPhone), sin cámara, cámara ocupada y sin HTTPS.
+
+Pruebas: `/home/claude/e2e/grabar-*.mjs` (Chromium con `--use-fake-device-for-media-stream`), `pytest tests/test_recording.py` y `pnpm test:video` (`tests/video-defaults.test.mts`).
+
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 
 | Concepto | Costo |

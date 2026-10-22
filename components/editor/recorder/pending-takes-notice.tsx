@@ -27,7 +27,7 @@ export function PendingTakesNotice() {
       <p className="text-sm text-text">
         <span className="font-semibold text-white">{pending === 1 ? "Tienes 1 toma sin subir." : `Tienes ${pending} tomas sin subir.`}</span> Están guardadas en este navegador; ábrelas para terminar de subirlas.
       </p>
-      <ButtonLink href="/editor/grabar" size="sm" icon={<Upload className="h-4 w-4" aria-hidden />}>
+      <ButtonLink href="/editor/grabar?libre=1" size="sm" icon={<Upload className="h-4 w-4" aria-hidden />}>
         Terminar de subir
       </ButtonLink>
     </div>

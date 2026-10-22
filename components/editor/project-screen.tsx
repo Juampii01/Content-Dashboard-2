@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ComponentProps } from "react";
+import { useEffect, useState, useTransition, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, RefreshCcw, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
@@ -149,6 +149,11 @@ function UploadPending({ project }: { project: View }) {
   const upload = useUpload(project.id);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const finished = upload?.status === "done";
+  // Al terminar la subida, la pantalla pasa sola al progreso (sin tocar "Ver el progreso").
+  useEffect(() => {
+    if (finished) router.refresh();
+  }, [finished, router]);
 
   if (upload && upload.status !== "error") {
     const pct = upload.total ? (upload.loaded / upload.total) * 100 : 0;

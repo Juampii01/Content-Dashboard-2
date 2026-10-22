@@ -148,14 +148,17 @@ export function enqueueFromMemory(meta: TakeMeta, file: Blob) {
 }
 
 async function uploadWith(meta: TakeMeta, file: Blob, memory: boolean) {
-  let project = meta.project ?? (await reserveProject(meta, file));
-  patch(meta.id, { projectId: project.id, total: file.size });
+  let project = meta.project ?? null;
+  patch(meta.id, { projectId: project?.id, total: file.size });
   let renewed = false;
   for (let attempt = 1; ; attempt++) {
     await waitOnline();
     patch(meta.id, { status: "uploading", attempt, loaded: 0, error: undefined, retryIn: undefined });
     const controller = new AbortController();
     try {
+      // Cada paso (reservar, subir, confirmar) va dentro del reintento: sin conexión, cualquiera puede fallar.
+      project ??= await reserveProject(meta, file);
+      patch(meta.id, { status: "uploading", projectId: project.id });
       await putFile({
         file: new File([file], `toma.${meta.ext}`, { type: meta.mime }),
         key: project.key,
@@ -181,18 +184,22 @@ async function uploadWith(meta: TakeMeta, file: Blob, memory: boolean) {
       return;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") throw new Error("Subida cancelada.");
-      const message = error instanceof Error ? error.message : "La subida falló.";
-      if (projectGone(message) && !renewed) {
+      const offline = typeof navigator !== "undefined" && !navigator.onLine;
+      const message = offline || error instanceof TypeError ? "Se cortó la conexión." : error instanceof Error ? error.message : "La subida falló.";
+      if (project && projectGone(message) && !renewed) {
         // La ruta reservada venció: se reserva otra y se vuelve a intentar enseguida.
         renewed = true;
-        project = await reserveProject({ ...meta, project: undefined }, file);
+        project = null;
+        await patchTake(meta.id, { project: undefined });
+        continue;
+      }
+      if (offline) {
+        // Sin conexión no cuenta como intento: espera a que vuelva.
+        patch(meta.id, { status: "offline", error: "Sin conexión: la subida sigue sola cuando vuelva." });
+        attempt--;
         continue;
       }
       if (attempt > RETRY_SECONDS.length) throw new Error(`${message.replace(/\.$/, "")}. Tu toma sigue guardada: toca «Reintentar».`);
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        patch(meta.id, { status: "offline", error: "Sin conexión: la subida sigue sola cuando vuelva." });
-        continue;
-      }
       const wait = RETRY_SECONDS[attempt - 1]!;
       for (let s = wait; s > 0; s--) {
         patch(meta.id, { status: "retrying", error: message, retryIn: s });

@@ -4,6 +4,7 @@ import { ArrowLeft, Video } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { Notice, Skeleton } from "@/components/ui/feedback";
 import { PageHeader } from "@/components/ui/page-header";
+import { PendingTakesNotice } from "@/components/editor/recorder/pending-takes-notice";
 import { RecordingStudio } from "@/components/editor/recorder/recording-studio";
 import { ScriptPicker } from "@/components/editor/recorder/script-picker";
 import { getCurrentUser } from "@/lib/auth";
@@ -37,6 +38,7 @@ async function Content({ searchParams }: { searchParams: PageProps<"/editor/grab
   if (!free && view.session.length === 0) {
     return (
       <div className="flex flex-col gap-5">
+        <PendingTakesNotice />
         {asked && (
           <Notice tone="warning">
             {one("semana") ? "Tu semana todavía no tiene guiones para grabar. Elige guiones de la lista." : "No encontramos esos guiones (quizás se archivaron). Elige otros de la lista."}

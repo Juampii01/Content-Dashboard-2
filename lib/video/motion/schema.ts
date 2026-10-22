@@ -201,8 +201,11 @@ export const sceneSchema = z.object({
   duration: z.number().min(0.6).max(30),
   format: z.enum(["9:16", "16:9"]),
   mode: z.enum(["full", "overlay"]),
-  /** Solo en "overlay": arriba o abajo (abajo ocupa la franja de los subtítulos, que se ocultan). */
-  position: z.enum(["top", "bottom"]).default("top"),
+  /**
+   * Solo en "overlay": arriba o abajo (abajo ocupa la franja de los subtítulos, que se ocultan). En 16:9 también
+   * "left"/"right": el gráfico en esa mitad y la persona en la otra (en 9:16 se dibuja como "top").
+   */
+  position: z.enum(["top", "bottom", "left", "right"]).default("top"),
   theme: themeSchema,
   /** Salida automática al final (fundido y subida). "none": cada capa decide. */
   exit: z.enum(["auto", "none"]).default("auto"),

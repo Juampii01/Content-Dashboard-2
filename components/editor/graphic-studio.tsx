@@ -388,10 +388,21 @@ function SceneEditor({
               options={[
                 { value: "top", label: "Arriba" },
                 { value: "bottom", label: "Abajo" },
+                // En horizontal, el gráfico a un lado y tú al otro (los altos, como un embudo, se ven más grandes).
+                ...(format === "16:9"
+                  ? [
+                      { value: "left" as const, label: "Izquierda" },
+                      { value: "right" as const, label: "Derecha" },
+                    ]
+                  : []),
               ]}
             />
           )}
-          <p className="text-xs text-muted">{GRAPHIC_MODES[scene.mode].hint}</p>
+          <p className="text-xs text-muted">
+            {scene.mode === "overlay" && format === "16:9" && (scene.position === "left" || scene.position === "right")
+              ? "El gráfico ocupa esa mitad y tú pasas a la otra. Ideal para embudos, listas y pasos."
+              : GRAPHIC_MODES[scene.mode].hint}
+          </p>
         </div>
 
         {groups.map((group) => (

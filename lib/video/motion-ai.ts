@@ -90,9 +90,12 @@ export async function requestGraphic(input: GraphicRequest): Promise<GraphicRequ
     };
   }
   if (outcome.how !== "ok") console.info(`[editor] gráfico pedido resuelto (${outcome.how})`);
+  // Un gráfico a un lado sigue a un lado después de un ajuste (si sigue sobre el video y en 16:9).
+  const side = current && (current.position === "left" || current.position === "right") ? current.position : null;
+  const scene = side && outcome.scene.mode === "overlay" && outcome.scene.format === "16:9" ? { ...outcome.scene, position: side } : outcome.scene;
   return {
     ok: true,
-    scene: outcome.scene,
+    scene,
     title: outcome.title || ai.title.trim().slice(0, 80),
     note: (outcome.how === "fallback" ? "Lo simplificamos para que se lea bien en el video." : ai.note.trim() || ai.refusal.trim()).slice(0, 300),
     warnings: outcome.warnings.slice(0, 3),

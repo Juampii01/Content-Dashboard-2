@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Clapperboard, Loader2, Palette, RotateCcw, Sparkles, Undo2, Wand2, WandSparkles, ZoomIn } from "lucide-react";
+import { Clapperboard, Loader2, Mic, Palette, RotateCcw, Sparkles, Undo2, Wand2, WandSparkles, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
@@ -26,6 +26,8 @@ import { BrollEditPanel } from "./broll-edit-panel";
 import { BrollPanel, BrollPicker, optionKey, type PickerTab, type SignedOption } from "./broll-panel";
 import { CaptionPicker } from "./caption-picker";
 import type { TrackItem } from "./music-manager";
+import { PhraseFixDialog, PhraseFixPanel, usePhraseFixes } from "./phrase-fix";
+import { captionCorrections } from "@/lib/video/phrase-fix";
 import { PreviewPlayer, type PreviewHandle } from "./preview-player";
 import { TranscriptEditor, type BrollMark } from "./transcript-editor";
 
@@ -100,6 +102,9 @@ export function ReviewEditor({
   // Planes de antes del audio de estudio: apagado (el audio sale como antes).
   const [studio, setStudio] = useState<StudioLevel>(studioLevel(plan.audio.studio));
   const [editing, setEditing] = useState<string | null>(null);
+  // Frases corregidas con la voz clonada (components/editor/phrase-fix.tsx).
+  const [fixRange, setFixRange] = useState<{ from: number; to: number } | null>(null);
+  const phrase = usePhraseFixes(projectId);
   const captionStyle = style?.captions ?? null;
 
   const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
@@ -462,6 +467,40 @@ export function ReviewEditor({
           }}
         />
 
+        <PhraseFixPanel
+          projectId={projectId}
+          fixes={phrase.fixes}
+          canEdit={canEdit}
+          onUpsert={phrase.upsert}
+          onRemove={(fix) => {
+            phrase.remove(fix.id);
+            // Los subtítulos vuelven a la frase original (solo los que puso la corrección).
+            const ours = captionCorrections(fix.fromWord, fix.toWord, fix.newText);
+            setCorrections((prev) => {
+              const next = { ...prev };
+              for (const [id, text] of Object.entries(ours)) if (next[id] === text) delete next[id];
+              return next;
+            });
+          }}
+          onCoverWithBroll={(fix) => addBroll({ from: fix.fromWord, to: fix.toWord })}
+          onListen={listenFrom}
+          hasBrollAt={(from, to) => brollItems.some((b) => b.choice && b.from_word <= to && from <= b.to_word)}
+        />
+        <PhraseFixDialog
+          key={fixRange ? `${fixRange.from}-${fixRange.to}` : "none"}
+          projectId={projectId}
+          range={fixRange}
+          words={words}
+          corrections={corrections}
+          duration={duration}
+          onClose={() => setFixRange(null)}
+          onCreated={(fix) => {
+            phrase.upsert(fix);
+            setCorrections((prev) => ({ ...prev, ...captionCorrections(fix.fromWord, fix.toWord, fix.newText) }));
+            if (fix.cover === "broll") addBroll({ from: fix.fromWord, to: fix.toWord });
+          }}
+        />
+
         <section aria-labelledby="transcript-title" className="section-shell flex flex-col gap-4 !p-4 sm:!p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -516,6 +555,9 @@ export function ReviewEditor({
                       </Button>
                       <Button size="sm" variant="ghost" icon={<WandSparkles className="h-3.5 w-3.5" aria-hidden />} onClick={() => (addBroll(range, true), clear())}>
                         Pide un gráfico aquí
+                      </Button>
+                      <Button size="sm" variant="ghost" icon={<Mic className="h-3.5 w-3.5" aria-hidden />} onClick={() => (setFixRange(range), clear())}>
+                        Corregir esta frase
                       </Button>
                       {activeBroll && brollItems.some((b) => b.id === activeBroll) && (
                         <Button size="sm" variant="ghost" onClick={() => (moveBroll(activeBroll, range), clear())}>

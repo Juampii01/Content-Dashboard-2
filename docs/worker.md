@@ -8,7 +8,7 @@ Trabajos del worker (tabla `jobs`):
 
 | Tipo | Qué hace |
 |---|---|
-| `VIDEO_ANALYZE` | Ingesta, transcripción por palabra y pedido del plan a la app. |
+| `VIDEO_ANALYZE` | Ingesta, transcripción por palabra, "ojos" (escenas, caras, nitidez, texto y hojas de contacto) y el director de edición paso a paso (con `input.mode = "edit"`: "Edítalo así"). |
 | `VIDEO_RENDER` | Tramos, audio, zooms del estilo, b-roll, subtítulos, control de calidad y subida. |
 | `VIDEO_STYLE` | "Edita como este": baja la referencia (subida o link) y mide su estilo (`worker/video/style.py`). |
 | `VIDEO_CLIP` | Biblioteca de b-roll: datos (duración, tamaño) y miniatura de un clip del cliente. |
@@ -31,7 +31,8 @@ App (Vercel) ── INSERT en jobs ──▶ Postgres (Neon) ◀── toma trab
 - **Apagado**: sin trabajos durante `IDLE_EXIT_MINUTES`, el proceso termina y la máquina queda detenida (solo se paga el volumen). Mientras está apagada no consulta la base, así Neon puede suspenderse.
 - **Encendido**: si la app tiene `FLY_API_TOKEN` y `FLY_WORKER_APP`, al encolar llama a la Machines API (`POST /v1/apps/<app>/machines/<id>/start`). Si no, asume un worker siempre encendido.
 - **Archivos**: el worker nunca tiene la clave de Blob. Pide a la app un acceso (método, URL firmada y cabeceras) por archivo con `/api/worker/storage`. Solo se firman archivos del dueño que indica: proyecto (`editor/<id>/…`), estilo (`editor/estilos/<id>/…`) o clip de la biblioteca (`editor/biblioteca/<id>/…`). El b-roll de stock lo baja directo del CDN de su banco (solo de `*.pixabay.com` o `*.pexels.com`).
-- **Plan**: al terminar de transcribir, el worker llama a `POST /api/worker/projects/<id>/plan`. La app calcula los candidatos a cortar, Claude arma el plan v2, se valida con Zod y el proyecto queda en revisión. Es idempotente; si la llamada falla, el trabajo se reintenta. Si la IA falla, se arma un plan sin IA (solo cortes muy seguros) y se avisa en la revisión.
+- **Director**: al terminar de transcribir y de mirar el video, el worker maneja al director de edición paso a paso con `POST /api/worker/projects/<id>/director` (ver "Director de edición" más abajo). La ruta vieja `/plan` sigue funcionando para un worker anterior.
+- **Plan (ruta vieja)**: el worker anterior llama a `POST /api/worker/projects/<id>/plan`. La app calcula los candidatos a cortar, Claude arma el plan v2, se valida con Zod y el proyecto queda en revisión. Es idempotente; si la llamada falla, el trabajo se reintenta. Si la IA falla, se arma un plan sin IA (solo cortes muy seguros) y se avisa en la revisión.
 - **Caché de trabajo**: `/data/work/<proyecto>` en un volumen de Fly (original, mezzanine, WAV, tramos). Cada etapa se saltea si su salida ya existe; un reintento no rehace lo hecho. Si el volumen se pierde, se rehace desde el original.
 
 ## Variables de entorno
@@ -255,6 +256,71 @@ Un solo mecanismo para todo lo que se exporta solo: `video_projects.auto_export`
 
 Pruebas: `/home/claude/e2e/grabar-*.mjs` (Chromium con `--use-fake-device-for-media-stream`), `pytest tests/test_recording.py` y `pnpm test:video` (`tests/video-defaults.test.mts`).
 
+## Director de edición (con ojos)
+
+Un editor humano cobra unos USD 15 por video; el director de edición usa la IA como ese editor: **mira** el video, lo **entiende**, decide **toda** la edición junta con su "por qué" y **revisa** su trabajo antes y después de renderizar. Código: `worker/video/eyes.py`, `worker/video/director.py`, `lib/video/director/*`, prompts en `lib/ai/prompts/director.ts`.
+
+### 1. Ojos (worker, CPU, open source)
+
+Después de transcribir, sobre el mezzanine (`eyes.analyze`):
+
+- **Escenas**: ffmpeg `select='gt(scene,0.25)'` sobre una copia de 192 px (exacto al cuadro, rápido).
+- **Muestreo**: un cuadro cada 1 a 3 s (según el largo) más uno al empezar cada escena, con tope (240 con tope de IA ≥ USD 4; 160 con ≥ 2,5; 90 si es menor: `eyesMaxFrames`). Se escanea 1 de cada 15 cuadros (0,5 s) a 432 px de lado corto.
+- **Por cuadro**: cara (YuNet con sus 5 puntos: posición, tamaño y si mira a cámara por el giro de la nariz respecto de los ojos), nitidez (varianza del laplaciano en el centro), exposición (brillo, quemado, contraluz cara vs. fondo), movimiento de cámara (correlación de fase entre cuadros a 0,5 s), texto quemado (Tesseract por renglón: gradiente + cierre horizontal para encontrar renglones y `--psm 7` sobre cada uno; si no hay renglones y no hay cara, el cuadro entero) y energía de la voz (dB del WAV de 16 kHz).
+- **Tramos**: cada escena partida donde cambia lo que se ve (aparece o desaparece la cara, se desenfoca, aparece texto) y en ventanas de hasta 6 s, con los promedios.
+- **Hojas de contacto**: grillas de 6 × 3 (vertical, cuadros de 216×384), 4 × 5 (horizontal) o 5 × 4 (cuadrado), con "#n m:ss.s" debajo de cada cuadro, en JPEG. Menos de 2000 px por lado (unos 2.000–2.500 tokens por hoja, ~130 por cuadro). Se suben a `editor/<id>/ojos/hoja-NN.jpg`; las medidas van a `video_projects.eyes`. La app recorta las miniaturas de "Lo que entendió" de estas hojas (sin pedir otras imágenes).
+
+Un video de 35 s se mide en ~20 s en 2 vCPU (lo más lento es el OCR, tope de 48 cuadros). Si algo falla (sin modelo de caras, sin Tesseract), sigue sin esa medida y lo anota.
+
+### 2. Pasos del director (app, `lib/video/director/service.ts`)
+
+Cada llamada a `/director` hace **un** paso (una llamada de IA como mucho) y responde cuál sigue; así ninguna llamada HTTP es eterna (`maxDuration = 800`) y un reintento retoma donde quedó:
+
+```
+start → understand → direct → preview → critique → [revise → preview → critique] → finalize
+                                        (worker)
+"Edítalo así" / "Arreglarlo": start → edit → preview → critique → [revise] → finalize
+Después del render: final (revisión del MP4)
+```
+
+| Paso | Qué hace | Modelo |
+|---|---|---|
+| `understand` | **Mapa del video**: Claude mira las hojas + la tabla de medidas + las frases. Tipo de video, tramos visuales (lo importante que no se tapa: producto, pantalla, gesto), tomas malas, texto en pantalla, historia por partes (gancho, problema, promesa, punto, prueba, cifra, objeción, oferta, CTA) y el brief inferido. | Opus, razonamiento medio |
+| `direct` | **Dirección única**: con el mapa, el brief (o el inferido), la marca (incluye el ranking de ganchos y lo que mejor funcionó), la retención de YouTube si hay y el estilo de referencia, decide todo junto: cortes, bloques movidos, gancho, b-roll y gráficos (formato de cable de `motion.ts`), palabras resaltadas, zooms, subtítulos ocultos, ritmo y 0–2 versiones. Cada decisión con su "por qué". Reglas por objetivo (anuncio: gancho en 2 s, ritmo alto, nunca tapar producto ni oferta, CTA al final, versiones de 15/30/60 s). | Opus, razonamiento alto |
+| `preview` | **Worker**: arma el plan con el mismo grafo del render (tramos, b-roll, gráficos, subtítulos, zooms) **sin codificar** y saca los cuadros clave (gancho, antes y después de cada corte, cada b-roll y gráfico en su lugar, el texto en pantalla, el final). Hojas en `editor/<id>/director/vuelta-N-NN.jpg`. | — |
+| `critique` | **Segunda mirada**: crítico con visión sobre esos cuadros + las verificaciones automáticas (`checks.ts`). Puntaje 0–100 y problemas con su arreglo. Si hay problemas serios, `revise`. | Opus, razonamiento medio |
+| `revise` / `edit` | El director corrige con los problemas o con el pedido de la persona; "qué cambió" se calcula sobre los planes de verdad (`diff.ts`). | Opus, razonamiento alto |
+| `finalize` | Arreglos seguros sin IA (quitar un b-roll sobre algo importante, ocultar subtítulos sobre texto quemado, cortar una toma mala que quedó, devolver una CTA cortada), queda en revisión y, con "Hazlo por mí", se exporta. | — |
+| `final` | Después del render, cuadros del MP4 en los momentos clave → revisión con visión. Si algo quedó mal, aviso en el resultado con la sugerencia y "Arreglarlo". | Opus, razonamiento bajo |
+
+**Reglas duras** (no dependen de la IA, `assemble.ts`): lo que el brief pide que quede no se corta; la oferta, la CTA y lo que se muestra (producto, pantalla) quedan al menos al 60 % (una toma repetida adentro sí se limpia); el b-roll nunca va sobre el gancho, la apertura, la CTA ni un tramo importante del mapa; los bloques movidos son frases completas; cifras de los gráficos solo las dichas (validación del motor). Si el director falla, se usa el plan de antes (Sonnet) y se avisa.
+
+**"Hazlo por mí" y clips** pasan por el mismo director (el proyecto queda en revisión un instante y se exporta solo).
+
+### 3. Costo y tope por video
+
+Todo el consumo se registra en `ai_usage` con `video_project_id`, tokens de caché y `cost_usd` por etapa (`lib/ai/pricing.ts`: Opus 5.5 USD 4/20 por millón, Sonnet 5.5 2/10, Haiku 5.5 0,10/0,50; caché de 1 h). Tope por video: USD 5 por defecto (de 1 a 15), en la subida y en la revisión. Antes de empezar se arma un plan de costo (`cost.ts`) y, si no entra, se degrada en orden: revisión final con Sonnet → una sola vuelta de segunda mirada → mitad de los cuadros en el mapa → crítico con Sonnet → mapa con Sonnet → sin revisión final con IA → sin segunda mirada con IA (solo verificaciones y arreglos seguros) → dirección con menos razonamiento → dirección con Sonnet. Antes de cada paso se vuelve a mirar lo gastado de verdad. Lo que se dejó de hacer se muestra en "Lo que entendió".
+
+Estimación con todo encendido (Opus en todo, dos vueltas, revisión final):
+
+| Video crudo | Mapa | Dirección | Cada vuelta (crítica + corrección) | Revisión final | Total |
+|---|---|---|---|---|---|
+| 1 min | ~$0,15 | ~$0,34 | ~$0,48 | ~$0,08 | **~$1,50** |
+| 3 min | ~$0,23 | ~$0,44 | ~$0,60 | ~$0,08 | **~$1,95** |
+| 10 min | ~$0,35 | ~$0,56 | ~$0,73 | ~$0,09 | **~$2,45** |
+
+Más unos centavos por reintentos de gráficos (Sonnet). Cada "Edítalo así" o "Arreglarlo": ~$0,40–0,90. El razonamiento de Opus varía: los números reales pueden ser hasta un 50 % más altos; con USD 5 de tope todo entra sin degradar. **Pendiente: medir con la API real** (en el desarrollo se probó con `AI_FAKE=1`).
+
+### 4. Probar sin la API
+
+`AI_FAKE=1` no ve imágenes: el simulador (`lib/video/director/simulate.ts`) responde con reglas sobre las medidas **reales** del worker (tramos sin cara con texto = pantalla importante; borrosos o fuera de cuadro = tomas malas; cifras dichas = gráficos) y registra un costo estimado (proveedor "simulado") para probar el tope. Video de prueba con escenas (a cámara, un panel con texto, una toma borrosa fuera de cuadro, una toma repetida y una CTA con rótulo):
+
+```bash
+.venv/bin/python scripts/make_director_video.py /tmp/director   # anuncio-1080x1920.mp4, transcript.json, escenas.json
+```
+
+Pruebas: `pnpm test:director` (plan del director, reglas duras, verificaciones, cuadros clave, tope y "Edítalo así") y `pytest tests/test_eyes.py` (medidas, tramos, hojas y un análisis real con ffmpeg).
+
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 
 | Concepto | Costo |
@@ -263,7 +329,7 @@ Pruebas: `/home/claude/e2e/grabar-*.mjs` (Chromium con `--use-fake-device-for-me
 | Volumen de 20 GB ($0,15/GB al mes), siempre | ~$3 al mes |
 | Transcripción local (Parakeet en el worker) | $0 (unos segundos más de máquina) |
 | Pexels | $0 |
-| Claude (plan) | ~$0,05–0,20 |
+| Claude (director de edición: mapa, dirección, dos vueltas de segunda mirada y revisión final) | ~$1,50–2,50 (tope por video, USD 5 por defecto; ver "Director de edición") |
 | Vercel Blob (almacenamiento y descargas) | centavos |
 
 Una máquina detenida no cobra CPU. Precios a octubre de 2026; verificarlos en cada proveedor.

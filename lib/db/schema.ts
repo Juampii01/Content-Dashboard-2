@@ -762,6 +762,13 @@ export const videoProjects = pgTable(
     autoExport: boolean("auto_export").notNull().default(false),
     // De dónde vino el original: "upload" (subida), "recorder" (grabado en el navegador), "clone" o "clip".
     origin: text("origin").notNull().default("upload"),
+    // Director de edición (lib/video/director): brief de la persona (opcional), lo que midió el worker en la imagen
+    // ("ojos": escenas, caras, nitidez, texto, hojas de contacto) y el estado del director (mapa del video, vueltas de
+    // la segunda mirada, revisión final, "Edítalo así", versiones). Tope de gasto de IA por video, en dólares.
+    brief: jsonb("brief").$type<Record<string, unknown>>(),
+    eyes: jsonb("eyes").$type<Record<string, unknown>>(),
+    director: jsonb("director").$type<Record<string, unknown>>(),
+    aiBudgetUsd: real("ai_budget_usd").notNull().default(5),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -981,9 +988,14 @@ export const aiUsage = pgTable(
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     jobId: uuid("job_id").references(() => jobs.id, { onDelete: "set null" }),
+    // Costo por video del Editor (director de edición): a qué proyecto se carga, lo leído de la caché y el costo en USD.
+    videoProjectId: uuid("video_project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    costUsd: real("cost_usd").notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [index("ai_usage_created_at_idx").on(t.createdAt)],
+  (t) => [index("ai_usage_created_at_idx").on(t.createdAt), index("ai_usage_video_project_idx").on(t.videoProjectId)],
 );
 
 // ─── Claves de servicios del cliente ───────────────────────────────────────

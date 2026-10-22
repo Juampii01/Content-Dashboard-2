@@ -1,6 +1,6 @@
 import "server-only";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -233,6 +233,25 @@ export async function workerTransfer(key: string, op: "get" | "put", contentType
     url: `${env().NEXT_PUBLIC_APP_URL}/api/worker/files/${key}`,
     headers: { authorization: `Bearer ${secret}`, ...(op === "put" ? { "content-type": contentType ?? contentTypeFor(key) } : {}) },
   };
+}
+
+/**
+ * Lee un archivo chico entero (por ejemplo, las hojas de contacto del director de edición, ~200 KB). Para videos no:
+ * esos se leen con URLs firmadas. Tope de 12 MB.
+ */
+export async function readBytes(key: string, maxBytes = 12 * 1024 * 1024): Promise<Buffer> {
+  assertKey(key);
+  if (fileDriver() === "blob") {
+    const access = await workerTransfer(key, "get");
+    const res = await fetch(access.url, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`lectura ${key}: ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength > maxBytes) throw new Error(`lectura ${key}: demasiado grande`);
+    return buf;
+  }
+  const info = await stat(localPath(key));
+  if (info.size > maxBytes) throw new Error(`lectura ${key}: demasiado grande`);
+  return readFile(localPath(key));
 }
 
 /** Tamaño de un archivo, o null si no existe. */

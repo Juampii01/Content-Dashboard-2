@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import ass, audio_preview, broll_edit, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, audio_preview, broll_edit, director, energy, eyes, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
 from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
 
@@ -105,11 +105,22 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
         log.info("proyecto %s en estado %s: nada que analizar", pid, project["status"])
         return {"skipped": project["status"]}
 
-    media = prepare(ctx, project, 0.0, 0.55, need_proxy=True)
+    if ctx.input.get("mode") == "edit":
+        # "Edítalo así" o un arreglo de la revisión final: el director corrige con el pedido y vuelve a mirar.
+        try:
+            result = director.run(ctx, project, "start", 0.0, 1.0)
+        except Cancelled:
+            raise
+        except JobError as exc:
+            ctx.app.director(pid, {"step": "abort", "error": exc.user_message[:300]})
+            return {"edit": "abort"}
+        return {"edit": result.get("status")}
+
+    media = prepare(ctx, project, 0.0, 0.45, need_proxy=True)
     workdir = ctx.workdir(pid)
 
     if not project.get("transcript"):
-        ctx.stage("Transcribiendo", 0.55, 0.85)
+        ctx.stage("Transcribiendo", 0.45, 0.65)
         wav, ogg, wav16 = workdir / "audio.wav", workdir / "asr.ogg", workdir / "asr16.wav"
         ingest.asr_audio(wav, ogg, wav16)
         ctx.progress(0.2)
@@ -133,7 +144,7 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
 
     if not media.get("audioPreview") and project.get("transcript"):
         # Muestra de "Audio de estudio" (10 s antes y después). Si falla, el análisis sigue: no es imprescindible.
-        ctx.stage("Preparando la muestra de audio", 0.85, 0.88)
+        ctx.stage("Preparando la muestra de audio", 0.65, 0.67)
         try:
             preview = audio_preview.make(ctx, pid, workdir, project["transcript"].get("words") or [], float(media["duration"]))
             if preview:
@@ -144,9 +155,10 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             log.warning("no se pudo armar la muestra de audio de %s", pid, exc_info=True)
 
-    ctx.stage("Armando el plan de edición", 0.88, 1.0)
-    result = ctx.app.plan(pid)
-    return {"plan": result.get("plannedBy"), "status": result.get("status")}
+    # Ojos y director de edición: mira el video, lo entiende, dirige la edición y la revisa antes de entregarla.
+    director.see(ctx, project, workdir, media, 0.67, 0.75)
+    result = director.run(ctx, project, "start", 0.75, 1.0)
+    return {"status": result.get("status")}
 
 
 # Bancos de videos de stock y los hosts desde donde se bajan sus archivos.
@@ -216,21 +228,18 @@ def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: P
     return mixed
 
 
-@register("VIDEO_RENDER")
-def render_job(ctx: JobContext) -> dict[str, Any]:
-    project = _project(ctx)
+def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, preview: bool = False) -> dict[str, Any]:
+    """Todo lo del render menos la codificación final: tramos, unión, audio (no en la vista previa), b-roll, subtítulos
+    y el grafo de ffmpeg. Lo usan el render y la vista previa de la segunda mirada del director (que solo saca cuadros)."""
     pid = str(project["id"])
-    if project["status"] != "RENDERING":
-        log.info("proyecto %s en estado %s: no se renderiza", pid, project["status"])
-        return {"skipped": project["status"]}
-    data = ctx.input
     clips = data["clips"]
     if not clips:
         raise JobError("No quedó nada para renderizar. Restaura algunas palabras y vuelve a intentarlo.", retry=False)
     fmt = data["format"]
     expected = sum(c["end"] - c["start"] for c in clips) / render.FPS
+    stages = {"prepare": (0.0, 0.1), "cut": (0.1, 0.35), "audio": (0.35, 0.45), "broll": (0.45, 0.55)} if not preview else {"prepare": (0.0, 0.1), "cut": (0.1, 0.4), "broll": (0.4, 0.6)}
 
-    media = prepare(ctx, project, 0.0, 0.1, need_proxy=False)
+    media = prepare(ctx, project, *stages["prepare"], need_proxy=False)
     workdir = ctx.workdir(pid)
     mezz, wav = workdir / "mezz.mp4", workdir / "audio.wav"
 
@@ -238,7 +247,7 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     fixes = [f for f in data.get("phraseFixes") or [] if isinstance(f, dict)]
     seg_mezz, seg_wav, seg_dir = (phrase_fix.patch_sources(ctx, pid, workdir, mezz, wav, fixes) if fixes else (mezz, wav, workdir))
 
-    ctx.stage("Cortando las tomas", 0.1, 0.35)
+    ctx.stage("Cortando las tomas" if not preview else "Armando la vista previa", *stages["cut"])
     segments = render.render_segments(seg_mezz, seg_wav, clips, seg_dir, ctx.progress)
 
     out_dir = workdir / f"render-{render.clips_hash(clips)}"
@@ -246,13 +255,16 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     joined = out_dir / "joined.mkv"
     render.concat(segments, joined)
 
-    ctx.stage("Mezclando el audio", 0.35, 0.45)
-    voice = out_dir / "voice.wav"
+    voice = joined
+    audio_info: dict[str, Any] = {}
     audio_cfg = data.get("audio") or {}
-    audio_info = render.process_audio(
-        joined, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)), studio_level=str(audio_cfg.get("studio") or "off"), models_dir=ctx.config.models_dir
-    )
-    voice = mix_extras(ctx, pid, workdir, out_dir, voice, audio_cfg, expected, audio_info)
+    if not preview:
+        ctx.stage("Mezclando el audio", *stages["audio"])
+        voice = out_dir / "voice.wav"
+        audio_info = render.process_audio(
+            joined, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)), studio_level=str(audio_cfg.get("studio") or "off"), models_dir=ctx.config.models_dir
+        )
+        voice = mix_extras(ctx, pid, workdir, out_dir, voice, audio_cfg, expected, audio_info)
 
     captions = data.get("captions") or {}
     ass_path = None
@@ -260,10 +272,9 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     broll_items = [b for b in data.get("broll") or [] if float(b["end"]) - float(b["start"]) >= 0.5 and float(b["start"]) < expected]
     broll_inputs: list[Path] = []
     if broll_items:
-        ctx.stage("Preparando el b-roll", 0.45, 0.55)
+        ctx.stage("Preparando el b-roll", *stages["broll"])
         broll_inputs = prepare_broll(ctx, pid, workdir, broll_items, (out_w, out_h), expected)
 
-    ctx.stage("Renderizando", 0.55 if broll_items else 0.45, 0.9)
     stickers: list[dict[str, Any]] = []
     if ass.is_look(captions):
         # Galería de estilos animados: el ASS y los emojis (imágenes) que van encima.
@@ -289,10 +300,37 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         broll=[{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected), "edit": b.get("edit")} for i, b in enumerate(broll_items)],
         stickers=[{**s, "input": emoji_base + i} for i, s in enumerate(stickers)],
     )
+    return {
+        "joined": joined,
+        "voice": voice,
+        "graph": graph,
+        "expected": expected,
+        "out_dir": out_dir,
+        "broll_inputs": broll_inputs,
+        "broll_items": broll_items,
+        "image_inputs": [EMOJI_DIR / f"{n}.png" for n in emoji_files],
+        "audio_info": audio_info,
+        "fmt": fmt,
+    }
+
+
+@register("VIDEO_RENDER")
+def render_job(ctx: JobContext) -> dict[str, Any]:
+    project = _project(ctx)
+    pid = str(project["id"])
+    if project["status"] != "RENDERING":
+        log.info("proyecto %s en estado %s: no se renderiza", pid, project["status"])
+        return {"skipped": project["status"]}
+    data = ctx.input
+    built = compose(ctx, project, data)
+    fmt, expected, out_dir, voice, audio_info, broll_items = built["fmt"], built["expected"], built["out_dir"], built["voice"], built["audio_info"], built["broll_items"]
+    joined = built["joined"]
+
+    ctx.stage("Renderizando", 0.55 if broll_items else 0.45, 0.9)
     final = out_dir / "final.mp4"
     if final.exists():
         final.unlink()
-    render.final_encode(joined, voice, graph, expected, final, ctx.config.x264_preset, ctx.progress, extra_inputs=broll_inputs, image_inputs=[EMOJI_DIR / f"{n}.png" for n in emoji_files])
+    render.final_encode(joined, voice, built["graph"], expected, final, ctx.config.x264_preset, ctx.progress, extra_inputs=built["broll_inputs"], image_inputs=built["image_inputs"])
 
     ctx.stage("Revisando la calidad", 0.9, 0.95)
     qc = render.quality_check(final, expected, fmt, float(data.get("audio", {}).get("targetLufs", -14)))
@@ -301,7 +339,7 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     if not qc["ok"]:
         log.warning("control de calidad con avisos: %s", [c for c in qc["checks"] if not c["ok"]])
 
-    ctx.stage("Guardando el video", 0.95, 1.0)
+    ctx.stage("Guardando el video", 0.95, 0.97)
     poster = out_dir / "poster.jpg"
     ingest.build_poster(final, poster, at=min(1.0, expected / 3))
     srt = out_dir / "subtitulos.srt"
@@ -315,6 +353,15 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         credits.write_text(data["credits"], encoding="utf-8")
         ctx.app.upload(pid, data["creditsKey"], credits, "text/plain; charset=utf-8")
     ctx.check()
+    if data.get("finalFrames"):
+        # Revisión final del director: cuadros del MP4 en los momentos clave. Si falla, el video igual queda listo.
+        ctx.stage("Revisando el video final", 0.97, 1.0)
+        try:
+            director.final_review(ctx, pid, final, data["finalFrames"], out_dir)
+        except Cancelled:
+            raise
+        except Exception:  # noqa: BLE001
+            log.warning("no se pudo hacer la revisión final de %s", pid, exc_info=True)
     meta = {
         **{k: qc[k] for k in ("duration", "width", "height", "fps", "lufs", "truePeak", "bytes")},
         "posterKey": data["posterKey"],

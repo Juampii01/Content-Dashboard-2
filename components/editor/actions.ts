@@ -12,6 +12,7 @@ import { brollItemSchema } from "@/lib/video/plan";
 import { MUSIC_DB, SFX_LEVELS } from "@/lib/video/sfx";
 import { STUDIO_LEVELS } from "@/lib/video/studio-audio";
 import { CAPTION_PRESET_KEYS, type CaptionPresetKey } from "@/lib/video/types";
+import { BUDGET, briefSchema, type Brief } from "@/lib/video/director/types";
 import {
   completeUpload,
   createFromClone,
@@ -76,6 +77,8 @@ const settingsSchema = z.object({
   styleId: z.uuid().nullable().optional(),
   brollMode: brollModeSchema.optional(),
   autoExport: z.boolean().optional(),
+  brief: briefSchema.nullable().optional(),
+  budgetUsd: z.number().min(BUDGET.min).max(BUDGET.max).optional(),
 });
 
 /** Paso 2: la subida terminó y la persona tocó "Procesar". Se verifica el archivo y se encola el análisis. */
@@ -105,17 +108,32 @@ export async function createFromCloneAction(
   cloneId: string,
   format: "9:16" | "16:9",
   preset: CaptionPresetKey,
-  extra: { styleId?: string | null; brollMode?: "auto" | "off"; autoExport?: boolean } = {},
+  extra: { styleId?: string | null; brollMode?: "auto" | "off"; autoExport?: boolean; brief?: Brief | null; budgetUsd?: number } = {},
 ): Promise<ActionResult> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = z
-    .object({ cloneId: idSchema, format: formatSchema, preset: presetSchema, styleId: z.uuid().nullable().optional(), brollMode: brollModeSchema.optional(), autoExport: z.boolean().optional() })
+    .object({
+      cloneId: idSchema,
+      format: formatSchema,
+      preset: presetSchema,
+      styleId: z.uuid().nullable().optional(),
+      brollMode: brollModeSchema.optional(),
+      autoExport: z.boolean().optional(),
+      brief: briefSchema.nullable().optional(),
+      budgetUsd: z.number().min(BUDGET.min).max(BUDGET.max).optional(),
+    })
     .safeParse({ cloneId, format, preset, ...extra });
   if (!parsed.success) return { ok: false, error: "Datos no válidos." };
   let id: string;
   try {
-    id = await createFromClone(parsed.data.cloneId, parsed.data.format, parsed.data.preset, user.id, { styleId: parsed.data.styleId, brollMode: parsed.data.brollMode, autoExport: parsed.data.autoExport });
+    id = await createFromClone(parsed.data.cloneId, parsed.data.format, parsed.data.preset, user.id, {
+      styleId: parsed.data.styleId,
+      brollMode: parsed.data.brollMode,
+      autoExport: parsed.data.autoExport,
+      brief: parsed.data.brief,
+      budgetUsd: parsed.data.budgetUsd,
+    });
   } catch (error) {
     return fail(error);
   }
@@ -134,6 +152,7 @@ const reviewSchema = z.object({
   sfx: z.enum(SFX_LEVELS).optional(),
   studio: z.enum(STUDIO_LEVELS).optional(),
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
+  moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
 });
 
 export async function saveReviewAction(projectId: string, review: Review, format: "9:16" | "16:9"): Promise<ActionResult> {

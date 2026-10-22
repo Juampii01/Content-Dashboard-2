@@ -56,7 +56,7 @@ export type VideoFormat = "9:16" | "16:9";
 export const CAPTION_PRESET_KEYS = ["clasico", "pop", "caja", "hormozi", "karaoke", "palabra", "minimal", "resaltador", "estilo", "ninguno"] as const;
 export type CaptionPresetKey = (typeof CAPTION_PRESET_KEYS)[number];
 
-export const REMOVAL_REASONS = ["retake", "false_start", "filler", "silence", "off_topic", "manual"] as const;
+export const REMOVAL_REASONS = ["retake", "false_start", "filler", "silence", "off_topic", "bad_take", "manual"] as const;
 export type RemovalReason = (typeof REMOVAL_REASONS)[number];
 
 export type Removal = {
@@ -70,6 +70,9 @@ export type Removal = {
 };
 
 export type HookCandidate = { from_word: number; to_word: number; score: number; why: string };
+
+export type PlanMove = { from_word: number; to_word: number; after_word: number; why: string };
+export type ZoomMoment = { from_word: number; to_word: number; scale: number; why: string };
 
 export type PlanSegment = { id: string; from_word: number; to_word: number; role: "hook" | "body" | "cta" };
 
@@ -86,7 +89,7 @@ export type EditPlan = {
   /** Índice del gancho elegido en hook_candidates, o null si va sin gancho. */
   selected_hook: number | null;
   /** `emoji`: emojis encima de las palabras clave (solo en los estilos de la galería). */
-  captions: { preset: CaptionPresetKey; emphasis_words: number[]; emoji?: boolean };
+  captions: { preset: CaptionPresetKey; emphasis_words: number[]; emoji?: boolean; hide?: { from_word: number; to_word: number; why: string }[] };
   /** Texto corregido de palabras puntuales para los subtítulos (por guion o a mano). */
   corrections: Record<string, string>;
   overlays: { text: string; from_word: number; to_word: number; position: "top" | "center" }[];
@@ -94,6 +97,15 @@ export type EditPlan = {
   broll: BrollItem[];
   /** Zooms y punch-ins del estilo (se calculan en cada render a partir del timeline; aquí solo si van o no). */
   zooms_enabled?: boolean;
+  /**
+   * Bloques movidos por el director (lib/video/director): el rango de palabras pasa a ir después de `after_word`
+   * (-1 = al principio, después del gancho). Sin cambiar el sentido; la persona puede deshacerlo en la revisión.
+   */
+  moves?: PlanMove[];
+  /** Zooms que decidió el director (énfasis o ritmo), si no hay un estilo con sus propios zooms. */
+  zoom_moments?: ZoomMoment[];
+  /** Lo armó el director de edición (con ojos): ritmo elegido y versión del director. */
+  director?: { version: 1; pace: "calm" | "normal" | "fast" };
   /** Pausa máxima que queda entre palabras (la tolerancia de silencios del estilo). Sin estilo, la de TIMING. */
   pacing?: { long_pause: number };
   /** Estilo con el que se armó el plan (id de video_styles), si hay. */

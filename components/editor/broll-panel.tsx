@@ -114,6 +114,12 @@ export function BrollPanel({
                       {seg ? `${formatDuration(seg.start)}–${formatDuration(seg.end)}` : choice ? "Cae sobre palabras cortadas" : "Sin clip"}
                     </p>
                     {choice ? <SourceLine option={choice} /> : <p className="text-xs text-warning">Elige un clip o quítalo.</p>}
+                    {item.why && (
+                      <p className="line-clamp-2 text-xs text-text/80">
+                        <span className="font-semibold text-accent-glow">Por qué: </span>
+                        {item.why}
+                      </p>
+                    )}
                     {summary && (
                       <p className="flex items-center gap-1 truncate text-xs text-accent-glow">
                         <SlidersHorizontal className="h-3 w-3 flex-none" aria-hidden />

@@ -169,7 +169,7 @@ def mix_audio(
 
     `sfx`: [{"name": "whoosh" | "pop" | "riser", "at": segundos del inicio del archivo, "gain": dB}].
     `music_db`: sonoridad de la música respecto del objetivo de la voz (la pista se mide y se lleva a target + db).
-    El resultado pasa por un limitador a -1,5 dBFS (los efectos no pueden recortar).
+    El resultado pasa por un limitador a -1 dBFS que la voz sola no activa (los efectos no pueden recortar).
     """
     cues = [c for c in sfx or [] if c.get("name") in SFX_NAMES and 0 <= float(c.get("at", -1)) < duration][:60]
     inputs: list[str] = ["-i", str(voice)]
@@ -211,8 +211,9 @@ def mix_audio(
         parts.append("[voice]anull[mixed]")
     else:
         parts.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:normalize=0:dropout_transition=0[mixed]")
-    # latency=1: el limitador mira 5 ms adelante; sin compensar, la mezcla quedaría corrida respecto del video.
-    parts.append("[mixed]alimiter=limit=0.84:attack=5:release=60:level=disabled:latency=1[a]")
+    # Limitador al techo de la voz (-1 dBFS, el pico que deja loudnorm): la voz sola nunca lo toca, solo actúa si un
+    # efecto o la música suman por encima. latency=1: mira 5 ms adelante y lo compensa (la mezcla no se corre).
+    parts.append("[mixed]alimiter=limit=0.891:attack=5:release=60:level=disabled:latency=1[a]")
     tmp = _atomic(out)
     ffmpeg.run([*inputs, "-filter_complex", ";".join(parts), "-map", "[a]", "-t", f"{duration:.6f}", "-ac", "1", "-c:a", "pcm_s16le", str(tmp)], what="mezcla de música y efectos")
     os.replace(tmp, out)

@@ -111,7 +111,11 @@ def test_sfx_stay_under_the_voice(voice: Path, tmp_path: Path, level: str) -> No
     # La voz sigue a -14 LUFS (los efectos suman menos de medio LU) y no hay recorte.
     assert m["I"] == pytest.approx(-14, abs=0.5), m
     assert m["I"] - v["I"] < 0.5
-    assert m["peak"] <= -1.0, m
+    assert m["peak"] <= -0.9, m
+    # La voz no cambia: fuera de los efectos, la mezcla es la voz tal cual (sin limitador que la baje).
+    mv, vv = read_wav(mixed), read_wav(voice)
+    clean = slice(int(0.0 * RATE), int(2.0 * RATE))
+    assert abs(rms_db(mv[clean]) - rms_db(vv[clean])) < 0.05
     # El momento más fuerte de los efectos (400 ms) queda por debajo del de la voz: bastante en "Sutil".
     margin = v["max_m"] - s["max_m"]
     assert margin >= (8 if level == "subtle" else 3), (level, v["max_m"], s["max_m"])
@@ -132,7 +136,7 @@ def test_music_is_ducked_under_the_voice(voice: Path, tmp_path: Path) -> None:
     assert info["music"] and info["music"]["db"] == -16
     v, m = loudness(voice), loudness(mixed)
     assert m["I"] == pytest.approx(-14, abs=0.6), m
-    assert m["peak"] <= -1.0
+    assert m["peak"] <= -0.9
     # La música es lo que queda al restar la voz (la voz no pasa por ningún proceso en la mezcla).
     rest = read_wav(mixed) - read_wav(voice)[: len(read_wav(mixed))]
     seg = lambda a, b: rest[int(a * RATE) : int(b * RATE)]  # noqa: E731
@@ -156,3 +160,22 @@ def test_silent_music_is_a_readable_error(voice: Path, tmp_path: Path) -> None:
     with pytest.raises(JobError) as exc:
         render.mix_audio(voice, tmp_path / "mix2.wav", DURATION, music=broken)
     assert exc.value.user_message.startswith("No pudimos leer la música") and not exc.value.retry
+
+
+def test_render_job_is_the_registered_handler() -> None:
+    """La mezcla es una función auxiliar: el trabajo VIDEO_RENDER sigue siendo render_job."""
+    from comunes import runner
+    from video import pipeline
+
+    assert runner._handlers["VIDEO_RENDER"] is pipeline.render_job
+
+
+def test_voice_at_its_ceiling_is_not_limited(voice: Path, tmp_path: Path) -> None:
+    """loudnorm deja la voz con picos de hasta -1 dBFS: la mezcla no la baja (antes un limitador a -1,5 la bajaba 0,3 dB)."""
+    y = read_wav(voice)
+    hot = write_wav(tmp_path / "hot.wav", y * (10 ** (-1.05 / 20) / np.abs(y).max()))
+    out = tmp_path / "mix.wav"
+    render.mix_audio(hot, out, DURATION, sfx=[{"name": "pop", "at": 11.6, "gain": -30}])
+    a, b = read_wav(hot), read_wav(out)
+    speech = slice(0, int(11 * RATE))
+    assert abs(rms_db(b[speech]) - rms_db(a[speech])) < 0.02

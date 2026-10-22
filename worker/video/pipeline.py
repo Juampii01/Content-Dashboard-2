@@ -167,7 +167,6 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
     return out
 
 
-@register("VIDEO_RENDER")
 def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: Path, audio_cfg: dict[str, Any], duration: float, info: dict[str, Any]) -> Path:
     """Efectos de sonido y música de fondo debajo de la voz. Sin ninguno de los dos, la voz queda tal cual."""
     sfx = [c for c in audio_cfg.get("sfx") or [] if isinstance(c, dict)]
@@ -190,6 +189,7 @@ def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: P
     return mixed
 
 
+@register("VIDEO_RENDER")
 def render_job(ctx: JobContext) -> dict[str, Any]:
     project = _project(ctx)
     pid = str(project["id"])

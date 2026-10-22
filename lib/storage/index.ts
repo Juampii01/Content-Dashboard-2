@@ -18,6 +18,7 @@ export {
   fileDriver,
   fileInfo,
   MAX_VIDEO_BYTES,
+  readBytes,
   readUrl,
   VIDEO_EXTENSIONS,
   VIDEO_TYPES,

@@ -162,6 +162,13 @@
       "when": 1792694287594,
       "tag": "0022_clon-traduccion-frases",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792703055613,
+      "tag": "0025_director-de-edicion",
+      "breakpoints": true
     }
   ]
 }

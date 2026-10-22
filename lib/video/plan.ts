@@ -68,11 +68,20 @@ export const planSchema = z.object({
   proposed_removals: z.array(removalSchema).max(5000),
   hook_candidates: z.array(hookSchema).max(5),
   selected_hook: z.number().int().min(0).max(4).nullable(),
-  captions: z.object({ preset: z.enum(CAPTION_PRESET_KEYS), emphasis_words: z.array(z.number().int().min(0)).max(40), emoji: z.boolean().optional() }),
+  captions: z.object({
+    preset: z.enum(CAPTION_PRESET_KEYS),
+    emphasis_words: z.array(z.number().int().min(0)).max(40),
+    emoji: z.boolean().optional(),
+    /** Tramos sin subtítulos (el director los oculta donde ya hay texto quemado en la misma franja). */
+    hide: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(30).optional(),
+  }),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   overlays: z.array(z.object({ text: z.string().max(120), from_word: z.number().int(), to_word: z.number().int(), position: z.enum(["top", "center"]) })).max(20),
   broll: z.array(brollItemSchema).max(20),
   zooms_enabled: z.boolean().optional(),
+  moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
+  zoom_moments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300) })).max(60).optional(),
+  director: z.object({ version: z.literal(1), pace: z.enum(["calm", "normal", "fast"]) }).optional(),
   pacing: z.object({ long_pause: z.number().min(0.2).max(1.2) }).optional(),
   style_id: z.uuid().nullable().optional(),
   audio: z.object({
@@ -114,6 +123,17 @@ export function planIssues(plan: EditPlan, wordCount: number): string[] {
     if (next && next.from_word <= b.to_word) issues.push(`B-roll superpuestos (${b.from_word}–${b.to_word} y ${next.from_word}–${next.to_word}).`);
   });
   Object.keys(plan.corrections).forEach((id) => !valid(Number(id)) && issues.push(`Corrección de una palabra inexistente (${id}).`));
+  for (const m of plan.moves ?? []) {
+    check("Bloque movido", m.from_word, m.to_word);
+    if (m.after_word !== -1 && !valid(m.after_word)) issues.push(`Bloque movido a una palabra inexistente (${m.after_word}).`);
+    else if (m.after_word >= m.from_word && m.after_word <= m.to_word) issues.push(`Un bloque no puede ir después de sí mismo (${m.from_word}–${m.to_word}).`);
+  }
+  const moves = [...(plan.moves ?? [])].sort((a, b) => a.from_word - b.from_word);
+  moves.forEach((m, i) => {
+    const next = moves[i + 1];
+    if (next && next.from_word <= m.to_word) issues.push(`Bloques movidos superpuestos (${m.from_word}–${m.to_word} y ${next.from_word}–${next.to_word}).`);
+  });
+  for (const z of plan.zoom_moments ?? []) check("Zoom", z.from_word, z.to_word);
   return issues;
 }
 
@@ -170,7 +190,7 @@ const HOOK_MAX = 8;
 const HOOK_TOLERANCE = 0.5;
 
 /** Un gancho no empieza ni termina en una palabra cortada (una muletilla o un arranque en falso del borde). */
-function trimHook<T extends HookCandidate>(h: T, removedSet: Set<number>): T {
+export function trimHook<T extends HookCandidate>(h: T, removedSet: Set<number>): T {
   let from = h.from_word;
   let to = h.to_word;
   while (from <= to && removedSet.has(from)) from++;
@@ -178,7 +198,7 @@ function trimHook<T extends HookCandidate>(h: T, removedSet: Set<number>): T {
   return { ...h, from_word: from, to_word: to };
 }
 
-function hookIsValid(h: HookCandidate, words: Word[], removedSet: Set<number>): boolean {
+export function hookIsValid(h: HookCandidate, words: Word[], removedSet: Set<number>): boolean {
   const a = words[h.from_word];
   const b = words[h.to_word];
   if (!a || !b || h.from_word > h.to_word) return false;

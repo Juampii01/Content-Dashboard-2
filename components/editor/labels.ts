@@ -27,14 +27,24 @@ export const reasonLabel: Record<RemovalReason, string> = {
   filler: "Muletilla",
   silence: "Pausa",
   off_topic: "Fuera de tema",
+  bad_take: "Toma mala",
   manual: "Cortado a mano",
 };
 
 /** Etapas que ve la persona, con el tramo de la barra de progreso que ocupa cada una (lo escribe el worker). */
 export const ANALYZE_STAGES = [
-  { label: "Preparando el video", until: 55, match: ["Bajando el video", "Preparando el video", "Preparando la vista previa"] },
-  { label: "Transcribiendo palabra por palabra", until: 85, match: ["Transcribiendo"] },
-  { label: "Armando el plan de edición", until: 100, match: ["Armando el plan de edición"] },
+  { label: "Preparando el video", until: 45, match: ["Bajando el video", "Preparando el video", "Preparando la vista previa"] },
+  { label: "Transcribiendo palabra por palabra", until: 67, match: ["Transcribiendo", "Preparando la muestra de audio"] },
+  { label: "Mirando el video", until: 75, match: ["Mirando el video"] },
+  { label: "Entendiendo y dirigiendo la edición", until: 86, match: ["Entendiendo el video", "Dirigiendo la edición", "Armando el plan de edición"] },
+  { label: "Revisando la edición antes de entregártela", until: 100, match: ["Revisando la edición", "Armando la vista previa", "Cortando las tomas", "Preparando el b-roll", "Corrigiendo lo que encontró la revisión", "Dejando todo listo"] },
+];
+
+/** "Edítalo así": el director aplica el pedido y vuelve a mirar la edición. */
+export const EDIT_STAGES = [
+  { label: "Aplicando tus cambios", until: 40, match: ["Aplicando tus cambios", "Dirigiendo la edición"] },
+  { label: "Armando la vista previa", until: 70, match: ["Armando la vista previa", "Cortando las tomas", "Preparando el b-roll", "Revisando la edición"] },
+  { label: "Revisando el resultado", until: 100, match: ["Corrigiendo lo que encontró la revisión", "Dejando todo listo"] },
 ];
 
 export const RENDER_STAGES = [
@@ -43,7 +53,7 @@ export const RENDER_STAGES = [
   { label: "Mezclando el audio", until: 45, match: ["Mezclando el audio"] },
   { label: "Renderizando con subtítulos", until: 90, match: ["Renderizando"] },
   { label: "Revisando la calidad", until: 95, match: ["Revisando la calidad"] },
-  { label: "Guardando el video", until: 100, match: ["Guardando el video"] },
+  { label: "Guardando y revisando el video final", until: 100, match: ["Guardando el video", "Revisando el video final"] },
 ];
 
 /**
@@ -51,9 +61,10 @@ export const RENDER_STAGES = [
  * de la barra y el render la segunda; cada etapa dice de qué trabajo y de qué tramo de su progreso sale.
  */
 export const AUTO_STAGES = [
-  { label: "Preparando el video", phase: "analyze", until: 55 },
-  { label: "Transcribiendo palabra por palabra", phase: "analyze", until: 85 },
-  { label: "Armando la edición: cortes, gancho, gráficos y b-roll", phase: "analyze", until: 101 },
+  { label: "Preparando el video", phase: "analyze", until: 45 },
+  { label: "Transcribiendo palabra por palabra", phase: "analyze", until: 67 },
+  { label: "Mirando y entendiendo el video", phase: "analyze", until: 80 },
+  { label: "Dirigiendo la edición y revisándola", phase: "analyze", until: 101 },
   { label: "Cortando las tomas y limpiando el audio", phase: "render", until: 45 },
   { label: "Renderizando con subtítulos", phase: "render", until: 90 },
   { label: "Revisando la calidad y guardando", phase: "render", until: 101 },

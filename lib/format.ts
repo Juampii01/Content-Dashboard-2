@@ -38,6 +38,12 @@ export function formatNumber(value: Num, options?: { digits?: number }): string 
   return numberFormat.format(value);
 }
 
+/** Dólares: 0.4237 → "USD 0.42", 12 → "USD 12.00". Menos de un centavo: "USD 0.00". `null` → "—". */
+export function formatUsd(value: Num): string {
+  if (!isNum(value)) return EMPTY;
+  return `USD ${formatNumber(value, { digits: 2 })}`;
+}
+
 /**
  * Forma compacta: 999 → "999", 12400 → "12.4 mil", 1250000 → "1.3 M", 2.1e9 → "2.1 mil M".
  * Para tarjetas de métricas y ejes de gráficos. Se arma a mano porque el compacto de Intl en

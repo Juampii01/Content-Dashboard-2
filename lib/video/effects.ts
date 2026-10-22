@@ -7,7 +7,7 @@
 import { resolveEdit, type BrollEdit } from "./broll-edit";
 import type { StylePreset } from "./style";
 import { outputRange, type Timeline } from "./timeline";
-import { FPS, type BrollItem, type BrollOption } from "./types";
+import { FPS, type BrollItem, type BrollOption, type ZoomMoment } from "./types";
 
 export type OutputZoom = { start: number; end: number; scale: number; ramp: number; kind: "punch" | "smooth" };
 export type OutputBroll = { id: string; start: number; end: number; option: BrollOption; edit: BrollEdit };
@@ -75,6 +75,30 @@ export function computeZooms(timeline: Timeline, zoom: StylePreset["zoom"] | nul
     if (end - c.t < 0.6) end = Math.min(c.t + 1, nextZoom - 0.05, duration);
     if (end - c.t < 0.4) continue;
     out.push({ start: round3(c.t), end: round3(end), scale: c.kind === "smooth" ? Math.min(zoom.scale, 1.15) : zoom.scale, ramp: c.kind === "smooth" ? 0.35 : 0, kind: c.kind });
+  }
+  return out;
+}
+
+/**
+ * Zooms que decidió el director (lib/video/director): cada uno sobre su rango de palabras, nunca encima de un b-roll
+ * ni en el primer medio segundo. Se usan cuando no hay un estilo con sus propios zooms.
+ */
+export function directorZooms(timeline: Timeline, moments: ZoomMoment[] | undefined, avoid: Range[] = []): OutputZoom[] {
+  const out: OutputZoom[] = [];
+  for (const m of [...(moments ?? [])].sort((a, b) => a.from_word - b.from_word)) {
+    const range = outputRange(timeline, m.from_word, m.to_word);
+    if (!range) continue;
+    const start = Math.max(0.5, range.start - 0.1);
+    let end = Math.min(timeline.duration, range.end + 0.3, start + 3.5);
+    const nextBroll = avoid.filter((r) => r.end > start).sort((a, b) => a.start - b.start)[0];
+    if (nextBroll && nextBroll.start <= start + 0.2) continue;
+    if (nextBroll) end = Math.min(end, nextBroll.start - 0.05);
+    const prev = out[out.length - 1];
+    if (prev && start < prev.end + 0.4) continue;
+    if (end - start < 0.6) continue;
+    const scale = Math.max(1.04, Math.min(1.25, m.scale));
+    const kind: OutputZoom["kind"] = scale >= 1.12 ? "punch" : "smooth";
+    out.push({ start: round3(start), end: round3(end), scale, ramp: kind === "smooth" ? 0.35 : 0, kind });
   }
   return out;
 }

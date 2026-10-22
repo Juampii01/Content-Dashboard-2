@@ -6,7 +6,7 @@
  * Los bordes se ajustan a la rejilla de 30 cuadros por segundo; audio y video usan los mismos cuadros.
  */
 import { captionText, endsSentence } from "./text";
-import { FPS, type Clip, type EditPlan, type PlanSegment, type TimedWord, type Word } from "./types";
+import { FPS, type Clip, type EditPlan, type PlanMove, type PlanSegment, type TimedWord, type Word } from "./types";
 
 export const TIMING = {
   /** Una pausa más larga que esto entre dos palabras que quedan se recorta. */
@@ -89,9 +89,49 @@ export type Timeline = {
 /**
  * Arma el timeline. Si hay gancho elegido, sus palabras pasan al principio y salen de su lugar original.
  */
+/**
+ * Orden del cuerpo con los bloques movidos por el director: rangos de palabras [desde, hasta] en el orden en que salen.
+ * Sin bloques movidos, un solo rango (todo el video en su orden). Los bloques inválidos o superpuestos se ignoran.
+ */
+export function bodySequence(wordCount: number, moves: PlanMove[] | undefined): [number, number][] {
+  if (wordCount <= 0) return [];
+  const valid: PlanMove[] = [];
+  for (const m of [...(moves ?? [])].sort((a, b) => a.from_word - b.from_word)) {
+    if (m.from_word < 0 || m.to_word >= wordCount || m.from_word > m.to_word) continue;
+    if (m.after_word < -1 || m.after_word >= wordCount || (m.after_word >= m.from_word && m.after_word <= m.to_word)) continue;
+    if (valid.some((v) => m.from_word <= v.to_word && v.from_word <= m.to_word)) continue;
+    valid.push(m);
+  }
+  // Primero el video sin los bloques movidos, después cada bloque en su lugar nuevo.
+  let seq: [number, number][] = [];
+  let cursor = 0;
+  for (const m of valid) {
+    if (m.from_word > cursor) seq.push([cursor, m.from_word - 1]);
+    cursor = m.to_word + 1;
+  }
+  if (cursor <= wordCount - 1) seq.push([cursor, wordCount - 1]);
+  for (const m of valid) {
+    const block: [number, number] = [m.from_word, m.to_word];
+    if (m.after_word === -1) {
+      seq = [block, ...seq];
+      continue;
+    }
+    const at = seq.findIndex(([a, b]) => m.after_word >= a && m.after_word <= b);
+    if (at < 0) {
+      seq.push(block);
+      continue;
+    }
+    const [a, b] = seq[at]!;
+    const parts: [number, number][] = [[a, m.after_word], block];
+    if (m.after_word < b) parts.push([m.after_word + 1, b]);
+    seq.splice(at, 1, ...parts);
+  }
+  return seq;
+}
+
 export function buildTimeline(
   words: Word[],
-  plan: Pick<EditPlan, "removals" | "hook_candidates" | "selected_hook" | "corrections" | "captions"> & Partial<Pick<EditPlan, "pacing">>,
+  plan: Pick<EditPlan, "removals" | "hook_candidates" | "selected_hook" | "corrections" | "captions"> & Partial<Pick<EditPlan, "pacing" | "moves">>,
   duration: number,
 ): Timeline {
   // Tolerancia de silencios: la del estilo (si hay), dentro de un rango sensato.
@@ -99,13 +139,16 @@ export function buildTimeline(
   const removed = removedIds(plan, words.length);
   const hook = plan.selected_hook != null ? plan.hook_candidates[plan.selected_hook] : undefined;
   const inHook = (id: number) => Boolean(hook && id >= hook.from_word && id <= hook.to_word);
-  // Si el gancho ya está al principio del video, no se mueve: es parte del cuerpo.
+  // Si el gancho ya está al principio del video, no se mueve: es parte del cuerpo (salvo que otro bloque pase al inicio).
   const firstKept = words.find((w) => !removed.has(w.id));
-  const hookIsOpening = Boolean(hook && firstKept && hook.from_word <= firstKept.id);
+  const toStart = (plan.moves ?? []).some((m) => m.after_word === -1);
+  const hookIsOpening = Boolean(hook && firstKept && hook.from_word <= firstKept.id && !toStart);
 
   const hookRuns = hook && !hookIsOpening ? runsFor(words, (id) => inHook(id) && !removed.has(id), duration, longPause) : [];
-  const bodyRuns = runsFor(words, (id) => !removed.has(id) && (hookIsOpening || !inHook(id)), duration, longPause);
-  const clips = [...toClips(hookRuns, "hook"), ...toClips(bodyRuns, "body")];
+  const keepBody = (id: number) => !removed.has(id) && (hookIsOpening || !inHook(id));
+  const sequence = plan.moves?.length ? bodySequence(words.length, plan.moves) : [[0, words.length - 1] as [number, number]];
+  const bodyClips = sequence.flatMap(([a, b]) => toClips(runsFor(words, (id) => id >= a && id <= b && keepBody(id), duration, longPause), "body"));
+  const clips = [...toClips(hookRuns, "hook"), ...bodyClips];
 
   const emphasis = new Set(plan.captions.emphasis_words);
   const timed: TimedWord[] = [];

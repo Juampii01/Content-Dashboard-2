@@ -71,6 +71,10 @@ class AppClient:
     def plan(self, project_id: str) -> dict[str, Any]:
         return self._post(f"/api/worker/projects/{project_id}/plan", {}, timeout=330)
 
+    def director(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Un paso del director de edición (la app responde cuál sigue). Con razonamiento y visión puede tardar minutos."""
+        return self._post(f"/api/worker/projects/{project_id}/director", payload, timeout=830)
+
     def clip_moments(self, long_video_id: str) -> dict[str, Any]:
         """Clips desde un video largo: la app elige los momentos (reglas + Claude) y devuelve sus tramos."""
         return self._post(f"/api/worker/clips/{long_video_id}/moments", {}, timeout=330)

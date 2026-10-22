@@ -1,9 +1,11 @@
 import "server-only";
+import { AsyncLocalStorage } from "node:async_hooks";
 import Anthropic, { APIError } from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
+import { costOf, imageTokens, textTokens } from "./pricing";
 
 /**
  * Única puerta a Claude. Todas las funciones de IA pasan por aquí para tener:
@@ -12,16 +14,8 @@ import { env } from "@/lib/env";
  * - registro del consumo en ai_usage,
  * - errores en español para mostrar.
  */
-export const MODELS = {
-  /** Generación principal (guiones, perfil de marca). */
-  main: "claude-sonnet-5-5",
-  /** Ediciones chicas sobre un campo (acortar, otro gancho, otro beat). */
-  fast: "claude-haiku-5-5",
-  /** Tareas que piden más criterio (adaptar un guion a otro formato). */
-  deep: "claude-opus-5-5",
-} as const;
-
-export type ModelKey = keyof typeof MODELS;
+import { MODELS, type ModelKey } from "./models";
+export { MODELS, type ModelKey };
 
 export class AiError extends Error {
   constructor(
@@ -41,6 +35,18 @@ function getClient(): Anthropic {
   return client;
 }
 
+/**
+ * Ámbito del consumo: todo lo que se llame a Claude dentro de `withAiScope` se carga a ese video del Editor
+ * (ai_usage.video_project_id), también las llamadas internas (gráficos, reintentos) que no saben de proyectos.
+ */
+const scope = new AsyncLocalStorage<{ videoProjectId: string | null }>();
+export function withAiScope<T>(videoProjectId: string | null, fn: () => Promise<T>): Promise<T> {
+  return scope.run({ videoProjectId }, fn);
+}
+
+/** Respuesta simulada (AI_FAKE=1) de una función que la arma con los datos reales en lugar de leer la tarea. */
+export type FakeFn = () => unknown;
+
 export function aiConfigured(): boolean {
   return Boolean(env().ANTHROPIC_API_KEY) || (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production");
 }
@@ -59,30 +65,62 @@ export async function generateStructured<S extends z.ZodType>(input: {
   images?: { mediaType: "image/jpeg" | "image/png" | "image/webp"; data: string }[];
   /** Trabajo de la cola al que se carga el consumo (ai_usage.job_id). */
   jobId?: string | null;
+  /** Video del Editor al que se carga el consumo (si no, el de `withAiScope`). */
+  videoProjectId?: string | null;
+  /** Razonamiento adaptativo (Opus y Sonnet 5.5) y su esfuerzo. El razonamiento se cobra como salida. */
+  thinking?: { effort: "low" | "medium" | "high" | "xhigh" | "max" } | null;
+  /** Tiempo máximo de la llamada. Las largas (razonamiento o mucha salida) van por streaming. */
+  timeoutMs?: number;
+  /** Tamaño de cada imagen (para registrar la estimación del consumo cuando la respuesta es simulada). */
+  imageSizes?: { width: number; height: number }[];
+  /** AI_FAKE=1: respuesta simulada armada con los datos reales (en lugar de los casos de fake.ts). */
+  fake?: FakeFn;
 }): Promise<z.infer<S>> {
   const model = MODELS[input.model ?? "main"];
+  const videoProjectId = input.videoProjectId ?? scope.getStore()?.videoProjectId ?? null;
   // Solo para probar la interfaz en desarrollo: nunca en producción.
   if (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production") {
-    const { fakeResponse } = await import("./fake");
     await new Promise((r) => setTimeout(r, 800));
-    return input.schema.parse(fakeResponse(input.feature, input.task)) as z.infer<S>;
+    let raw: unknown;
+    if (input.fake) raw = input.fake();
+    else {
+      const { fakeResponse } = await import("./fake");
+      raw = fakeResponse(input.feature, input.task);
+    }
+    const parsed = input.schema.parse(raw) as z.infer<S>;
+    // En un video del Editor se registra el consumo estimado (proveedor "simulado") para probar el tope y la vista del costo.
+    if (videoProjectId) {
+      const inputTok = textTokens(input.context) + textTokens(input.task) + (input.imageSizes ?? []).reduce((n, i) => n + imageTokens(i.width, i.height), 0);
+      const outputTok = textTokens(JSON.stringify(parsed)) * (input.thinking ? 3 : 1);
+      await getDb()
+        .insert(schema.aiUsage)
+        .values({ feature: input.feature, provider: "simulado", model, inputTokens: inputTok, outputTokens: outputTok, jobId: input.jobId ?? null, videoProjectId, costUsd: costOf(model, { input: inputTok, output: outputTok, cacheRead: 0, cacheWrite: 0 }) })
+        .catch(() => undefined);
+    }
+    return parsed;
   }
+  const params = {
+    model,
+    max_tokens: input.maxTokens ?? 4096,
+    system: [{ type: "text" as const, text: input.context, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }],
+    messages: [
+      {
+        role: "user" as const,
+        content: input.images?.length
+          ? [...input.images.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } })), { type: "text" as const, text: input.task }]
+          : input.task,
+      },
+    ],
+    ...(input.thinking ? { thinking: { type: "adaptive" as const } } : {}),
+    output_config: { format: zodOutputFormat(input.schema), ...(input.thinking ? { effort: input.thinking.effort } : {}) },
+  };
+  // Razonamiento o mucha salida: por streaming (sin streaming, el SDK corta a los 2 minutos de este cliente).
+  const long = Boolean(input.thinking) || (input.maxTokens ?? 4096) > 16_000 || (input.timeoutMs ?? 0) > 120_000;
   let message;
   try {
-    message = await getClient().messages.parse({
-      model,
-      max_tokens: input.maxTokens ?? 4096,
-      system: [{ type: "text", text: input.context, cache_control: { type: "ephemeral", ttl: "1h" } }],
-      messages: [
-        {
-          role: "user",
-          content: input.images?.length
-            ? [...input.images.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } })), { type: "text" as const, text: input.task }]
-            : input.task,
-        },
-      ],
-      output_config: { format: zodOutputFormat(input.schema) },
-    });
+    message = long
+      ? await getClient().messages.stream(params, { timeout: input.timeoutMs ?? 600_000 }).finalMessage()
+      : await getClient().messages.parse(params, input.timeoutMs ? { timeout: input.timeoutMs } : undefined);
   } catch (error) {
     if (error instanceof AiError) throw error;
     if (error instanceof APIError) {
@@ -103,6 +141,15 @@ export async function generateStructured<S extends z.ZodType>(input: {
       inputTokens: (message.usage.input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0) + (message.usage.cache_creation_input_tokens ?? 0),
       outputTokens: message.usage.output_tokens ?? 0,
       jobId: input.jobId ?? null,
+      videoProjectId,
+      cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: message.usage.cache_creation_input_tokens ?? 0,
+      costUsd: costOf(model, {
+        input: message.usage.input_tokens ?? 0,
+        output: message.usage.output_tokens ?? 0,
+        cacheRead: message.usage.cache_read_input_tokens ?? 0,
+        cacheWrite: message.usage.cache_creation_input_tokens ?? 0,
+      }),
     })
     .catch(() => undefined);
 

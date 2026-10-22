@@ -204,7 +204,7 @@ const layerWireSchema = z.object({
   component: z.string().describe("Si kind es component: nombre exacto del CATÁLOGO. Si no, vacío."),
   spec: z.string().describe('JSON en una línea con el resto de la capa. Componente: {"at":0,"scale":1,"place":"auto","props":{…}}. Primitiva: todos sus campos menos kind.'),
 });
-const sceneWireSchema = z.object({
+export const sceneWireSchema = z.object({
   title: z.string().describe("Nombre corto del gráfico para la persona (por ejemplo 'Embudo de ventas')."),
   mode: z.enum(["full", "overlay"]),
   position: z.enum(["top", "bottom"]).describe("Solo en overlay: arriba (normal) o abajo."),

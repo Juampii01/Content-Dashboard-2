@@ -15,7 +15,7 @@ import { detectCandidates } from "./candidates";
 import { captionLook, captionTracks, isCaptionStyle } from "./caption-styles";
 import { captionBlocks, hideDuring, toSrt } from "./captions";
 import { brollRenderEdit } from "./broll-edit";
-import { brollCredits, brollSegments, computeZooms } from "./effects";
+import { brollCredits, brollSegments, computeZooms, directorZooms } from "./effects";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
 import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme } from "./motion-graphics";
@@ -29,7 +29,8 @@ import { studioLevel, type StudioLevel } from "./studio-audio";
 import type { StyleMetrics } from "./style";
 import { stylePreset } from "./styles";
 import { readEditorDefaults } from "./defaults";
-import { buildTimeline } from "./timeline";
+import { buildTimeline, outputRange } from "./timeline";
+import { evenFrames, keyFrames, mergeFrames } from "./director/keyframes";
 import { FPS, type BrollItem, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type Transcript, type VideoFormat } from "./types";
 
 /**
@@ -39,7 +40,7 @@ import { FPS, type BrollItem, type BrollOption, type CaptionPresetKey, type Edit
  */
 export class VideoError extends Error {}
 
-type Project = typeof schema.videoProjects.$inferSelect;
+export type Project = typeof schema.videoProjects.$inferSelect;
 
 export async function loadProject(id: string): Promise<Project | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
@@ -213,7 +214,7 @@ export async function createFromClone(
 
 // ─── Plan (lo pide el worker al terminar de transcribir) ─────────────────
 
-async function scriptText(scriptId: string | null): Promise<string | null> {
+export async function scriptText(scriptId: string | null): Promise<string | null> {
   if (!scriptId) return null;
   const [row] = await getDb().select({ content: schema.scripts.content }).from(schema.scripts).where(eq(schema.scripts.id, scriptId)).limit(1);
   return row?.content ? scriptAsText(row.content) : null;
@@ -227,6 +228,20 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
   const project = await loadProject(projectId);
   if (!project) throw new VideoError("No encontramos ese proyecto.");
   if (project.plan && project.status !== "PROCESSING") return { status: project.status, plannedBy: (project.plan as EditPlan).planned_by };
+  const plan = await legacyPlan(project);
+  await getDb()
+    .update(schema.videoProjects)
+    .set({ plan, status: "AWAITING_REVIEW", errorMessage: null })
+    .where(and(eq(schema.videoProjects.id, projectId), eq(schema.videoProjects.status, "PROCESSING")));
+  return { status: "AWAITING_REVIEW", plannedBy: plan.planned_by };
+}
+
+/**
+ * Plan sin el director (el de antes): Sonnet sobre la transcripción y el b-roll aparte. Lo usa la ruta vieja del worker
+ * y el director como respaldo si su llamada falla. No guarda nada.
+ */
+export async function legacyPlan(project: Project): Promise<EditPlan> {
+  const projectId = project.id;
   const transcript = project.transcript as Transcript | null;
   if (!transcript?.words?.length) throw new VideoError("Todavía no hay transcripción para este video.");
   const media = (project.media ?? {}) as MediaInfo;
@@ -292,22 +307,17 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
   }
   const parsed = planSchemaFor(words.length).safeParse(plan);
   if (!parsed.success) {
-    console.error("[editor] plan inválido:", parsed.error.issues[0]?.message);
+    console.error("[editor] plan inválido:", projectId, parsed.error.issues[0]?.message);
     throw new VideoError("No pudimos armar el plan de edición de este video. Vuelve a intentarlo.");
   }
-
-  await getDb()
-    .update(schema.videoProjects)
-    .set({ plan, status: "AWAITING_REVIEW", errorMessage: null })
-    .where(and(eq(schema.videoProjects.id, projectId), eq(schema.videoProjects.status, "PROCESSING")));
-  return { status: "AWAITING_REVIEW", plannedBy: plan.planned_by };
+  return plan;
 }
 
 /**
  * Sonido, música y emojis de un plan nuevo según los valores por defecto del editor (Mi marca). La música solo si la
  * pista existe y está lista; los emojis solo en los estilos de la galería.
  */
-async function withEditorDefaults(plan: EditPlan, brand: Awaited<ReturnType<typeof getBrand>>): Promise<EditPlan> {
+export async function withEditorDefaults(plan: EditPlan, brand: Awaited<ReturnType<typeof getBrand>>): Promise<EditPlan> {
   const d = readEditorDefaults(brand);
   const track = d.music.trackId ? await loadTrack(d.music.trackId) : null;
   const music = track?.status === "READY" ? { music_asset_id: track.id, music_db: d.music.db } : {};
@@ -340,7 +350,7 @@ export type Review = {
   music?: { trackId: string | null; db: number };
 };
 
-function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
+export function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
   const valid = review.removed.filter((id) => Number.isInteger(id) && id >= 0 && id < words.length);
   const corrections: Record<string, string> = {};
   for (const [id, text] of Object.entries(review.corrections)) {
@@ -412,9 +422,31 @@ export async function startRender(projectId: string, review: Review, format: Vid
   const next = applyReview(plan, review, transcript.words, duration, format);
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
-  const timeline = buildTimeline(transcript.words, next, duration);
+  const { input, timeline, preset } = await renderInputFor(project, next, format, transcript, duration);
   if (timeline.clips.length === 0 || timeline.duration < 1) throw new VideoError("Cortaste todo el video. Restaura algunas palabras antes de renderizar.");
+  // Revisión final del director: cuadros del MP4 en los momentos clave del plan (lib/video/director).
+  const finalFrames = mergeFrames(keyFrames({ plan: next, words: transcript.words, timeline, eyes: null, max: 24 }), evenFrames(timeline.duration, 12), 30);
 
+  await getDb()
+    .update(schema.videoProjects)
+    .set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null, ...(opts.manual ? { autoExport: false } : {}) })
+    .where(eq(schema.videoProjects.id, projectId));
+  await enqueueJob({
+    type: "VIDEO_RENDER",
+    videoProjectId: projectId,
+    createdBy: userId,
+    stage: "En cola",
+    input: { ...input, finalFrames },
+  });
+}
+
+/**
+ * Entrada del render (la misma para el MP4 final y para la vista previa de la segunda mirada del director): tramos,
+ * subtítulos, zooms, b-roll verificado, sonido y claves de salida. No toca la base.
+ */
+export async function renderInputFor(project: Project, next: EditPlan, format: VideoFormat, transcript: Transcript, duration: number) {
+  const projectId = project.id;
+  const timeline = buildTimeline(transcript.words, next, duration);
   const brand = await getBrand();
   const accent = [brand?.colors?.accent, brand?.colors?.primary].find((c) => c && /^#[0-9a-f]{6}$/i.test(c)) ?? DEFAULT_CAPTION_ACCENT;
   const stamp = Date.now().toString(36);
@@ -424,10 +456,14 @@ export async function startRender(projectId: string, review: Review, format: Vid
   // B-roll: cada clip elegido se verifica contra su fuente (nunca se confía en lo que manda el navegador).
   const look = brandGraphicLook(brand);
   const broll = await verifiedBroll(brollSegments(timeline, next.broll), look);
-  // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea.
+  // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea. Tampoco donde el director los ocultó (texto quemado).
   const graphicSpans = broll.filter((b) => b.option.source === "graphic");
-  const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), graphicSpans);
-  const zooms = style && next.zooms_enabled !== false ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: broll }) : [];
+  const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
+  const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans]);
+  const zooms =
+    style && style.preset.zoom.enabled && next.zooms_enabled !== false
+      ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: broll })
+      : directorZooms(timeline, next.zoom_moments, broll);
   const credits = brollCredits(broll);
   const capLook = isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: look.font, emoji: next.captions.emoji === true }) : null;
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;
@@ -457,57 +493,48 @@ export async function startRender(projectId: string, review: Review, format: Vid
   // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
   const phraseFixes = await phraseFixesForRender(projectId);
 
-  await getDb()
-    .update(schema.videoProjects)
-    .set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null, ...(opts.manual ? { autoExport: false } : {}) })
-    .where(eq(schema.videoProjects.id, projectId));
-  await enqueueJob({
-    type: "VIDEO_RENDER",
-    videoProjectId: projectId,
-    createdBy: userId,
-    stage: "En cola",
-    input: {
-      projectId,
-      sourceKey: project.sourceKey,
-      format,
-      fps: FPS,
-      clips: timeline.clips.map((c) => ({ start: c.startFrame, end: c.endFrame, role: c.role })),
-      expectedDuration: timeline.duration,
-      framing: { offsetX: next.framing.offset_x, focusY: faceY },
-      captions: capLook
-        ? // Galería: la app arma renglones y pistas (lib/video/caption-styles.ts); el worker solo mide y dibuja.
-          { preset, accent, look: capLook, blocks: captionPayload }
-        : {
-            preset,
-            accent,
-            font: "Montserrat",
-            ...(preset === "estilo" && captionStyle ? { style: captionStyle } : {}),
-            blocks: blocks.map((b) => ({ start: b.start, end: b.end, words: b.words.map((w) => ({ text: w.text, start: w.start, end: w.end, emphasis: w.emphasis })) })),
-          },
-      zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
-      broll: broll.map((b) =>
-        b.option.source === "graphic"
-          ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic, edit: brollEdit(b) }
-          : b.option.source !== "library"
-            ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: brollEdit(b) }
-            : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key, edit: brollEdit(b) },
-      ),
-      credits,
-      creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
-      srt: toSrt(timeline.words),
-      audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music, studio: studioLevel(next.audio.studio) },
-      phraseFixes,
-      outputKey: `${keyPrefix(projectId)}render-${stamp}.mp4`,
-      srtKey: `${keyPrefix(projectId)}render-${stamp}.srt`,
-      posterKey: `${keyPrefix(projectId)}render-${stamp}.jpg`,
-      previousKeys: [
-        project.outputKey,
-        project.srtKey,
-        (project.outputMeta as { posterKey?: string } | null)?.posterKey,
-        (project.outputMeta as { creditsKey?: string } | null)?.creditsKey,
-      ].filter(Boolean),
-    },
-  });
+  const input = {
+    projectId,
+    sourceKey: project.sourceKey,
+    format,
+    fps: FPS,
+    clips: timeline.clips.map((c) => ({ start: c.startFrame, end: c.endFrame, role: c.role })),
+    expectedDuration: timeline.duration,
+    framing: { offsetX: next.framing.offset_x, focusY: faceY },
+    captions: capLook
+      ? // Galería: la app arma renglones y pistas (lib/video/caption-styles.ts); el worker solo mide y dibuja.
+        { preset, accent, look: capLook, blocks: captionPayload }
+      : {
+          preset,
+          accent,
+          font: "Montserrat",
+          ...(preset === "estilo" && captionStyle ? { style: captionStyle } : {}),
+          blocks: blocks.map((b) => ({ start: b.start, end: b.end, words: b.words.map((w) => ({ text: w.text, start: w.start, end: w.end, emphasis: w.emphasis })) })),
+        },
+    zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
+    broll: broll.map((b) =>
+      b.option.source === "graphic"
+        ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic, edit: brollEdit(b) }
+        : b.option.source !== "library"
+          ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: brollEdit(b) }
+          : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key, edit: brollEdit(b) },
+    ),
+    credits,
+    creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
+    srt: toSrt(timeline.words),
+    audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music, studio: studioLevel(next.audio.studio) },
+    phraseFixes,
+    outputKey: `${keyPrefix(projectId)}render-${stamp}.mp4`,
+    srtKey: `${keyPrefix(projectId)}render-${stamp}.srt`,
+    posterKey: `${keyPrefix(projectId)}render-${stamp}.jpg`,
+    previousKeys: [
+      project.outputKey,
+      project.srtKey,
+      (project.outputMeta as { posterKey?: string } | null)?.posterKey,
+      (project.outputMeta as { creditsKey?: string } | null)?.creditsKey,
+    ].filter(Boolean),
+  };
+  return { input, timeline, preset };
 }
 
 /**

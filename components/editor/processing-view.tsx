@@ -8,7 +8,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { setAutoExportAction } from "./actions";
 import { AutoExportToggle } from "./auto-export-toggle";
-import { ANALYZE_STAGES, AUTO_STAGES, RENDER_STAGES } from "./labels";
+import { ANALYZE_STAGES, AUTO_STAGES, EDIT_STAGES, RENDER_STAGES } from "./labels";
 import { useProjectStatus, type LiveStatus } from "./use-project-status";
 import { WorkerNotice } from "./worker-notice";
 
@@ -25,7 +25,7 @@ export function ProcessingView({
   projectId: string;
   initial: LiveStatus;
   /** Con "Hazlo por mí" (`initial.autoExport`) se muestra una sola barra para análisis y render. */
-  kind: "analyze" | "render";
+  kind: "analyze" | "render" | "edit";
   canEdit?: boolean;
   /** Qué valores usa "Hazlo por mí" (subtítulos, música…), para mostrarlo al lado del interruptor. */
   autoSummary?: string;
@@ -38,7 +38,7 @@ export function ProcessingView({
   const queued = !job || job.status === "QUEUED";
   const retrying = job?.status === "QUEUED" && (job.attempts ?? 0) > 0;
   const autoMode = Boolean(live.autoExport ?? auto);
-  const phase: "analyze" | "render" = live.status === "RENDERING" ? "render" : live.status === "PROCESSING" || live.status === "AWAITING_REVIEW" ? "analyze" : kind;
+  const phase: "analyze" | "render" = live.status === "RENDERING" ? "render" : live.status === "PROCESSING" || live.status === "AWAITING_REVIEW" ? "analyze" : kind === "render" ? "render" : "analyze";
 
   const { progress, stages, label } = autoMode ? autoProgress(live, phase) : singleProgress(live, kind);
 
@@ -61,16 +61,24 @@ export function ProcessingView({
       <WorkerNotice online={live.worker.online} autoStart={live.worker.autoStart} waiting={queued && !retrying} />
       <div className="card flex flex-col gap-6 p-6 sm:p-8">
         <div>
-          <p className="eyebrow mb-1.5">{autoMode ? "Hazlo por mí" : kind === "analyze" ? "Preparando tu video" : "Renderizando"}</p>
+          <p className="eyebrow mb-1.5">{autoMode ? "Hazlo por mí" : kind === "analyze" ? "Preparando tu video" : kind === "edit" ? "Edítalo así" : "Renderizando"}</p>
           <h2 className="text-xl font-semibold">
-            {autoMode ? "Estamos editando y exportando tu video" : kind === "analyze" ? "Estamos transcribiendo y armando la edición" : "Estamos armando tu video final"}
+            {autoMode
+              ? "Estamos editando y exportando tu video"
+              : kind === "analyze"
+                ? "Estamos mirando tu video y dirigiendo la edición"
+                : kind === "edit"
+                  ? "Estamos aplicando tus cambios"
+                  : "Estamos armando tu video final"}
           </h2>
           <p className="mt-1.5 text-sm text-muted">
             {autoMode
               ? "Cortes, gancho, b-roll y gráficos, subtítulos con tu estilo y audio de estudio, sin pasar por la revisión. Te avisamos en la campana y por correo. Puedes cerrar esta página: el trabajo sigue."
               : kind === "analyze"
-                ? "Cuando termine, vas a poder revisar cada corte antes del render. Puedes salir de esta página: el trabajo sigue."
-                : "Cortes, audio a -14 LUFS y subtítulos. Puedes salir de esta página: el trabajo sigue."}
+                ? "La IA mira cada escena, entiende la historia y revisa su propia edición antes de mostrártela. Cuando termine, vas a poder revisar cada decisión con su por qué. Puedes salir de esta página: el trabajo sigue."
+                : kind === "edit"
+                  ? "El director vuelve a pasar por todo el video con tu pedido y revisa el resultado. Tarda uno o dos minutos; puedes salir de esta página."
+                  : "Cortes, audio a -14 LUFS y subtítulos. Puedes salir de esta página: el trabajo sigue."}
           </p>
         </div>
 
@@ -119,15 +127,15 @@ function stageIndex(stages: readonly { until: number }[], progress: number): num
 }
 
 /** Una etapa por trabajo (análisis o render), como siempre. */
-function singleProgress(live: LiveStatus, kind: "analyze" | "render"): { progress: number; stages: Stage[]; label: string } {
+function singleProgress(live: LiveStatus, kind: "analyze" | "render" | "edit"): { progress: number; stages: Stage[]; label: string } {
   const job = live.job;
-  const defs = kind === "analyze" ? ANALYZE_STAGES : RENDER_STAGES;
+  const defs = kind === "analyze" ? ANALYZE_STAGES : kind === "edit" ? EDIT_STAGES : RENDER_STAGES;
   const progress = job?.progress ?? 0;
   const queued = !job || job.status === "QUEUED";
   const retrying = job?.status === "QUEUED" && (job.attempts ?? 0) > 0;
   const activeIndex = Math.max(
     0,
-    defs.findIndex((s) => (job?.stage && s.match.includes(job.stage)) || progress < s.until),
+    defs.findIndex((s) => (job?.stage && s.match.some((m) => job.stage!.startsWith(m))) || progress < s.until),
   );
   return {
     progress,

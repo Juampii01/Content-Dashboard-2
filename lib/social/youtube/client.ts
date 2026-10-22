@@ -2,6 +2,7 @@ import "server-only";
 import { requireEnv } from "@/lib/env";
 import { isoDay, num, requestJson, type ErrorClassifier, type SyncContext } from "../http";
 import { SocialApiError, type AccountDay, type AccountProfile, type NormalizedItem, type TokenSet } from "../types";
+import type { RetentionPoint } from "@/lib/youtube/types";
 
 /**
  * YouTube Data API v3 + YouTube Analytics API v2. Solo lectura.
@@ -279,14 +280,24 @@ export async function youtubeAccountDays(ctx: SyncContext, token: string, days: 
   }));
 }
 
-/** Curva de retención: qué parte del público sigue mirando en cada punto del video (0 a 1). */
-export async function youtubeRetention(ctx: SyncContext, token: string, videoId: string, publishedAt: Date): Promise<{ at: number; ratio: number }[]> {
-  const rows = await analytics(ctx, token, {
-    startDate: isoDay(publishedAt),
-    endDate: isoDay(new Date()),
-    metrics: "audienceWatchRatio",
-    dimensions: "elapsedVideoTimeRatio",
-    filters: `video==${videoId}`,
-  });
-  return rows.map((r) => ({ at: Number(r.elapsedVideoTimeRatio), ratio: Number(r.audienceWatchRatio) })).filter((p) => Number.isFinite(p.at) && Number.isFinite(p.ratio));
+/**
+ * Curva de retención (reporte "Audience retention" de YouTube Analytics): dimensión `elapsedVideoTimeRatio`
+ * (100 puntos de 0,01 a 1), filtro obligatorio `video==<un solo id>` (no acepta listas) y métricas
+ * `audienceWatchRatio` (parte del público que mira ese punto) y `relativeRetentionPerformance` (0 a 1, contra videos
+ * de YouTube de duración parecida). Si YouTube no acepta la segunda para este video, se pide solo la primera.
+ * Docs: https://developers.google.com/youtube/analytics/channel_reports#audience-retention
+ */
+export async function youtubeRetention(ctx: SyncContext, token: string, videoId: string, publishedAt: Date): Promise<RetentionPoint[]> {
+  const base = { startDate: isoDay(publishedAt), endDate: isoDay(new Date()), dimensions: "elapsedVideoTimeRatio", filters: `video==${videoId}`, sort: "elapsedVideoTimeRatio" };
+  let rows: Record<string, string | number>[];
+  try {
+    rows = await analytics(ctx, token, { ...base, metrics: "audienceWatchRatio,relativeRetentionPerformance" });
+  } catch (error) {
+    if (!(error instanceof SocialApiError) || error.kind !== "NOT_SUPPORTED") throw error;
+    rows = await analytics(ctx, token, { ...base, metrics: "audienceWatchRatio" });
+  }
+  return rows
+    .map((r) => ({ at: Number(r.elapsedVideoTimeRatio), ratio: Number(r.audienceWatchRatio), relative: r.relativeRetentionPerformance == null ? null : Number(r.relativeRetentionPerformance) }))
+    .filter((p) => Number.isFinite(p.at) && Number.isFinite(p.ratio))
+    .map((p) => (p.relative != null && Number.isFinite(p.relative) ? p : { at: p.at, ratio: p.ratio }));
 }

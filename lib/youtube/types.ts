@@ -72,6 +72,8 @@ export type ThumbnailConcept = {
   /** Escena del fondo (sin texto ni personas), editable. */
   scene: string;
   layout: ThumbnailLayoutKind;
+  /** Fuente del texto (null = la de Mi marca). */
+  font?: "anton" | "oswald" | "montserrat" | "inter" | "playfair" | null;
   /** Foto del personaje (clave en Mi marca) o null = sin foto. */
   photoKey: string | null;
   backgroundKey: string | null;

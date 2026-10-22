@@ -5,11 +5,11 @@
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { detectDrops, dropSentence, introEnd, quoteForDrop, relativeLabel, relativeSummary, retentionMarks } from "../lib/youtube/retention.ts";
-import { editorSegments, parseSubtitles, sanitizeSegments, wordsToSegments } from "../lib/youtube/transcript.ts";
-import { checkTitle, cleanTitle, countFitting, normalizeTitleGroups, visibleLength } from "../lib/youtube/titles.ts";
-import { backgroundPrompt, highlightIndexes, splitLines, thumbColors, thumbFontFromBrand, thumbnailLayout, thumbTextIssues, THUMB_WIDTH } from "../lib/youtube/thumbnail-layout.ts";
-import type { RetentionPoint } from "../lib/youtube/types.ts";
+import { detectDrops, dropSentence, introEnd, quoteForDrop, relativeLabel, relativeSummary, retentionMarks } from "../lib/youtube/retention";
+import { editorSegments, parseSubtitles, sanitizeSegments, wordsToSegments } from "../lib/youtube/transcript";
+import { checkTitle, cleanTitle, countFitting, normalizeTitleGroups, visibleLength } from "../lib/youtube/titles";
+import { backgroundPrompt, highlightIndexes, splitLines, thumbColors, thumbFontFromBrand, thumbnailLayout, thumbTextIssues, THUMB_WIDTH } from "../lib/youtube/thumbnail-layout";
+import type { RetentionPoint } from "../lib/youtube/types";
 
 /** Curva simulada: arranque (primeros 30 s de 600) que pierde 30 %, caída de 12 puntos al 40 %, otra de 6 al 70 % y el final. */
 function curve(opts: { cliffs?: [number, number][]; intro?: number; noise?: number; introPts?: number } = {}): RetentionPoint[] {

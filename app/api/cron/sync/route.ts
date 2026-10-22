@@ -7,6 +7,7 @@ import { dueKinds, syncAccount, type SyncOutcome } from "@/lib/social/sync/runne
 import { classifyPendingHooks } from "@/lib/metrics/hooks";
 import { ensureWeeklyReport } from "@/lib/home/weekly-report";
 import { sweepCloneVideos } from "@/lib/heygen/service";
+import { sweepJobNotifications } from "@/lib/notifications";
 
 export const maxDuration = 300;
 
@@ -70,5 +71,11 @@ export async function GET(request: NextRequest) {
     return null;
   });
 
-  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone });
+  // Avisos de trabajos terminados que el worker no llegó a reportar.
+  const notified = await sweepJobNotifications().catch((error: unknown) => {
+    console.error("[cron] avisos:", error instanceof Error ? error.message : "error");
+    return 0;
+  });
+
+  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone, notified });
 }

@@ -117,6 +117,7 @@ export const teamMembers = pgTable("team_members", {
   role: roleEnum("role").notNull().default("EDITOR"),
   active: boolean("active").notNull().default(true),
   invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+  notificationsSeenAt: timestamp("notifications_seen_at", { withTimezone: true }), // hasta cuándo vio los avisos (null = nunca)
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -854,3 +855,25 @@ export const serviceCredentials = pgTable("service_credentials", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+// ─── Avisos ───────────────────────────────────────────────────────────────
+
+/**
+ * Avisos de "listo" o "falló" de los trabajos lentos (renders, carruseles, clon). `key` evita duplicados
+ * (job:<id>, clone-video:<id>); userId null = para todo el equipo. emailedAt: cuándo salió el correo.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: id(),
+    key: text("key").notNull().unique(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    tone: text("tone").notNull().$type<"success" | "error">(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    href: text("href").notNull(),
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("notifications_created_at_idx").on(t.createdAt)],
+);

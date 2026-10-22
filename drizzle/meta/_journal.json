@@ -85,6 +85,13 @@
       "when": 1792471646015,
       "tag": "0011_editor-estilos-broll",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792648509163,
+      "tag": "0012_avisos",
+      "breakpoints": true
     }
   ]
 }

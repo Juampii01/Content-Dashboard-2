@@ -61,6 +61,13 @@ class AppClient:
             payload["contentType"] = content_type
         return self._post("/api/worker/storage", payload, timeout=60)
 
+    def notify(self) -> None:
+        """Avisa a la app que terminó un trabajo (arma los avisos y correos). Nunca tira error."""
+        try:
+            self._post("/api/worker/avisos", {}, timeout=10)
+        except Exception:  # noqa: BLE001 — el cron de la app barre lo que falte
+            pass
+
     def plan(self, project_id: str) -> dict[str, Any]:
         return self._post(f"/api/worker/projects/{project_id}/plan", {}, timeout=330)
 

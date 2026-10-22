@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Sidebar, SidebarView } from "@/components/shell/sidebar";
 import { UserMenu, UserMenuSkeleton } from "@/components/shell/user-menu";
 import { ConnectionBanner } from "@/components/shell/connection-banner";
+import { NotificationBell } from "@/components/shell/notification-bell";
 import { Toaster } from "@/components/ui/toast";
 
 /**
@@ -17,6 +18,8 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
       <Suspense fallback={<SidebarView pathname="" appName={appName} footer={<UserMenuSkeleton />} />}>
         <Sidebar
           appName={appName}
+          bell={<NotificationBell />}
+          bellMobile={<NotificationBell align="right" />}
           footer={
             <Suspense fallback={<UserMenuSkeleton />}>
               <UserMenu />

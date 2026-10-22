@@ -1,4 +1,5 @@
 import "server-only";
+import { notify } from "@/lib/notifications";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
@@ -244,6 +245,7 @@ export async function refreshCloneVideo(id: string, options: { minAgeSec?: numbe
       })
       .where(eq(schema.cloneVideos.id, id))
       .returning();
+    await notify({ key: `clone-video:${id}`, userId: row.createdBy, tone: "success", title: "Tu video con clon está listo", body: `"${row.title}" ya se puede ver y descargar.`, href: `/clon/${id}`, email: true });
     return updated ?? row;
   }
   if (status === "FAILED") {
@@ -252,6 +254,7 @@ export async function refreshCloneVideo(id: string, options: { minAgeSec?: numbe
       .set({ status: "FAILED", errorMessage: failureMessage(video) })
       .where(eq(schema.cloneVideos.id, id))
       .returning();
+    await notify({ key: `clone-video:${id}`, userId: row.createdBy, tone: "error", title: "No pudimos generar tu video con clon", body: failureMessage(video), href: `/clon/${id}`, email: true });
     return updated ?? row;
   }
   if (status !== row.status) {

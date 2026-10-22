@@ -215,6 +215,7 @@ class Worker:
                 self.current = None
             db.succeed(self.conn, job["id"], self.config.worker_id, output)
             log.info("trabajo %s listo en %.1f s", job["id"], time.monotonic() - started)
+            self.app.notify()
         except Cancelled:
             with self.side_lock:
                 self.current = None
@@ -235,6 +236,7 @@ class Worker:
             log.info("→ %s", "se reintentará" if retried else "falló definitivamente")
             if not retried:
                 self.final_failure(job, exc.user_message)
+                self.app.notify()
         except Exception as exc:  # noqa: BLE001 — cualquier error inesperado se reintenta
             with self.side_lock:
                 self.current = None
@@ -242,6 +244,7 @@ class Worker:
             message = "Falló el procesamiento del video. Si vuelve a pasar, avísale a soporte."
             if not db.fail(self.conn, job, self.config.worker_id, message, True):
                 self.final_failure(job, message)
+                self.app.notify()
             del exc
         finally:
             stop_event.clear()

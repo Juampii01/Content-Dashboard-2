@@ -62,7 +62,8 @@ export function useGraphicFonts(): boolean {
 }
 
 let measureCtx: MotionCanvas | null = null;
-function measurer() {
+/** Medición de textos con las fuentes reales del navegador (para validar lo que se edita a mano). */
+export function measurer() {
   measureCtx ??= document.createElement("canvas").getContext("2d") as unknown as MotionCanvas;
   return measureWith(measureCtx);
 }

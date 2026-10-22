@@ -9,11 +9,12 @@ import { Notice, Skeleton } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { formatDuration } from "@/lib/format";
 import type { OutputBroll } from "@/lib/video/effects";
-import { defaultGraphic, GRAPHIC_MAX_SECONDS, GRAPHIC_MIN_SECONDS, GRAPHIC_TEMPLATES, graphicOption, type GraphicLook, type GraphicSpec } from "@/lib/video/graphics";
+import type { GraphicLook } from "@/lib/video/graphics";
+import { graphicKindLabel, graphicModeLabel, graphicSeconds, type BrollGraphic } from "@/lib/video/motion-graphics";
 import type { BrollItem, BrollOption, VideoFormat, Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { GraphicCanvas } from "./graphic-canvas";
-import { GraphicEditor } from "./graphic-editor";
+import { GraphicStudio } from "./graphic-studio";
 import { libraryOptionsAction, searchBrollAction } from "./media-actions";
 
 /** Alternativa con las URLs listas para el navegador (las de la biblioteca vienen firmadas). */
@@ -21,12 +22,12 @@ export type SignedOption = BrollOption & { thumbUrl: string | null; previewUrl: 
 export const optionKey = (o: Pick<BrollOption, "source" | "id">) => `${o.source}:${o.id}`;
 
 /** Duración con la que se ve un gráfico en la vista previa del selector (la del tramo, entre 1,5 y 6 s). */
-export const graphicPreviewSeconds = (span: number) => Math.max(GRAPHIC_MIN_SECONDS, Math.min(GRAPHIC_MAX_SECONDS + 1, span || 3));
+export const graphicPreviewSeconds = graphicSeconds;
 
 const FAKE_VIDEO = "bg-[radial-gradient(ellipse_at_50%_42%,#b9a48f_0%,#6d655c_38%,#2f2b27_100%)]";
 
 /** Cuadro quieto de un gráfico (miniatura), ya con todo a la vista. */
-function GraphicThumb({ spec, format }: { spec: GraphicSpec; format: VideoFormat }) {
+function GraphicThumb({ spec, format }: { spec: BrollGraphic; format: VideoFormat }) {
   return (
     <span className={cn("absolute inset-0", spec.mode === "overlay" && FAKE_VIDEO)}>
       <GraphicCanvas spec={spec} format={format} duration={3} time={2.2} scale={0.15} />
@@ -141,7 +142,7 @@ function SourceLine({ option }: { option: BrollOption }) {
       <p className="flex items-center gap-1 truncate text-xs text-muted">
         <Sparkles className="h-3 w-3 flex-none text-accent-hi" aria-hidden />
         <span className="truncate">
-          Gráfico con tu marca · {GRAPHIC_TEMPLATES[option.graphic.template].label} · {option.graphic.mode === "full" ? "pantalla completa" : "sobre tu video"}
+          Gráfico con tu marca · {graphicKindLabel(option.graphic)} · {graphicModeLabel(option.graphic)}
         </span>
       </p>
     );
@@ -165,7 +166,7 @@ function SourceLine({ option }: { option: BrollOption }) {
 
 const stockLabel = (source: BrollOption["source"]) => (source === "pixabay" ? "Pixabay" : "Pexels");
 const optionName = (o: BrollOption) =>
-  o.graphic ? `el gráfico ${GRAPHIC_TEMPLATES[o.graphic.template].label.toLowerCase()}` : o.source !== "library" ? `el video de ${o.credit?.name ?? stockLabel(o.source)}` : (o.title ?? "este clip");
+  o.graphic ? `el gráfico ${graphicKindLabel(o.graphic).toLowerCase()}` : o.source !== "library" ? `el video de ${o.credit?.name ?? stockLabel(o.source)}` : (o.title ?? "este clip");
 const stockHome = (source: BrollOption["source"]) => (source === "pixabay" ? "https://pixabay.com" : "https://www.pexels.com");
 
 export type PickerTab = "sugeridos" | "grafico" | "biblioteca" | "buscar";
@@ -184,7 +185,12 @@ export function BrollPicker({
   look,
   spokenText,
   initialTab,
+  projectId,
+  focusRequest,
 }: {
+  projectId: string;
+  /** Abre con la caja de "Pide tu gráfico" lista para escribir. */
+  focusRequest?: boolean;
   item: BrollItem | null;
   signed: Record<string, SignedOption>;
   format: VideoFormat;
@@ -233,7 +239,7 @@ export function BrollPicker({
 
   const list = tab === "sugeridos" ? suggested : tab === "biblioteca" ? library : results;
   const currentGraphic = item.choice?.graphic ?? item.options.find((o) => o.graphic)?.graphic ?? null;
-  const graphicSeconds = graphicPreviewSeconds(minDuration);
+  const previewSeconds = graphicPreviewSeconds(minDuration);
   const clean = spokenText.trim().replace(/[.,;:…]+$/, "");
   const quoted = clean.length > 90 ? `${clean.slice(0, 90).trimEnd()}…` : clean;
   return (
@@ -243,7 +249,7 @@ export function BrollPicker({
       title={tab === "grafico" ? "Gráfico con tu marca" : "Elige el b-roll"}
       description={
         tab === "grafico"
-          ? `Sobre “${quoted}”. Elige la plantilla y escribe los textos.`
+          ? `Sobre “${quoted}”. Pídelo con tus palabras o ajusta los textos a mano.`
           : `Para “${item.query_en}”. Toca un clip para usarlo; con el botón de reproducir lo ves antes.`
       }
       className={tab === "grafico" ? "max-w-4xl" : "max-w-3xl"}
@@ -263,13 +269,17 @@ export function BrollPicker({
           ]}
         />
         {tab === "grafico" && (
-          <GraphicEditor
-            initial={currentGraphic ?? defaultGraphic(spokenText, look)}
+          <GraphicStudio
+            projectId={projectId}
+            range={{ from: item.from_word, to: item.to_word }}
+            initial={currentGraphic}
             current={Boolean(item.choice?.graphic)}
             format={format}
-            duration={graphicSeconds}
+            duration={previewSeconds}
             spokenText={spokenText}
-            onUse={(spec) => onPick({ ...graphicOption(spec), thumbUrl: null, previewUrl: null })}
+            look={look}
+            autoFocus={Boolean(focusRequest)}
+            onUse={(option) => onPick({ ...option, thumbUrl: null, previewUrl: null })}
           />
         )}
         {tab === "buscar" && (
@@ -309,7 +319,7 @@ export function BrollPicker({
                       {o.graphic ? (
                         previewing === key ? (
                           <span className={cn("absolute inset-0", o.graphic.mode === "overlay" && FAKE_VIDEO)}>
-                            <GraphicCanvas spec={o.graphic} format={format} duration={graphicSeconds} scale={0.25} />
+                            <GraphicCanvas spec={o.graphic} format={format} duration={previewSeconds} scale={0.25} />
                           </span>
                         ) : (
                           <GraphicThumb spec={o.graphic} format={format} />
@@ -337,7 +347,7 @@ export function BrollPicker({
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pt-6 pb-1.5 text-[11px] text-white">
                       {o.graphic ? (
                         <span className="inline-flex items-center gap-1">
-                          <Sparkles className="h-3 w-3" aria-hidden /> Gráfico · {GRAPHIC_TEMPLATES[o.graphic.template].label}
+                          <Sparkles className="h-3 w-3" aria-hidden /> Gráfico · {graphicKindLabel(o.graphic)}
                         </span>
                       ) : (
                         <>

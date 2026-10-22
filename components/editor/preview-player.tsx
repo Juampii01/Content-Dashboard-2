@@ -4,7 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 import type { OutputZoom } from "@/lib/video/effects";
-import type { GraphicSpec } from "@/lib/video/graphics";
+import type { BrollGraphic } from "@/lib/video/motion-graphics";
 import type { CaptionStyle } from "@/lib/video/style";
 import { outputToSource } from "@/lib/video/timeline";
 import { FPS, type CaptionBlock, type CaptionPresetKey, type Clip, type VideoFormat } from "@/lib/video/types";
@@ -17,7 +17,7 @@ export type PreviewHandle = {
 };
 
 /** Un b-roll en la vista previa: tramo del video final y el clip (video liviano o, si no hay, su miniatura) o el gráfico. */
-export type PreviewBroll = { id: string; start: number; end: number; previewUrl: string | null; thumbUrl: string | null; graphic?: GraphicSpec | null };
+export type PreviewBroll = { id: string; start: number; end: number; previewUrl: string | null; thumbUrl: string | null; graphic?: BrollGraphic | null };
 
 /** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
 export function zoomAt(zooms: OutputZoom[], t: number): number {

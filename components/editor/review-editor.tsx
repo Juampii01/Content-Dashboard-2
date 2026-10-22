@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Clapperboard, Loader2, Palette, RotateCcw, Sparkles, Undo2, Wand2, ZoomIn } from "lucide-react";
+import { Clapperboard, Loader2, Palette, RotateCcw, Sparkles, Undo2, Wand2, WandSparkles, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
@@ -78,6 +78,7 @@ export function ReviewEditor({
   const [activeBroll, setActiveBroll] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [pickTab, setPickTab] = useState<PickerTab | undefined>(undefined);
+  const [askFocus, setAskFocus] = useState(false);
   const captionStyle = style?.captions ?? null;
 
   const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
@@ -142,7 +143,7 @@ export function ReviewEditor({
     if (seg) preview.current?.seekOutput(seg.start, true);
   }
 
-  function addBroll(range: { from: number; to: number }) {
+  function addBroll(range: { from: number; to: number }, ask = false) {
     const overlaps = (b: BrollItem) => range.from <= b.to_word && b.from_word <= range.to;
     const query = words
       .slice(range.from, range.to + 1)
@@ -152,7 +153,8 @@ export function ReviewEditor({
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: query.join(" ").slice(0, 100) || "b-roll", keywords: query.map((w) => w.toLowerCase()), choice: null, options: [] };
     setBrollItems((prev) => [...prev.filter((b) => !overlaps(b)), item].sort((a, b) => a.from_word - b.from_word));
     setActiveBroll(item.id);
-    setPickTab(undefined);
+    setPickTab(ask ? "grafico" : undefined);
+    setAskFocus(ask);
     setPicking(item.id);
   }
 
@@ -312,6 +314,7 @@ export function ReviewEditor({
           onRemove={(id) => setBrollItems((prev) => prev.filter((b) => b.id !== id))}
           onChange={(id, tab) => {
             setPickTab(tab);
+            setAskFocus(false);
             setPicking(id);
           }}
           format={format}
@@ -322,6 +325,8 @@ export function ReviewEditor({
           signed={signed}
           look={graphicLook}
           initialTab={pickTab}
+          projectId={projectId}
+          focusRequest={askFocus}
           spokenText={(() => {
             const b = brollItems.find((x) => x.id === picking);
             return b ? words.slice(b.from_word, b.to_word + 1).map((w) => corrections[String(w.id)] ?? w.text).join(" ") : "";
@@ -402,6 +407,9 @@ export function ReviewEditor({
                     <>
                       <Button size="sm" variant="ghost" icon={<Clapperboard className="h-3.5 w-3.5" aria-hidden />} onClick={() => (addBroll(range), clear())}>
                         Poner b-roll aquí
+                      </Button>
+                      <Button size="sm" variant="ghost" icon={<WandSparkles className="h-3.5 w-3.5" aria-hidden />} onClick={() => (addBroll(range, true), clear())}>
+                        Pide un gráfico aquí
                       </Button>
                       {activeBroll && brollItems.some((b) => b.id === activeBroll) && (
                         <Button size="sm" variant="ghost" onClick={() => (moveBroll(activeBroll, range), clear())}>

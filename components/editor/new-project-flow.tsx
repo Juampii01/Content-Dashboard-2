@@ -10,12 +10,15 @@ import { Notice } from "@/components/ui/feedback";
 import { Steps, type StepState } from "@/components/ui/steps";
 import { toast } from "@/components/ui/toast";
 import { UploadDropzone } from "@/components/ui/upload-dropzone";
-import { CAPTION_PRESETS } from "@/lib/video/captions";
+import { CAPTION_PICKER_ORDER, CAPTION_PRESETS } from "@/lib/video/captions";
 import { describePreset, type StylePreset } from "@/lib/video/style";
 import type { CaptionPresetKey, VideoFormat } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { createFromCloneAction, createProjectAction, discardDraftAction } from "./actions";
-import { CaptionOverlay } from "./caption-overlay";
+import { CaptionPicker } from "./caption-picker";
+
+/** Subtítulos por defecto de un video nuevo: la píldora con el color de la marca. */
+const DEFAULT_PRESET: CaptionPresetKey = "caja";
 import { MAX_VIDEO_BYTES_CLIENT, VIDEO_ACCEPT } from "./constants";
 import { cancelUpload, startUpload, submitUpload, useUpload } from "./upload-manager";
 
@@ -60,6 +63,7 @@ export function NewProjectFlow({
   styles = [],
   initialStyleId = null,
   broll = { stock: false, libraryClips: 0 },
+  captionBrand = { accent: "#FFD84D", font: "montserrat" },
 }: {
   scripts: ScriptOption[];
   initialScriptId: string | null;
@@ -67,6 +71,8 @@ export function NewProjectFlow({
   styles?: StyleOption[];
   initialStyleId?: string | null;
   broll?: BrollAvailability;
+  /** Acento y fuente de títulos de Mi marca, para las miniaturas de los subtítulos. */
+  captionBrand?: { accent: string; font: "montserrat" | "inter" };
 }) {
   const router = useRouter();
   const [step, setStep] = useState<StepId>("video");
@@ -79,20 +85,20 @@ export function NewProjectFlow({
   const [orientation, setOrientation] = useState<"landscape" | "portrait" | null>(clone ? (clone.aspectRatio === "16:9" ? "landscape" : "portrait") : null);
   const initialStyle = styles.find((st) => st.id === initialStyleId) ?? null;
   const [styleId, setStyleId] = useState<string | null>(initialStyle?.id ?? null);
-  const [preset, setPreset] = useState<CaptionPresetKey>(initialStyle?.preset.captions ? "estilo" : "clasico");
+  const [preset, setPreset] = useState<CaptionPresetKey>(initialStyle?.preset.captions ? "estilo" : DEFAULT_PRESET);
   const [presetTouched, setPresetTouched] = useState(false);
   // Siempre hay b-roll posible: aunque no haya stock ni clips propios, la IA arma gráficos con tu marca.
   const clipsReady = broll.stock || broll.libraryClips > 0;
   const [brollMode, setBrollMode] = useState<"auto" | "off">("auto");
   const style = styles.find((st) => st.id === styleId) ?? null;
-  const presetKeys = (Object.keys(CAPTION_PRESETS) as CaptionPresetKey[]).filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
+  const presetKeys = CAPTION_PICKER_ORDER.filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
 
   function chooseStyle(id: string | null) {
     setStyleId(id);
     const next = styles.find((st) => st.id === id);
     // Al elegir un estilo con subtítulos, se usan los suyos (salvo que la persona ya eligió otros).
-    if (!presetTouched) setPreset(next?.preset.captions ? "estilo" : "clasico");
-    else if (preset === "estilo" && !next?.preset.captions) setPreset("clasico");
+    if (!presetTouched) setPreset(next?.preset.captions ? "estilo" : DEFAULT_PRESET);
+    else if (preset === "estilo" && !next?.preset.captions) setPreset(DEFAULT_PRESET);
   }
   const [scriptId, setScriptId] = useState<string | null>(initialScriptId);
   const [error, setError] = useState<string | null>(null);
@@ -372,27 +378,21 @@ export function NewProjectFlow({
                   {style?.preset.captions ? "Puedes usar los del estilo que elegiste o los de tu marca." : "Usan el color de acento de Mi marca."} Siempre recibes también el archivo SRT.
                 </p>
               </div>
-              <div role="radiogroup" aria-label="Estilo de subtítulos" className={cn("grid gap-3", presetKeys.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "sm:grid-cols-3")}>
-                {presetKeys.map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    role="radio"
-                    aria-checked={preset === k}
-                    onClick={() => {
-                      setPreset(k);
-                      setPresetTouched(true);
-                    }}
-                    className={cn("flex flex-col gap-3 rounded-2xl border p-3 text-left transition", preset === k ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
-                  >
-                    <PresetSample preset={k} captionStyle={style?.preset.captions ?? null} />
-                    <span className="px-1">
-                      <span className="block text-sm font-semibold text-white">{CAPTION_PRESETS[k].label}</span>
-                      <span className="text-xs text-muted">{CAPTION_PRESETS[k].description}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <CaptionPicker
+                value={preset}
+                onChange={(k) => {
+                  setPreset(k);
+                  setPresetTouched(true);
+                }}
+                options={presetKeys}
+                accent={captionBrand.accent}
+                brandFont={captionBrand.font}
+                captionStyle={style?.preset.captions ?? null}
+                className="sm:grid-cols-3 lg:grid-cols-5"
+              />
+              <p className="text-sm text-muted" aria-live="polite">
+                <span className="font-semibold text-white">{CAPTION_PRESETS[preset].label}:</span> {CAPTION_PRESETS[preset].description} Los emojis y el sonido se eligen en la revisión.
+              </p>
             </>
           )}
 
@@ -433,28 +433,6 @@ export function NewProjectFlow({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PresetSample({ preset, captionStyle }: { preset: CaptionPresetKey; captionStyle?: StylePreset["captions"] }) {
-  const block = {
-    start: 0,
-    end: 2,
-    words: [
-      { id: 1, text: "Esto", start: 0, end: 0.4, emphasis: false, stop: false },
-      { id: 2, text: "cambia", start: 0.4, end: 0.9, emphasis: preset === "pop", stop: false },
-      ...(preset === "pop" || (preset === "estilo" && (captionStyle?.wordsPerBlock ?? 3) < 3) ? [] : [{ id: 3, text: "todo", start: 0.9, end: 1.4, emphasis: false, stop: true }]),
-    ],
-  };
-  return (
-    <div className="relative aspect-[9/12] w-full overflow-hidden rounded-xl bg-gradient-to-b from-[#1b2b55] via-[#0c1838] to-[#050b20]">
-      <div className="absolute top-[18%] left-1/2 h-[38%] w-[46%] -translate-x-1/2 rounded-[45%] bg-white/10" aria-hidden />
-      {preset === "ninguno" ? (
-        <span className="absolute inset-x-0 bottom-[22%] text-center text-xs text-muted">Sin texto en pantalla</span>
-      ) : (
-        <CaptionOverlay block={block} time={0.5} preset={preset} format="9:16" accent="#FFD84D" height={430} captionStyle={captionStyle} />
-      )}
     </div>
   );
 }

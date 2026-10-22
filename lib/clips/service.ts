@@ -11,7 +11,7 @@ import { hookRankingUnchecked } from "@/lib/metrics/hooks";
 import { deletePrefix, fileDriver, fileInfo, MAX_VIDEO_BYTES, VIDEO_EXTENSIONS, VIDEO_TYPES } from "@/lib/storage";
 import { startRender, VideoError } from "@/lib/video/service";
 import { parseReferenceLink } from "@/lib/video/styles";
-import type { CaptionPresetKey, EditPlan, Transcript } from "@/lib/video/types";
+import { CAPTION_PRESET_KEYS, type CaptionPresetKey, type EditPlan, type Transcript } from "@/lib/video/types";
 import {
   clipBounds,
   generateCandidates,
@@ -378,9 +378,10 @@ export async function setClipDiscarded(clipId: string, discarded: boolean): Prom
 
 // ─── Del clip al Editor ───────────────────────────────────────────────────
 
-const CAPTION_PRESETS: CaptionPresetKey[] = ["clasico", "pop"];
+// "Del estilo" necesita un video de referencia y "Sin subtítulos" no sirve de valor por defecto.
+const CAPTION_PRESETS: CaptionPresetKey[] = CAPTION_PRESET_KEYS.filter((k) => k !== "estilo" && k !== "ninguno");
 
-/** Subtítulos por defecto de Mi marca (`subtitle_preset`: "pop" o { preset: "pop" }); si no hay, Clásico. */
+/** Subtítulos por defecto de Mi marca (`subtitle_preset`: "caja" o { preset: "caja" }); si no hay, Clásico. */
 export function brandCaptionPreset(brand: Brand | null): CaptionPresetKey {
   const raw = brand?.subtitlePreset as unknown;
   const value = typeof raw === "string" ? raw : raw && typeof raw === "object" ? (raw as { preset?: unknown }).preset : null;

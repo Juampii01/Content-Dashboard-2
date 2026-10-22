@@ -5,6 +5,7 @@ import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 import { brollAlpha, brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicSideGeometry, type BrollEdit } from "@/lib/video/broll-edit";
 import type { OutputZoom } from "@/lib/video/effects";
+import type { CaptionLook } from "@/lib/video/caption-styles";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
 import type { CaptionStyle } from "@/lib/video/style";
 import { outputToSource } from "@/lib/video/timeline";
@@ -60,6 +61,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   /** Se llama ~10 veces por segundo con el instante del original (para resaltar la palabra en el texto). */
   onSourceTime?: (t: number | null) => void;
   captionStyle?: CaptionStyle | null;
+  /** Diseño de un estilo de la galería de subtítulos (lib/video/caption-styles.ts). */
+  captionLook?: CaptionLook | null;
   broll?: PreviewBroll[];
   zooms?: OutputZoom[];
   /** Altura (0 a 1) hacia donde apuntan los zooms: la cara. */
@@ -68,7 +71,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   brandAccent?: string;
   brandGround?: string;
 }>(function PreviewPlayer(
-  { src, poster, clips, duration, blocks, preset, format, accent, sourceWidth, sourceHeight, offsetX, onSourceTime, captionStyle = null, broll = [], zooms = [], focusY = 0.42, brandAccent = "#0070f8", brandGround = "#030a22" },
+  { src, poster, clips, duration, blocks, preset, format, accent, sourceWidth, sourceHeight, offsetX, onSourceTime, captionStyle = null, captionLook = null, broll = [], zooms = [], focusY = 0.42, brandAccent = "#0070f8", brandGround = "#030a22" },
   ref,
 ) {
   const video = useRef<HTMLVideoElement>(null);
@@ -303,7 +306,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
             />
           ) : null)}
         {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeBroll.graphic ? "Gráfico" : "B-roll"}</span>}
-        <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} />
+        <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">
             {error ? "Este navegador no pudo reproducir la vista previa. Recarga la página o prueba con Chrome o Safari; el render final no se ve afectado." : "La vista previa todavía no está lista."}

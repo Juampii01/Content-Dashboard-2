@@ -43,5 +43,5 @@ export function proxy(request: NextRequest) {
  * Esas rutas validan la sesión (`/api/editor/files`) o el WORKER_SECRET (`/api/worker/files`) ellas mismas.
  */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|fonts/|demo/|icon.svg|favicon.ico|robots.txt|api/editor/files/|api/worker/files/).*)"],
+  matcher: ["/((?!_next/static|_next/image|fonts/|demo/|emoji/|sfx/|icon.svg|favicon.ico|robots.txt|api/editor/files/|api/worker/files/).*)"],
 };

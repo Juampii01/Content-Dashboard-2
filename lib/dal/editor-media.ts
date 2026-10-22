@@ -153,3 +153,38 @@ export async function signedBroll(items: BrollItem[]): Promise<Record<string, Si
   const signed = await signBrollOptions([...all.values()]);
   return Object.fromEntries(signed.map((o) => [`${o.source}:${o.id}`, o]));
 }
+
+// ─── Música ───────────────────────────────────────────────────────────────
+
+export type TrackView = {
+  id: string;
+  title: string;
+  status: ClipStatus;
+  duration: number | null;
+  fileBytes: number | null;
+  /** URL firmada para escucharla en el navegador (vence en una hora). */
+  url: string | null;
+  createdAt: Date;
+};
+
+/** Pistas de música del cliente (Biblioteca → Música y el selector de la revisión). */
+export async function listTracks(options: { readyOnly?: boolean } = {}): Promise<TrackView[]> {
+  await getCurrentUser();
+  const rows = await getDb()
+    .select()
+    .from(schema.musicTracks)
+    .where(options.readyOnly ? eq(schema.musicTracks.status, "READY") : undefined)
+    .orderBy(desc(schema.musicTracks.createdAt))
+    .limit(200);
+  return Promise.all(
+    rows.map(async (r) => ({
+      id: r.id,
+      title: r.title,
+      status: r.status,
+      duration: r.duration,
+      fileBytes: r.fileBytes,
+      url: r.status === "READY" ? await sign(r.fileKey) : null,
+      createdAt: r.createdAt,
+    })),
+  );
+}

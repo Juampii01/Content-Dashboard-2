@@ -11,7 +11,7 @@ import { confidentRemovals, type Candidate } from "./candidates";
 import { brollEditSchema } from "./broll-edit";
 import { brollGraphicSchema } from "./motion-graphics";
 import { buildTimeline, planSegments } from "./timeline";
-import { REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
+import { CAPTION_PRESET_KEYS, REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
 
 const removalSchema = z.object({
   from_word: z.number().int().min(0),
@@ -68,14 +68,19 @@ export const planSchema = z.object({
   proposed_removals: z.array(removalSchema).max(5000),
   hook_candidates: z.array(hookSchema).max(5),
   selected_hook: z.number().int().min(0).max(4).nullable(),
-  captions: z.object({ preset: z.enum(["clasico", "pop", "estilo", "ninguno"]), emphasis_words: z.array(z.number().int().min(0)).max(40) }),
+  captions: z.object({ preset: z.enum(CAPTION_PRESET_KEYS), emphasis_words: z.array(z.number().int().min(0)).max(40), emoji: z.boolean().optional() }),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   overlays: z.array(z.object({ text: z.string().max(120), from_word: z.number().int(), to_word: z.number().int(), position: z.enum(["top", "center"]) })).max(20),
   broll: z.array(brollItemSchema).max(20),
   zooms_enabled: z.boolean().optional(),
   pacing: z.object({ long_pause: z.number().min(0.2).max(1.2) }).optional(),
   style_id: z.uuid().nullable().optional(),
-  audio: z.object({ music_asset_id: z.string().nullable(), music_db: z.number().min(-40).max(0), target_lufs: z.number().min(-24).max(-9) }),
+  audio: z.object({
+    music_asset_id: z.string().nullable(),
+    music_db: z.number().min(-40).max(0),
+    target_lufs: z.number().min(-24).max(-9),
+    sfx: z.enum(["off", "subtle", "strong"]).optional(),
+  }),
   framing: z.object({ mode: z.enum(["center", "manual"]), offset_x: z.number().min(-1).max(1) }),
   off_script: z.array(z.number().int().min(0)).max(20000),
   summary: z.string().max(1000),
@@ -284,7 +289,7 @@ export function assemblePlan(input: {
     corrections: input.corrections,
     overlays: [],
     broll: [],
-    audio: { music_asset_id: null, music_db: -22, target_lufs: -14 },
+    audio: { music_asset_id: null, music_db: -16, target_lufs: -14, sfx: "subtle" },
     framing: { mode: "center", offset_x: 0 },
     off_script: input.offScript,
     summary: ai?.summary.slice(0, 1000) ?? "Plan armado sin IA: se cortaron solo las tomas repetidas, arranques en falso y muletillas más claras.",

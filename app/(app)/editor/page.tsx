@@ -60,7 +60,7 @@ export default function EditorPage() {
               Estilos
             </ButtonLink>
             <ButtonLink href="/editor/biblioteca" variant="ghost" icon={<Library className="h-4 w-4" aria-hidden />}>
-              Biblioteca de b-roll
+              Biblioteca
             </ButtonLink>
             <ButtonLink href="/editor/nuevo" icon={<Upload className="h-4 w-4" aria-hidden />}>
               Subir un video

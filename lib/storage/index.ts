@@ -11,6 +11,8 @@ import { env } from "@/lib/env";
  *   o en disco local en desarrollo.
  */
 export {
+  AUDIO_EXTENSIONS,
+  AUDIO_TYPES,
   deleteKeys,
   deletePrefix,
   fileDriver,

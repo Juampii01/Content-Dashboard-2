@@ -4,6 +4,7 @@ import { workerAuthorized } from "@/lib/jobs";
 import { fileDriver, workerTransfer } from "@/lib/storage";
 import { loadLongVideo } from "@/lib/clips/service";
 import { loadClip } from "@/lib/video/library";
+import { loadTrack } from "@/lib/video/music";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
 
@@ -17,6 +18,7 @@ import { loadStyle } from "@/lib/video/styles";
  * - clipId: `editor/biblioteca/<id>/…` (el clip, solo lectura, y su miniatura).
  * - longVideoId: `editor/largos/<id>/…` (el video largo: se lee, y si vino de un link el worker lo guarda una vez;
  *   las vistas previas y pósters de sus clips).
+ * - trackId: `editor/musica/<id>/…` (la pista de música, solo lectura).
  */
 const body = z
   .object({
@@ -24,11 +26,12 @@ const body = z
     styleId: z.uuid().optional(),
     clipId: z.uuid().optional(),
     longVideoId: z.uuid().optional(),
+    trackId: z.uuid().optional(),
     key: z.string().min(3).max(1000),
     op: z.enum(["get", "put"]),
     contentType: z.string().max(100).optional(),
   })
-  .refine((b) => [b.projectId, b.styleId, b.clipId, b.longVideoId].filter(Boolean).length === 1);
+  .refine((b) => [b.projectId, b.styleId, b.clipId, b.longVideoId, b.trackId].filter(Boolean).length === 1);
 
 const denied = () => NextResponse.json({ error: "Ese archivo no es de este trabajo." }, { status: 403 });
 
@@ -36,7 +39,7 @@ export async function POST(request: NextRequest) {
   if (!workerAuthorized(request)) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Pedido no válido." }, { status: 400 });
-  const { projectId, styleId, clipId, longVideoId, key, op, contentType } = parsed.data;
+  const { projectId, styleId, clipId, longVideoId, trackId, key, op, contentType } = parsed.data;
   if (!fileDriver()) return NextResponse.json({ error: "Falta configurar el almacenamiento de videos." }, { status: 503 });
 
   if (projectId) {
@@ -67,6 +70,10 @@ export async function POST(request: NextRequest) {
     if (!clip) return NextResponse.json({ error: "Ese clip ya no existe." }, { status: 404 });
     if (!key.startsWith(`editor/biblioteca/${clipId}/`)) return denied();
     if (op === "put" && key !== `editor/biblioteca/${clipId}/miniatura.jpg`) return denied();
+  } else if (trackId) {
+    const track = await loadTrack(trackId);
+    if (!track || track.status !== "READY") return NextResponse.json({ error: "Esa pista ya no existe." }, { status: 404 });
+    if (op !== "get" || key !== track.fileKey) return denied();
   }
   try {
     return NextResponse.json(await workerTransfer(key, op, contentType));

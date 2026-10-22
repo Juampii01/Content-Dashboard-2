@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/blob/client";
 import { getOptionalUser } from "@/lib/auth";
-import { fileDriver, VIDEO_TYPES } from "@/lib/storage";
+import { AUDIO_TYPES, fileDriver, VIDEO_TYPES } from "@/lib/storage";
 import { uploadDelegation } from "@/lib/storage/files";
 import { loadLongVideo } from "@/lib/clips/service";
 import { loadClip } from "@/lib/video/library";
+import { loadTrack } from "@/lib/video/music";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
 
@@ -28,9 +29,11 @@ export async function POST(request: NextRequest) {
       body,
       request,
       getSignedToken: async (pathname, clientPayload) => {
-        // clientPayload: el id del proyecto, o "estilo:<id>" (referencia de un estilo), "clip:<id>" (biblioteca) o "largo:<id>" (clips desde un video largo).
+        // clientPayload: el id del proyecto, "estilo:<id>" (referencia de un estilo), "clip:<id>" (biblioteca),
+        // "musica:<id>" (pista de música) o "largo:<id>" (clips desde un video largo).
         const [kind, ref] = clientPayload?.includes(":") ? clientPayload.split(":", 2) : ["proyecto", clientPayload];
         let size: number | null = null;
+        const audio = kind === "musica";
         if (kind === "estilo" && ref) {
           const style = await loadStyle(ref);
           if (style?.status === "UPLOADING" && style.sourceKey === pathname) size = style.sourceBytes ?? 0;
@@ -40,15 +43,18 @@ export async function POST(request: NextRequest) {
         } else if (kind === "clip" && ref) {
           const clip = await loadClip(ref);
           if (clip?.status === "UPLOADING" && clip.fileKey === pathname) size = clip.fileBytes ?? 0;
+        } else if (audio && ref) {
+          const track = await loadTrack(ref);
+          if (track?.status === "UPLOADING" && track.fileKey === pathname) size = track.fileBytes ?? 0;
         } else if (ref) {
           const project = await loadProject(ref);
           if (project?.status === "UPLOADING" && project.sourceKey === pathname) size = project.sourceBytes ?? 0;
         }
         if (size == null) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
         return {
-          token: await uploadDelegation(pathname),
+          token: await uploadDelegation(pathname, audio ? "audio" : "video"),
           urlOptions: {
-            allowedContentTypes: Object.keys(VIDEO_TYPES),
+            allowedContentTypes: Object.keys(audio ? AUDIO_TYPES : VIDEO_TYPES),
             maximumSizeInBytes: size || undefined,
             allowOverwrite: true,
             addRandomSuffix: false,

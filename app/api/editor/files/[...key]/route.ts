@@ -4,13 +4,15 @@ import { fileDriver } from "@/lib/storage";
 import { assertKey, serveLocal, writeLocal } from "@/lib/storage/files";
 import { loadLongVideo } from "@/lib/clips/service";
 import { loadClip } from "@/lib/video/library";
+import { loadTrack } from "@/lib/video/music";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
 
 /**
  * /api/editor/files/<clave> — archivos del Editor con el almacenamiento local de desarrollo.
  * GET: reproducir o descargar (con Range). PUT: subir desde el navegador el original de un proyecto,
- * la referencia de un estilo (`editor/estilos/<id>/…`) o un clip de la biblioteca (`editor/biblioteca/<id>/…`),
+ * la referencia de un estilo (`editor/estilos/<id>/…`) un clip de la biblioteca (`editor/biblioteca/<id>/…`)
+ * o una pista de música (`editor/musica/<id>/…`),
  * solo a la ruta reservada y mientras está en estado UPLOADING.
  * Protegida por sesión aquí mismo; está fuera del `matcher` de proxy.ts para que un video de varios GB
  * no se copie en memoria. Con Vercel Blob responde 404: el navegador usa URLs firmadas.
@@ -38,6 +40,10 @@ async function pendingUpload(key: string): Promise<number | null> {
   if (scope === "biblioteca" && id) {
     const clip = await loadClip(id);
     return clip?.status === "UPLOADING" && clip.fileKey === key ? (clip.fileBytes ?? 0) : null;
+  }
+  if (scope === "musica" && id) {
+    const track = await loadTrack(id);
+    return track?.status === "UPLOADING" && track.fileKey === key ? (track.fileBytes ?? 0) : null;
   }
   const project = scope ? await loadProject(scope) : null;
   return project?.status === "UPLOADING" && project.sourceKey === key ? (project.sourceBytes ?? 0) : null;

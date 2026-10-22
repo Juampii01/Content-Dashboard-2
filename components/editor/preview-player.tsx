@@ -3,11 +3,13 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
+import { brollAlpha, brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicSideGeometry, type BrollEdit } from "@/lib/video/broll-edit";
 import type { OutputZoom } from "@/lib/video/effects";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
 import type { CaptionStyle } from "@/lib/video/style";
 import { outputToSource } from "@/lib/video/timeline";
 import { FPS, type CaptionBlock, type CaptionPresetKey, type Clip, type VideoFormat } from "@/lib/video/types";
+import { BrollLayer, personStyle } from "./broll-layer";
 import { CaptionOverlay } from "./caption-overlay";
 import { GraphicCanvas } from "./graphic-canvas";
 
@@ -17,7 +19,19 @@ export type PreviewHandle = {
 };
 
 /** Un b-roll en la vista previa: tramo del video final y el clip (video liviano o, si no hay, su miniatura) o el gráfico. */
-export type PreviewBroll = { id: string; start: number; end: number; previewUrl: string | null; thumbUrl: string | null; graphic?: BrollGraphic | null };
+export type PreviewBroll = {
+  id: string;
+  start: number;
+  end: number;
+  previewUrl: string | null;
+  thumbUrl: string | null;
+  graphic?: BrollGraphic | null;
+  /** Ubicación, encuadre, look y tiempo (sin esto, pantalla completa al centro). */
+  edit?: BrollEdit;
+  /** Tamaño del clip (para el recorte y la forma de la tarjeta). */
+  width?: number;
+  height?: number;
+};
 
 /** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
 export function zoomAt(zooms: OutputZoom[], t: number): number {
@@ -50,8 +64,11 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   zooms?: OutputZoom[];
   /** Altura (0 a 1) hacia donde apuntan los zooms: la cara. */
   focusY?: number;
+  /** Colores de Mi marca para el b-roll: acento (duotono) y fondo (pantalla dividida). */
+  brandAccent?: string;
+  brandGround?: string;
 }>(function PreviewPlayer(
-  { src, poster, clips, duration, blocks, preset, format, accent, sourceWidth, sourceHeight, offsetX, onSourceTime, captionStyle = null, broll = [], zooms = [], focusY = 0.42 },
+  { src, poster, clips, duration, blocks, preset, format, accent, sourceWidth, sourceHeight, offsetX, onSourceTime, captionStyle = null, broll = [], zooms = [], focusY = 0.42, brandAccent = "#0070f8", brandGround = "#030a22" },
   ref,
 ) {
   const video = useRef<HTMLVideoElement>(null);
@@ -202,11 +219,22 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   const zoom = zoomAt(zooms, out);
   const brollVideo = useRef<HTMLVideoElement>(null);
 
-  // El b-roll de la vista previa sigue al video principal: arranca en su punto y se pausa con él.
+  // Pantalla dividida o a un lado (clip o gráfico en 16:9): la persona pasa a su parte del cuadro.
+  const activeEdit = activeBroll?.edit ?? DEFAULT_EDIT;
+  const person = !activeBroll
+    ? null
+    : activeBroll.graphic
+      ? graphicSideGeometry(format, activeBroll.graphic.mode, (activeBroll.graphic as { position?: string }).position)
+      : brollGeometry(activeEdit, format, clipAspectOf(activeBroll.width, activeBroll.height), focusY).person;
+  const pxScale = height / (format === "9:16" ? 1920 : 1080);
+
+  // El b-roll de la vista previa sigue al video principal: arranca en su punto (más el segundo del clip elegido) y se
+  // pausa con él. Si el clip es más corto que el tramo, vuelve a empezar (como el render).
   useEffect(() => {
     const v = brollVideo.current;
     if (!v || !activeBroll?.previewUrl) return;
-    const target = Math.max(0, out - activeBroll.start);
+    const raw = Math.max(0, out - activeBroll.start) + (activeBroll.edit?.clip_start ?? 0);
+    const target = v.duration && Number.isFinite(v.duration) && raw >= v.duration ? raw % v.duration : raw;
     if (Math.abs(v.currentTime - target) > 0.35) v.currentTime = target;
     if (playing && v.paused) void v.play().catch(() => undefined);
     if (!playing && !v.paused) v.pause();
@@ -219,11 +247,13 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
         className="relative mx-auto w-full overflow-hidden rounded-2xl border border-white/10 bg-black"
         style={{ aspectRatio: format === "9:16" ? "9 / 16" : "16 / 9", maxWidth: format === "9:16" ? 360 : undefined }}
       >
-        {blurBackground && poster && (
+        {person && <div aria-hidden className="absolute inset-0" style={{ background: brandGround }} />}
+        {blurBackground && poster && !person && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={poster} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
         )}
         {src ? (
+          <div className="absolute inset-0" style={personStyle(person, format)}>
           <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: `50% ${focusY * 100}%` }}>
           <video
             ref={video}
@@ -245,18 +275,31 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
             aria-label="Vista previa del video editado"
           />
           </div>
+          </div>
         ) : null}
         {activeBroll &&
           (activeBroll.graphic ? (
             // El gráfico se dibuja en el mismo instante que el render (en "sobre tu video", el video sigue debajo).
-            <div key={activeBroll.id} className="pointer-events-none absolute inset-0">
+            <div
+              key={activeBroll.id}
+              className="pointer-events-none absolute inset-0"
+              style={{ opacity: brollAlpha({ transition: activeEdit.transition === "cut" ? "cut" : "fade" }, Math.max(0, out - activeBroll.start), activeBroll.end - activeBroll.start) }}
+            >
               <GraphicCanvas spec={activeBroll.graphic} format={format} duration={activeBroll.end - activeBroll.start} time={Math.max(0, out - activeBroll.start)} scale={0.5} />
             </div>
-          ) : activeBroll.previewUrl ? (
-            <video key={activeBroll.id} ref={brollVideo} src={activeBroll.previewUrl} muted playsInline preload="auto" className="absolute inset-0 h-full w-full object-cover" aria-hidden />
-          ) : activeBroll.thumbUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={activeBroll.thumbUrl} alt="" className="absolute inset-0 h-full w-full object-cover" aria-hidden />
+          ) : activeBroll.previewUrl || activeBroll.thumbUrl ? (
+            <BrollLayer
+              key={activeBroll.id}
+              className="pointer-events-none"
+              edit={activeEdit}
+              format={format}
+              media={{ previewUrl: activeBroll.previewUrl, thumbUrl: activeBroll.thumbUrl, width: activeBroll.width ?? 0, height: activeBroll.height ?? 0 }}
+              accent={brandAccent}
+              time={Math.max(0, out - activeBroll.start)}
+              duration={activeBroll.end - activeBroll.start}
+              pxScale={pxScale}
+              videoRef={brollVideo}
+            />
           ) : null)}
         {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeBroll.graphic ? "Gráfico" : "B-roll"}</span>}
         <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} />

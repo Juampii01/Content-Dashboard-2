@@ -4,12 +4,13 @@
  * Como los cortes, se calculan siempre a partir del timeline (lib/video/timeline.ts): la vista previa y el render
  * usan la misma función, así lo que se ve en la revisión es lo que sale en el MP4. Sin servidor ni navegador.
  */
+import { resolveEdit, type BrollEdit } from "./broll-edit";
 import type { StylePreset } from "./style";
 import { outputRange, type Timeline } from "./timeline";
 import { FPS, type BrollItem, type BrollOption } from "./types";
 
 export type OutputZoom = { start: number; end: number; scale: number; ramp: number; kind: "punch" | "smooth" };
-export type OutputBroll = { id: string; start: number; end: number; option: BrollOption };
+export type OutputBroll = { id: string; start: number; end: number; option: BrollOption; edit: BrollEdit };
 
 type Range = { start: number; end: number };
 
@@ -78,20 +79,25 @@ export function computeZooms(timeline: Timeline, zoom: StylePreset["zoom"] | nul
   return out;
 }
 
-/** Tramos de b-roll en el video final (los que tienen clip elegido y palabras que quedan). */
+/**
+ * Tramos de b-roll en el video final (los que tienen clip elegido y palabras que quedan). La entrada y la salida se
+ * corren según la edición de la revisión (`start_delta`, `end_delta`), sin salirse del video ni pisar el anterior.
+ */
 export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBroll[] {
   const out: OutputBroll[] = [];
   const sorted = [...items].filter((b) => b.choice).sort((a, b) => a.from_word - b.from_word);
   for (const item of sorted) {
     const range = outputRange(timeline, item.from_word, item.to_word);
     if (!range) continue;
-    let { start, end } = range;
+    const edit = resolveEdit(item.edit);
+    let start = Math.max(0, range.start + edit.start_delta);
+    let end = Math.min(timeline.duration, range.end + edit.end_delta);
     const prev = out[out.length - 1];
     if (prev && start < prev.end) start = prev.end;
     // Un b-roll de menos de 0,8 s parpadea: se estira un poco (sin pasarse del final).
     if (end - start < 0.8) end = Math.min(start + 1.2, timeline.duration);
     if (end - start < 0.5) continue;
-    out.push({ id: item.id, start: round3(start), end: round3(end), option: item.choice! });
+    out.push({ id: item.id, start: round3(start), end: round3(end), option: item.choice!, edit });
   }
   return out;
 }

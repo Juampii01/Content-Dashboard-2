@@ -550,7 +550,7 @@ function drawBackdrop(env: Env, t: number): void {
   const { ctx, scene } = env;
   const { width: W, height: H, theme } = scene;
   if (scene.mode === "overlay") {
-    const g = ctx.createLinearGradient(0, 0, 0, H);
+    const g = scene.veilAxis === "x" ? ctx.createLinearGradient(0, 0, W, 0) : ctx.createLinearGradient(0, 0, 0, H);
     for (const [pos, a] of scene.veil) g.addColorStop(pos, rgba(theme.bg, a));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);

@@ -8,6 +8,7 @@
 import type { BrollEditInput } from "./broll-edit";
 import type { GraphicSpec } from "./graphics";
 import type { MotionScene } from "./motion/schema";
+import type { AudioPreviewMedia } from "./studio-audio";
 
 /** Una palabra con su id (posición en la transcripción), su texto tal como se dijo y sus bordes. */
 export type Word = {
@@ -43,6 +44,8 @@ export type MediaInfo = {
   proxyWidth?: number;
   proxyHeight?: number;
   posterKey?: string;
+  /** Muestra de "Audio de estudio" (10 s: original, Suave y Fuerte), armada al analizar. */
+  audioPreview?: AudioPreviewMedia;
 };
 
 export type VideoFormat = "9:16" | "16:9";
@@ -99,7 +102,7 @@ export type EditPlan = {
    * `music_asset_id`: pista de Biblioteca → Música (music_tracks.id), `music_db`: su volumen respecto de la voz.
    * `sfx`: efectos de sonido (lib/video/sfx.ts); sin el campo (planes viejos), sin efectos.
    */
-  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong" };
+  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; studio?: "off" | "soft" | "strong" };
   /** Recorte para 16:9 → 9:16. offset_x va de -1 (izquierda) a 1 (derecha); 0 es el centro. */
   framing: { mode: "center" | "manual"; offset_x: number };
   /** Palabras que no están en el guion (se marcan, no se cortan). */

@@ -53,15 +53,17 @@ def normalize(src: Path, out: Path, target: float = -14.0) -> None:
 
 
 def encode(src: Path, out: Path, length: float) -> None:
+    """MP3 de 128 kbps (~160 KB por versión): lo reproduce cualquier navegador, también Chromium sin códecs
+    propietarios (AAC no)."""
     fade = 0.08
     ffmpeg.run(
-        ["-i", str(src), "-af", f"afade=t=in:d={fade},afade=t=out:st={max(0.0, length - fade):.3f}:d={fade}", "-ac", "1", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)],
+        ["-i", str(src), "-af", f"afade=t=in:d={fade},afade=t=out:st={max(0.0, length - fade):.3f}:d={fade}", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "128k", str(out)],
         what="muestra de audio",
     )
 
 
 def build(wav: Path, words: list[dict[str, Any]], duration: float, workdir: Path, models_dir: Path) -> dict[str, Any] | None:
-    """Arma los tres archivos (m4a) en `workdir/muestra-audio`. None si no hay modelo o la toma es muy corta."""
+    """Arma los tres archivos (mp3) en `workdir/muestra-audio`. None si no hay modelo o la toma es muy corta."""
     if not studio.model_available(models_dir):
         log.warning("muestra de audio: no está el modelo en %s", models_dir)
         return None
@@ -82,9 +84,9 @@ def build(wav: Path, words: list[dict[str, Any]], duration: float, workdir: Path
         files[level] = processed
     encoded = {}
     for name, path in files.items():
-        m4a = out_dir / f"{name}.m4a"
-        encode(path, m4a, length)
-        encoded[name] = m4a
+        mp3 = out_dir / f"{name}.mp3"
+        encode(path, mp3, length)
+        encoded[name] = mp3
     return {"start": start, "duration": length, "files": encoded}
 
 
@@ -95,7 +97,7 @@ def make(ctx: Any, pid: str, workdir: Path, words: list[dict[str, Any]], duratio
         return None
     keys = {}
     for name, path in built["files"].items():
-        key = f"editor/{pid}/audio-estudio/v{studio.VERSION}-{name}.m4a"
-        ctx.app.upload(pid, key, path, "audio/mp4")
+        key = f"editor/{pid}/audio-estudio/v{studio.VERSION}-{name}.mp3"
+        ctx.app.upload(pid, key, path, "audio/mpeg")
         keys[name] = key
     return {"version": studio.VERSION, "start": built["start"], "duration": built["duration"], "keys": keys}

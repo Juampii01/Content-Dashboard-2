@@ -65,6 +65,7 @@ export function ProjectScreen({
           style={style}
           graphicLook={graphicLook}
           tracks={tracks}
+          audioPreview={project.audioPreview}
         />
       )}
       {status === "DONE" && project.output && (

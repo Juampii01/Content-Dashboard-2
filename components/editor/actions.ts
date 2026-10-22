@@ -9,6 +9,7 @@ import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
 import { brollItemSchema } from "@/lib/video/plan";
 import { MUSIC_DB, SFX_LEVELS } from "@/lib/video/sfx";
+import { STUDIO_LEVELS } from "@/lib/video/studio-audio";
 import { CAPTION_PRESET_KEYS, type CaptionPresetKey } from "@/lib/video/types";
 import {
   completeUpload,
@@ -127,6 +128,7 @@ const reviewSchema = z.object({
   zooms: z.boolean().optional(),
   emoji: z.boolean().optional(),
   sfx: z.enum(SFX_LEVELS).optional(),
+  studio: z.enum(STUDIO_LEVELS).optional(),
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
 });
 

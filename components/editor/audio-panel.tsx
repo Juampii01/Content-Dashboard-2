@@ -8,17 +8,22 @@ import { SegmentedControl } from "@/components/ui/tabs";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { MUSIC_DB, musicLabel, SFX_LEVEL_LABELS, SFX_LEVELS, type SfxLevel } from "@/lib/video/sfx";
+import { STUDIO_LEVEL_LABELS, STUDIO_LEVELS, type AudioPreview, type StudioLevel } from "@/lib/video/studio-audio";
 import { useTrackPlayer, type TrackItem } from "./music-manager";
+import { StudioPreview } from "./studio-preview";
 
 /** Ganancia de prueba del whoosh por nivel (las mismas proporciones que lib/video/sfx.ts, sin voz encima). */
 const DEMO_GAIN: Record<SfxLevel, number> = { off: 0, subtle: 0.35, strong: 0.7 };
 
 /**
- * Sonido del video en la revisión: efectos (Sin efectos / Sutil / Marcado) y música de fondo de la biblioteca con
- * su volumen. La vista previa no mezcla el audio: los botones de escuchar sirven para elegir; la mezcla final la
+ * Sonido del video en la revisión: audio de estudio (Apagado / Suave / Fuerte, con la muestra de antes y después),
+ * efectos (Sin efectos / Sutil / Marcado) y música de fondo de la biblioteca con su volumen. La vista previa no mezcla el audio: los botones de escuchar sirven para elegir; la mezcla final la
  * hace el worker (la voz siempre por encima).
  */
 export function AudioPanel({
+  studio,
+  onStudio,
+  audioPreview,
   sfx,
   onSfx,
   musicId,
@@ -27,6 +32,9 @@ export function AudioPanel({
   tracks,
   canEdit,
 }: {
+  studio: StudioLevel;
+  onStudio: (level: StudioLevel) => void;
+  audioPreview: AudioPreview | null;
   sfx: SfxLevel;
   onSfx: (level: SfxLevel) => void;
   musicId: string | null;
@@ -52,6 +60,19 @@ export function AudioPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-semibold text-white">Audio de estudio</span>
+        <SegmentedControl
+          label="Audio de estudio"
+          size="sm"
+          value={studio}
+          onValueChange={(v) => canEdit && onStudio(v)}
+          options={STUDIO_LEVELS.map((k) => ({ value: k, label: STUDIO_LEVEL_LABELS[k].label }))}
+        />
+        <p className="text-xs text-muted">{STUDIO_LEVEL_LABELS[studio].description}</p>
+        <StudioPreview key={studio} preview={audioPreview} level={studio} />
+      </div>
+
       <div className="flex flex-col gap-2">
         <span className="flex items-center justify-between gap-2 text-sm font-semibold text-white">
           Efectos de sonido

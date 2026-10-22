@@ -184,7 +184,8 @@ export function RecordingStudio({
       return;
     }
     const takeId = crypto.randomUUID();
-    const today = new Date().toLocaleDateString("es-419", { day: "numeric", month: "short" });
+    const now = new Date();
+    const today = `${now.toLocaleDateString("es-419", { day: "numeric", month: "short" })}, ${now.toLocaleTimeString("es-419", { hour: "2-digit", minute: "2-digit" })}`;
     const meta: TakeMeta = {
       id: takeId,
       scriptId: current?.id ?? null,

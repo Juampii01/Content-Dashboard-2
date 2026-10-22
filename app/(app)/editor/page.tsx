@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Clapperboard, Library, Palette, Scissors, Upload } from "lucide-react";
+import { Clapperboard, Library, Palette, Scissors, Upload, Video } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Notice, Skeleton } from "@/components/ui/feedback";
 import { ProjectList } from "@/components/editor/project-list";
+import { PendingTakesNotice } from "@/components/editor/recorder/pending-takes-notice";
 import { WorkerNotice } from "@/components/editor/worker-notice";
 import { getCurrentUser } from "@/lib/auth";
 import { listProjects } from "@/lib/dal/video";
@@ -23,6 +24,7 @@ async function Projects() {
         </Notice>
       )}
       <WorkerNotice online={worker.online} autoStart={worker.autoStart} waiting={worker.stuck > 0 || (!worker.autoStart && waiting)} />
+      {me.role !== "VIEWER" && <PendingTakesNotice />}
       {projects.length === 0 ? (
         <EmptyState
           icon={<Clapperboard className="h-5 w-5" aria-hidden />}
@@ -30,9 +32,14 @@ async function Projects() {
           description="Sube un video donde hablas a cámara. Te lo devolvemos con los silencios y tomas malas cortados, el mejor gancho al inicio y subtítulos con tu estilo."
           action={
             me.role !== "VIEWER" && storageReady ? (
-              <ButtonLink href="/editor/nuevo" icon={<Upload className="h-4 w-4" aria-hidden />}>
-                Subir un video
-              </ButtonLink>
+              <div className="flex flex-wrap justify-center gap-2">
+                <ButtonLink href="/editor/nuevo" icon={<Upload className="h-4 w-4" aria-hidden />}>
+                  Subir un video
+                </ButtonLink>
+                <ButtonLink href="/editor/grabar" variant="ghost" icon={<Video className="h-4 w-4" aria-hidden />}>
+                  Grabar ahora
+                </ButtonLink>
+              </div>
             ) : undefined
           }
         />
@@ -61,6 +68,9 @@ export default function EditorPage() {
             </ButtonLink>
             <ButtonLink href="/editor/biblioteca" variant="ghost" icon={<Library className="h-4 w-4" aria-hidden />}>
               Biblioteca
+            </ButtonLink>
+            <ButtonLink href="/editor/grabar" variant="ghost" icon={<Video className="h-4 w-4" aria-hidden />}>
+              Grabar ahora
             </ButtonLink>
             <ButtonLink href="/editor/nuevo" icon={<Upload className="h-4 w-4" aria-hidden />}>
               Subir un video

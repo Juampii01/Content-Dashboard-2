@@ -148,6 +148,14 @@ export async function completeUpload(projectId: string, userId: string, settings
     .set({ ...next, status: "PROCESSING", sourceBytes: info.size, errorMessage: null })
     .where(and(eq(schema.videoProjects.id, projectId), eq(schema.videoProjects.status, "UPLOADING")));
   await enqueueAnalyze(project, userId);
+  const scriptId = settings ? settings.scriptId : project.scriptId;
+  if (project.origin === "recorder" && scriptId) {
+    // Grabado desde el teleprompter: el guion pasa a "Grabado" (si todavía no estaba grabado o publicado).
+    await getDb()
+      .update(schema.scripts)
+      .set({ status: "RECORDED" })
+      .where(and(eq(schema.scripts.id, scriptId), inArray(schema.scripts.status, ["IDEA", "DRAFT", "READY"])));
+  }
 }
 
 /** Cambia lo elegido en los pasos mientras el video todavía se sube. */

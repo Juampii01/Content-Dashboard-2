@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import JobError
 from comunes.runner import JobContext, register
 
-from . import ass, energy, graphics, ingest, library, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 
 log = logging.getLogger("worker.video")
 
@@ -126,7 +126,8 @@ STOCK_HOSTS = {"pexels": ("pexels.com",), "pixabay": ("pixabay.com",)}
 
 def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str, Any]], size: tuple[int, int], expected: float) -> list[Path]:
     """Deja cada b-roll listo para superponer: baja los clips (stock de Pixabay o Pexels directo de su CDN; la biblioteca,
-    del almacenamiento privado) y dibuja los gráficos con la marca (worker/video/graphics.py). Todo se guarda en la
+    del almacenamiento privado) y dibuja los gráficos con la marca (motor de motion graphics, worker/video/motion.py,
+    con Pillow de respaldo para los gráficos v1). Todo se guarda en la
     carpeta del proyecto por hash: un segundo render no repite lo que no cambió."""
     cache = workdir / "broll"
     cache.mkdir(exist_ok=True)
@@ -137,9 +138,7 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
         start, end = float(item["start"]), min(float(item["end"]), expected)
         if source == "graphic":
             # Ya sale a la medida del tramo (tamaño, 30 fps y duración): no pasa por render.prepare_broll.
-            spec = graphics.validate_spec(item.get("spec"))
-            path = cache / graphics.cache_name(spec, size, end - start)
-            graphics.render_graphic(spec, end - start, size, path, ctx.config.fonts_dir)
+            path = motion.render_graphic(item.get("spec"), end - start, size, cache, ctx.config.fonts_dir)
             out.append(path)
             ctx.progress((i + 1) / len(items))
             continue

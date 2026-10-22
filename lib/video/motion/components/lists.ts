@@ -138,10 +138,12 @@ export const steps = defineComponent({
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const n = p.steps.length;
-      const horizontal = !k.vertical;
+      // En 9:16 van en columna; sobre el video (franja baja) hasta 3 pasos van en fila para que se lean grandes.
+      const horizontal = !k.vertical || (k.mode === "overlay" && n <= 3);
       const x = cx(k);
-      const pad = 36 * k.s;
-      const conn = (horizontal ? 90 : 64) * k.s;
+      const tight = horizontal && k.vertical;
+      const pad = (tight ? 24 : 36) * k.s;
+      const conn = (tight ? 46 : horizontal ? 90 : 64) * k.s;
       const nodeW = horizontal ? (k.region.w - conn * (n - 1)) / n : Math.min(k.region.w, 760 * k.s);
       const hasIcons = p.icons.length > 0;
       const iconS = 96 * k.s;

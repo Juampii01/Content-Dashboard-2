@@ -6,6 +6,13 @@
 FROM node:22.20.0-bookworm-slim AS codex
 RUN npm install -g @openai/codex@0.162.1 && npm cache clean --force
 
+# Gráficos animados del editor: skia-canvas (MIT, Canvas 2D sin navegador) para el motor de motion graphics
+# (worker/motion, el mismo código que la vista previa). Se instala en la imagen de Node (mismo Debian bookworm).
+FROM node:22.20.0-bookworm-slim AS motion
+WORKDIR /motion
+COPY motion/package.json motion/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -44,6 +51,8 @@ COPY main.py .
 COPY comunes comunes
 COPY video video
 COPY carruseles carruseles
+COPY motion motion
+COPY --from=motion /motion/node_modules motion/node_modules
 
 # Sin root. /data es el volumen de Fly (caché de trabajo que sobrevive a los apagados de la máquina).
 RUN useradd --create-home --uid 10001 worker && mkdir -p /data/work && chown -R worker /data /app

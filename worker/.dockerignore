@@ -4,3 +4,4 @@ __pycache__
 fonts
 tests
 *.pyc
+motion/node_modules

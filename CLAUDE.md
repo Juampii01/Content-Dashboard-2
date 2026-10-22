@@ -159,6 +159,8 @@ placeholder   #6f84a8
 
 **B-roll a medida:** ✅ gráficos animados con la marca (6 plantillas, pantalla completa o sobre el video) que elige Claude sin inventar cifras, editables en la revisión y dibujados por el worker con Pillow (`lib/video/graphics.ts`, `worker/video/graphics.py`).
 
+**Gráficos con IA:** ✅ Claude arma escenas v2 del motor de motion graphics (`lib/ai/prompts/motion.ts`, validación con reintento en `lib/video/motion-build.ts`) en el plan automático y en "Pide tu gráfico" de la revisión (ajustar, deshacer, límites claros); los planes con gráficos v1 siguen funcionando.
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

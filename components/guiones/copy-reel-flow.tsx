@@ -72,6 +72,15 @@ export function CopyReelFlow({
   const [pending, start] = useTransition();
   const abort = useRef<AbortController | null>(null);
 
+  // La página puede quedar viva en segundo plano al navegar: al terminar se vuelve al paso 1 vacío.
+  function reset() {
+    setStep("reel");
+    setLink("");
+    setFile(null);
+    setTopic("");
+    setProgress(null);
+  }
+
   const platform = platformOf(link);
   const reelReady = source === "link" ? Boolean(platform) : Boolean(file);
   const disabled = !canEdit || !aiReady || pending;
@@ -101,6 +110,7 @@ export function CopyReelFlow({
           return;
         }
         toast.success("Estamos analizando el reel. Puedes salir y volver.");
+        reset();
         router.push(`/guiones/copiar/${result.data.id}`);
         return;
       }
@@ -127,6 +137,7 @@ export function CopyReelFlow({
         return;
       }
       toast.success("Estamos analizando el reel. Puedes salir y volver.");
+      reset();
       router.push(`/guiones/copiar/${created.data.id}`);
     });
   }

@@ -1,10 +1,9 @@
 import { Clapperboard, FileText, Lightbulb, Megaphone, Mic, Palette, ShieldCheck, Sparkles } from "lucide-react";
-import { StatusBadge, type StatusTone } from "@/components/ui/badges";
+import { StatusBadge } from "@/components/ui/badges";
 import { ButtonLink } from "@/components/ui/button";
 import type { CopyView } from "@/lib/dal/reel-copies";
 import { formatDuration } from "@/lib/format";
 import { ctaKindLabel, editWithStyleHref, hookTypeLabel, recordHref, secondsLabel, type ReelCopyAnalysis } from "@/lib/scripts/reel-copy";
-import { verdictLabel } from "@/lib/scripts/score";
 import { cn } from "@/lib/utils";
 import { describePreset } from "@/lib/video/style";
 
@@ -66,7 +65,7 @@ export function CopyReelResult({ copy, canEdit }: { copy: CopyView; canEdit: boo
               <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <Fact label="Duración" value={formatDuration(a.durationSeconds)} />
                 <Fact label="Cortes por minuto" value={String(Math.round(a.cutsPerMinute))} />
-                <Fact label="Ritmo de habla" value={a.wordsPerSecond ? `${a.wordsPerSecond.toFixed(1)} pal./s` : "—"} />
+                <Fact label="Palabras por segundo" value={a.wordsPerSecond ? a.wordsPerSecond.toFixed(1) : "—"} />
               </dl>
             )}
             <ButtonLink href={`/editor/estilos/${copy.style.id}`} variant="subtle" size="sm" className="self-start">
@@ -121,9 +120,12 @@ function Structure({ analysis: a }: { analysis: ReelCopyAnalysis }) {
 
       <div className="flex flex-col gap-2">
         <div className="flex h-3 w-full overflow-hidden rounded-full bg-white/10" role="img" aria-label={`Estructura: ${segments.map((s) => `${s.label} ${secondsLabel(s.seconds)}`).join(", ")}`}>
-          {segments.map((s) => (
-            <span key={s.key} className={cn("h-full border-r border-bg last:border-0", s.className)} style={{ width: `${(Math.max(0.2, s.end - s.start) / total) * 100}%` }} />
-          ))}
+          {segments.map((s, i) => {
+            // Cada parte ocupa desde su inicio hasta el inicio de la siguiente (las pausas cuentan): la barra queda completa.
+            const from = i === 0 ? 0 : s.start;
+            const to = segments[i + 1]?.start ?? total;
+            return <span key={s.key} className={cn("h-full border-r border-bg last:border-0", s.className)} style={{ width: `${(Math.max(0.2, to - from) / total) * 100}%` }} />;
+          })}
         </div>
         <div className="flex justify-between font-mono text-[11px] text-muted">
           <span>0 s</span>
@@ -174,13 +176,12 @@ function Part({ icon, number, title, meta, text }: { icon?: React.ReactNode; num
   );
 }
 
-const verdictTone: Record<NonNullable<CopyView["hookScores"][number]["verdict"]>, StatusTone> = { arriba: "success", parecido: "info", abajo: "warning" };
-
 /** La versión propia: ganchos con su puntaje antes de publicar y el cuerpo en corto. */
 function Version({ copy }: { copy: CopyView }) {
   const script = copy.script!;
   const c = script.content;
   const scored = copy.hookScores.some((h) => h.score != null);
+  const best = Math.max(...copy.hookScores.map((h) => h.score ?? -1));
   return (
     <section className="card flex flex-col gap-4 p-5" aria-labelledby="copy-version-title">
       <div className="flex items-center gap-2">
@@ -207,9 +208,9 @@ function Version({ copy }: { copy: CopyView }) {
                       Puntaje <strong className="text-white">{s.score}</strong>/100
                     </span>
                   )}
-                  {s?.verdict && (
-                    <StatusBadge tone={verdictTone[s.verdict]} className="!px-2 !py-0.5 !text-[11px]">
-                      {verdictLabel[s.verdict]}
+                  {s?.score != null && s.score === best && (
+                    <StatusBadge tone="success" className="!px-2 !py-0.5 !text-[11px]">
+                      Mejor puntaje
                     </StatusBadge>
                   )}
                   {i === c.selectedHook && <span className="text-accent-glow">Elegido</span>}

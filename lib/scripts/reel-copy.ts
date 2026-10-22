@@ -218,6 +218,18 @@ export function scriptTexts(g: GeneratedScript): string[] {
   return [g.title, g.angle, ...g.hooks.map((h) => h.text), ...g.beats.flatMap((b) => [b.spoken, b.onScreenText]), g.cta.spoken, g.cta.onScreenText, g.caption, spoken];
 }
 
+/**
+ * Ordena los ganchos con el puntaje antes de publicar (lib/scripts/score.ts): el de mejor puntaje queda primero
+ * (y es el elegido). Sin puntajes (no hay historial suficiente) se respeta el orden de la IA. Orden estable.
+ */
+export function orderHooksByScore<H>(hooks: H[], scores: (number | null)[]): H[] {
+  if (!scores.some((s) => s != null)) return hooks;
+  return hooks
+    .map((hook, i) => ({ hook, i, score: scores[i] ?? -1 }))
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .map((x) => x.hook);
+}
+
 /** La estructura como brief para escribir la versión nueva: sin una sola frase del original. */
 export function analysisBrief(a: ReelCopyAnalysis): string {
   const lines = [

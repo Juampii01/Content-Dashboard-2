@@ -11,7 +11,9 @@ import { fileInfo } from "@/lib/storage";
 import { createStyleUpload, deleteStyle, loadStyle, parseReferenceLink, saveStyleResult } from "@/lib/video/styles";
 import { styleMetricsSchema } from "@/lib/video/style";
 import { sharedRunsIn } from "./overlap";
-import { analysisBrief, buildAnalysis, metricsSummary, sentencesFromWords, scriptTexts, structureSchema, targetWords, timedWordsSchema, transcriptLines } from "./reel-copy";
+import { analysisBrief, buildAnalysis, orderHooksByScore, metricsSummary, sentencesFromWords, scriptTexts, structureSchema, targetWords, timedWordsSchema, transcriptLines } from "./reel-copy";
+import { readScoreHistory } from "@/lib/dal/score";
+import { computeScore, type HookKind } from "./score";
 import { insertGeneratedScript } from "./service";
 
 /**
@@ -156,6 +158,12 @@ export async function saveCopyResult(id: string, payload: { metrics: unknown; wo
       else generated = candidate;
     }
     if (!generated) throw new ReelCopyError(TOO_CLOSE);
+
+    // El gancho elegido es el de mejor puntaje antes de publicar con los números de la persona (si los hay).
+    const history = await readScoreHistory().catch(() => []);
+    const spokenCount = [generated.hooks[0]?.text ?? "", ...generated.beats.map((b) => b.spoken), generated.cta.spoken].join(" ").split(/\s+/).filter(Boolean).length;
+    const scores = generated.hooks.map((h) => computeScore(history, { hook: h.text, hookType: h.type as HookKind, estimatedSeconds: Math.round(spokenCount / 2.5), format: copy.format }).hook.score);
+    generated = { ...generated, hooks: orderHooksByScore(generated.hooks, scores) };
 
     const scriptId = await insertGeneratedScript(generated, {
       idea: copy.topic || generated.angle,

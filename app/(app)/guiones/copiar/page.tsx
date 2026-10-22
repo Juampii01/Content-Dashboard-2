@@ -27,6 +27,7 @@ async function Flow({ searchParams }: { searchParams: PageProps<"/guiones/copiar
   const link = typeof params.link === "string" ? params.link.slice(0, 600) : "";
   return (
     <CopyReelFlow
+      key={`${params.origen ?? ""}|${link}`}
       pillars={brand?.pillars.map((p) => p.name) ?? []}
       aiReady={aiConfigured()}
       brandReady={brandIsReady(brand)}

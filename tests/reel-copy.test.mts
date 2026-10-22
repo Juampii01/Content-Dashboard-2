@@ -10,7 +10,7 @@ import { scriptSchema, type GeneratedScript } from "../lib/ai/prompts/guiones";
 import { analysisTask, copyScriptTask } from "../lib/ai/prompts/copia";
 import { fakeResponse } from "../lib/ai/fake";
 import { MAX_SHARED_WORDS, redactShared, sharedRuns, sharedRunsIn, tokens } from "../lib/scripts/overlap";
-import { analysisBrief, buildAnalysis, metricsSummary, scriptTexts, sentencesFromWords, structureSchema, targetWords, transcriptLines, type StructureAi, type TimedWord } from "../lib/scripts/reel-copy";
+import { analysisBrief, buildAnalysis, orderHooksByScore, metricsSummary, scriptTexts, sentencesFromWords, structureSchema, targetWords, transcriptLines, type StructureAi, type TimedWord } from "../lib/scripts/reel-copy";
 import { styleMetricsSchema } from "../lib/video/style";
 
 /** Las frases del video sintético de worker/scripts/make_style_reference.py. */
@@ -173,6 +173,13 @@ describe("armado del análisis", () => {
   });
 });
 
+describe("ganchos por puntaje", () => {
+  test("el de mejor puntaje queda primero; empates y sin puntaje respetan el orden de la IA", () => {
+    assert.deepEqual(orderHooksByScore(["a", "b", "c", "d"], [60, 90, null, 90]), ["b", "d", "a", "c"]);
+    assert.deepEqual(orderHooksByScore(["a", "b"], [null, null]), ["a", "b"]);
+  });
+});
+
 describe("control de copia", () => {
   test("normaliza tildes, mayúsculas y signos", () => {
     assert.deepEqual(tokens("¡Comenta ESTILO, y te mando la guía!"), ["comenta", "estilo", "y", "te", "mando", "la", "guia"]);
@@ -197,7 +204,7 @@ describe("control de copia", () => {
   });
 
   test("también lo detecta entre bloques (lo hablado de corrido)", () => {
-    const split = { ...ownScript(), hooks: [{ text: "Hoy te muestro cómo", type: "lista", score: 7, why: "" }, ...ownScript().hooks.slice(1)], beats: [{ purpose: "p", spoken: "editar como un profesional.", onScreenText: "", broll: "", seconds: 3 }] };
+    const split = { ...ownScript(), hooks: [{ text: "Hoy te muestro cómo", type: "lista" as const, score: 7, why: "" }, ...ownScript().hooks.slice(1)], beats: [{ purpose: "p", spoken: "editar como un profesional.", onScreenText: "", broll: "", seconds: 3 }] };
     assert.ok(sharedRunsIn(scriptTexts(split), transcript).length > 0);
   });
 

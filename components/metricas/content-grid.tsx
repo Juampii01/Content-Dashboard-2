@@ -24,6 +24,7 @@ export function ContentGrid({ rows, layout = "full" }: { rows: ContentRow[]; lay
             badge={row.perfScore != null && row.perfScore >= 1.5 ? <OutlierBadge ratio={row.perfScore} /> : undefined}
             meta={formatDate(row.publishedAt)}
             href={`/metricas/${row.id}`}
+            eager={layout === "compact"}
           />
         </li>
       ))}

@@ -33,8 +33,11 @@ export function MediaThumbCard({
   href,
   onClick,
   className,
+  eager = false,
 }: {
   src?: string | null;
+  /** Cargar la imagen enseguida (listas cortas como Inicio): con carga diferida, una captura de página completa la deja vacía. */
+  eager?: boolean;
   /** Caption o título de la pieza (se recorta a dos líneas). */
   title: string;
   aspect?: MediaAspect;
@@ -63,7 +66,7 @@ export function MediaThumbCard({
         <img
           src={src}
           alt=""
-          loading="lazy"
+          loading={eager ? "eager" : "lazy"}
           decoding="async"
           onError={() => setBroken(true)}
           // Si la imagen falló antes de hidratar, onError ya no llega: se revisa al montar.

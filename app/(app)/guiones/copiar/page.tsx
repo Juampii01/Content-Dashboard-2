@@ -20,19 +20,22 @@ export const metadata: Metadata = { title: "Copia este reel" };
  * /guiones/copiar — parámetros para integrar con otros módulos:
  * - `?link=<url>`: precarga el link del reel, TikTok o short (por ejemplo, desde una pieza de referencia).
  * - `?origen=archivo`: abre directamente la opción de subir el archivo (cuando el link no se pudo bajar).
+ * - `?tema=<texto>`: precarga el tema de la versión propia.
  */
 async function Flow({ searchParams }: { searchParams: PageProps<"/guiones/copiar">["searchParams"] }) {
   const params = await searchParams;
   const [me, brand] = await Promise.all([getCurrentUser(), getBrandProfile()]);
   const link = typeof params.link === "string" ? params.link.slice(0, 600) : "";
+  const topic = typeof params.tema === "string" ? params.tema.slice(0, 300) : "";
   return (
     <CopyReelFlow
-      key={`${params.origen ?? ""}|${link}`}
+      key={`${params.origen ?? ""}|${link}|${topic}`}
       pillars={brand?.pillars.map((p) => p.name) ?? []}
       aiReady={aiConfigured()}
       brandReady={brandIsReady(brand)}
       canEdit={me.role !== "VIEWER"}
       initialLink={link}
+      initialTopic={topic}
       initialSource={params.origen === "archivo" ? "upload" : "link"}
     />
   );

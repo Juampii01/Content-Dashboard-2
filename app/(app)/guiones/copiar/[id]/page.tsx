@@ -88,11 +88,11 @@ function Failed({ copy, canEdit }: { copy: CopyView; canEdit: boolean }) {
       {canEdit && (
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {linkFailed && (
-            <ButtonLink href="/guiones/copiar?origen=archivo" icon={<Upload className="h-4 w-4" aria-hidden />}>
+            <ButtonLink href={`/guiones/copiar?origen=archivo${copy.topic ? `&tema=${encodeURIComponent(copy.topic)}` : ""}`} icon={<Upload className="h-4 w-4" aria-hidden />}>
               Subir el archivo
             </ButtonLink>
           )}
-          {copy.canRetry && <RetryCopyButton id={copy.id} />}
+          {copy.canRetry && <RetryCopyButton id={copy.id} subtle={linkFailed} />}
           <DeleteCopyButton id={copy.id} ready={false} />
         </div>
       )}

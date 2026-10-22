@@ -38,8 +38,11 @@ export function WeekScreen({ view }: { view: AutopilotView }) {
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
       <div className="flex min-w-0 flex-col gap-6">
         {!view.brandReady && (
-          <Notice tone="warning" title="Primero completa Mi marca">
-            El plan sale de tus pilares, tus ofertas y lo que ya te funcionó. <a href="/marca" className="font-semibold underline underline-offset-2">Completar Mi marca</a>
+          <Notice tone="warning" title="Para armar tu semana falta un paso: Mi marca">
+            Necesitamos tu nicho o al menos un pilar de contenido: de ahí sale el plan, junto con tus ofertas y lo que ya te funcionó. Te toma unos minutos.{" "}
+            <a href="/marca" className="font-semibold underline underline-offset-2">
+              Completar Mi marca
+            </a>
           </Notice>
         )}
         {!pack ? <NoPack view={view} /> : pack.status === "GENERATING" && !pack.stale ? <Generating view={view} /> : pack.status === "FAILED" || pack.stale ? <Failed view={view} /> : <Ready view={view} />}
@@ -52,9 +55,17 @@ export function WeekScreen({ view }: { view: AutopilotView }) {
 function BuildNowButton({ view, label = "Armar mi semana ahora" }: { view: AutopilotView; label?: string }) {
   const [pending, start] = useTransition();
   if (!view.canEdit) return null;
+  // Sin marca no se puede armar: en vez de un botón apagado (parece roto), el paso que falta.
+  if (!view.brandReady) {
+    return (
+      <ButtonLink href="/marca" icon={<Palette className="h-4 w-4" aria-hidden />}>
+        Completar Mi marca
+      </ButtonLink>
+    );
+  }
   return (
     <Button
-      disabled={pending || !view.brandReady || !view.aiReady}
+      disabled={pending || !view.aiReady}
       icon={pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Wand2 className="h-4 w-4" aria-hidden />}
       onClick={() =>
         start(async () => {
@@ -82,11 +93,6 @@ function NoPack({ view }: { view: AutopilotView }) {
       action={
         <>
           <BuildNowButton view={view} label={nextWeek ? "Armar la semana que viene" : "Armar mi semana ahora"} />
-          {!view.brandReady && (
-            <ButtonLink href="/marca" variant="ghost" icon={<Palette className="h-4 w-4" aria-hidden />}>
-              Completar Mi marca
-            </ButtonLink>
-          )}
         </>
       }
     />

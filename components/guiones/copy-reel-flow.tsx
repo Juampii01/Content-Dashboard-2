@@ -51,6 +51,7 @@ export function CopyReelFlow({
   brandReady,
   canEdit,
   initialLink = "",
+  initialTopic = "",
   initialSource = "link",
 }: {
   pillars: string[];
@@ -58,6 +59,7 @@ export function CopyReelFlow({
   brandReady: boolean;
   canEdit: boolean;
   initialLink?: string;
+  initialTopic?: string;
   initialSource?: "link" | "upload";
 }) {
   const router = useRouter();
@@ -65,7 +67,7 @@ export function CopyReelFlow({
   const [source, setSource] = useState<"link" | "upload">(initialSource);
   const [link, setLink] = useState(initialLink);
   const [file, setFile] = useState<File | null>(null);
-  const [topic, setTopic] = useState("");
+  const [topic, setTopic] = useState(initialTopic);
   const [objective, setObjective] = useState<Objective>("seguidores");
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);

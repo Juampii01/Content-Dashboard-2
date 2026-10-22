@@ -17,10 +17,11 @@ export function CopyAutoRefresh() {
   return null;
 }
 
-export function RetryCopyButton({ id }: { id: string }) {
+export function RetryCopyButton({ id, subtle = false }: { id: string; subtle?: boolean }) {
   const [pending, start] = useTransition();
   return (
     <Button
+      variant={subtle ? "ghost" : "primary"}
       onClick={() =>
         start(async () => {
           const result = await retryCopyAction(id);

@@ -72,6 +72,7 @@ type JobRow = {
   project_title: string | null;
   carousel_title: string | null;
   long_video_title?: string | null;
+  package_title?: string | null;
   clip_count?: number | null;
 };
 
@@ -135,6 +136,25 @@ export function jobNotification(job: JobRow): Omit<NotificationInput, "email" | 
         ? { tone: "success", title: "Tus clips están listos", body: `Encontramos ${n === 1 ? "1 momento" : `${n} momentos`} en ${name} que funcionan solos como short. Elige cuáles exportar.`, href, emailable: true }
         : { tone: "error", title: "No pudimos sacar clips de tu video", body: failure, href, emailable: true };
     }
+    case "YT_THUMBNAILS": {
+      // Solo avisan los fondos de un paquete; el recorte de una foto suelta es instantáneo para la persona.
+      const packageId = id("packageId");
+      const concepts = Array.isArray(job.input?.concepts) ? job.input.concepts.length : 0;
+      if (!packageId || !concepts) return null;
+      const href = `/miniaturas/${packageId}`;
+      const name = job.package_title ? `"${job.package_title}"` : "tu video";
+      return ok
+        ? { tone: "success", title: "Tus miniaturas están listas", body: `Ya están los fondos de las miniaturas de ${name}. Elige una, ajusta el texto y descárgala.`, href, emailable: true }
+        : { tone: "error", title: "No pudimos generar los fondos de tus miniaturas", body: failure, href, emailable: true };
+    }
+    case "YOUTUBE_TRANSCRIPT": {
+      const contentItemId = id("contentItemId");
+      if (!contentItemId) return null;
+      const href = `/metricas/${contentItemId}`;
+      return ok
+        ? { tone: "success", title: "Ya sabemos qué decías en cada caída", body: "Trajimos los subtítulos de YouTube: en «Dónde se fue la gente» verás lo que estabas diciendo cuando se fue el público.", href, emailable: false }
+        : { tone: "error", title: "No pudimos traer los subtítulos de YouTube", body: failure, href, emailable: false };
+    }
     default:
       return null;
   }
@@ -146,15 +166,16 @@ export async function sweepJobNotifications(limit = 50): Promise<number> {
     select j.id, j.type, j.status, j.input, j.error_message, j.video_project_id, j.created_by,
       extract(epoch from (j.finished_at - j.created_at))::float as seconds,
       p.title as project_title, c.title as carousel_title,
-      lv.title as long_video_title,
+      lv.title as long_video_title, yp.title as package_title,
       (select count(*)::int from long_video_clips lc where lc.long_video_id = lv.id) as clip_count
     from jobs j
     left join video_projects p on p.id = j.video_project_id
     left join carousels c on j.type = 'CAROUSEL_IMAGES' and c.id::text = j.input->>'carouselId'
     left join long_videos lv on j.type = 'LONG_VIDEO_CLIPS' and lv.id::text = j.input->>'longVideoId'
+    left join yt_packages yp on j.type = 'YT_THUMBNAILS' and yp.id::text = j.input->>'packageId'
     where j.status in ('SUCCEEDED', 'FAILED')
       and j.finished_at > now() - interval '2 days'
-      and j.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER', 'CAROUSEL_IMAGES', 'CAROUSEL_STYLE', 'VIDEO_STYLE', 'LONG_VIDEO_CLIPS')
+      and j.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER', 'CAROUSEL_IMAGES', 'CAROUSEL_STYLE', 'VIDEO_STYLE', 'LONG_VIDEO_CLIPS', 'YT_THUMBNAILS', 'YOUTUBE_TRANSCRIPT')
       and not exists (select 1 from notifications n where n.key = 'job:' || j.id::text)
     order by j.finished_at
     limit ${limit}

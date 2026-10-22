@@ -8,8 +8,9 @@ import { Notice, Skeleton } from "@/components/ui/feedback";
 import { OutlierBadge } from "@/components/ui/badges";
 import { PlatformBadge } from "@/components/ui/platform";
 import { KpiCard } from "@/components/ui/stat";
-import { GrowthChart, RetentionChart } from "@/components/metricas/detail-charts";
+import { GrowthChart } from "@/components/metricas/detail-charts";
 import { PieceAnalysisPanel } from "@/components/metricas/piece-analysis";
+import { RetentionSection } from "@/components/youtube/retention-section";
 import { aiConfigured } from "@/lib/ai/client";
 import { getCurrentUser } from "@/lib/auth";
 import { getContentDetail } from "@/lib/dal/metrics";
@@ -23,7 +24,7 @@ async function Detail({ params }: { params: PageProps<"/metricas/[id]">["params"
   const { id } = await params;
   const [detail, user] = await Promise.all([getContentDetail(id), getCurrentUser()]);
   if (!detail) notFound();
-  const { item, snapshots, retention, peerMedian7d, compareViews: compareValue } = detail;
+  const { item, snapshots, peerMedian7d, compareViews: compareValue } = detail;
   const ratio = compareValue != null && peerMedian7d ? compareValue / peerMedian7d : null;
 
   type Card = { label: string; value: number | null; format?: "number" | "compact" | "percent" | "duration" };
@@ -114,10 +115,12 @@ async function Detail({ params }: { params: PageProps<"/metricas/[id]">["params"
         ))}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        {snapshots.length >= 2 && <GrowthChart points={snapshots.map((s) => ({ day: s.day, views: s.views }))} />}
-        {retention && retention.length > 2 && <RetentionChart points={retention} />}
-      </div>
+      {/* "Dónde se fue la gente": en YouTube, la curva con las caídas; en Instagram y TikTok, por qué no hay curva. */}
+      <Suspense fallback={<Skeleton className="h-80" />}>
+        <RetentionSection id={item.id} />
+      </Suspense>
+
+      {snapshots.length >= 2 && <GrowthChart points={snapshots.map((s) => ({ day: s.day, views: s.views }))} />}
 
       {(item.views24h != null || item.views72h != null || item.views7d != null) && (
         <Section title="Visualizaciones a la misma edad" description="Para comparar esta pieza con otras de forma justa.">

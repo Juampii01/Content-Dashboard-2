@@ -21,6 +21,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { MonthlyReportData } from "@/lib/reports/types";
+import type { RetentionDrop, RetentionExplanation, RetentionPoint, ThumbnailConcept, TitleBasis, TitleGroup, TranscriptSegment, TranscriptSource } from "@/lib/youtube/types";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -332,12 +333,15 @@ export const accountSnapshots = pgTable(
   (t) => [uniqueIndex("account_snapshots_account_day_key").on(t.socialAccountId, t.capturedOn)],
 );
 
-/** Curva de retención de un video de YouTube (porcentaje que sigue mirando en cada punto del video). */
+/**
+ * Curva de retención de un video de YouTube (porcentaje que sigue mirando en cada punto del video).
+ * `relative` (relativeRetentionPerformance) llega desde la versión de "Dónde se fue la gente"; las curvas viejas no lo tienen.
+ */
 export const retentionCurves = pgTable("retention_curves", {
   contentItemId: uuid("content_item_id")
     .primaryKey()
     .references(() => contentItems.id, { onDelete: "cascade" }),
-  points: jsonb("points").$type<{ at: number; ratio: number }[]>().notNull(),
+  points: jsonb("points").$type<RetentionPoint[]>().notNull(),
   capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -864,6 +868,8 @@ export const jobTypeEnum = pgEnum("job_type", [
   "VIDEO_STYLE", // análisis de un video de referencia (input.styleId)
   "VIDEO_CLIP", // miniatura y datos de un clip de la biblioteca de b-roll (input.clipId)
   "LONG_VIDEO_CLIPS", // clips desde un video largo: transcribir, elegir momentos y seguir caras (input.longVideoId)
+  "YT_THUMBNAILS", // fondos sin texto de las miniaturas de YouTube y recorte de fotos del personaje (input.packageId)
+  "YOUTUBE_TRANSCRIPT", // subtítulos de un video publicado de YouTube con yt-dlp (input.contentItemId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 
@@ -1163,3 +1169,74 @@ export const weeklyPackItems = pgTable(
   },
   (t) => [index("weekly_pack_items_week_idx").on(t.weekStart, t.position)],
 );
+
+// ─── YouTube: retención y miniaturas ───────────────────────────────────────
+
+/**
+ * Transcripción con tiempos del video publicado de una pieza (para "Dónde se fue la gente"): sale del Editor (si el
+ * video se editó ahí), de un archivo de subtítulos que sube el cliente o de los subtítulos públicos de YouTube.
+ */
+export const pieceTranscripts = pgTable("piece_transcripts", {
+  contentItemId: uuid("content_item_id")
+    .primaryKey()
+    .references(() => contentItems.id, { onDelete: "cascade" }),
+  source: text("source").notNull().$type<TranscriptSource>(),
+  language: text("language"),
+  segments: jsonb("segments").$type<TranscriptSegment[]>().notNull(),
+  videoProjectId: uuid("video_project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Explicación con IA de las caídas de retención de una pieza, con la foto de la curva y las caídas que vio. */
+export const retentionInsights = pgTable("retention_insights", {
+  contentItemId: uuid("content_item_id")
+    .primaryKey()
+    .references(() => contentItems.id, { onDelete: "cascade" }),
+  curveCapturedAt: timestamp("curve_captured_at", { withTimezone: true }).notNull(),
+  transcriptSource: text("transcript_source").$type<TranscriptSource>(),
+  drops: jsonb("drops").$type<RetentionDrop[]>().notNull(),
+  explanation: jsonb("explanation").$type<RetentionExplanation>().notNull(),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * Títulos y miniaturas de YouTube para un video: sale de un guion, de un video del Editor, de una pieza publicada o
+ * de un tema. Los títulos y los 3 conceptos de miniatura son jsonb; las imágenes (fondos) viven en el almacenamiento
+ * privado (`miniaturas/<paquete>/…`). El texto de la miniatura lo dibuja una plantilla, nunca el modelo de imágenes.
+ */
+export const ytPackages = pgTable(
+  "yt_packages",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    sourceKind: text("source_kind").notNull().$type<"guion" | "video" | "pieza" | "tema">(),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    videoProjectId: uuid("video_project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    contentItemId: uuid("content_item_id").references(() => contentItems.id, { onDelete: "set null" }),
+    sourceText: text("source_text").notNull(),
+    format: text("format").notNull().default("VIDEO").$type<"VIDEO" | "SHORT">(),
+    titles: jsonb("titles").$type<TitleGroup[]>().notNull().default(sql`'[]'::jsonb`),
+    titleBasis: jsonb("title_basis").$type<TitleBasis>(),
+    selectedTitle: text("selected_title"),
+    concepts: jsonb("concepts").$type<ThumbnailConcept[]>().notNull().default(sql`'[]'::jsonb`),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("yt_packages_updated_at_idx").on(t.updatedAt)],
+);
+
+/** Foto del personaje sin fondo (PNG con transparencia), hecha una vez en el worker y reutilizada en cada miniatura. */
+export const characterCutouts = pgTable("character_cutouts", {
+  photoKey: text("photo_key").primaryKey(),
+  status: text("status").notNull().$type<"pending" | "ready" | "failed">(),
+  cutoutKey: text("cutout_key"),
+  method: text("method"), // modelo usado ("u2net_human_seg") o "sin-recorte"
+  error: text("error"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});

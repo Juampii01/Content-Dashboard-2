@@ -317,6 +317,43 @@ export function fakeResponse(feature: string, task = ""): unknown {
       const title = task.match(/TEMA\n(.+)/)?.[1]?.split(".")[0]?.trim().slice(0, 80) || base.title;
       return { ...base, title };
     }
+    case "youtube.retencion": {
+      const drops = [...task.matchAll(/^#(\d+) (\(arranque\) )?de [^:]+: se fue el ([\d.]+) %[^\n]*\n\s+Se decía: (.*)$/gm)].map((m) => ({ n: Number(m[1]), intro: Boolean(m[2]), pct: m[3]!, quote: m[4]!.startsWith("«") ? m[4]!.slice(1, -1) : null }));
+      return {
+        summary: `La curva pierde más en ${drops.length === 1 ? "un momento" : `${drops.length} momentos`}; el mayor costo está en ${drops[0]?.intro ? "el arranque" : "la mitad del video"}.`,
+        drops: drops.map((d) => ({
+          n: d.n,
+          why: d.quote
+            ? d.intro
+              ? `En el arranque se fue el ${d.pct} %: abriste con «${d.quote.slice(0, 60)}», que todavía no dice qué va a ganar quien mira.`
+              : `Justo antes de la caída decías «${d.quote.slice(0, 60)}»: suena a desvío del tema que prometió el título.`
+            : "No hay transcripción en este tramo: por el momento del video, parece el paso de la introducción al contenido.",
+          change: d.intro ? "Abre con el resultado que prometes en el título y deja la presentación para después." : "Corta ese tramo o muévelo al final, y pasa directo al siguiente ejemplo.",
+        })),
+        keep: "El tramo después de la segunda caída retiene parejo: repite ese ritmo de ejemplo concreto y frase corta.",
+      };
+    }
+    case "youtube.titulos": {
+      const topic = task.match(/Tema o título de trabajo: (.+)/)?.[1]?.trim() ?? "tu negocio";
+      const short = topic.length > 30 ? topic.slice(0, 30).replace(/\s+\S*$/, "") : topic;
+      return {
+        groups: [
+          { angle: "curiosidad", options: [{ text: `Lo que nadie te dice sobre ${short.toLowerCase()}`, why: "Abre una intriga y promete algo oculto." }, { text: "El detalle que cambia todo (y casi nadie ve)", why: "Curiosidad pura, sin revelar el detalle." }] },
+          { angle: "resultado", options: [{ text: "Así conseguí mis primeros 3 clientes en 30 días", why: "Resultado concreto con plazo." }, { text: `${short}: el método que sí funciona`, why: "Promete un método probado." }] },
+          { angle: "contraste", options: [{ text: "Deja de hacer esto si quieres más clientes", why: "Ataca una práctica común." }, { text: "Todos lo hacen así. Por eso no venden", why: "Contraste contra la mayoría." }] },
+          { angle: "error", options: [{ text: "El error que me costó mi primer cliente", why: "Historia con dolor y aprendizaje." }, { text: "3 errores que te hacen perder ventas todos los días sin que te des cuenta de nada", why: "Lista de errores (demasiado largo a propósito en la prueba)." }] },
+          { angle: "pregunta", options: [{ text: "¿Por qué tus clientes no vuelven a escribirte?", why: "Nombra el dolor exacto con una pregunta." }] },
+        ],
+      };
+    }
+    case "youtube.miniaturas":
+      return {
+        concepts: [
+          { name: "Tu cara y el resultado", idea: "Tú con cara de sorpresa junto a un gráfico que sube.", text: "Clientes en 30 días", highlight: "30 días", scene: "Oficina moderna de noche con luz azul neón y un monitor con un gráfico de barras que sube, desenfocado, sin letras", layout: "texto-izquierda", withPhoto: true },
+          { name: "Antes y después", idea: "Contraste: escritorio vacío contra escritorio lleno de pedidos.", text: "Deja de cobrar barato", highlight: "barato", scene: "Escritorio de madera dividido: a la izquierda vacío y gris, a la derecha lleno de cajas y luz cálida, sin letras", layout: "texto-derecha", withPhoto: true },
+          { name: "El error", idea: "Un botón rojo gigante de alerta, sin la persona.", text: "El error caro", highlight: "caro", scene: "Botón rojo de alarma gigante sobre fondo azul oscuro con humo y luz dramática, sin letras ni símbolos", layout: "texto-centro", withPhoto: false },
+        ],
+      };
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

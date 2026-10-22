@@ -158,7 +158,11 @@ async function syncAccountLevel(ctx: SyncContext, account: { id: string; platfor
   await saveAccountData(account.id, profile, days);
 }
 
-/** Curvas de retención de YouTube: a los 7 días y a los 30 (hasta 10 videos por pasada). */
+/**
+ * Curvas de retención de YouTube ("Dónde se fue la gente"). Analytics tarda 2 a 3 días en tener la curva de un video
+ * nuevo: se pide a los 3 días, se actualiza a los 7 y a los 30 (cuando ya casi no cambia). Hasta 10 videos por
+ * pasada: es 1 llamada por video y no se acerca a la cuota de la API. Lo que pasa de 120 días se pide al abrir la pieza.
+ */
 async function syncRetention(ctx: SyncContext, accountId: string, token: string) {
   const db = getDb();
   const candidates = await db.execute<{ id: string; external_id: string; published_at: Date }>(sql`
@@ -166,10 +170,11 @@ async function syncRetention(ctx: SyncContext, accountId: string, token: string)
     from content_items ci
     left join retention_curves rc on rc.content_item_id = ci.id
     where ci.social_account_id = ${accountId} and ci.available
-      and ci.published_at < now() - interval '7 days' and ci.published_at > now() - interval '120 days'
+      and ci.published_at < now() - interval '3 days' and ci.published_at > now() - interval '120 days'
       and (rc.content_item_id is null
+           or (ci.published_at < now() - interval '7 days' and rc.captured_at < ci.published_at + interval '7 days')
            or (ci.published_at < now() - interval '30 days' and rc.captured_at < ci.published_at + interval '30 days'))
-    order by ci.published_at desc
+    order by rc.content_item_id is not null, ci.published_at desc
     limit 10
   `);
   for (const row of candidates.rows) {

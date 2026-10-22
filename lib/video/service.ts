@@ -12,7 +12,7 @@ import { deleteKeys, deletePrefix, fileDriver, fileInfo, MAX_VIDEO_BYTES, VIDEO_
 import { storedKey } from "@/lib/storage/copy";
 import { planBroll } from "./broll";
 import { detectCandidates } from "./candidates";
-import { captionBlocks, toSrt } from "./captions";
+import { captionBlocks, hideDuring, toSrt } from "./captions";
 import { brollCredits, brollSegments, computeZooms } from "./effects";
 import { brandGraphicLook, graphicSpecSchema } from "./graphics";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
@@ -351,10 +351,11 @@ export async function startRender(projectId: string, review: Review, format: Vid
   const style = await stylePreset(next.style_id ?? project.styleId);
   const captionStyle = style?.preset.captions ?? null;
   const preset: CaptionPresetKey = next.captions.preset === "estilo" && !captionStyle ? "clasico" : next.captions.preset;
-  const blocks = preset === "ninguno" ? [] : captionBlocks(timeline.words, preset, captionStyle);
-
   // B-roll: cada clip elegido se verifica contra su fuente (nunca se confía en lo que manda el navegador).
   const broll = await verifiedBroll(brollSegments(timeline, next.broll));
+  // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea.
+  const graphicSpans = broll.filter((b) => b.option.source === "graphic");
+  const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), graphicSpans);
   const zooms = style && next.zooms_enabled !== false ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: broll }) : [];
   const credits = brollCredits(broll);
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;

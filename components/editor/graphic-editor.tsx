@@ -134,7 +134,7 @@ export function GraphicEditor({
               onValueChange={(position) => set({ position })}
               options={[
                 { value: "top", label: "Arriba" },
-                { value: "bottom", label: "A la altura del pecho" },
+                { value: "bottom", label: "Abajo" },
               ]}
             />
           )}

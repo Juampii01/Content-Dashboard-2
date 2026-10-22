@@ -68,3 +68,26 @@ export function toSrt(words: TimedWord[]): string {
     .map((b, i) => `${i + 1}\n${srtTime(b.start)} --> ${srtTime(b.end)}\n${b.words.map((w) => w.text).join(" ")}\n`)
     .join("\n");
 }
+
+/**
+ * Mientras se ve un gráfico, el gráfico ya cuenta lo que se dice: los subtítulos se ocultan para no tapar ni
+ * competir. Recorta los bloques a lo que queda fuera de esos tramos (con un margen chico).
+ */
+export function hideDuring(blocks: CaptionBlock[], spans: { start: number; end: number }[], margin = 0.05): CaptionBlock[] {
+  if (!spans.length) return blocks;
+  const inside = (t: number) => spans.some((s) => t >= s.start - margin && t < s.end + margin);
+  const out: CaptionBlock[] = [];
+  for (const b of blocks) {
+    let run: CaptionBlock["words"] = [];
+    const flush = () => {
+      if (run.length) out.push({ ...b, start: Math.max(b.start, run[0]!.start), end: Math.min(b.end, run[run.length - 1]!.end), words: run });
+      run = [];
+    };
+    for (const w of b.words) {
+      if (inside((w.start + w.end) / 2)) flush();
+      else run.push(w);
+    }
+    flush();
+  }
+  return out;
+}

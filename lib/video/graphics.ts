@@ -53,7 +53,7 @@ const filled = (max: number) => z.string().trim().min(1).max(max);
 const base = {
   v: z.literal(1),
   mode: z.enum(["full", "overlay"]),
-  /** Solo en "overlay": el gráfico va en el tercio superior o a la altura del pecho (encima de los subtítulos). */
+  /** Solo en "overlay": el gráfico va en el tercio superior o en el inferior (donde van los subtítulos, que se ocultan mientras se ve). */
   position: z.enum(["top", "bottom"]),
   theme: graphicThemeSchema,
   font: z.enum(["inter", "montserrat"]),

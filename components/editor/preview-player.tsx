@@ -195,10 +195,11 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     videoStyle = { width: "100%", height: "100%", left: 0, top: 0, objectFit: "cover" };
   }
 
-  const block = useMemo(() => blocks.find((b) => out >= b.start && out < b.end) ?? null, [blocks, out]);
+  const activeBroll = broll.find((b) => out >= b.start && out < b.end) ?? null;
+  // Igual que el render: durante un gráfico no se muestran subtítulos.
+  const block = useMemo(() => (activeBroll?.graphic ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, activeBroll]);
   const pct = duration ? (out / duration) * 100 : 0;
   const zoom = zoomAt(zooms, out);
-  const activeBroll = broll.find((b) => out >= b.start && out < b.end) ?? null;
   const brollVideo = useRef<HTMLVideoElement>(null);
 
   // El b-roll de la vista previa sigue al video principal: arranca en su punto y se pausa con él.

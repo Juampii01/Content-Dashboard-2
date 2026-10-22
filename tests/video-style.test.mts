@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { libraryScore, mapPexelsVideo, mapPixabayVideo, type PexelsVideo, type PixabayVideo } from "../lib/video/broll-options";
-import { captionBlocks, blockText } from "../lib/video/captions";
+import { blockText, captionBlocks, hideDuring } from "../lib/video/captions";
 import { brollCredits, brollSegments, computeZooms, cutTimes } from "../lib/video/effects";
 import { planSchemaFor } from "../lib/video/plan";
 import { describeMetrics, describePreset, presetFromMetrics, stylePresetSchema, styleMetricsSchema, type StyleMetrics } from "../lib/video/style";
@@ -252,5 +252,18 @@ describe("fuentes de b-roll", () => {
     assert.ok(libraryScore(clip, ["clínica"]) === 1);
     assert.equal(libraryScore(clip, ["playa"]), 0);
     assert.ok(libraryScore(clip, ["telefonos", "recepcion"]) >= 4);
+  });
+});
+
+describe("subtítulos durante gráficos", () => {
+  test("se ocultan las palabras dentro del gráfico y el bloque se parte", () => {
+    const w = (text: string, start: number, end: number) => ({ text, start, end }) as never;
+    const blocks = [{ start: 0, end: 1.5, words: [w("a", 0, 0.4), w("b", 0.5, 0.9), w("c", 1, 1.5)] }];
+    const out = hideDuring(blocks as never, [{ start: 0.45, end: 0.95 }]);
+    assert.deepEqual(
+      out.map((b) => b.words.map((x) => (x as { text: string }).text)),
+      [["a"], ["c"]],
+    );
+    assert.equal(hideDuring(blocks as never, []).length, 1);
   });
 });

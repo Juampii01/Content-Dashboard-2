@@ -82,8 +82,8 @@ export function contentBox(width: number, height: number, mode: "full" | "overla
   const vertical = height > width;
   const frac = (x0: number, y0: number, y1: number): Box => ({ x: x0, y: height * y0, w: width - 2 * x0, h: height * (y1 - y0) });
   if (mode === "full") return vertical ? frac(96, 0.11, 0.6) : frac(200, 0.1, 0.7);
-  if (vertical) return position === "top" ? frac(80, 0.06, 0.34) : frac(80, 0.4, 0.615);
-  return position === "top" ? frac(200, 0.07, 0.42) : frac(200, 0.4, 0.7);
+  if (vertical) return position === "top" ? frac(80, 0.06, 0.34) : frac(80, 0.58, 0.82);
+  return position === "top" ? frac(200, 0.07, 0.42) : frac(200, 0.58, 0.9);
 }
 
 export function veilStops(width: number, height: number, position: "top" | "bottom"): Stop[] {
@@ -93,8 +93,8 @@ export function veilStops(width: number, height: number, position: "top" | "bott
       ? [[0, 0.88], [0.22, 0.78], [0.42, 0.35], [0.56, 0]]
       : [[0, 0.86], [0.3, 0.7], [0.5, 0.3], [0.66, 0]];
   return vertical
-    ? [[0.3, 0], [0.42, 0.35], [0.56, 0.78], [1, 0.88]]
-    : [[0.34, 0], [0.5, 0.3], [0.7, 0.75], [1, 0.86]];
+    ? [[0.45, 0], [0.55, 0.4], [0.66, 0.8], [1, 0.9]]
+    : [[0.45, 0], [0.58, 0.35], [0.72, 0.78], [1, 0.88]];
 }
 
 // ─── Texto ────────────────────────────────────────────────────────────────

@@ -180,7 +180,7 @@ CUÁNDO USAR CADA UNO
 
 MODO DEL GRÁFICO
 - "full": pantalla completa con el fondo de la marca (números, listas, comparaciones y flujos).
-- "overlay": sobre el video del creador, con un velo; deja ver la cara. Ideal para "quote" y "keyword". position "top" (arriba, lo normal) o "bottom" (a la altura del pecho).
+- "overlay": sobre el video del creador, con un velo; deja ver la cara. Ideal para "quote" y "keyword". position "top" (arriba, lo normal) o "bottom" (abajo, en lugar de los subtítulos).
 
 TEXTOS DEL GRÁFICO (en el idioma de la marca; por defecto español neutro)
 - Cortos y legibles en 2 segundos: headline hasta 28 caracteres en "keyword", 100 en "quote" y 10 en "number"; cada ítem hasta 40 (en "flow", 24).

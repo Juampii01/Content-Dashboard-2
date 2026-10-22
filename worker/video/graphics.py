@@ -191,15 +191,15 @@ def content_box(width: int, height: int, mode: str, position: str) -> dict[str, 
     if mode == "full":
         return frac(96, 0.11, 0.6) if vertical else frac(200, 0.1, 0.7)
     if vertical:
-        return frac(80, 0.06, 0.34) if position == "top" else frac(80, 0.4, 0.615)
-    return frac(200, 0.07, 0.42) if position == "top" else frac(200, 0.4, 0.7)
+        return frac(80, 0.06, 0.34) if position == "top" else frac(80, 0.58, 0.82)
+    return frac(200, 0.07, 0.42) if position == "top" else frac(200, 0.58, 0.9)
 
 
 def veil_stops(width: int, height: int, position: str) -> list[tuple[float, float]]:
     vertical = height > width
     if position == "top":
         return [(0, 0.88), (0.22, 0.78), (0.42, 0.35), (0.56, 0)] if vertical else [(0, 0.86), (0.3, 0.7), (0.5, 0.3), (0.66, 0)]
-    return [(0.3, 0), (0.42, 0.35), (0.56, 0.78), (1, 0.88)] if vertical else [(0.34, 0), (0.5, 0.3), (0.7, 0.75), (1, 0.86)]
+    return [(0.45, 0), (0.55, 0.4), (0.66, 0.8), (1, 0.9)] if vertical else [(0.45, 0), (0.58, 0.35), (0.72, 0.78), (1, 0.88)]
 
 
 def element_pad(paints: list[dict[str, Any]]) -> int:

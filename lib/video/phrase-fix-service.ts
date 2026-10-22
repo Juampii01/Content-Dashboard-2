@@ -155,9 +155,9 @@ export async function createPhraseFix(input: {
   const span = speechSpan(speech.duration, speech.word_timestamps);
   const fit = fitSpeech(span.end - span.start, window);
   if (!fit.ok) {
-    const extra = Math.round((fit.neededTempo - 1) * 100);
+    const slot = window.end - window.start;
     throw new PhraseFixError(
-      `La frase nueva dura ${(span.end - span.start).toFixed(1)} s y el lugar de la vieja ${(window.end - window.start).toFixed(1)} s (habría que acelerarla un ${extra} %). Acórtala o marca también la palabra de al lado.`,
+      `La frase nueva dura ${(span.end - span.start).toFixed(1)} s y en el lugar de la vieja entran ${(slot * MAX_TEMPO).toFixed(1)} s como mucho. Acórtala o marca también las palabras de al lado.`,
     );
   }
 
@@ -172,7 +172,8 @@ export async function createPhraseFix(input: {
       projectId: project.id,
       fromWord: from,
       toWord: to,
-      originalText: spokenRange(words, from, to, input.corrections).slice(0, 2000),
+      // Lo que se dijo de verdad (sin las correcciones de subtítulos, que pueden ser de una corrección anterior).
+      originalText: spokenRange(words, from, to).slice(0, 2000),
       newText: input.newText,
       voiceId: input.voiceId,
       voiceName: input.voiceName,

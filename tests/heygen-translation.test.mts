@@ -212,7 +212,8 @@ describe("cálculos", () => {
 
   test("los subtítulos de la frase nueva se reparten sobre las palabras viejas", () => {
     assert.deepEqual(captionCorrections(3, 4, "cinco errores graves"), { "3": "cinco", "4": "errores graves" });
-    assert.deepEqual(captionCorrections(0, 2, "Hola"), { "0": HIDDEN_WORD, "1": HIDDEN_WORD, "2": "Hola" });
+    assert.deepEqual(captionCorrections(0, 2, "Hola"), { "0": "Hola", "1": HIDDEN_WORD, "2": HIDDEN_WORD });
+    assert.deepEqual(captionCorrections(61, 66, "pasó de tres a siete"), { "61": "pasó", "62": "de", "63": "tres", "64": "a", "65": "siete", "66": HIDDEN_WORD });
     assert.deepEqual(captionCorrections(0, 1, ""), {});
   });
 });

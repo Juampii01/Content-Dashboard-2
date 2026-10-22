@@ -136,7 +136,7 @@ export function PhraseFixDialog({
   onClose: () => void;
   onCreated: (fix: FixView) => void;
 }) {
-  const original = range ? spokenRange(words, range.from, range.to, corrections) : "";
+  const original = range ? spokenRange(words, range.from, range.to) : "";
   const [text, setText] = useState(original);
   const [voices, setVoices] = useState<VoiceChoice[] | null>(null);
   const [voicesError, setVoicesError] = useState<string | null>(null);
@@ -283,6 +283,7 @@ export function PhraseFixPanel({
   fixes,
   canEdit,
   onUpsert,
+  onCoverChanged,
   onRemove,
   onCoverWithBroll,
   onListen,
@@ -292,6 +293,8 @@ export function PhraseFixPanel({
   fixes: FixView[] | null;
   canEdit: boolean;
   onUpsert: (fix: FixView) => void;
+  /** Cambió lo que se ve durante la frase (la revisión quita el b-roll vacío si ya no hace falta). */
+  onCoverChanged?: (fix: FixView) => void;
   onRemove: (fix: FixView) => void;
   onCoverWithBroll: (fix: FixView) => void;
   onListen: (wordId: number) => void;
@@ -313,6 +316,7 @@ export function PhraseFixPanel({
         return;
       }
       onUpsert(res.data);
+      onCoverChanged?.(res.data);
       if (cover === "broll" && !hasBrollAt(fix.fromWord, fix.toWord)) onCoverWithBroll(res.data);
     });
 
@@ -440,7 +444,10 @@ export function PhraseFixPanel({
                   const res = await setPhraseFixCoverAction({ projectId, fixId: fix.id, cover: "lipsync", lipsyncMode: mode });
                   setBusyId(null);
                   if (!res.ok) toast.error(res.error);
-                  else onUpsert(res.data);
+                  else {
+                    onUpsert(res.data);
+                    onCoverChanged?.(res.data);
+                  }
                 });
               }}
             >

@@ -472,6 +472,10 @@ export function ReviewEditor({
           fixes={phrase.fixes}
           canEdit={canEdit}
           onUpsert={phrase.upsert}
+          onCoverChanged={(fix) => {
+            // Con labios o sin cambios ya no hace falta el b-roll vacío que se puso para tapar la frase.
+            if (fix.cover !== "broll") setBrollItems((prev) => prev.filter((b) => b.choice || b.to_word < fix.fromWord || b.from_word > fix.toWord));
+          }}
           onRemove={(fix) => {
             phrase.remove(fix.id);
             // Los subtítulos vuelven a la frase original (solo los que puso la corrección).
@@ -487,7 +491,7 @@ export function ReviewEditor({
           hasBrollAt={(from, to) => brollItems.some((b) => b.choice && b.from_word <= to && from <= b.to_word)}
         />
         <PhraseFixDialog
-          key={fixRange ? `${fixRange.from}-${fixRange.to}` : "none"}
+          key={fixRange ? `frase-${fixRange.from}-${fixRange.to}` : "frase-cerrada"}
           projectId={projectId}
           range={fixRange}
           words={words}

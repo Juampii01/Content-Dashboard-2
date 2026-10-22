@@ -68,7 +68,7 @@ export const HIDDEN_WORD = "⁠";
 /**
  * Subtítulos de la frase corregida: reparte las palabras nuevas sobre los ids de las viejas (cada id es un tramo de
  * tiempo). Con más palabras nuevas que viejas, un id lleva varias (hasta 60 caracteres, lo que acepta la revisión);
- * con menos, los ids que sobran quedan con una palabra invisible.
+ * con menos, una por id y los ids que sobran (al final) quedan con una palabra invisible.
  */
 export function captionCorrections(from: number, to: number, newText: string): Record<string, string> {
   const ids = Array.from({ length: to - from + 1 }, (_, i) => from + i);
@@ -76,9 +76,8 @@ export function captionCorrections(from: number, to: number, newText: string): R
   const out: Record<string, string> = {};
   if (next.length === 0) return out;
   ids.forEach((id, i) => {
-    const a = Math.floor((i * next.length) / ids.length);
-    const b = Math.floor(((i + 1) * next.length) / ids.length);
-    const chunk = next.slice(a, b).join(" ");
+    // Con menos palabras nuevas, una por id desde el principio; con más, se reparten en grupos parejos.
+    const chunk = next.length < ids.length ? (next[i] ?? "") : next.slice(Math.floor((i * next.length) / ids.length), Math.floor(((i + 1) * next.length) / ids.length)).join(" ");
     out[String(id)] = (chunk || HIDDEN_WORD).slice(0, 60);
   });
   return out;

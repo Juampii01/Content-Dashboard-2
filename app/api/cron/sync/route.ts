@@ -7,6 +7,7 @@ import { dueKinds, syncAccount, type SyncOutcome } from "@/lib/social/sync/runne
 import { classifyPendingHooks } from "@/lib/metrics/hooks";
 import { ensureWeeklyReport } from "@/lib/home/weekly-report";
 import { ensureMonthlyReport } from "@/lib/reports/service";
+import { ensureWeeklyPack } from "@/lib/autopilot/service";
 import { sweepCloneVideos } from "@/lib/heygen/service";
 import { sweepJobNotifications } from "@/lib/notifications";
 
@@ -57,6 +58,15 @@ export async function GET(request: NextRequest) {
     await ensureWeeklyReport().catch((error: unknown) => console.error("[cron] resumen semanal", error instanceof Error ? error.message : error));
   }
 
+  // Autopiloto: el paquete de la semana para aprobar (una vez por semana, desde el lunes a las 9:00 hora de la marca).
+  let autopilot: Awaited<ReturnType<typeof ensureWeeklyPack>> = null;
+  if (deadline - Date.now() > 120_000) {
+    autopilot = await ensureWeeklyPack().catch((error: unknown) => {
+      console.error("[cron] autopiloto", error instanceof Error ? error.message : error);
+      return null;
+    });
+  }
+
   // Informe mensual del mes anterior (el día 1 desde las 9:00 hora de la marca; se envía una sola vez).
   let monthly: Awaited<ReturnType<typeof ensureMonthlyReport>> = null;
   if (deadline - Date.now() > 60_000) {
@@ -87,5 +97,5 @@ export async function GET(request: NextRequest) {
     return 0;
   });
 
-  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone, notified, monthly });
+  return NextResponse.json({ ok: true, ms: Date.now() - started, results, clone, notified, monthly, autopilot });
 }

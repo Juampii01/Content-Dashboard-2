@@ -19,6 +19,8 @@ import { Upcoming } from "@/components/inicio/upcoming";
 import { upcomingEntries } from "@/lib/dal/calendar";
 import { todayIn } from "@/lib/metrics/params";
 import { WeeklyReport } from "@/components/inicio/weekly-report";
+import { AskStrategistCard } from "@/components/estratega/ask-card";
+import { WeekReadyBanner } from "@/components/autopiloto/week-banner";
 import { aiConfigured } from "@/lib/ai/client";
 import { lastWeekStart, latestWeeklyReport } from "@/lib/home/weekly-report";
 import { getCurrentUser } from "@/lib/auth";
@@ -89,6 +91,8 @@ async function Week() {
   return (
     <>
       <GrowthGoal growth={growth} canEdit={user.role !== "VIEWER"} />
+
+      {user.role !== "VIEWER" && <AskStrategistCard />}
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2">
@@ -183,6 +187,9 @@ export default function InicioPage() {
         }
       />
       <div className="flex flex-col gap-6">
+        <Suspense fallback={null}>
+          <WeekReadyBanner />
+        </Suspense>
         <Suspense fallback={null}>
           <Working />
         </Suspense>

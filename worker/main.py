@@ -15,7 +15,7 @@ from comunes import config as config_module
 from comunes.runner import Worker
 
 # Los módulos de trabajos se registran al importarse.
-import video.pipeline  # noqa: F401
+import video.pipeline  # noqa: F401  (VIDEO_ANALYZE, VIDEO_RENDER, VIDEO_STYLE, VIDEO_CLIP, LONG_VIDEO_CLIPS)
 import carruseles  # noqa: F401  (CAROUSEL_STYLE, CAROUSEL_IMAGES, CODEX_LOGIN)
 
 

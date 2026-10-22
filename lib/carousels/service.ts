@@ -77,7 +77,9 @@ export async function createCarousel(input: {
   theme?: Record<string, string> | null;
   /** Tipos de slide de la referencia, si se quiere respetar su estructura. */
   structure?: string[] | null;
-  userId: string;
+  userId: string | null;
+  /** Nombre del consumo en ai_usage (por defecto "carruseles.ficha"; el autopiloto y "Sacarle todo el jugo" usan el suyo). */
+  feature?: string;
 }): Promise<string> {
   let topic = input.topic;
   let sourceText: string | null = input.origin === "texto" ? input.pastedText : null;
@@ -99,7 +101,7 @@ export async function createCarousel(input: {
   const brand = await getBrand();
   const offer = input.keyword ? (brand?.offers.find((o) => o.keyword?.toLowerCase() === input.keyword!.toLowerCase()) ?? null) : null;
   const generated = await generateStructured({
-    feature: "carruseles.ficha",
+    feature: input.feature ?? "carruseles.ficha",
     model: "main",
     context: await context(),
     task: generateTask({

@@ -21,6 +21,7 @@ from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
 from . import ass, audio_preview, broll_edit, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
 
 log = logging.getLogger("worker.video")
 
@@ -52,7 +53,12 @@ def prepare(ctx: JobContext, project: dict[str, Any], start: float, end: float, 
     mezz, wav = workdir / "mezz.mp4", workdir / "audio.wav"
 
     if not (mezz.exists() and wav.exists()):
-        if not src.exists():
+        if not src.exists() and ctx.input.get("clip"):
+            # Proyecto creado desde un clip de un video largo: el original es el tramo ya reencuadrado a 9:16.
+            ctx.stage("Recortando y reencuadrando el clip", start, start + span * 0.15)
+            long_clips.cut_for_project(ctx, ctx.input["clip"], src)
+            ctx.app.upload(pid, key, src, "video/mp4")
+        elif not src.exists():
             ctx.stage("Bajando el video", start, start + span * 0.15)
             ctx.app.download(pid, key, src, ctx.progress)
         ctx.stage("Preparando el video", start + span * 0.15, start + span * (0.75 if need_proxy else 0.95))

@@ -739,6 +739,69 @@ export const videoStyles = pgTable(
   (t) => [index("video_styles_updated_at_idx").on(t.updatedAt)],
 );
 
+export const longVideoStatusEnum = pgEnum("long_video_status", ["UPLOADING", "PROCESSING", "READY", "FAILED"]);
+
+/**
+ * "Clips desde un video largo": un podcast, un live o un video de YouTube del que se sacan shorts.
+ * El worker lo transcribe, la app elige los momentos (reglas + Claude) y el worker sigue las caras de cada uno.
+ */
+export const longVideos = pgTable(
+  "long_videos",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    status: longVideoStatusEnum("status").notNull().default("UPLOADING"),
+    sourceKind: text("source_kind").notNull(), // "upload" | "link"
+    sourceUrl: text("source_url"), // link de YouTube (o Instagram, TikTok) que baja el worker con yt-dlp
+    sourceKey: text("source_key"), // `editor/largos/<id>/original.<ext>` (subido o bajado)
+    sourceName: text("source_name"),
+    sourceBytes: bigint("source_bytes", { mode: "number" }),
+    media: jsonb("media").$type<Record<string, unknown>>(), // duración, tamaño, fps y póster
+    transcript: jsonb("transcript").$type<unknown>(), // palabras con id, inicio y fin (como en video_projects)
+    analysis: jsonb("analysis").$type<Record<string, unknown>>(), // quién eligió (IA o reglas), avisos y candidatos vistos
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("long_videos_updated_at_idx").on(t.updatedAt)],
+);
+
+/** Un momento de un video largo que funciona solo como short, con su puntaje, su explicación y su reencuadre. */
+export const longVideoClips = pgTable(
+  "long_video_clips",
+  {
+    id: id(),
+    longVideoId: uuid("long_video_id")
+      .notNull()
+      .references(() => longVideos.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(), // orden por puntaje dentro del video (1 = el mejor)
+    discarded: boolean("discarded").notNull().default(false),
+    fromWord: integer("from_word").notNull(),
+    toWord: integer("to_word").notNull(),
+    start: real("start").notNull(), // segundos del video largo (con un margen corto antes de la primera palabra)
+    end: real("end").notNull(),
+    // Tramo de la vista previa y del reencuadre: el clip con margen, para poder mover el inicio y el fin.
+    windowStart: real("window_start").notNull(),
+    windowEnd: real("window_end").notNull(),
+    title: text("title").notNull(),
+    hookText: text("hook_text").notNull(), // texto de gancho sugerido para poner arriba del video
+    reason: text("reason").notNull(), // "por qué este momento"
+    hookType: text("hook_type"), // tipo de gancho (las mismas categorías que el ranking de Métricas)
+    score: integer("score").notNull(), // 0 a 100, relativo dentro del video (no es una probabilidad de nada)
+    scoreDetail: jsonb("score_detail").$type<Record<string, unknown>>().notNull(),
+    framing: jsonb("framing").$type<Record<string, unknown>>(), // camino de la cámara virtual (ver worker/video/reframe.py)
+    previewKey: text("preview_key"),
+    posterKey: text("poster_key"),
+    // Proyecto del Editor creado a partir del clip ("Abrir en el editor" o "Exportar directo").
+    projectId: uuid("project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    exportMode: text("export_mode"), // "editor" | "export"
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("long_video_clips_video_idx").on(t.longVideoId, t.rank)],
+);
+
 export const brollClipStatusEnum = pgEnum("broll_clip_status", ["UPLOADING", "PROCESSING", "READY", "FAILED"]);
 
 /** Biblioteca de b-roll del cliente: clips propios que sube una vez y el editor reutiliza. */
@@ -800,6 +863,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "CODEX_LOGIN", // conectar la cuenta de ChatGPT del cliente (login por código de dispositivo)
   "VIDEO_STYLE", // análisis de un video de referencia (input.styleId)
   "VIDEO_CLIP", // miniatura y datos de un clip de la biblioteca de b-roll (input.clipId)
+  "LONG_VIDEO_CLIPS", // clips desde un video largo: transcribir, elegir momentos y seguir caras (input.longVideoId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 
@@ -935,3 +999,167 @@ export const reportSettings = pgTable("report_settings", {
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
   updatedAt: updatedAt(),
 });
+
+// ─── Estratega ─────────────────────────────────────────────────────────────
+
+/** Fuente citada en una respuesta del estratega: una pieza, una cifra o una entrada del calendario. */
+export type StrategistCitation = {
+  ref: string; // "P3", "C1", "E2"
+  kind: "pieza" | "cifra" | "calendario";
+  label: string;
+  detail: string | null;
+  href: string;
+  /** id de la pieza o de la entrada del calendario (para volver a usarla en la conversación). */
+  targetId: string | null;
+  platform: "INSTAGRAM" | "YOUTUBE" | "TIKTOK" | null;
+};
+
+/** Idea que propuso el estratega, con botones para crear el guion o agregarla al calendario. */
+export type StrategistIdea = {
+  id: string;
+  title: string;
+  idea: string;
+  hook: string | null;
+  format: "REEL" | "CAROUSEL" | "VIDEO" | "SHORT" | "STORY" | "POST";
+  platforms: ("INSTAGRAM" | "YOUTUBE" | "TIKTOK")[];
+  date: string | null; // YYYY-MM-DD sugerido
+  why: string | null;
+  /** Entrada del calendario creada desde esta idea (para no duplicarla). */
+  calendarEntryId?: string | null;
+};
+
+/** Herramienta que usó el estratega para responder (para mostrar "Revisé…" y depurar). */
+export type StrategistToolCall = { name: string; input: unknown; summary: string; error?: boolean };
+
+/** Conversaciones con el estratega. Cada una es de quien la empezó. */
+export const strategistConversations = pgTable(
+  "strategist_conversations",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("strategist_conversations_user_idx").on(t.userId, t.updatedAt)],
+);
+
+/** Mensajes de una conversación. Los del usuario cuentan para el límite diario. */
+export const strategistMessages = pgTable(
+  "strategist_messages",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => strategistConversations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    role: text("role").notNull().$type<"user" | "assistant">(),
+    content: text("content").notNull(),
+    citations: jsonb("citations").$type<StrategistCitation[]>().notNull().default([]),
+    ideas: jsonb("ideas").$type<StrategistIdea[]>().notNull().default([]),
+    toolCalls: jsonb("tool_calls").$type<StrategistToolCall[]>().notNull().default([]),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    /** Mensaje de error en español si la respuesta no se pudo completar. */
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("strategist_messages_conversation_idx").on(t.conversationId, t.createdAt), index("strategist_messages_user_idx").on(t.userId, t.createdAt)],
+);
+
+// ─── Sacarle todo el jugo ──────────────────────────────────────────────────
+
+/** Textos para publicar el contenido de origen en cada red (editables). */
+export type RepurposeCopy = {
+  instagram: { caption: string; hashtags: string[] };
+  tiktok: { caption: string; hashtags: string[] };
+  youtube: { title: string; description: string; hashtags: string[] };
+};
+export type RepurposePartStatus = "pending" | "ready" | "failed";
+/** Estado de cada parte del paquete: se generan en paralelo y cada una avisa por separado. */
+export type RepurposeParts = {
+  carousel: { status: RepurposePartStatus; error?: string | null; carouselId?: string | null };
+  copy: { status: RepurposePartStatus; error?: string | null; data?: RepurposeCopy | null };
+  shorts: { status: RepurposePartStatus; error?: string | null; scriptIds?: string[] };
+};
+
+/**
+ * Un video, todo el contenido: a partir de un video editado, un guion o una pieza publicada se arma un carrusel
+ * (borrador en Carruseles), los textos para cada red y 2 o 3 guiones de shorts (en Guiones). Aquí se guarda el
+ * origen y qué se creó; el carrusel y los guiones viven en sus tablas.
+ */
+export const repurposePacks = pgTable(
+  "repurpose_packs",
+  {
+    id: id(),
+    sourceKind: text("source_kind").notNull().$type<"video" | "guion" | "pieza">(),
+    videoProjectId: uuid("video_project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    contentItemId: uuid("content_item_id").references(() => contentItems.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    sourceText: text("source_text").notNull(), // la transcripción o el texto que se usó
+    parts: jsonb("parts").$type<RepurposeParts>().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("repurpose_packs_created_at_idx").on(t.createdAt)],
+);
+
+// ─── Autopiloto semanal ────────────────────────────────────────────────────
+
+/** Ajustes del autopiloto (una sola fila). piecesPerWeek null = la meta semanal de Inicio. */
+export const autopilotSettings = pgTable("autopilot_settings", {
+  id: text("id").primaryKey().default("autopilot"),
+  enabled: boolean("enabled").notNull().default(false),
+  piecesPerWeek: integer("pieces_per_week"),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});
+
+/** Paquete semanal para aprobar: uno por semana (lunes local). GENERATING sirve también de candado. */
+export const weeklyPacks = pgTable("weekly_packs", {
+  weekStart: date("week_start", { mode: "string" }).primaryKey(),
+  status: text("status").notNull().$type<"GENERATING" | "READY" | "FAILED">(),
+  trigger: text("trigger").notNull().default("cron").$type<"cron" | "manual">(),
+  errorMessage: text("error_message"),
+  /** Tokens estimados antes de generar y los que se registraron en ai_usage (autopiloto.*). */
+  estimatedTokens: integer("estimated_tokens"),
+  usedTokens: integer("used_tokens"),
+  notifiedAt: timestamp("notified_at", { withTimezone: true }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Una pieza del paquete semanal, con su guion o su carrusel ya escrito y la decisión de la persona. */
+export const weeklyPackItems = pgTable(
+  "weekly_pack_items",
+  {
+    id: id(),
+    weekStart: date("week_start", { mode: "string" })
+      .notNull()
+      .references(() => weeklyPacks.weekStart, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    title: text("title").notNull(),
+    hook: text("hook"),
+    pillar: text("pillar"),
+    why: text("why"),
+    format: plannedFormatEnum("format").notNull(),
+    platforms: text("platforms").array().notNull().$type<("INSTAGRAM" | "YOUTUBE" | "TIKTOK")[]>(),
+    scheduledDate: date("scheduled_date", { mode: "string" }),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    carouselId: uuid("carousel_id").references(() => carousels.id, { onDelete: "set null" }),
+    genStatus: text("gen_status").notNull().default("pending").$type<"pending" | "ready" | "failed">(),
+    genError: text("gen_error"),
+    decision: text("decision").notNull().default("pending").$type<"pending" | "approved" | "discarded">(),
+    calendarEntryId: uuid("calendar_entry_id").references(() => calendarEntries.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("weekly_pack_items_week_idx").on(t.weekStart, t.position)],
+);

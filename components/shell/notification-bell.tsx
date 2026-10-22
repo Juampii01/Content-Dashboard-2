@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { Bell, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { formatRelative } from "@/lib/format";
@@ -139,7 +140,7 @@ export function NotificationBell({ align = "left" }: { align?: "left" | "right" 
           </span>
         )}
       </button>
-      {open && pos && (
+      {open && pos && createPortal(
         <div
           ref={panelRef}
           role="dialog"
@@ -172,7 +173,9 @@ export function NotificationBell({ align = "left" }: { align?: "left" | "right" 
               ))}
             </ul>
           )}
-        </div>
+        </div>,
+        // En el body: la barra lateral usa backdrop-filter, que recorta a los hijos con position: fixed.
+        document.body,
       )}
     </>
   );

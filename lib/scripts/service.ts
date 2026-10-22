@@ -62,10 +62,12 @@ export async function createScript(input: {
   referenceLabel: string | null;
   sourceContentItemId: string | null;
   sourceUrl: string | null;
-  userId: string;
+  userId: string | null;
+  /** Nombre del consumo en ai_usage (por defecto "guiones.generar"; el autopiloto usa el suyo). */
+  feature?: string;
 }): Promise<string> {
   const generated = await generateStructured({
-    feature: "guiones.generar",
+    feature: input.feature ?? "guiones.generar",
     model: input.format === "YT_LONG" ? "deep" : "main",
     context: await context(),
     task: generateTask(input),
@@ -73,25 +75,58 @@ export async function createScript(input: {
     maxTokens: input.format === "YT_LONG" ? 12_000 : 4_000,
     userId: input.userId,
   });
+  return insertGeneratedScript(generated, {
+    idea: input.idea,
+    format: input.format,
+    objective: input.objective,
+    pillar: input.pillar,
+    sourceText: input.reference,
+    sourceUrl: input.sourceUrl,
+    sourceContentItemId: input.sourceContentItemId,
+    parentId: null,
+    userId: input.userId,
+  });
+}
+
+/**
+ * Guarda como guion nuevo (en borrador, con su primera versión) un guion que ya generó la IA.
+ * Lo usan createScript y otros módulos que generan varios guiones en una sola llamada ("Sacarle todo el jugo").
+ */
+export async function insertGeneratedScript(
+  generated: GeneratedScript,
+  meta: {
+    idea: string | null;
+    format: FormatKey;
+    objective: ObjectiveKey | null;
+    pillar: string | null;
+    sourceText?: string | null;
+    sourceUrl?: string | null;
+    sourceContentItemId?: string | null;
+    parentId?: string | null;
+    action?: string;
+    userId: string | null;
+  },
+): Promise<string> {
   const content = toContent(generated);
   const [row] = await getDb()
     .insert(schema.scripts)
     .values({
       title: content.title,
-      idea: input.idea,
-      format: input.format,
-      objective: input.objective,
-      pillar: input.pillar,
+      idea: meta.idea,
+      format: meta.format,
+      objective: meta.objective,
+      pillar: meta.pillar,
       status: "DRAFT",
       content,
       ...scriptStats(content),
-      sourceText: input.reference,
-      sourceUrl: input.sourceUrl,
-      sourceContentItemId: input.sourceContentItemId,
-      createdBy: input.userId,
+      sourceText: meta.sourceText ?? null,
+      sourceUrl: meta.sourceUrl ?? null,
+      sourceContentItemId: meta.sourceContentItemId ?? null,
+      parentId: meta.parentId ?? null,
+      createdBy: meta.userId,
     })
     .returning({ id: schema.scripts.id });
-  await getDb().insert(schema.scriptVersions).values({ scriptId: row!.id, content, action: "generar", createdBy: input.userId });
+  await getDb().insert(schema.scriptVersions).values({ scriptId: row!.id, content, action: meta.action ?? "generar", createdBy: meta.userId });
   return row!.id;
 }
 

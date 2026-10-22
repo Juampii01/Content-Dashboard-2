@@ -12,6 +12,7 @@ Trabajos del worker (tabla `jobs`):
 | `VIDEO_RENDER` | Tramos, audio, zooms del estilo, b-roll, subtítulos, control de calidad y subida. |
 | `VIDEO_STYLE` | "Edita como este": baja la referencia (subida o link) y mide su estilo (`worker/video/style.py`). |
 | `VIDEO_CLIP` | Biblioteca de b-roll: datos (duración, tamaño) y miniatura de un clip del cliente. |
+| `LONG_VIDEO_CLIPS` | Clips desde un video largo: baja (o recibe) el video, transcribe, pide los momentos a la app y sigue las caras de cada uno (ver abajo). |
 
 ## Cómo funciona
 
@@ -216,6 +217,21 @@ Para que una toma con el teléfono en una habitación con eco y ruido suene limp
 Con ruido no estacionario (tecleo, vecinos, puertas): SNR 13,7 → 31,6 (Suave) y 37,4 dB (Fuerte). En una toma **seca** con ruido, Suave y Fuerte no aplican la quita de eco (sala seca detectada) y la inteligibilidad (STOI) queda igual que Apagado.
 
 **Velocidad**: unos 4,6 s de CPU por minuto de audio (Suave) y 5,4 s (Fuerte) en la máquina de desarrollo (2 vCPU compartidas, con carga); el modelo solo, ~2 s de CPU por minuto. En una performance-4x (4 vCPU dedicadas) se estima ~2–3 s por minuto de video final; la muestra de 10 s, ~1 s por nivel. Memoria: ~1,1 GB de pico con 5 min de audio (sin la reserva de memoria de onnxruntime). Pruebas: `tests/test_studio_audio.py`.
+
+## Clips desde un video largo
+
+El cliente sube un podcast, un live o un video de YouTube de 10 a 120 minutos (hasta 2 h 30 min y 8 GB; mínimo 3 min), o pega un link que el worker baja con **yt-dlp** (hasta 1080p y 6 GB; YouTube suele funcionar, Instagram suele pedir sesión). Pantalla: Editor de video → **Clips desde un video largo** (`/editor/clips`).
+
+1. **Worker (`worker/video/clips.py`, `LONG_VIDEO_CLIPS`)**: original en `/data/work/largos/<id>` (si vino de un link, se guarda una vez en el almacenamiento privado como `editor/largos/<id>/original.mp4`), audio y transcripción por palabra con los mismos proveedores del Editor.
+2. **Momentos (app, `lib/clips/`)**: `POST /api/worker/clips/<id>/moments`. El código arma candidatos de 30 a 90 s que empiezan y terminan en un límite de frase y los mide (`lib/clips/score.ts`: gancho, duración, ritmo de habla relativo al propio video, pausas, preguntas, cifras y cierre); se eligen los mejores sin que se pisen (hasta 24) y Claude (`clips.momentos`, `lib/ai/prompts/clips.ts`) elige de 5 a 10, puede mover los bordes por palabra y escribe título, texto de gancho, "por qué este momento" y el tipo de gancho. **Puntaje** = 45 % reglas + 55 % criterio de Claude, más entre -5 y +8 puntos según el ranking de tipos de gancho de Métricas (si hay al menos 3 piezas de ese tipo). Es relativo dentro del video: no es una probabilidad de nada. Sin IA, se eligen por reglas y se avisa.
+3. **Reencuadre que sigue la cara (`worker/video/reframe.py`)**: en la ventana de cada clip (el clip ± 20 s, que es también el margen para mover el inicio y el fin) se muestrean 5 cuadros por segundo a 960 px y se detectan caras con **YuNet** (el mismo modelo de los estilos: 230 KB, rápido en CPU, ya en la imagen; MediaPipe sumaba ~40 MB para ganar poco). Pistas por cercanía, cortes de plano por diferencia de imagen, y a quién mirar: una cara → esa; dos que entran juntas en el 9:16 → el grupo; si no entran → la que mueve la boca mientras hay voz (histéresis de 1 s, 2 s mínimos entre cambios, el cambio se adelanta a cuando empezó a hablar). Cámara virtual con zona muerta, resorte amortiguado con aceleración y velocidad máximas, y corte seco en cambios de plano o de persona; sin cara, mantiene 1,5 s y vuelve al centro. El camino se guarda como puntos clave y se vuelve una expresión de `crop` de ffmpeg (la vista previa 360×640 y el corte final 1080×1920 usan el mismo).
+   - **Límite**: es una heurística visual (no identifica voces). Con bocas tapadas, perfiles, planos muy abiertos o dos personas hablando a la vez puede elegir mal; entonces se queda con la cara más grande o la última.
+   - En 2 vCPU de desarrollo, seguir las caras en 2 minutos de video 1080p tarda ~40 s (casi todo es decodificar); en performance-4x, bastante menos.
+4. **Del clip al Editor**: "Abrir en el editor" o "Exportar directo" crean un proyecto (`video_projects`, 9:16, con la transcripción del tramo ya cargada). Su `VIDEO_ANALYZE` lleva `clip` en la entrada: el worker corta y reencuadra el tramo del video largo como original del proyecto (y lo sube), no vuelve a transcribir y sigue como cualquier video. "Exportar directo" se exporta solo apenas está el plan (cortes seguros, subtítulos por defecto de Mi marca: `brand_profile.subtitle_preset` si es uno de los estilos de la galería, si no Clásico) y avisa al terminar el render.
+5. **Avisos**: `LONG_VIDEO_CLIPS` avisa en la campana y por correo ("Tus clips están listos").
+6. **Limpieza**: `/data/work/largos/<id>` se borra si el video largo se borró o tras 7 días sin uso.
+
+Probar en local: `python scripts/make_podcast_video.py /tmp/podcast` (podcast sintético de ~3,5 min con dos personas que se turnan, una lámina sin caras al principio y su transcripción) y el worker con `WORKER_TEST_TRANSCRIPT=/tmp/podcast/transcript.json`. Pruebas: `pytest tests/test_reframe.py` y `pnpm test:clips`.
 
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 

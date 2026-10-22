@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, CheckCircle2, Download, FileText, PencilLine, TriangleAlert } from "lucide-react";
+import { CalendarPlus, CheckCircle2, Citrus, Download, FileText, PencilLine, TriangleAlert } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { formatBytes, formatDuration, formatNumber } from "@/lib/format";
@@ -68,6 +68,9 @@ export function ResultView({
             )}
             <ButtonLink href={`/calendario?nuevo=1&video=${projectId}`} variant="ghost" icon={<CalendarPlus className="h-4 w-4" aria-hidden />}>
               Programar en Calendario
+            </ButtonLink>
+            <ButtonLink href={`/jugo?video=${projectId}`} variant="ghost" icon={<Citrus className="h-4 w-4" aria-hidden />}>
+              Sacarle todo el jugo
             </ButtonLink>
           </div>
           {canEdit && (

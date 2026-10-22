@@ -39,4 +39,5 @@ export const actionLabel: Record<string, string> = {
   editar: "Editado a mano",
   restaurar: "Versión restaurada",
   adaptar: "Adaptado de otro guion",
+  jugo: "Sacado de otro contenido",
 };

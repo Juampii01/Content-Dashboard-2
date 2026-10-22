@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink, FileText, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowLeft, Citrus, ExternalLink, FileText, TrendingDown, TrendingUp } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import { Notice, Skeleton } from "@/components/ui/feedback";
@@ -79,6 +79,11 @@ async function Detail({ params }: { params: PageProps<"/metricas/[id]">["params"
             <ButtonLink href={`/guiones/nuevo?desde=${item.id}`} icon={<FileText className="h-4 w-4" aria-hidden />}>
               Crear un guion parecido
             </ButtonLink>
+            {user.role !== "VIEWER" && (
+              <ButtonLink href={`/jugo?pieza=${item.id}`} variant="ghost" icon={<Citrus className="h-4 w-4" aria-hidden />}>
+                Sacarle todo el jugo
+              </ButtonLink>
+            )}
             {item.permalink && (
               <ButtonLink href={item.permalink} variant="ghost" target="_blank" rel="noreferrer" icon={<ExternalLink className="h-4 w-4" aria-hidden />}>
                 Ver en {platformLabel[item.platform]}

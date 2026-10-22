@@ -20,6 +20,8 @@ export type NotificationInput = {
   href: string;
   /** Mandar correo además del aviso en la app. */
   email: boolean;
+  /** Nota al pie del correo (por defecto, la de los trabajos que tardan más de un minuto). */
+  footnote?: string;
 };
 
 const EMAIL_AFTER_SECONDS = 60;
@@ -43,7 +45,7 @@ export async function notify(input: NotificationInput): Promise<void> {
       intro: input.body,
       actionLabel: input.tone === "success" ? "Abrir" : "Ver qué pasó",
       actionUrl: `${env().NEXT_PUBLIC_APP_URL}${input.href}`,
-      footnote: "Te avisamos por correo cuando termina un trabajo que tarda más de un minuto, así no tienes que esperar con la pestaña abierta.",
+      footnote: input.footnote ?? "Te avisamos por correo cuando termina un trabajo que tarda más de un minuto, así no tienes que esperar con la pestaña abierta.",
     });
     await db.execute(sql`update notifications set emailed_at = now() where id = ${row.id}`);
   } catch (error) {
@@ -69,6 +71,8 @@ type JobRow = {
   seconds: number;
   project_title: string | null;
   carousel_title: string | null;
+  long_video_title?: string | null;
+  clip_count?: number | null;
 };
 
 const quoted = (title: string | null) => (title ? `"${title}"` : "Tu video");
@@ -82,6 +86,8 @@ export function jobNotification(job: JobRow): Omit<NotificationInput, "email" | 
     case "VIDEO_ANALYZE":
     case "VIDEO_EDIT": {
       if (!job.video_project_id) return null;
+      // Un clip con "Exportar directo" no se revisa: avisa solo al terminar el render.
+      if (ok && (job.input?.clip as { autoExport?: boolean } | undefined)?.autoExport) return null;
       const href = `/editor/${job.video_project_id}`;
       return ok
         ? { tone: "success", title: "Tu video está listo para revisar", body: `${quoted(job.project_title)} ya tiene la edición propuesta: cortes, subtítulos y b-roll. Revísala y expórtala.`, href, emailable: true }
@@ -119,6 +125,16 @@ export function jobNotification(job: JobRow): Omit<NotificationInput, "email" | 
         ? { tone: "success", title: "Tu estilo de edición está listo", body: "Medimos el video de referencia. Ya puedes editar como ese video.", href, emailable: false }
         : { tone: "error", title: "No pudimos medir el video de referencia", body: failure, href, emailable: false };
     }
+    case "LONG_VIDEO_CLIPS": {
+      const longVideoId = id("longVideoId");
+      if (!longVideoId) return null;
+      const href = `/editor/clips/${longVideoId}`;
+      const name = job.long_video_title ? `"${job.long_video_title}"` : "Tu video";
+      const n = job.clip_count ?? 0;
+      return ok
+        ? { tone: "success", title: "Tus clips están listos", body: `Encontramos ${n === 1 ? "1 momento" : `${n} momentos`} en ${name} que funcionan solos como short. Elige cuáles exportar.`, href, emailable: true }
+        : { tone: "error", title: "No pudimos sacar clips de tu video", body: failure, href, emailable: true };
+    }
     default:
       return null;
   }
@@ -129,13 +145,16 @@ export async function sweepJobNotifications(limit = 50): Promise<number> {
   const result = await getDb().execute<JobRow>(sql`
     select j.id, j.type, j.status, j.input, j.error_message, j.video_project_id, j.created_by,
       extract(epoch from (j.finished_at - j.created_at))::float as seconds,
-      p.title as project_title, c.title as carousel_title
+      p.title as project_title, c.title as carousel_title,
+      lv.title as long_video_title,
+      (select count(*)::int from long_video_clips lc where lc.long_video_id = lv.id) as clip_count
     from jobs j
     left join video_projects p on p.id = j.video_project_id
     left join carousels c on j.type = 'CAROUSEL_IMAGES' and c.id::text = j.input->>'carouselId'
+    left join long_videos lv on j.type = 'LONG_VIDEO_CLIPS' and lv.id::text = j.input->>'longVideoId'
     where j.status in ('SUCCEEDED', 'FAILED')
       and j.finished_at > now() - interval '2 days'
-      and j.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER', 'CAROUSEL_IMAGES', 'CAROUSEL_STYLE', 'VIDEO_STYLE')
+      and j.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER', 'CAROUSEL_IMAGES', 'CAROUSEL_STYLE', 'VIDEO_STYLE', 'LONG_VIDEO_CLIPS')
       and not exists (select 1 from notifications n where n.key = 'job:' || j.id::text)
     order by j.finished_at
     limit ${limit}

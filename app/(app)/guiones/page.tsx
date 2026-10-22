@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
-import { FilePlus2, ScrollText } from "lucide-react";
+import { Copy, FilePlus2, ScrollText } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -91,9 +91,14 @@ export default function GuionesPage({ searchParams }: PageProps<"/guiones">) {
         description="Le das una idea y te devuelve 5 ganchos, el cuerpo, el CTA y el caption, con tu voz y lo que ya te funcionó."
         icon={<ScrollText className="h-5 w-5" aria-hidden />}
         actions={
-          <ButtonLink href="/guiones/nuevo" icon={<FilePlus2 className="h-4 w-4" aria-hidden />}>
-            Nuevo guion
-          </ButtonLink>
+          <>
+            <ButtonLink href="/guiones/copiar" variant="ghost" icon={<Copy className="h-4 w-4" aria-hidden />}>
+              Copia este reel
+            </ButtonLink>
+            <ButtonLink href="/guiones/nuevo" icon={<FilePlus2 className="h-4 w-4" aria-hidden />}>
+              Nuevo guion
+            </ButtonLink>
+          </>
         }
       />
       <Suspense fallback={<Skeleton className="h-64" />}>

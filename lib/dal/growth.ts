@@ -66,6 +66,11 @@ function mondayOf(day: string): string {
  */
 export async function getGrowth(): Promise<Growth> {
   await getCurrentUser();
+  return computeGrowth();
+}
+
+/** Lo mismo que getGrowth sin pedir sesión: solo para servicios internos (informe mensual del cron). */
+export async function computeGrowth(): Promise<Growth> {
   const db = getDb();
   const tz = env().APP_TIMEZONE;
   const today = todayIn(tz);

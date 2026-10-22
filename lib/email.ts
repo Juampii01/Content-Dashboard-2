@@ -8,7 +8,18 @@ import { env } from "@/lib/env";
  * En desarrollo, si no hay RESEND_API_KEY, el enlace se muestra en la consola del servidor
  * para poder probar sin configurar correo. En producción la falta de configuración es un error.
  */
-type Email = { to: string; subject: string; heading: string; intro: string; actionLabel: string; actionUrl: string; footnote: string; bullets?: string[] };
+type Email = {
+  to: string;
+  subject: string;
+  heading: string;
+  intro: string;
+  /** Sin botón cuando el destinatario no tiene acceso a la app (por ejemplo, un sponsor). */
+  actionLabel?: string;
+  actionUrl?: string;
+  footnote: string;
+  bullets?: string[];
+  attachments?: { filename: string; content: Buffer }[];
+};
 
 function render({ heading, intro, actionLabel, actionUrl, footnote, bullets }: Email): { html: string; text: string } {
   const appName = env().NEXT_PUBLIC_APP_NAME;
@@ -23,12 +34,12 @@ function render({ heading, intro, actionLabel, actionUrl, footnote, bullets }: E
 <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:#ffffff">${esc(heading)}</h1>
 <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#a7b9d4">${esc(intro)}</p>
 ${bullets?.length ? `<ul style="margin:0 0 24px;padding-left:18px;font-size:14px;line-height:1.6;color:#dce7f7">${bullets.map((b) => `<li style="margin:0 0 6px">${esc(b)}</li>`).join("")}</ul>` : ""}
-<a href="${esc(actionUrl)}" style="display:inline-block;background:#0070f8;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 20px;border-radius:12px">${esc(actionLabel)}</a>
-<p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#6f84a8">${esc(footnote)}</p>
+${actionUrl && actionLabel ? `<a href="${esc(actionUrl)}" style="display:inline-block;background:#0070f8;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 20px;border-radius:12px">${esc(actionLabel)}</a>` : ""}
+<p style="margin:${actionUrl ? 24 : 0}px 0 0;font-size:13px;line-height:1.6;color:#6f84a8">${esc(footnote)}</p>
 </td></tr></table>
 </td></tr></table>
 </body></html>`;
-  const text = `${heading}\n\n${intro}\n\n${bullets?.length ? `${bullets.map((b) => `- ${b}`).join("\n")}\n\n` : ""}${actionLabel}: ${actionUrl}\n\n${footnote}`;
+  const text = `${heading}\n\n${intro}\n\n${bullets?.length ? `${bullets.map((b) => `- ${b}`).join("\n")}\n\n` : ""}${actionUrl && actionLabel ? `${actionLabel}: ${actionUrl}\n\n` : ""}${footnote}`;
   return { html, text };
 }
 
@@ -36,13 +47,21 @@ export async function sendEmail(email: Email): Promise<void> {
   const { RESEND_API_KEY, EMAIL_FROM, NODE_ENV } = env();
   if (!RESEND_API_KEY || !EMAIL_FROM) {
     if (NODE_ENV !== "production") {
-      console.info(`[correo de prueba] Para: ${email.to} · ${email.subject}\n${email.actionUrl}`);
+      const files = email.attachments?.map((a) => `${a.filename} (${Math.round(a.content.byteLength / 1024)} KB)`).join(", ");
+      console.info(`[correo de prueba] Para: ${email.to} · ${email.subject}\n${email.actionUrl ?? ""}${files ? `\nAdjuntos: ${files}` : ""}`);
       return;
     }
     throw new Error("Falta configurar el correo: agrega RESEND_API_KEY y EMAIL_FROM.");
   }
   const { html, text } = render(email);
-  const { error } = await new Resend(RESEND_API_KEY).emails.send({ from: EMAIL_FROM, to: email.to, subject: email.subject, html, text });
+  const { error } = await new Resend(RESEND_API_KEY).emails.send({
+    from: EMAIL_FROM,
+    to: email.to,
+    subject: email.subject,
+    html,
+    text,
+    attachments: email.attachments?.map((a) => ({ filename: a.filename, content: a.content })),
+  });
   if (error) throw new Error(`No se pudo enviar el correo: ${error.message}`);
 }
 
@@ -81,5 +100,26 @@ export function weeklyReportEmail(to: string, input: { headline: string; wins: s
     actionLabel: "Ver el resumen completo",
     actionUrl: `${env().NEXT_PUBLIC_APP_URL}/inicio`,
     footnote: "Te llega cada lunes con los números de la semana anterior.",
+  };
+}
+
+/**
+ * Informe mensual con el PDF adjunto. A quien es del equipo se le suma el botón para abrirlo en la app;
+ * a un destinatario externo (un sponsor) solo le llega el resumen y el PDF.
+ */
+export function monthlyReportEmail(
+  to: string,
+  input: { brandName: string; monthLabel: string; headline: string | null; bullets: string[]; fileName: string; pdf: Buffer; appUrl: string | null },
+): Email {
+  return {
+    to,
+    subject: `Informe de ${input.monthLabel} · ${input.brandName}`.slice(0, 140),
+    heading: `Informe de ${input.monthLabel}`,
+    intro: input.headline ?? `Aquí está el informe de contenido de ${input.brandName} de ${input.monthLabel}. Va adjunto en PDF.`,
+    bullets: input.bullets,
+    actionLabel: input.appUrl ? "Ver los informes en la app" : undefined,
+    actionUrl: input.appUrl ?? undefined,
+    footnote: `El informe completo va adjunto (${input.fileName}). Te llega porque estás en la lista de destinatarios del informe mensual de ${input.brandName}.`,
+    attachments: [{ filename: input.fileName, content: input.pdf }],
   };
 }

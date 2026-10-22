@@ -43,6 +43,11 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  // Fuentes del informe mensual en PDF: se leen del disco al dibujarlo, así que viajan con estas funciones.
+  outputFileTracingIncludes: {
+    "/api/cron/sync": ["./lib/reports/fonts/**"],
+    "/inicio/informes": ["./lib/reports/fonts/**"],
+  },
   turbopack: {
     rules: {
       "*.css": {

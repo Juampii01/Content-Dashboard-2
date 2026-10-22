@@ -9,6 +9,7 @@ import { ConnectNotice } from "@/components/ajustes/connect-notice";
 import { DemoSection } from "@/components/ajustes/demo-section";
 import { HeyGenSection, HeyGenSectionSkeleton } from "@/components/ajustes/heygen-section";
 import { ImageKeysSection, ImageKeysSectionSkeleton } from "@/components/ajustes/image-keys-section";
+import { ReportSettingsSection, ReportSettingsSkeleton } from "@/components/informes/settings-section";
 
 export const metadata: Metadata = { title: "Ajustes" };
 
@@ -48,6 +49,14 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
                 <ImageKeysSection />
               </Suspense>
             </div>
+          </Section>
+        </div>
+
+        <div id="informes" className="scroll-mt-6">
+          <Section title="Informe mensual" description="El PDF de cada mes con tu marca. Elige a quién le llega (tu equipo o un sponsor, hasta 10 correos) y si sale solo el día 1.">
+            <Suspense fallback={<ReportSettingsSkeleton />}>
+              <ReportSettingsSection />
+            </Suspense>
           </Section>
         </div>
 

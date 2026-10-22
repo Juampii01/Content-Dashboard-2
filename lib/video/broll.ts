@@ -2,6 +2,7 @@ import "server-only";
 import { desc, eq } from "drizzle-orm";
 import { AiError, generateStructured } from "@/lib/ai/client";
 import { BROLL_RULES, brollAiSchema, brollTask, sentences } from "@/lib/ai/prompts/editor";
+import { GRAPHIC_MAX_SECONDS, GRAPHIC_MIN_SECONDS, graphicFromAi, graphicOption, numbersSupported, type GraphicLook } from "./graphics";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { libraryOption, libraryScore, mapPexelsVideo, mapPixabayVideo, type LibraryClip, type PexelsVideo, type PixabayVideo } from "./broll-options";
@@ -19,6 +20,8 @@ import type { BrollItem, BrollOption, EditPlan, VideoFormat, Word } from "./type
  *   creditos.txt junto a la descarga). Clave gratuita en PEXELS_API_KEY.
  * Sin ninguna de las dos claves, el stock no se usa.
  * - Biblioteca del cliente: clips que sube una vez (broll_clips), con etiquetas.
+ * - Gráficos animados con la marca ("graphic", lib/video/graphics.ts): no se buscan, los escribe Claude en el plan
+ *   (plantilla y textos) o la persona en la revisión; el worker los dibuja.
  * - Videos generados con IA: todavía no (caros, lentos y se notan artificiales). Cuando se sumen, se agrega
  *   una fuente con `kind: "ai"` que devuelva `BrollOption` y el resto del flujo no cambia.
  */
@@ -166,9 +169,10 @@ let counter = 0;
 const newId = () => `b${Date.now().toString(36)}${(counter++).toString(36)}`;
 
 /**
- * Dónde va cada b-roll y con qué clip. Nunca dentro del gancho elegido ni de la última frase (el llamado a la
- * acción). La cadencia sale del estilo (si hay) o de 0–1 cada 8–12 s en reels. Si la IA o el stock fallan,
- * el video se edita igual, sin b-roll o con menos alternativas, y se avisa.
+ * Dónde va cada b-roll y qué va: un clip (stock o biblioteca) o un gráfico con la marca. Nunca dentro del gancho
+ * elegido ni de la última frase (el llamado a la acción). La cadencia sale del estilo (si hay) o de 0–1 cada 8–12 s
+ * en reels. Los gráficos solo llevan cifras que la persona dice en ese tramo. Si la IA o el stock fallan, el video
+ * se edita igual, sin b-roll o con menos alternativas, y se avisa.
  */
 export async function planBroll(input: {
   words: Word[];
@@ -177,8 +181,11 @@ export async function planBroll(input: {
   format: VideoFormat;
   preset: StylePreset | null;
   context: string;
+  /** Colores y fuente de Mi marca para los gráficos (null: sin gráficos). */
+  look?: GraphicLook | null;
 }): Promise<{ items: BrollItem[]; warning: string | null }> {
   const { words, plan, format } = input;
+  const look = input.look ?? null;
   const every = input.preset?.broll.enabled ? input.preset.broll.everySeconds : DEFAULT_EVERY[format];
   const target = Math.min(MAX_ITEMS[format], Math.floor(input.outputDuration / Math.max(6, every)));
   if (target < 1 || words.length < 12) return { items: [], warning: null };
@@ -197,8 +204,11 @@ export async function planBroll(input: {
     const opening = kept.filter((w) => w.start - first.start < 3).at(-1);
     forbidden.push({ from: first.id, to: opening?.id ?? first.id, label: "apertura" });
   }
-  const last = sentences(kept).at(-1);
+  const phrases = sentences(kept);
+  const last = phrases.at(-1);
   if (last) forbidden.push({ from: last.from, to: last.to, label: "llamado a la acción" });
+  const tags = await libraryTags();
+  const stockReady = brollSourcesReady().stock || tags.length > 0;
 
   let ai;
   try {
@@ -206,9 +216,19 @@ export async function planBroll(input: {
       feature: "video.broll",
       model: "main",
       context: `${BROLL_RULES}\n\n${input.context}`,
-      task: brollTask({ words: kept, count: target, minSeconds, maxSeconds, forbidden, format, libraryTags: await libraryTags() }),
+      task: brollTask({
+        words: kept,
+        count: target,
+        minSeconds,
+        maxSeconds,
+        forbidden,
+        format,
+        libraryTags: tags,
+        graphics: look ? { minSeconds: GRAPHIC_MIN_SECONDS, maxSeconds: GRAPHIC_MAX_SECONDS } : null,
+        stock: stockReady,
+      }),
       schema: brollAiSchema,
-      maxTokens: 2500,
+      maxTokens: 4000,
     });
   } catch (error) {
     console.error("[editor] b-roll sin IA:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
@@ -216,7 +236,14 @@ export async function planBroll(input: {
   }
 
   const blocked = (id: number) => forbidden.some((f) => id >= f.from && id <= f.to);
+  /** Lo que se dice alrededor del tramo (las frases que toca): de ahí salen las cifras permitidas. */
+  const spokenAround = (from: number, to: number) =>
+    phrases
+      .filter((f) => f.from <= to && from <= f.to)
+      .map((f) => f.text)
+      .join(" ");
   const chosen: BrollItem[] = [];
+  let droppedNumbers = 0;
   for (const b of ai.broll) {
     if (chosen.length >= target) break;
     const from = Math.max(0, Math.min(b.from_word, b.to_word));
@@ -228,22 +255,44 @@ export async function planBroll(input: {
     const span = words[to]!.end - words[from]!.start;
     if (span < 0.8 || span > 8) continue;
     if (chosen.some((c) => from <= c.to_word && c.from_word <= to)) continue;
-    chosen.push({ id: newId(), from_word: from, to_word: to, query_en: b.query_en.trim().slice(0, 120), keywords: b.keywords.map((k) => k.trim().slice(0, 40)).filter(Boolean).slice(0, 4), why: b.why.slice(0, 300), choice: null, options: [] });
+    let graphic = null;
+    if (b.kind === "graphic" && b.graphic && look && span >= 1.2) {
+      const spec = graphicFromAi(b.graphic, look);
+      if (spec && numbersSupported(spec, spokenAround(from, to))) graphic = graphicOption(spec);
+      else if (spec) droppedNumbers++;
+    }
+    const query = b.query_en.trim().slice(0, 120);
+    // Un gráfico que no sirvió (cifra inventada o mal armado) pasa a ser una toma de stock, si hay qué buscar.
+    if (!graphic && (!query || !stockReady)) continue;
+    chosen.push({
+      id: newId(),
+      from_word: from,
+      to_word: to,
+      query_en: query || "business concept",
+      keywords: b.keywords.map((k) => k.trim().slice(0, 40)).filter(Boolean).slice(0, 4),
+      why: b.why.slice(0, 300),
+      choice: graphic,
+      options: graphic ? [graphic] : [],
+    });
   }
+  if (droppedNumbers) console.warn(`[editor] ${droppedNumbers} gráficos descartados por cifras que no se dicen`);
   chosen.sort((a, b) => a.from_word - b.from_word);
 
   let warning: string | null = null;
   for (const item of chosen) {
     const span = words[item.to_word]!.end - words[item.from_word]!.start;
-    const { options, warning: w } = await searchOptions({ queryEn: item.query_en, keywords: item.keywords, format, minDuration: span });
-    warning ??= w;
-    item.options = options;
-    item.choice = options[0] ?? null;
+    const graphic = item.choice?.source === "graphic" ? item.choice : null;
+    if (graphic && !stockReady) continue;
+    const { options, warning: w } = await searchOptions({ queryEn: item.query_en, keywords: item.keywords, format, minDuration: span }, graphic ? 4 : 6);
+    // En los gráficos, el stock queda como alternativa: si falla, no hace falta avisar.
+    if (!graphic) warning ??= w;
+    item.options = graphic ? [graphic, ...options] : options;
+    item.choice = graphic ?? options[0] ?? null;
   }
   if (chosen.length && chosen.every((c) => !c.choice)) {
     warning ??= brollSourcesReady().stock
-      ? "No encontramos clips para el b-roll. Puedes buscar otros o subir los tuyos a la biblioteca."
-      : "Para el b-roll automático sube clips a tu biblioteca (o pide que activen los videos de stock).";
+      ? "No encontramos clips para el b-roll. Puedes buscar otros, subir los tuyos a la biblioteca o crear un gráfico."
+      : "Para el b-roll automático sube clips a tu biblioteca o crea gráficos desde la revisión.";
   }
   return { items: chosen, warning };
 }

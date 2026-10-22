@@ -14,6 +14,7 @@ import { planBroll } from "./broll";
 import { detectCandidates } from "./candidates";
 import { captionBlocks, toSrt } from "./captions";
 import { brollCredits, brollSegments, computeZooms } from "./effects";
+import { brandGraphicLook, graphicSpecSchema } from "./graphics";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
 import { alignScript } from "./script-align";
 import type { StyleMetrics } from "./style";
@@ -250,7 +251,7 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
   });
   if (project.brollMode === "auto") {
     const timeline = buildTimeline(words, plan, duration);
-    const { items, warning } = await planBroll({ words, plan, outputDuration: timeline.duration, format: project.format as VideoFormat, preset: style?.preset ?? null, context });
+    const { items, warning } = await planBroll({ words, plan, outputDuration: timeline.duration, format: project.format as VideoFormat, preset: style?.preset ?? null, context, look: brandGraphicLook(brand) });
     plan = { ...plan, broll: items, warning: [plan.warning, warning].filter(Boolean).join(" ").slice(0, 1000) };
   }
   const parsed = planSchemaFor(words.length).safeParse(plan);
@@ -381,9 +382,11 @@ export async function startRender(projectId: string, review: Review, format: Vid
       },
       zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
       broll: broll.map((b) =>
-        b.option.source !== "library"
-          ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file }
-          : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key },
+        b.option.source === "graphic"
+          ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic }
+          : b.option.source !== "library"
+            ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file }
+            : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key },
       ),
       credits,
       creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
@@ -404,7 +407,8 @@ export async function startRender(projectId: string, review: Review, format: Vid
 
 /**
  * Deja solo los b-roll que se pueden renderizar: un clip de la biblioteca que existe y está listo (con su clave
- * real, de la base) o un video de stock con su archivo en el CDN de su banco (Pixabay o Pexels).
+ * real, de la base), un video de stock con su archivo en el CDN de su banco (Pixabay o Pexels) o un gráfico
+ * con un diseño válido (se vuelve a validar aquí; lo dibuja el worker).
  */
 async function verifiedBroll(segments: ReturnType<typeof brollSegments>): Promise<ReturnType<typeof brollSegments>> {
   if (!segments.length) return [];
@@ -416,7 +420,10 @@ async function verifiedBroll(segments: ReturnType<typeof brollSegments>): Promis
   }
   const out: ReturnType<typeof brollSegments> = [];
   for (const seg of segments) {
-    if (seg.option.source === "library") {
+    if (seg.option.source === "graphic") {
+      const spec = graphicSpecSchema.safeParse(seg.option.graphic);
+      if (spec.success) out.push({ ...seg, option: { ...seg.option, graphic: spec.data } });
+    } else if (seg.option.source === "library") {
       const clip = library.get(seg.option.id);
       if (clip?.key) out.push({ ...seg, option: clip });
     } else if (seg.option.file && stockFileAllowed(seg.option.source, seg.option.file)) {

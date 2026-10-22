@@ -5,6 +5,7 @@
  * Los tiempos de la transcripción están en segundos del video original.
  * Los del timeline final ("out") están en segundos del video editado.
  */
+import type { GraphicSpec } from "./graphics";
 
 /** Una palabra con su id (posición en la transcripción), su texto tal como se dijo y sus bordes. */
 export type Word = {
@@ -98,10 +99,13 @@ export type EditPlan = {
   planned_by: "ai" | "auto";
 };
 
-/** Una alternativa de b-roll: un video de stock (Pixabay o Pexels) o un clip de la biblioteca del cliente. */
+/**
+ * Una alternativa de b-roll: un video de stock (Pixabay o Pexels), un clip de la biblioteca del cliente o un
+ * gráfico animado con la marca ("graphic", ver lib/video/graphics.ts).
+ */
 export type BrollOption = {
-  source: "pixabay" | "pexels" | "library";
-  /** Id en su fuente (id en Pixabay o Pexels, o id del clip en broll_clips). */
+  source: "pixabay" | "pexels" | "library" | "graphic";
+  /** Id en su fuente (id en Pixabay o Pexels, id del clip en broll_clips o hash del gráfico). */
   id: string;
   duration: number;
   width: number;
@@ -116,6 +120,8 @@ export type BrollOption = {
   key?: string | null;
   thumbKey?: string | null;
   title?: string | null;
+  /** Gráfico: plantilla, textos, colores de marca y modo (pantalla completa o sobre el video). */
+  graphic?: GraphicSpec | null;
 };
 
 export type BrollItem = {

@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { PlanAiOutput } from "@/lib/ai/prompts/editor";
 import { sentences } from "@/lib/ai/prompts/editor";
 import { confidentRemovals, type Candidate } from "./candidates";
+import { graphicSpecSchema } from "./graphics";
 import { buildTimeline, planSegments } from "./timeline";
 import { REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
 
@@ -28,7 +29,7 @@ const hookSchema = z.object({
 });
 
 const brollOptionSchema = z.object({
-  source: z.enum(["pixabay", "pexels", "library"]),
+  source: z.enum(["pixabay", "pexels", "library", "graphic"]),
   id: z.string().min(1).max(80),
   duration: z.number().min(0).max(36000),
   width: z.number().int().min(0).max(10000),
@@ -40,7 +41,8 @@ const brollOptionSchema = z.object({
   key: z.string().max(300).nullable().optional(),
   thumbKey: z.string().max(300).nullable().optional(),
   title: z.string().max(200).nullable().optional(),
-});
+  graphic: graphicSpecSchema.nullable().optional(),
+}).refine((o) => (o.source === "graphic") === Boolean(o.graphic), { message: "Un gráfico necesita su diseño (y solo un gráfico lo lleva)." });
 
 export const brollItemSchema = z.object({
   id: z.string().min(1).max(40),

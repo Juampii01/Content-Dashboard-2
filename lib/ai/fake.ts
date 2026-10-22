@@ -1,4 +1,5 @@
 import "server-only";
+import { spokenNumbers } from "@/lib/video/graphics";
 
 /**
  * Respuestas simuladas para probar la interfaz sin clave de IA. Solo en desarrollo con AI_FAKE=1;
@@ -220,12 +221,15 @@ export function fakeResponse(feature: string, task = ""): unknown {
 }
 
 /**
- * B-roll del Editor: elige frases "mostrables" repartidas en el video (ni la primera ni la última),
- * un tramo del largo pedido dentro de cada una, y arma la búsqueda con un diccionario chico.
+ * B-roll del Editor: elige frases "mostrables" repartidas en el video (ni la primera ni la última), un tramo del
+ * largo pedido dentro de cada una, y decide como lo haría Claude: un gráfico de "número" si se dice una cifra,
+ * "comparación" si hay un contraste, una toma de stock si la frase describe algo que se ve (diccionario chico) y,
+ * si no, una frase fuerte o una palabra clave sobre el video.
  */
 function fakeBrollPlan(task: string) {
   const count = Number(task.match(/CANTIDAD: (\d+)/)?.[1] ?? 2);
   const [minS, maxS] = (task.match(/DURACIÓN: ([\d.]+)–([\d.]+) s/)?.slice(1) ?? ["1.5", "3"]).map(Number) as [number, number];
+  const graphicsRange = task.match(/GRÁFICOS: ([\d.]+)–([\d.]+) s/)?.slice(1).map(Number) ?? null;
   const forbidden = [...task.matchAll(/PROHIBIDO \[(\d+)–(\d+)\]/g)].map((m) => [Number(m[1]), Number(m[2])] as const);
   const frases = [...task.matchAll(/^F(\d+) \[(\d+)–(\d+)\] ([\d.]+) s \(([\d.]+)–([\d.]+)\): (.*)$/gm)].map((m) => ({
     from: Number(m[2]),
@@ -244,17 +248,38 @@ function fakeBrollPlan(task: string) {
   const usable = frases.filter((f, i) => i > 0 && i < frases.length - 1 && f.dur >= minS && !forbidden.some(([a, b]) => f.from <= b && a <= f.to));
   const step = Math.max(1, Math.floor(usable.length / Math.max(1, count)));
   const picked = usable.filter((_, i) => i % step === 0).slice(0, count);
+  const clean = (text: string) => text.replace(/^(eh|em|este)\s+/i, "").replace(/[.?!…]+$/, "").trim();
+  const short = (text: string, max: number) => (text.length <= max ? text : text.slice(0, text.lastIndexOf(" ", max)).trim());
   return {
-    broll: picked.map((f) => {
+    broll: picked.map((f, n) => {
       const words = f.to - f.from + 1;
-      const take = Math.max(2, Math.min(words, Math.round((words * Math.min(f.dur, maxS)) / f.dur)));
       const hit = dictionary.find(([re]) => re.test(f.text));
+      const nums = spokenNumbers(f.text);
+      const text = clean(f.text);
+      let graphic: Record<string, unknown> | null = null;
+      if (graphicsRange && nums.length) {
+        const ratio = /\bcada\b/i.test(f.text) && nums.length >= 2 ? `${nums[nums.length - 2]}/${nums[nums.length - 1]}` : String(nums[0]);
+        graphic = { template: "number", mode: "full", position: "top", headline: ratio, label: short(text, 48), highlight: "", items: [], item_labels: [] };
+      } else if (graphicsRange && /\b(no es|pero|sino|en vez de)\b/i.test(f.text)) {
+        const [a, b] = f.text.split(/\b(?:pero|sino|en vez de)\b/i);
+        graphic = { template: "compare", mode: "full", position: "top", headline: "", label: "", highlight: "", items: [short(clean(a ?? ""), 56), short(clean(b ?? ""), 56)], item_labels: ["Antes", "Después"] };
+      } else if (graphicsRange && (!hit || n % 2 === 1)) {
+        const longest = [...text.split(" ")].sort((x, y) => y.length - x.length)[0] ?? "";
+        graphic =
+          n % 2 === 0
+            ? { template: "quote", mode: "overlay", position: "top", headline: short(text, 100), label: "", highlight: longest.replace(/[^\p{L}\p{N}]/gu, ""), items: [], item_labels: [] }
+            : { template: "keyword", mode: "overlay", position: "top", headline: short(longest.replace(/[^\p{L}\p{N}]/gu, ""), 28), label: "", highlight: "", items: [], item_labels: [] };
+      }
+      const max = graphic && graphicsRange ? graphicsRange[1]! : maxS;
+      const take = Math.max(2, Math.min(words, Math.round((words * Math.min(f.dur, max)) / f.dur)));
       return {
         from_word: f.from,
         to_word: f.from + take - 1,
+        kind: graphic ? "graphic" : "stock",
         query_en: hit?.[1] ?? "business office teamwork",
         keywords: [hit?.[2] ?? "oficina", ...f.text.toLowerCase().split(/[^a-záéíóúñ]+/).filter((w) => w.length > 5).slice(0, 2)],
-        why: "La frase describe algo que se puede mostrar.",
+        graphic,
+        why: graphic ? "Una idea que se entiende mejor en pantalla." : "La frase describe algo que se puede mostrar.",
       };
     }),
   };

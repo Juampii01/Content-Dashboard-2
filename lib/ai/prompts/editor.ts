@@ -159,19 +159,59 @@ ${transcript}
 // ─── B-roll (feature "video.broll") ────────────────────────────────────────
 
 /**
- * Claude elige dónde va cada b-roll (rangos de palabras) y qué buscar: una consulta corta en inglés para el stock
- * y palabras clave en español para la biblioteca del cliente. Nunca tapa el gancho ni el llamado a la acción.
+ * Claude elige dónde va cada b-roll (rangos de palabras) y de qué tipo: una toma de video (consulta corta en inglés
+ * para el stock y palabras clave en español para la biblioteca del cliente) o un gráfico animado con la marca
+ * (plantilla y textos cortos). Nunca tapa el gancho ni el llamado a la acción.
  */
-export const BROLL_RULES = `Eres el editor de b-roll de este creador. El b-roll son tomas de apoyo que tapan por unos segundos al creador mientras su voz sigue (por ejemplo, alguien atendiendo un teléfono mientras dice "contestan el teléfono").
+export const BROLL_RULES = `Eres el editor de b-roll de este creador. El b-roll tapa por unos segundos al creador mientras su voz sigue. Hay dos tipos:
+- "stock": una toma de video real (por ejemplo, alguien atendiendo un teléfono mientras dice "contestan el teléfono").
+- "graphic": un gráfico animado con los colores de la marca (textos con movimiento, números que cuentan, listas, frases grandes, flechas). Sirve para lo conceptual, que no se puede filmar.
 
-REGLAS
-- Elige tramos donde la frase describe algo que se puede mostrar: un objeto, un lugar, una acción, un resultado. Nunca en frases abstractas ni emocionales donde importa ver la cara.
+CUÁNDO USAR CADA UNO
+- graphic, plantilla "number": cuando dice una cifra o un resultado ("duplicamos las ventas", "40 % más", "10 mil seguidores").
+- graphic, "list": cuando enumera 2 a 4 cosas ("tres errores", "primero..., segundo...").
+- graphic, "compare": cuando contrasta dos cosas (antes y después, mito y realidad, "no es X, es Y").
+- graphic, "flow": cuando describe un proceso o sistema de 3 pasos (anuncio → llamada → cliente).
+- graphic, "quote": una frase fuerte o la idea central dicha con fuerza.
+- graphic, "keyword": un concepto clave de 1 a 3 palabras.
+- stock: cuando la frase describe algo concreto que se puede mostrar (un objeto, un lugar, una acción).
+- En contenido conceptual (ventas, anuncios, sistemas, negocios) prefiere los gráficos; deja el stock para lo que se ve.
+- Nunca en frases emocionales o personales donde importa ver la cara (ahí, si hace falta, un "quote" o "keyword" en modo "overlay").
+
+MODO DEL GRÁFICO
+- "full": pantalla completa con el fondo de la marca (números, listas, comparaciones y flujos).
+- "overlay": sobre el video del creador, con un velo; deja ver la cara. Ideal para "quote" y "keyword". position "top" (arriba, lo normal) o "bottom" (a la altura del pecho).
+
+TEXTOS DEL GRÁFICO (en el idioma de la marca; por defecto español neutro)
+- Cortos y legibles en 2 segundos: headline hasta 28 caracteres en "keyword", 100 en "quote" y 10 en "number"; cada ítem hasta 40 (en "flow", 24).
+- Nunca inventes cifras: todo número del gráfico tiene que estar en lo que dice el creador en ese tramo (con cifras o con palabras). Si no dice un número, no uses "number".
+- number: headline es la cifra tal como se diría en pantalla ("x2", "+40%", "10K", "3/10"); label explica la cifra en pocas palabras.
+- list: items con 2 a 4 puntos; label es un título opcional (o vacío).
+- quote: headline es la frase (puede ser algo más corta que lo dicho, sin cambiar el sentido); highlight es la palabra o frase de 1 a 3 palabras a resaltar, tomada de headline.
+- keyword: headline es la palabra o frase clave; label es un rótulo corto opcional encima (o vacío).
+- compare: items con 2 textos (primero el "malo": antes o mito; después el "bueno"); item_labels con 2 rótulos de 1 o 2 palabras ("Antes", "Después" o "Mito", "Realidad").
+- flow: items con exactamente 3 pasos de 1 a 3 palabras; label es un título opcional.
+- Respeta las palabras prohibidas de la marca. Sin emojis.
+
+REGLAS GENERALES
 - Nunca dentro del gancho (los primeros segundos) ni del llamado a la acción del final: ahí se ve al creador.
-- Cada tramo dura entre DURACIÓN mínima y máxima, empieza y termina en palabras de la misma frase, y no se superpone con otro.
+- Cada tramo dura entre DURACIÓN mínima y máxima (los gráficos, entre GRÁFICOS mínima y máxima), empieza y termina en palabras de la misma frase, y no se superpone con otro.
 - Separa los b-roll de forma pareja a lo largo del video, más o menos con la cadencia pedida.
-- query_en: 2 a 5 palabras en inglés, concretas y visuales, como se busca en un banco de videos (por ejemplo "receptionist answering phone"). Sin marcas ni personas famosas.
+- query_en (siempre, también en los gráficos, por si el creador prefiere una toma): 2 a 5 palabras en inglés, concretas y visuales, como se busca en un banco de videos (por ejemplo "receptionist answering phone"). Sin marcas ni personas famosas.
 - keywords: 2 a 4 palabras en español, en minúsculas, para buscar en los clips propios del creador (por ejemplo "teléfono", "recepción").
+- En los tramos "stock", graphic va en null.
 - Usa solo ids que existan. "why" va en una frase corta para el creador, en español neutro con trato de "tú".`;
+
+export const brollGraphicAiSchema = z.object({
+  template: z.enum(["number", "list", "quote", "keyword", "compare", "flow"]),
+  mode: z.enum(["full", "overlay"]),
+  position: z.enum(["top", "bottom"]),
+  headline: z.string().describe("Cifra (number), frase (quote) o palabra clave (keyword). Vacío en list, compare y flow."),
+  label: z.string().describe("Explicación de la cifra (number), rótulo (keyword) o título (list, flow). Puede ir vacío."),
+  highlight: z.string().describe("Solo en quote: 1 a 3 palabras de headline a resaltar. Vacío en las demás."),
+  items: z.array(z.string()).describe("list: 2 a 4 puntos; compare: 2 textos; flow: 3 pasos. Vacío en las demás."),
+  item_labels: z.array(z.string()).describe("Solo en compare: 2 rótulos cortos. Vacío en las demás."),
+});
 
 export const brollAiSchema = z.object({
   broll: z
@@ -179,8 +219,10 @@ export const brollAiSchema = z.object({
       z.object({
         from_word: z.number().int(),
         to_word: z.number().int(),
+        kind: z.enum(["stock", "graphic"]),
         query_en: z.string().describe("Consulta en inglés para bancos de videos de stock, 2 a 5 palabras."),
         keywords: z.array(z.string()).describe("2 a 4 palabras clave en español para la biblioteca."),
+        graphic: brollGraphicAiSchema.nullable().describe("El gráfico si kind es graphic; null si es stock."),
         why: z.string().describe("Por qué ahí, en una frase."),
       }),
     )
@@ -197,17 +239,24 @@ export function brollTask(input: {
   forbidden: { from: number; to: number; label: string }[];
   format: string;
   libraryTags: string[];
+  /** Duración de los gráficos (null: sin gráficos, solo stock y biblioteca). */
+  graphics?: { minSeconds: number; maxSeconds: number } | null;
+  /** Si hay videos de stock o clips propios para elegir. */
+  stock?: boolean;
 }): string {
   const frases = sentences(input.words)
     .map((f) => `F${f.index} [${f.from}–${f.to}] ${s(f.end - f.start)} s (${s(f.start)}–${s(f.end)}): ${f.text}`)
     .join("\n");
   const transcript = input.words.map((w) => `${w.id}:${w.text}`).join(" ");
+  const graphics = input.graphics ?? null;
   return `Elige dónde va el b-roll de este video.
 
 DATOS
 - Formato: ${input.format}
-- CANTIDAD: ${input.count} tramos como máximo (menos si no hay frases que se puedan mostrar)
+- CANTIDAD: ${input.count} tramos como máximo (menos si no hay frases que lo pidan)
 - DURACIÓN: ${s(input.minSeconds)}–${s(input.maxSeconds)} s por tramo
+${graphics ? `- GRÁFICOS: ${s(graphics.minSeconds)}–${s(graphics.maxSeconds)} s por tramo` : "- GRÁFICOS: no disponibles (usa solo stock)"}
+${input.stock === false ? "- STOCK: no hay videos de stock ni clips propios; usa gráficos siempre que puedas." : ""}
 ${input.forbidden.map((f) => `- PROHIBIDO [${f.from}–${f.to}]: ${f.label}`).join("\n")}
 - Clips propios del creador (etiquetas): ${input.libraryTags.length ? input.libraryTags.slice(0, 60).join(", ") : "(no tiene)"}
 

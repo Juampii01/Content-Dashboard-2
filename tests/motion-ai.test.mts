@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { fakeResponse } from "../lib/ai/fake";
-import { brollMotionAiSchema, MOTION_RULES, motionAdjustTask, motionRequestAiSchema, motionRequestTask, motionRetryAiSchema, motionRetryTask, type MotionSceneAi } from "../lib/ai/prompts/motion";
+import { brollMotionFromWire, brollMotionWireSchema, MOTION_RULES, motionAdjustTask, motionRequestAiSchema, motionRequestFromWire, motionRequestTask, motionRequestWireSchema, motionRetryWireSchema, motionRetryTask, sceneFromWire, sceneToWire, type MotionSceneAi } from "../lib/ai/prompts/motion";
 import { brandGraphicLook, type GraphicSpec } from "../lib/video/graphics";
 import { COMPONENT_NAMES, ICON_NAMES } from "../lib/video/motion";
 import { autoFix, fallbackScene, fitProps, resolveScenes, sceneFromAi, sceneToAi, shorten, type MotionJob } from "../lib/video/motion-build";
@@ -24,10 +24,29 @@ const spoken = "Una clínica en Houston pasó de tres a seis citas por cada diez
 
 describe("respuesta de la IA", () => {
   test("el esquema genera JSON Schema para la salida estructurada", () => {
-    for (const s of [motionRequestAiSchema, motionRetryAiSchema, brollMotionAiSchema]) {
+    for (const s of [motionRequestWireSchema, motionRetryWireSchema, brollMotionWireSchema]) {
       const f = zodOutputFormat(s as never);
       assert.equal((f.schema as { type?: string }).type, "object");
     }
+  });
+
+  test("el esquema que va a la API es chico (la gramática compilada tiene un tamaño máximo)", () => {
+    for (const s of [motionRequestWireSchema, motionRetryWireSchema, brollMotionWireSchema]) {
+      const size = JSON.stringify(zodOutputFormat(s as never).schema).length;
+      assert.ok(size < 4000, `esquema de ${size} caracteres`);
+    }
+  });
+
+  test("formato de cable: ida y vuelta sin perder nada, y un spec roto descarta solo esa capa", () => {
+    const scene = ai([comp("statCard", { value: "x2", label: "citas", eyebrow: "", icon: "calendar" }), { kind: "text", text: "Hola", x: 0.5, y: 0.4 }]);
+    const wire = sceneToWire(scene);
+    assert.equal(wire.layers[0]!.component, "statCard");
+    const { title, mode, position, layers } = scene;
+    assert.deepEqual(sceneFromWire(wire), { title, mode, position, layers });
+    const broken = sceneFromWire({ ...wire, layers: [...wire.layers, { kind: "icon", component: "", spec: "{no es json" }, { kind: "component", component: "noExiste", spec: "{}" }] })!;
+    assert.equal(broken.layers.length, 2);
+    const flat = sceneFromWire({ title: "", mode: "full", position: "top", layers: [{ kind: "component", component: "keyword", spec: JSON.stringify({ text: "Sistema", label: "", emphasis: "marker" }) }] })!;
+    assert.equal((flat.layers[0] as unknown as { props: { text: string } }).props.text, "Sistema", "props sueltas en spec también sirven");
   });
 
   test("es permisivo: un ícono o color mal escrito no tira la respuesta, una capa rara se descarta", () => {
@@ -238,7 +257,7 @@ describe("director simulado (AI_FAKE)", () => {
   for (const format of ["9:16", "16:9"] as const)
     test(`los ejemplos de la revisión salen válidos (${format})`, () => {
       for (const [request, kind] of chips) {
-        const out = motionRequestAiSchema.parse(fakeResponse("video.motion.pedido", motionRequestTask({ request, spoken, around: spoken, format, duration: 3 })));
+        const out = motionRequestFromWire(motionRequestWireSchema.parse(fakeResponse("video.motion.pedido", motionRequestTask({ request, spoken, around: spoken, format, duration: 3 }))));
         const scene = sceneFromAi(out as MotionSceneAi, { ...ctx, format })!;
         const first = scene.layers[0] as { type: string; component?: string };
         assert.equal(first.component ?? first.type, kind, request);
@@ -249,7 +268,7 @@ describe("director simulado (AI_FAKE)", () => {
 
   test("rechaza lo que entra en los límites con una alternativa", () => {
     for (const request of ["Una foto mía sonriendo", "El logo de Instagram", "Una persona aplaudiendo"]) {
-      const out = motionRequestAiSchema.parse(fakeResponse("video.motion.pedido", motionRequestTask({ request, spoken, around: spoken, format: "9:16", duration: 3 })));
+      const out = motionRequestFromWire(motionRequestWireSchema.parse(fakeResponse("video.motion.pedido", motionRequestTask({ request, spoken, around: spoken, format: "9:16", duration: 3 }))));
       assert.ok(out.refusal && out.alternative, request);
       assert.equal(out.layers.length, 0);
     }
@@ -257,18 +276,18 @@ describe("director simulado (AI_FAKE)", () => {
 
   test("ajusta el gráfico actual (más grande, arriba) y el reintento simulado acorta", () => {
     const scene = sceneFromAi(ai([comp("checklist", { title: "", items: ["Contenido", "Conversación", "Cierre"] })]), ctx)!;
-    const out = motionRequestAiSchema.parse(fakeResponse("video.motion.ajuste", motionAdjustTask({ request: "más grande y arriba", spoken, around: spoken, format: "9:16", duration: 3, current: sceneToAi(scene) })));
+    const out = motionRequestFromWire(motionRequestWireSchema.parse(fakeResponse("video.motion.ajuste", motionAdjustTask({ request: "más grande y arriba", spoken, around: spoken, format: "9:16", duration: 3, current: sceneToAi(scene) }))));
     const next = sceneFromAi(out as MotionSceneAi, ctx)!;
     const layer = next.layers[0] as { scale: number; region?: { y: number } };
     assert.ok(layer.scale > 1);
     assert.ok(layer.region && layer.region.y < 0.2);
-    const retry = motionRetryAiSchema.parse(fakeResponse("video.motion.retry", motionRetryTask([{ spoken, format: "9:16", duration: 3, scene: sceneToAi(scene), problems: ["x"] }])));
+    const retry = motionRetryWireSchema.parse(fakeResponse("video.motion.retry", motionRetryTask([{ spoken, format: "9:16", duration: 3, scene: sceneToAi(scene), problems: ["x"] }])));
     assert.equal(retry.graphics.length, 1);
   });
 
   test("el plan automático trae escenas v2 válidas", () => {
     const task = `CANTIDAD: 2\nDURACIÓN: 1.5–4.0 s\nGRÁFICOS: 1.5–5.0 s\nF1 [0–5] 2.0 s (0.0–2.0): Hoy te cuento algo.\nF2 [6–17] 4.0 s (2.0–6.0): Una clínica en Houston pasó de tres a seis citas por cada diez llamadas.\nF3 [18–24] 3.0 s (6.0–9.0): Lo primero es preguntar qué le pasa.\nF4 [25–28] 2.0 s (9.0–11.0): Comenta LLAMADA.`;
-    const out = brollMotionAiSchema.parse(fakeResponse("video.broll.motion", task));
+    const out = brollMotionFromWire(brollMotionWireSchema.parse(fakeResponse("video.broll.motion", task)));
     const graphics = out.broll.filter((b) => b.kind === "graphic" && b.graphic);
     assert.ok(graphics.length >= 1);
     for (const g of graphics) assert.ok(sceneFromAi(g.graphic as MotionSceneAi, ctx));

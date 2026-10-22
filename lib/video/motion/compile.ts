@@ -25,6 +25,8 @@ export type CompiledScene = {
   safe: Box;
   /** Velo del modo "overlay" (posición 0–1, opacidad). */
   veil: [number, number][];
+  /** Dirección del velo: vertical (arriba o abajo) u horizontal (a un lado, en 16:9). */
+  veilAxis: "x" | "y";
   exit: { start: number; dur: number };
   /** Factor con el que se comprimió la entrada (1 = sin comprimir). */
   timeScale: number;
@@ -63,10 +65,22 @@ export function reelsButtons(W: number, H: number): Box | null {
   return H > W ? frac(W, H, 0.88, 0.6, 1, 0.9) : null;
 }
 
-/** Caja del contenido. Pantalla completa: centrada un poco arriba; sobre el video: franja de arriba o la de abajo. */
+/** Posición que se usa de verdad: a un lado solo existe sobre el video en 16:9 (si no, va arriba). */
+export function effectivePosition(W: number, H: number, mode: Mode, position: Position): Position {
+  if ((position === "left" || position === "right") && (H > W || mode !== "overlay")) return "top";
+  return position;
+}
+
+/**
+ * Caja del contenido. Pantalla completa: centrada un poco arriba; sobre el video: franja de arriba o la de abajo, o
+ * (16:9) la mitad izquierda o derecha, de todo el alto, para que los componentes altos (embudo, listas) no se achiquen.
+ */
 export function contentRegion(W: number, H: number, mode: Mode, position: Position): Box {
   const vertical = H > W;
   if (mode === "full") return vertical ? frac(W, H, 0.085, 0.12, 0.915, 0.76) : frac(W, H, 0.1, 0.12, 0.9, 0.88);
+  const pos = effectivePosition(W, H, mode, position);
+  if (pos === "left") return frac(W, H, 0.055, 0.1, 0.465, 0.9);
+  if (pos === "right") return frac(W, H, 0.535, 0.1, 0.945, 0.9);
   // Abajo se corre un poco a la izquierda: a la derecha están los botones de Reels.
   if (vertical) return position === "top" ? frac(W, H, 0.075, 0.07, 0.925, 0.355) : frac(W, H, 0.065, 0.56, 0.865, 0.825);
   return position === "top" ? frac(W, H, 0.12, 0.07, 0.88, 0.46) : frac(W, H, 0.12, 0.55, 0.88, 0.92);
@@ -74,6 +88,9 @@ export function contentRegion(W: number, H: number, mode: Mode, position: Positi
 
 export function veilStops(W: number, H: number, position: Position): [number, number][] {
   const vertical = H > W;
+  // A un lado (16:9): el velo cubre esa mitad y se apaga sobre el borde de la persona.
+  if (!vertical && position === "left") return [[0, 0.94], [0.42, 0.88], [0.52, 0.42], [0.6, 0]];
+  if (!vertical && position === "right") return [[0.4, 0], [0.48, 0.42], [0.58, 0.88], [1, 0.94]];
   if (position === "top")
     return vertical
       ? [[0, 0.9], [0.24, 0.8], [0.44, 0.36], [0.58, 0]]
@@ -213,7 +230,7 @@ export function makeKit(scene: Pick<MotionScene, "mode" | "position" | "theme" |
     vertical,
     format: vertical ? "9:16" : "16:9",
     mode: scene.mode,
-    position: scene.position,
+    position: effectivePosition(W, H, scene.mode, scene.position),
     theme,
     region: contentRegion(W, H, scene.mode, scene.position),
     safe: safeZone(W, H),
@@ -246,12 +263,13 @@ export function compileScene(scene: MotionScene, opts: CompileOptions): Compiled
     duration: scene.duration,
     format: k.format,
     mode: scene.mode,
-    position: scene.position,
+    position: k.position,
     theme: k.theme,
     unit: k.u,
     region: k.region,
     safe: k.safe,
-    veil: veilStops(k.W, k.H, scene.position),
+    veil: veilStops(k.W, k.H, k.position),
+    veilAxis: k.position === "left" || k.position === "right" ? "x" : "y",
     exit: { start: scene.duration - exitDur, dur: exitDur },
     timeScale,
     drift: true,

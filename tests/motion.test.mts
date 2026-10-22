@@ -258,6 +258,30 @@ describe("validador", () => {
     for (const code of ["overflow", "overlap", "safe-zone", "contrast", "component"]) assert.ok(codes.has(code as never), `falta ${code}: ${r.issues.map((i) => i.message).join(" | ")}`);
     for (const i of r.issues) assert.doesNotMatch(i.message, /\b(the|is|invalid)\b/i);
   });
+  test("16:9 a un lado: los componentes altos usan todo el alto de su mitad y pasan el validador", () => {
+    const h = { width: 1920, height: 1080, measure: approxMeasure };
+    const tall = [
+      { type: "component" as const, component: "funnel" as const, props: COMPONENTS.funnel.example as Record<string, unknown> },
+      { type: "component" as const, component: "list" as const, props: COMPONENTS.list.example as Record<string, unknown> },
+    ];
+    for (const layer of tall) {
+      for (const position of ["left", "right"] as const) {
+        const input = scene([layer], { format: "16:9", mode: "overlay", position });
+        const r = validateScene(input);
+        assert.equal(r.ok, true, `${layer.component} ${position}: ${r.issues.map((i) => i.message).join(" | ")}`);
+        const c = compileScene(sceneSchema.parse(input), h);
+        assert.equal(c.veilAxis, "x");
+        assert.ok(position === "left" ? c.region.x + c.region.w <= 960 : c.region.x >= 960, "el gráfico queda en su mitad");
+        // Más alto que la franja de arriba: el componente no queda chico.
+        const top = contentRegion(1920, 1080, "overlay", "top");
+        assert.ok(c.region.h > top.h * 1.6);
+      }
+    }
+    // En vertical, o a pantalla completa, "a un lado" se dibuja como arriba (planes con el campo en otro formato).
+    const v = compileScene(sceneSchema.parse(scene(tall.slice(0, 1), { mode: "overlay", position: "left" })), opts);
+    assert.equal(v.position, "top");
+    assert.equal(v.veilAxis, "y");
+  });
   test("botones de Reels (abajo a la derecha)", () => {
     const r = validateScene(scene([{ type: "text", text: "Aquí no", x: 0.86, y: 0.7, anchor: "top-left", w: 0.12, size: 40 }]));
     assert.ok(r.issues.some((i) => i.code === "buttons" || i.code === "safe-zone"));

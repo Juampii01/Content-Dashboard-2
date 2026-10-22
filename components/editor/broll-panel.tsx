@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Clapperboard, ExternalLink, Library, PenLine, Play, RefreshCcw, Search, Sparkles, Trash2 } from "lucide-react";
+import { Clapperboard, Clock, ExternalLink, Library, PenLine, Play, RefreshCcw, Search, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
 import { Notice, Skeleton } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { formatDuration } from "@/lib/format";
+import { editSummary, resolveEdit } from "@/lib/video/broll-edit";
 import type { OutputBroll } from "@/lib/video/effects";
 import type { GraphicLook } from "@/lib/video/graphics";
 import { graphicKindLabel, graphicModeLabel, graphicSeconds, type BrollGraphic } from "@/lib/video/motion-graphics";
@@ -50,6 +51,7 @@ export function BrollPanel({
   onActivate,
   onRemove,
   onChange,
+  onEdit,
   format,
 }: {
   items: BrollItem[];
@@ -62,6 +64,8 @@ export function BrollPanel({
   onActivate: (id: string) => void;
   onRemove: (id: string) => void;
   onChange: (id: string, tab?: PickerTab) => void;
+  /** Abre "Editar b-roll" (ubicación, encuadre, look y tiempo; en un gráfico, solo el tiempo). */
+  onEdit?: (id: string) => void;
   format: VideoFormat;
 }) {
   return (
@@ -77,11 +81,12 @@ export function BrollPanel({
           Este video no tiene b-roll. Selecciona unas palabras en la transcripción y toca <span className="font-semibold text-white">Poner b-roll aquí</span>.
         </p>
       ) : (
-        <ul className={cn("grid gap-2", format === "9:16" ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3")}>
+        <ul className={cn("grid grid-cols-1 gap-2", format === "9:16" ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3")}>
           {items.map((item) => {
             const choice = item.choice ? (signed[optionKey(item.choice)] ?? { ...item.choice, thumbUrl: item.choice.thumb ?? null, previewUrl: item.choice.preview ?? null }) : null;
             const seg = segments.find((s) => s.id === item.id);
             const text = words.slice(item.from_word, item.to_word + 1).map((w) => corrections[String(w.id)] ?? w.text).join(" ");
+            const summary = item.edit ? editSummary(resolveEdit(item.edit), format) : null;
             return (
               <li key={item.id}>
                 <div className={cn("card flex h-full gap-3 p-3 transition", activeId === item.id && "!border-accent bg-accent/10")}>
@@ -109,6 +114,12 @@ export function BrollPanel({
                       {seg ? `${formatDuration(seg.start)}–${formatDuration(seg.end)}` : choice ? "Cae sobre palabras cortadas" : "Sin clip"}
                     </p>
                     {choice ? <SourceLine option={choice} /> : <p className="text-xs text-warning">Elige un clip o quítalo.</p>}
+                    {summary && (
+                      <p className="flex items-center gap-1 truncate text-xs text-accent-glow">
+                        <SlidersHorizontal className="h-3 w-3 flex-none" aria-hidden />
+                        <span className="truncate">{summary}</span>
+                      </p>
+                    )}
                     {canEdit && (
                       <div className="mt-auto flex flex-wrap gap-1 pt-1">
                         {choice?.graphic && (
@@ -116,12 +127,22 @@ export function BrollPanel({
                             Editar
                           </Button>
                         )}
+                        {choice && onEdit && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="!h-8 !px-2.5"
+                            icon={choice.graphic ? <Clock className="h-3.5 w-3.5" aria-hidden /> : <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />}
+                            onClick={() => onEdit(item.id)}
+                            aria-label={choice.graphic ? "Ajustar el tiempo del gráfico" : "Editar ubicación, encuadre, look y tiempo"}
+                          >
+                            {choice.graphic ? "Tiempo" : "Ajustar"}
+                          </Button>
+                        )}
                         <Button size="sm" variant="ghost" className="!h-8 !px-2.5" icon={<RefreshCcw className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(item.id, choice?.graphic ? "sugeridos" : undefined)}>
                           Cambiar
                         </Button>
-                        <Button size="sm" variant="subtle" className="!h-8 !px-2.5" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => onRemove(item.id)} aria-label="Quitar este b-roll">
-                          Quitar
-                        </Button>
+                        <Button size="sm" variant="subtle" className="!h-8 !w-8 !px-0" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => onRemove(item.id)} aria-label="Quitar este b-roll" title="Quitar este b-roll" />
                       </div>
                     )}
                   </div>

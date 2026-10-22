@@ -184,7 +184,8 @@ export function sceneToAi(scene: MotionScene, title = ""): MotionSceneAi {
         break;
     }
   }
-  return { title, mode: scene.mode, position: scene.position, layers };
+  // A un lado (16:9) es una elección de la persona: la IA trabaja con arriba/abajo y el lado se conserva al volver.
+  return { title, mode: scene.mode, position: scene.position === "bottom" ? "bottom" : "top", layers };
 }
 
 // ─── Arreglos automáticos ─────────────────────────────────────────────────

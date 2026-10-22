@@ -157,6 +157,8 @@ placeholder   #6f84a8
 7. **Videos con clon** (HeyGen v3). ✅ Probado contra un simulador (`tests/mocks/heygen-mock.mjs`); falta un render real para validar tarifas.
 8. **Guía de instalación por cliente.** ✅ `docs/instalacion.md`.
 
+**B-roll a medida:** ✅ gráficos animados con la marca (6 plantillas, pantalla completa o sobre el video) que elige Claude sin inventar cifras, editables en la revisión y dibujados por el worker con Pillow (`lib/video/graphics.ts`, `worker/video/graphics.py`).
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

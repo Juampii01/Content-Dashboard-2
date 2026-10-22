@@ -81,8 +81,9 @@ export function NewProjectFlow({
   const [styleId, setStyleId] = useState<string | null>(initialStyle?.id ?? null);
   const [preset, setPreset] = useState<CaptionPresetKey>(initialStyle?.preset.captions ? "estilo" : "clasico");
   const [presetTouched, setPresetTouched] = useState(false);
-  const brollReady = broll.stock || broll.libraryClips > 0;
-  const [brollMode, setBrollMode] = useState<"auto" | "off">(brollReady ? "auto" : "off");
+  // Siempre hay b-roll posible: aunque no haya stock ni clips propios, la IA arma gráficos con tu marca.
+  const clipsReady = broll.stock || broll.libraryClips > 0;
+  const [brollMode, setBrollMode] = useState<"auto" | "off">("auto");
   const style = styles.find((st) => st.id === styleId) ?? null;
   const presetKeys = (Object.keys(CAPTION_PRESETS) as CaptionPresetKey[]).filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
 
@@ -322,13 +323,13 @@ export function NewProjectFlow({
                 <div>
                   <h3 className="text-base font-semibold">B-roll</h3>
                   <p className="mt-1 text-sm text-muted">
-                    Tomas de apoyo que tapan unos segundos mientras tu voz sigue. Las elige la IA según lo que dices
+                    Tomas de apoyo y gráficos animados con tu marca que tapan unos segundos mientras tu voz sigue. Los elige la IA según lo que dices
                     {style?.preset.broll.enabled ? ", con la cadencia del estilo" : ""}; en la revisión puedes cambiarlas o quitarlas.
                   </p>
                 </div>
                 <div role="radiogroup" aria-label="B-roll" className="grid gap-3 sm:grid-cols-2">
                   {[
-                    { value: "auto" as const, label: "Agregar b-roll", hint: [broll.libraryClips ? `${broll.libraryClips} clips de tu biblioteca` : null, broll.stock ? "videos de stock" : null].filter(Boolean).join(" y ") || "Sube clips a tu biblioteca para usarlo", icon: Clapperboard },
+                    { value: "auto" as const, label: "Agregar b-roll", hint: ["Gráficos con tu marca", broll.libraryClips ? `${broll.libraryClips} clips de tu biblioteca` : null, broll.stock ? "videos de stock" : null].filter(Boolean).join(", "), icon: Clapperboard },
                     { value: "off" as const, label: "Sin b-roll", hint: "Solo tú en cámara.", icon: Ban },
                   ].map((o) => (
                     <button
@@ -336,7 +337,6 @@ export function NewProjectFlow({
                       type="button"
                       role="radio"
                       aria-checked={brollMode === o.value}
-                      disabled={o.value === "auto" && !brollReady}
                       onClick={() => setBrollMode(o.value)}
                       className={cn("flex items-center gap-4 rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50", brollMode === o.value ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
                     >
@@ -350,10 +350,10 @@ export function NewProjectFlow({
                     </button>
                   ))}
                 </div>
-                {!brollReady && (
+                {!clipsReady && (
                   <p className="text-xs text-muted">
                     <Library className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
-                    Para usar b-roll, sube tus clips a la{" "}
+                    Por ahora el b-roll será de gráficos. Para sumar tomas de video, sube tus clips a la{" "}
                     <Link href="/editor/biblioteca" className="font-semibold text-accent-hi hover:underline">
                       biblioteca de b-roll
                     </Link>

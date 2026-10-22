@@ -115,7 +115,7 @@ export function BrollPanel({
                             Editar
                           </Button>
                         )}
-                        <Button size="sm" variant="ghost" className="!h-8 !px-2.5" icon={<RefreshCcw className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(item.id)}>
+                        <Button size="sm" variant="ghost" className="!h-8 !px-2.5" icon={<RefreshCcw className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(item.id, choice?.graphic ? "sugeridos" : undefined)}>
                           Cambiar
                         </Button>
                         <Button size="sm" variant="subtle" className="!h-8 !px-2.5" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => onRemove(item.id)} aria-label="Quitar este b-roll">
@@ -234,7 +234,8 @@ export function BrollPicker({
   const list = tab === "sugeridos" ? suggested : tab === "biblioteca" ? library : results;
   const currentGraphic = item.choice?.graphic ?? item.options.find((o) => o.graphic)?.graphic ?? null;
   const graphicSeconds = graphicPreviewSeconds(minDuration);
-  const quoted = spokenText.length > 90 ? `${spokenText.slice(0, 90)}…` : spokenText;
+  const clean = spokenText.trim().replace(/[.,;:…]+$/, "");
+  const quoted = clean.length > 90 ? `${clean.slice(0, 90).trimEnd()}…` : clean;
   return (
     <Dialog
       open={Boolean(item)}
@@ -250,6 +251,8 @@ export function BrollPicker({
       <div className="flex flex-col gap-4">
         <SegmentedControl
           label="Origen del b-roll"
+          size="sm"
+          className="max-w-full self-start overflow-x-auto"
           value={tab}
           onValueChange={(v) => (v === "biblioteca" ? openLibrary() : setTab(v))}
           options={[

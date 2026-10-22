@@ -12,9 +12,8 @@ import {
   GRAPHIC_TEMPLATE_KEYS,
   GRAPHIC_TEMPLATES,
   graphicSpecSchema,
-  numbersSupported,
   switchTemplate,
-  writtenNumbers,
+  unsupportedNumbers,
   type GraphicSpec,
   type GraphicTemplate,
 } from "@/lib/video/graphics";
@@ -63,10 +62,7 @@ export function GraphicEditor({
   const [spec, setSpec] = useState<GraphicSpec>(initial);
   const id = useId();
   const error = problem(spec);
-  const unsupported = useMemo(() => {
-    if (numbersSupported(spec, spokenText)) return [];
-    return writtenNumbers(spec);
-  }, [spec, spokenText]);
+  const unsupported = useMemo(() => unsupportedNumbers(spec, spokenText), [spec, spokenText]);
   const preview = useMemo(() => (error ? null : (graphicSpecSchema.parse(spec) as GraphicSpec)), [spec, error]);
   const set = (patch: Partial<GraphicSpec>) => setSpec((prev) => ({ ...prev, ...patch }) as GraphicSpec);
 

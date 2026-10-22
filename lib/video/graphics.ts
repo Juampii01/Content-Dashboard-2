@@ -296,9 +296,15 @@ export function writtenNumbers(spec: GraphicSpec): number[] {
  * no cuentan como cifra.
  */
 export function numbersSupported(spec: GraphicSpec, spoken: string): boolean {
+  return unsupportedNumbers(spec, spoken).length === 0;
+}
+
+/** Las cifras escritas en el gráfico que no se dicen en el tramo (sin repetir). */
+export function unsupportedNumbers(spec: GraphicSpec, spoken: string): number[] {
   const said = spokenNumbers(spoken);
   const close = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.001, Math.abs(b) * 0.001);
-  return writtenNumbers(spec).every((n) => (n >= 1 && n <= 4 && Number.isInteger(n) && spec.template !== "number") || said.some((s) => close(s, n)));
+  const missing = writtenNumbers(spec).filter((n) => !(n >= 1 && n <= 4 && Number.isInteger(n) && spec.template !== "number") && !said.some((s) => close(s, n)));
+  return [...new Set(missing)];
 }
 
 /** Cifra dicha → texto corto para el gráfico (10000 → "10K"). */

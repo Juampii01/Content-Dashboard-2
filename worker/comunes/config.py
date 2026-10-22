@@ -45,7 +45,7 @@ class Config:
     test_style_transcript: str | None = None
     # Hosts extra desde donde se puede bajar b-roll (además de Pixabay y Pexels). Solo para pruebas con un simulador.
     broll_extra_hosts: tuple[str, ...] = ()
-    capabilities: list[str] = field(default_factory=lambda: ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CODEX_LOGIN", "YT_THUMBNAILS", "YOUTUBE_TRANSCRIPT"])
+    capabilities: list[str] = field(default_factory=lambda: ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CODEX_LOGIN", "YT_THUMBNAILS", "YOUTUBE_TRANSCRIPT"])
 
     def describe(self) -> str:
         """Resumen para el log de arranque, sin secretos."""

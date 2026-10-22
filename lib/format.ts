@@ -170,3 +170,13 @@ export function toISODate(date: Date): string {
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+
+/** Marca de tiempo de un video: 75 → "1:15", 3725 → "1:02:05". */
+export function formatTimecode(seconds: Num): string {
+  if (!isNum(seconds) || seconds < 0) return EMPTY;
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}

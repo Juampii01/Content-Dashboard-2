@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { workerAuthorized } from "@/lib/jobs";
+import { maybeAutoExport } from "@/lib/clips/service";
 import { generatePlan, VideoError } from "@/lib/video/service";
 
 /**
@@ -14,7 +15,10 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
   if (!workerAuthorized(request)) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   const { id } = await params;
   try {
-    return NextResponse.json({ ok: true, ...(await generatePlan(id)) });
+    const result = await generatePlan(id);
+    // Un clip de "Clips desde un video largo" con "Exportar directo" se exporta apenas está el plan.
+    if (result.status === "AWAITING_REVIEW") await maybeAutoExport(id);
+    return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     if (error instanceof VideoError) return NextResponse.json({ error: error.message, retry: false }, { status: 422 });
     console.error("[worker/plan]", error instanceof Error ? error.message : error);

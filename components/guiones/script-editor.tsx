@@ -34,6 +34,7 @@ import { formatDuration, formatRelative } from "@/lib/format";
 import { actionLabel, formatLabel, hookTypeLabel, statusLabel, type ScriptStatus } from "@/lib/scripts/labels";
 import { scriptStats } from "@/lib/scripts/stats";
 import { cn } from "@/lib/utils";
+import { ScorePanel } from "./score-panel";
 import { adaptScriptAction, restoreVersionAction, runScriptAction, saveScriptAction, setScriptStatusAction, type ActionResult } from "./actions";
 
 type Format = keyof typeof formatLabel;
@@ -238,6 +239,15 @@ export function ScriptEditor({
             })}
           </ul>
         </Section>
+
+        <ScorePanel
+          hook={content.hooks[content.selectedHook]?.text ?? ""}
+          hookType={content.hooks[content.selectedHook]?.type ?? null}
+          estimatedSeconds={stats.estimatedSeconds}
+          format={format}
+          canEdit={canEdit}
+          onHookTypeChange={(type) => update((c) => ({ ...c, hooks: c.hooks.map((h, j) => (j === c.selectedHook ? { ...h, type } : h)) }))}
+        />
 
         <Section title="Cuerpo" description="Cada bloque cumple un solo propósito. Edita lo que quieras o pide que se reescriba.">
           <ol className="flex flex-col gap-4">

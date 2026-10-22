@@ -246,6 +246,22 @@ export function fakeResponse(feature: string, task = ""): unknown {
       return toWireRequest(fakeMotionAdjust(task));
     case "video.motion.retry":
       return { graphics: fakeMotionRetry(task).graphics.map(toWire) };
+    case "guiones.puntaje": {
+      // Explica con lo que trae la tarea (las cifras ya calculadas), igual que lo haría Claude.
+      const best = /Su mejor tipo de gancho: (\p{L}+) \((×[\d.]+)/u.exec(task);
+      const own = /Ganchos de ese tipo: (×[\d.]+) su mediana/.exec(task);
+      const type = /Tipo de gancho: (.+)/.exec(task)?.[1] ?? "sin clasificar";
+      const few = task.includes("pocos datos");
+      const sameType = best && best[1]!.toLowerCase() === type.toLowerCase();
+      return {
+        summary: `${few ? "Con los pocos datos que hay, " : ""}tu gancho es de ${type.toLowerCase()}${own ? `, un tipo que te rinde ${own[1]} tu mediana` : ""}.${best && !sameType ? ` Tu mejor tipo es ${best[1]!.toLowerCase()} (${best[2]}).` : " Es el tipo que mejor te funciona."}`,
+        tips: [
+          best && !sameType ? `Reescribe la primera frase como un gancho de ${best[1]!.toLowerCase()}.` : "Mantén el gancho y cuida que se diga en menos de 3 segundos.",
+          ...(/Sugerencias calculadas: .*Recorta/.test(task) ? ["Recorta el cuerpo hasta la duración de tus mejores piezas."] : []),
+        ],
+        hookRewrite: best && !sameType ? "Así pasé de 3 a 9 pacientes por día cambiando una sola frase." : null,
+      };
+    }
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

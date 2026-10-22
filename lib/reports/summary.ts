@@ -5,6 +5,7 @@ import { MONTHLY_RULES, monthlySummarySchema } from "@/lib/ai/prompts/informes";
 import { formatDate } from "@/lib/format";
 import { typeLabel } from "@/lib/metrics/labels";
 import { platformLabel } from "@/lib/social/types";
+import { factHeadline } from "./headline";
 import { addMonths, monthLabel } from "./month";
 import type { MonthlyReportData, Pair, ReportPiece, ReportSummary } from "./types";
 
@@ -72,7 +73,7 @@ export async function writeSummary(data: Omit<MonthlyReportData, "summary">, use
     userId,
   });
   return {
-    headline: draft.headline.trim(),
+    headline: factHeadline({ month: data.month, partial: data.partial, followersGained: data.totals.followersGained, views: data.totals.views }),
     wins: draft.wins.slice(0, 3),
     watch: draft.watch.slice(0, 2),
     ideas: draft.ideas.slice(0, 3),

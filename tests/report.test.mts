@@ -144,3 +144,12 @@ describe("colores de la marca", () => {
     assert.ok(contrast(c.accent, "#ffffff") >= 3.2);
   });
 });
+
+describe("frase principal", () => {
+  test("sale de las cifras calculadas, nunca de la IA", async () => {
+    const { factHeadline } = await import("../lib/reports/headline");
+    const h = factHeadline({ month: "2026-09", partial: false, followersGained: { current: 3928, previous: 3928 }, views: { current: 448_000, previous: 533_000 } });
+    assert.match(h, /^Septiembre cerró con \+3,928 seguidores y 448 mil visualizaciones de lo publicado, 16\s?% menos que agosto\.$/);
+    assert.match(factHeadline({ month: "2026-10", partial: true, followersGained: { current: null, previous: null }, views: { current: null, previous: null } }), /sin datos/);
+  });
+});

@@ -146,7 +146,6 @@ export function fakeResponse(feature: string, task = ""): unknown {
       };
     case "informes.resumen":
       return {
-        headline: "Septiembre cerró con +2,140 seguidores y 1.2 M de visualizaciones, 18 % más que agosto.",
         wins: [
           "Tu mejor reel del mes rindió ×3.4 tu mediana y fue el que más seguidores trajo.",
           "Publicaste 36 piezas: cumpliste tu meta semanal en 3 de 4 semanas.",

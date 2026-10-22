@@ -5,9 +5,6 @@ import { z } from "zod";
  * La IA solo lee las cifras que le pasamos: nunca inventa números, solo los interpreta.
  */
 export const monthlySummarySchema = z.object({
-  headline: z
-    .string()
-    .describe("Una frase con lo más importante del mes, con un número real del informe (ej. 'Octubre cerró con +3,420 seguidores, el mejor mes del año en Instagram')."),
   wins: z.array(z.string()).describe("Exactamente 3 logros del mes, cada uno con su número real."),
   watch: z.array(z.string()).describe("Exactamente 2 cosas a vigilar, cada una con su número real y qué hacer al respecto."),
   ideas: z

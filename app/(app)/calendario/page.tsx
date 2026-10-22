@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Sparkles } from "lucide-react";
+import { ButtonLink } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/feedback";
 import { CalendarBoard } from "@/components/calendario/calendar-board";
@@ -108,6 +109,11 @@ export default function CalendarioPage({ searchParams }: PageProps<"/calendario"
         title="¿Qué vas a publicar y cuándo?"
         description="Planea tus piezas por semana o por mes, muévelas arrastrando y mira cómo rindió cada una cuando se publica."
         icon={<CalendarDays className="h-5 w-5" aria-hidden />}
+        actions={
+          <ButtonLink href="/calendario/semana" variant="ghost" icon={<Sparkles className="h-4 w-4" aria-hidden />}>
+            Tu semana lista
+          </ButtonLink>
+        }
       />
       <Suspense fallback={<CalendarSkeleton />}>
         <CalendarContent searchParams={searchParams} />

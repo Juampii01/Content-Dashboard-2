@@ -152,6 +152,7 @@ async function uploadWith(meta: TakeMeta, file: Blob, memory: boolean) {
   patch(meta.id, { projectId: project?.id, total: file.size });
   let renewed = false;
   for (let attempt = 1; ; attempt++) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) patch(meta.id, { status: "offline", error: "Sin conexión: la subida sigue sola cuando vuelva." });
     await waitOnline();
     patch(meta.id, { status: "uploading", attempt, loaded: 0, error: undefined, retryIn: undefined });
     const controller = new AbortController();

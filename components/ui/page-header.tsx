@@ -18,10 +18,11 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="hero-panel card mb-8 flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
-      <div className="flex items-start gap-4">
+    <header className="hero-panel card mb-8 flex flex-col gap-5 p-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-7">
+      {/* El texto pide al menos ~26rem: si las acciones no entran al lado, bajan a su propio renglón. */}
+      <div className="flex min-w-0 flex-1 items-start gap-4 sm:basis-[26rem]">
         {icon && <div className="tile-hero">{icon}</div>}
-        <div>
+        <div className="min-w-0">
           {eyebrow && <p className="eyebrow mb-1.5">{eyebrow}</p>}
           <h1 className="text-2xl font-bold sm:text-[1.75rem]">{title}</h1>
           {description && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted sm:text-base">{description}</p>}

@@ -66,6 +66,8 @@ export type WorkerStatus = {
   autoStart: boolean;
   /** Trabajos esperando que nadie tomó en más de 3 minutos. */
   stuck: number;
+  /** Versión que reportó el worker en su último latido (null = nunca se conectó o no la manda). */
+  version: string | null;
 };
 
 export function flyConfigured(): boolean {
@@ -74,17 +76,18 @@ export function flyConfigured(): boolean {
 
 export async function workerStatus(): Promise<WorkerStatus> {
   const db = getDb();
-  const [beat] = await db.select({ seenAt: schema.workerHeartbeats.seenAt }).from(schema.workerHeartbeats).orderBy(desc(schema.workerHeartbeats.seenAt)).limit(1);
+  const [beat] = await db.select({ seenAt: schema.workerHeartbeats.seenAt, version: schema.workerHeartbeats.version }).from(schema.workerHeartbeats).orderBy(desc(schema.workerHeartbeats.seenAt)).limit(1);
   const [stuck] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.jobs)
-    .where(and(inArray(schema.jobs.type, ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS"]), eq(schema.jobs.status, "QUEUED"), sql`${schema.jobs.runAfter} < now() - interval '3 minutes'`));
+    .where(and(inArray(schema.jobs.type, ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "REEL_COPY"]), eq(schema.jobs.status, "QUEUED"), sql`${schema.jobs.runAfter} < now() - interval '3 minutes'`));
   const lastSeen = beat?.seenAt ?? null;
   return {
     online: Boolean(lastSeen && Date.now() - lastSeen.getTime() < HEARTBEAT_STALE_MS),
     lastSeen,
     autoStart: flyConfigured(),
     stuck: stuck?.n ?? 0,
+    version: beat?.version ?? null,
   };
 }
 

@@ -7,12 +7,12 @@ import { TeamSection, TeamSectionSkeleton } from "@/components/ajustes/team-sect
 import { ConnectionsSection, ConnectionsSkeleton } from "@/components/ajustes/connections-section";
 import { ConnectNotice } from "@/components/ajustes/connect-notice";
 import { DemoSection } from "@/components/ajustes/demo-section";
+import { SystemSection, SystemSectionSkeleton } from "@/components/ajustes/system-section";
 import { HeyGenSection, HeyGenSectionSkeleton } from "@/components/ajustes/heygen-section";
 import { ImageKeysSection, ImageKeysSectionSkeleton } from "@/components/ajustes/image-keys-section";
 import { ReportSettingsSection, ReportSettingsSkeleton } from "@/components/informes/settings-section";
 
 export const metadata: Metadata = { title: "Ajustes" };
-
 
 export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
   return (
@@ -34,6 +34,10 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
             <ConnectionsSection />
           </Suspense>
         </Section>
+
+        <Suspense fallback={<SystemSectionSkeleton />}>
+          <SystemSection />
+        </Suspense>
 
         <Suspense fallback={null}>
           <DemoSection />

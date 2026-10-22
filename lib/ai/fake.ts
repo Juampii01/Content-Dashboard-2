@@ -370,6 +370,10 @@ export function fakeResponse(feature: string, task = ""): unknown {
         notes: ["Simulación: este texto es fijo, no sale de tu video. Con la clave de IA se adapta tu texto real."],
       };
     }
+    case "copia.analisis":
+      return fakeCopyAnalysis(task);
+    case "copia.guion":
+      return fakeCopyScript(task);
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }
@@ -715,5 +719,70 @@ function fakeClipMoments(task: string) {
       };
     }),
     note: "",
+  };
+}
+
+/**
+ * "Copia este reel": analiza las frases S1, S2… como lo haría Claude (gancho en la primera, CTA al final si pide
+ * algo, el resto en beats) y nunca cita el original.
+ */
+function fakeCopyAnalysis(task: string) {
+  const sentences = [...task.matchAll(/^S(\d+) \[([\d.]+)–([\d.]+) s\] (.*)$/gm)].map((m) => ({ n: Number(m[1]), text: m[4]! }));
+  const last = sentences.length;
+  const lastText = sentences[last - 1]?.text ?? "";
+  const ctaKind = /coment/i.test(lastText) ? "comentar" : /s[ií]gue|seguir/i.test(lastText) ? "seguir" : /guard/i.test(lastText) ? "guardar" : /compart/i.test(lastText) ? "compartir" : "ninguno";
+  const bodyEnd = ctaKind === "ninguno" ? last : last - 1;
+  const body = Array.from({ length: Math.max(0, bodyEnd - 1) }, (_, i) => i + 2);
+  const groups = Math.min(3, body.length);
+  const size = groups ? Math.ceil(body.length / groups) : 0;
+  const purposes = ["Plantear el primer paso", "Dar el segundo paso", "Cerrar con el resultado"];
+  const first = sentences[0]?.text ?? "";
+  return {
+    originalTopic: "cómo editar videos cortos",
+    hook: {
+      from: 1,
+      to: 1,
+      type: /[?¿]/.test(first) ? "pregunta" : /\d/.test(first) ? "resultado" : "curiosidad",
+      mechanism: "Promete enseñar algo útil de inmediato y deja claro qué se va a ganar si se queda hasta el final.",
+    },
+    beats: Array.from({ length: groups }, (_, i) => ({
+      from: body[i * size]!,
+      to: body[Math.min(body.length - 1, (i + 1) * size - 1)]!,
+      purpose: purposes[i] ?? "Desarrollar la idea",
+      technique: i === 0 ? "lista numerada: primero" : i === groups - 1 ? "cierre con beneficio visible" : "paso concreto con verbo de acción",
+    })),
+    cta: ctaKind === "ninguno" ? { from: 0, to: 0, kind: "ninguno", description: "No pide nada al final." } : { from: last, to: last, kind: ctaKind, description: "Pide una palabra clave en los comentarios a cambio de un recurso gratis." },
+    whyItWorks: [
+      "La promesa es concreta y se entiende en menos de 3 segundos.",
+      "Cada paso arranca con un verbo y dura lo mismo: el ritmo no decae.",
+      "Cierra con un recurso gratis que se pide con una sola palabra.",
+    ],
+  };
+}
+
+/** La versión propia: un beat por cada BEAT de la estructura, sobre el TEMA pedido, sin ver el original. */
+function fakeCopyScript(task: string) {
+  const topic = (/TEMA DE LA VERSIÓN NUEVA: (.+)/.exec(task)?.[1] ?? "").replace(/\.$/, "");
+  const chosen = topic.startsWith("elige tú") ? "conseguir tus primeros clientes con contenido" : topic;
+  const beatsIn = [...task.matchAll(/^BEAT \d+ \(([\d.]+) s\): (.+?)\. Recurso/gm)].map((m) => ({ seconds: Number(m[1]), purpose: m[2]! }));
+  const steps = [
+    { spoken: `Paso uno: escribe en una hoja las tres preguntas que más te repiten sobre ${chosen}.`, onScreenText: "Tus 3 preguntas", broll: "Mano escribiendo en una libreta" },
+    { spoken: "Paso dos: responde cada una en un video corto, con un ejemplo real de tu semana.", onScreenText: "Un video por pregunta", broll: "Teléfono grabando en un trípode" },
+    { spoken: "Paso tres: publica una por día y mira cuál te trae más mensajes.", onScreenText: "Mide los mensajes", broll: "Pantalla con notificaciones" },
+  ];
+  const beats = (beatsIn.length ? beatsIn : [{ seconds: 4, purpose: "Desarrollar" }]).map((b, i) => ({ purpose: b.purpose, ...steps[i % steps.length]!, seconds: Math.max(2, Math.round(b.seconds)) }));
+  return {
+    title: `Tres pasos para ${chosen}`.slice(0, 80),
+    angle: `Un método simple y repetible para ${chosen}, contado en pasos cortos.`,
+    hooks: [
+      { text: `Así puedes ${chosen} esta semana sin gastar en anuncios.`, type: "resultado", score: 9, why: "Promete un resultado concreto y cercano." },
+      { text: `¿Por qué casi nadie logra ${chosen}? Por saltarse el primer paso.`, type: "pregunta", score: 8, why: "Abre una pregunta que el público se hace." },
+      { text: `Tres pasos. Diez minutos al día. Eso alcanza para ${chosen}.`, type: "lista", score: 8, why: "La lista corta promete facilidad." },
+      { text: `Dejé de improvisar con ${chosen} y todo cambió.`, type: "historia", score: 7, why: "Una historia personal genera intriga." },
+      { text: `Si sigues improvisando con ${chosen}, vas a seguir igual.`, type: "dolor", score: 7, why: "Nombra el costo de no cambiar." },
+    ],
+    beats,
+    cta: { spoken: "Comenta PASOS y te mando la plantilla para organizarlo.", onScreenText: "Comenta PASOS", offer: "" },
+    caption: `Tres pasos para ${chosen} 👇\n\nGuárdalo y empieza hoy.\n\nComenta PASOS y te mando la plantilla.`,
   };
 }

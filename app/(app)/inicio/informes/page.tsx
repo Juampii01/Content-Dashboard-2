@@ -8,6 +8,7 @@ import { MonthList } from "@/components/informes/month-list";
 import { ReportPreview } from "@/components/informes/report-preview";
 import { ReportEmpty } from "@/components/informes/report-empty";
 import { getCurrentUser } from "@/lib/auth";
+import { hasAnyConnection } from "@/lib/dal/home";
 import { getReport, getReportSettings, listReportMonths } from "@/lib/dal/reports";
 import { isMonth } from "@/lib/reports/month";
 
@@ -17,7 +18,7 @@ export const maxDuration = 120;
 
 async function Reports({ searchParams }: { searchParams: PageProps<"/inicio/informes">["searchParams"] }) {
   const params = await searchParams;
-  const [months, user, settings] = await Promise.all([listReportMonths(), getCurrentUser(), getReportSettings()]);
+  const [months, user, settings, connected] = await Promise.all([listReportMonths(), getCurrentUser(), getReportSettings(), hasAnyConnection()]);
   const requested = typeof params.mes === "string" && isMonth(params.mes) ? params.mes : null;
   // Por defecto, el último mes cerrado (el que se manda el día 1); si no hay, el mes en curso.
   const selected = months.find((m) => m.month === requested) ?? months.find((m) => !m.current) ?? months[0]!;
@@ -31,7 +32,7 @@ async function Reports({ searchParams }: { searchParams: PageProps<"/inicio/info
         {report ? (
           <ReportPreview report={report} canEdit={canEdit} recipients={settings.recipients} emailConfigured={settings.emailConfigured} />
         ) : (
-          <ReportEmpty month={selected.month} current={selected.current} canEdit={canEdit} />
+          <ReportEmpty month={selected.month} current={selected.current} canEdit={canEdit} connected={connected} isOwner={user.role === "OWNER"} />
         )}
       </div>
     </div>

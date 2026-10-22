@@ -138,7 +138,21 @@
     {
       "idx": 19,
       "version": "7",
-      "when": 1792688913780,
+      "when": 1792687923796,
+      "tag": "0019_primer-uso",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792691572398,
+      "tag": "0020_copia-este-reel",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792693918595,
       "tag": "0022_clon-traduccion-frases",
       "breakpoints": true
     }

@@ -73,6 +73,26 @@ function useWidth<T extends Element>(ref: React.RefObject<T | null>): number {
   return width;
 }
 
+/**
+ * Espacio extra entre palabras en las miniaturas (em). A ese tamaño, el salto de la palabra activa de "Hormozi" y la
+ * caja de "Caja" se comen el espacio y dos palabras se leen pegadas ("CONSIGUESMÁS"). Solo afecta a la miniatura.
+ */
+const THUMB_EXTRA_GAP: Partial<Record<CaptionPresetKey, number>> = { caja: 0.2, hormozi: 0.22 };
+
+type Block = ReturnType<typeof captionBlocks>[number];
+
+/** Bloque a mostrar en un instante del bucle y el instante a usar para dibujarlo. */
+export function holdBlock(blocks: Block[], time: number): { block: Block | null; at: number } {
+  if (blocks.length === 0) return { block: null, at: time };
+  const current = blocks.find((b) => time >= b.start && time < b.end);
+  if (current) return { block: current, at: time };
+  const before = blocks.filter((b) => b.end <= time).at(-1);
+  // Se dibuja un poco antes del final del bloque: las animaciones de entrada ya terminaron y nada se está apagando.
+  if (before) return { block: before, at: Math.max(before.start, before.end - 0.02) };
+  const first = blocks[0]!;
+  return { block: first, at: Math.min(first.end - 0.02, first.start + 0.3) };
+}
+
 /** Miniatura de un estilo: un cuadro 9:16 virtual del que se ve la franja de los subtítulos. */
 export function CaptionSample({
   preset,
@@ -93,7 +113,9 @@ export function CaptionSample({
   const width = useWidth(box);
   const blocks = useMemo(() => (preset === "ninguno" ? [] : captionBlocks(SAMPLE_WORDS, preset, preset === "estilo" ? captionStyle : null)), [preset, captionStyle]);
   const look = useMemo(() => (isCaptionStyle(preset) ? captionLook(preset, { format: "9:16", accent, brandFont, emoji }) : null), [preset, accent, brandFont, emoji]);
-  const block = blocks.find((b) => time >= b.start && time < b.end) ?? null;
+  // La miniatura nunca queda vacía: entre bloques y en la pausa del final del bucle se queda el último bloque
+  // completo (y antes del primero, el primero), así cada estilo siempre muestra algo.
+  const { block, at } = useMemo(() => holdBlock(blocks, time), [blocks, time]);
   // La miniatura es 5:4 y muestra la franja de los subtítulos de un cuadro 9:16 virtual tan ancho que el 80 %
   // de su ancho (el máximo de un renglón) ocupa casi toda la miniatura: así el texto se lee a tamaño chico.
   const boxH = (width * 4) / 5;
@@ -109,7 +131,7 @@ export function CaptionSample({
       ) : (
         width > 0 && (
           <div className="absolute" style={{ width: frameW, height: frameH, left: (width - frameW) / 2, top: boxH * 0.56 - anchor * frameH }}>
-            <CaptionOverlay block={block} time={time} preset={preset} format="9:16" accent={accent} height={frameH} captionStyle={captionStyle} look={look} />
+            <CaptionOverlay block={block} time={at} preset={preset} format="9:16" accent={accent} height={frameH} captionStyle={captionStyle} look={look} extraGap={THUMB_EXTRA_GAP[preset] ?? 0} />
           </div>
         )
       )}

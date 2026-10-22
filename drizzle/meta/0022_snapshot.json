@@ -1,6 +1,6 @@
 {
-  "id": "741a5cc1-6569-4f90-a61c-f859d945ad38",
-  "prevId": "bd4e6abb-7ddf-4f0a-ad20-e7c155c7de87",
+  "id": "6b68cc96-d77d-4a90-843f-53301cd7b51a",
+  "prevId": "81ca808c-76b9-48a7-aaf7-03975789391a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3336,6 +3336,172 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.reel_copies": {
+      "name": "reel_copies",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "status": {
+          "name": "status",
+          "type": "reel_copy_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ANALYZING'"
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "platform": {
+          "name": "platform",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topic": {
+          "name": "topic",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "objective": {
+          "name": "objective",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "format": {
+          "name": "format",
+          "type": "script_format",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'REEL'"
+        },
+        "analysis": {
+          "name": "analysis",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "style_id": {
+          "name": "style_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "script_id": {
+          "name": "script_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "reel_copies_updated_at_idx": {
+          "name": "reel_copies_updated_at_idx",
+          "columns": [
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "reel_copies_style_id_video_styles_id_fk": {
+          "name": "reel_copies_style_id_video_styles_id_fk",
+          "tableFrom": "reel_copies",
+          "tableTo": "video_styles",
+          "columnsFrom": [
+            "style_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "reel_copies_script_id_scripts_id_fk": {
+          "name": "reel_copies_script_id_scripts_id_fk",
+          "tableFrom": "reel_copies",
+          "tableTo": "scripts",
+          "columnsFrom": [
+            "script_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "reel_copies_created_by_users_id_fk": {
+          "name": "reel_copies_created_by_users_id_fk",
+          "tableFrom": "reel_copies",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.report_settings": {
       "name": "report_settings",
       "schema": "",
@@ -4794,6 +4960,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "onboarding_dismissed_at": {
+          "name": "onboarding_dismissed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6209,6 +6381,7 @@
         "LONG_VIDEO_CLIPS",
         "YT_THUMBNAILS",
         "YOUTUBE_TRANSCRIPT",
+        "REEL_COPY",
         "VIDEO_PHRASE_CLIP"
       ]
     },
@@ -6261,6 +6434,17 @@
         "INSTAGRAM",
         "YOUTUBE",
         "TIKTOK"
+      ]
+    },
+    "public.reel_copy_status": {
+      "name": "reel_copy_status",
+      "schema": "public",
+      "values": [
+        "UPLOADING",
+        "ANALYZING",
+        "WRITING",
+        "READY",
+        "FAILED"
       ]
     },
     "public.role": {

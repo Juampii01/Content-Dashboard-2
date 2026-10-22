@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { BellRing, ExternalLink, KeyRound, Plus, UserRound, Video, Wallet } from "lucide-react";
+import { BellRing, ExternalLink, KeyRound, Languages, Plus, UserRound, Video, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -16,9 +16,14 @@ async function HeaderAction() {
   const status = await getHeyGenStatus();
   if (!status.configured || !status.canEdit) return null;
   return (
-    <ButtonLink href="/clon/nuevo" icon={<Plus className="h-4 w-4" aria-hidden />}>
-      Nuevo video
-    </ButtonLink>
+    <div className="flex flex-wrap gap-2">
+      <ButtonLink href="/clon/traducir" variant="ghost" icon={<Languages className="h-4 w-4" aria-hidden />}>
+        Traducir un video
+      </ButtonLink>
+      <ButtonLink href="/clon/nuevo" icon={<Plus className="h-4 w-4" aria-hidden />}>
+        Nuevo video
+      </ButtonLink>
+    </div>
   );
 }
 

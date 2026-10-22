@@ -1,5 +1,5 @@
 {
-  "id": "1254270c-0e45-4e44-8ea1-a28d1b7d5f16",
+  "id": "741a5cc1-6569-4f90-a61c-f859d945ad38",
   "prevId": "bd4e6abb-7ddf-4f0a-ad20-e7c155c7de87",
   "version": "7",
   "dialect": "postgresql",
@@ -5066,6 +5066,18 @@
         },
         "audio_seconds": {
           "name": "audio_seconds",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "speech_start": {
+          "name": "speech_start",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "speech_end": {
+          "name": "speech_end",
           "type": "real",
           "primaryKey": false,
           "notNull": false

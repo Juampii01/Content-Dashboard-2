@@ -1302,6 +1302,9 @@ export const videoPhraseFixes = pgTable(
     /** Voz nueva guardada (`editor/<id>/frases/<fix>/voz.<ext>`), su duración y el ajuste de velocidad para que entre. */
     audioKey: text("audio_key"),
     audioSeconds: real("audio_seconds"),
+    /** Dónde empieza y termina lo hablado dentro del audio nuevo (sin el silencio de los bordes). */
+    speechStart: real("speech_start"),
+    speechEnd: real("speech_end"),
     tempo: real("tempo").notNull().default(1),
     /** Qué se ve durante la frase: "broll" (se tapa), "none" (la cara tal cual) o "lipsync" (boca redibujada por HeyGen). */
     cover: text("cover").notNull().default("broll"),

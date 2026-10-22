@@ -6,7 +6,8 @@ import { StatusBadge } from "@/components/ui/badges";
 import type { CloneVideoItem } from "@/lib/dal/clone";
 import { formatDuration, formatRelative } from "@/lib/format";
 import { aspectLabel, cloneStatusLabel, cloneStatusTone, isInProgress } from "@/lib/heygen/labels";
-import { ENGINES, formatUsd, type EngineKey } from "@/lib/heygen/pricing";
+import { languageLabel } from "@/lib/heygen/languages";
+import { ENGINES, formatUsd, TRANSLATION_MODES, type EngineKey } from "@/lib/heygen/pricing";
 import { useClonePolling } from "./use-clone-polling";
 
 /** Miniatura del video, o un marcador mientras se genera. Los archivos se piden a nuestra ruta protegida. */
@@ -24,7 +25,13 @@ export function CloneThumb({ item, className = "" }: { item: CloneVideoItem; cla
       ) : isInProgress(item.status) ? (
         <div className="flex flex-col items-center gap-2 text-xs text-muted">
           <Loader2 className="h-5 w-5 animate-spin text-accent-hi motion-reduce:animate-none" aria-hidden />
-          {item.status === "QUEUED" ? "Esperando turno en HeyGen" : "HeyGen está grabando a tu clon"}
+          {item.kind === "translation"
+            ? !item.sentToHeyGen
+              ? "Subiendo tu video a HeyGen"
+              : "HeyGen está traduciendo tu video"
+            : item.status === "QUEUED"
+              ? "Esperando turno en HeyGen"
+              : "HeyGen está grabando a tu clon"}
         </div>
       ) : (
         <Clapperboard className="h-6 w-6 text-placeholder" aria-hidden />
@@ -45,7 +52,7 @@ export function CloneVideoList({ initial }: { initial: CloneVideoItem[] }) {
             <Link href={`/clon/${item.id}`} className="card card-lift flex h-full flex-col overflow-hidden">
               <div className="relative">
                 <CloneThumb item={item} />
-                <div className="absolute top-3 left-3">
+                <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
                   <StatusBadge
                     tone={cloneStatusTone[item.status]}
                     icon={isInProgress(item.status) ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : undefined}
@@ -53,12 +60,24 @@ export function CloneVideoList({ initial }: { initial: CloneVideoItem[] }) {
                   >
                     {cloneStatusLabel[item.status]}
                   </StatusBadge>
+                  {item.language && (
+                    <span className="pill !bg-black/60 !text-[11px] backdrop-blur">
+                      {item.kind === "translation" ? "Traducción · " : ""}
+                      {languageLabel(item.language)}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
                 <h3 className="line-clamp-2 font-semibold text-white">{item.title}</h3>
                 <p className="flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted">
-                  <span>{engine ? `${engine.label} (${engine.model})` : item.engine}</span>
+                  <span>
+                    {item.kind === "translation"
+                      ? `Traducción ${TRANSLATION_MODES[item.source?.mode ?? "speed"].label.toLowerCase()}`
+                      : engine
+                        ? `${engine.label} (${engine.model})`
+                        : item.engine}
+                  </span>
                   <span aria-hidden>·</span>
                   <span>{aspectLabel[item.aspectRatio]?.label ?? item.aspectRatio}</span>
                   {seconds != null && (

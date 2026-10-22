@@ -22,6 +22,7 @@ from comunes.runner import JobContext, register
 
 from . import ass, audio_preview, broll_edit, energy, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
+from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
 
 log = logging.getLogger("worker.video")
 
@@ -228,8 +229,12 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     workdir = ctx.workdir(pid)
     mezz, wav = workdir / "mezz.mp4", workdir / "audio.wav"
 
+    # Frases corregidas con la voz clonada (y labios, si los hay): se aplican sobre el original, en su carpeta propia.
+    fixes = [f for f in data.get("phraseFixes") or [] if isinstance(f, dict)]
+    seg_mezz, seg_wav, seg_dir = (phrase_fix.patch_sources(ctx, pid, workdir, mezz, wav, fixes) if fixes else (mezz, wav, workdir))
+
     ctx.stage("Cortando las tomas", 0.1, 0.35)
-    segments = render.render_segments(mezz, wav, clips, workdir, ctx.progress)
+    segments = render.render_segments(seg_mezz, seg_wav, clips, seg_dir, ctx.progress)
 
     out_dir = workdir / f"render-{render.clips_hash(clips)}"
     out_dir.mkdir(exist_ok=True)

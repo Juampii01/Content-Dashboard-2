@@ -38,6 +38,8 @@ export type CloneVideoItem = {
   createdAt: string;
   completedAt: string | null;
   retriedInto: string | null;
+  /** Ya tiene id en HeyGen (en una traducción, false = todavía subiendo el video). */
+  sentToHeyGen: boolean;
 };
 
 export function toCloneVideoItem(row: CloneVideoRow): CloneVideoItem {
@@ -66,6 +68,7 @@ export function toCloneVideoItem(row: CloneVideoRow): CloneVideoItem {
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
     retriedInto: row.retriedInto ?? null,
+    sentToHeyGen: Boolean(row.heygenVideoId),
   };
 }
 

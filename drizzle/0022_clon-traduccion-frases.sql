@@ -14,6 +14,8 @@ CREATE TABLE "video_phrase_fixes" (
 	"window_end" real NOT NULL,
 	"audio_key" text,
 	"audio_seconds" real,
+	"speech_start" real,
+	"speech_end" real,
 	"tempo" real DEFAULT 1 NOT NULL,
 	"cover" text DEFAULT 'broll' NOT NULL,
 	"lipsync" jsonb,

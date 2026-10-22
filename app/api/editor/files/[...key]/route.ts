@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getOptionalUser } from "@/lib/auth";
 import { fileDriver } from "@/lib/storage";
 import { assertKey, serveLocal, writeLocal } from "@/lib/storage/files";
+import { loadLongVideo } from "@/lib/clips/service";
 import { loadClip } from "@/lib/video/library";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
@@ -29,6 +30,10 @@ async function pendingUpload(key: string): Promise<number | null> {
   if (scope === "estilos" && id) {
     const style = await loadStyle(id);
     return style?.status === "UPLOADING" && style.sourceKey === key ? (style.sourceBytes ?? 0) : null;
+  }
+  if (scope === "largos" && id) {
+    const video = await loadLongVideo(id);
+    return video?.status === "UPLOADING" && video.sourceKey === key ? (video.sourceBytes ?? 0) : null;
   }
   if (scope === "biblioteca" && id) {
     const clip = await loadClip(id);

@@ -246,6 +246,8 @@ export function fakeResponse(feature: string, task = ""): unknown {
       return toWireRequest(fakeMotionAdjust(task));
     case "video.motion.retry":
       return { graphics: fakeMotionRetry(task).graphics.map(toWire) };
+    case "clips.momentos":
+      return fakeClipMoments(task);
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }
@@ -547,5 +549,49 @@ function fakeBrollMotionPlan(task: string) {
       }
       return { ...b, graphic: scene };
     }),
+  };
+}
+
+/**
+ * Clips desde un video largo: elige los candidatos con mejor puntaje de reglas (la cantidad pedida), arranca en la
+ * primera palabra que no es conector y arma título, gancho y explicación con lo que se dice en el tramo.
+ */
+function fakeClipMoments(task: string) {
+  const count = Number(task.match(/idealmente (\d+)/)?.[1] ?? 5);
+  const cands = [...task.matchAll(/^### (C\d+) \[(\d+)–(\d+)\] [^\n]*?reglas (\d+)\/100 · (\d+) preguntas · (\d+) cifras[^\n]*\nANTES: [^\n]*\nCLIP: ([^\n]*)/gm)].map((m) => ({
+    id: m[1]!,
+    from: Number(m[2]),
+    to: Number(m[3]),
+    rule: Number(m[4]),
+    questions: Number(m[5]),
+    numbers: Number(m[6]),
+    words: m[7]!.split(" ").map((t) => ({ id: Number(t.split(":")[0]), text: t.slice(t.indexOf(":") + 1) })),
+  }));
+  const picked = [...cands].sort((a, b) => b.rule - a.rule).slice(0, Math.min(10, Math.max(count, 0)));
+  const connector = /^(y|pero|entonces|eh|em|bueno|este)$/i;
+  return {
+    clips: picked.map((c, i) => {
+      let k = 0;
+      while (k < c.words.length - 1 && k < 6 && connector.test(c.words[k]!.text.replace(/[^\p{L}]/gu, ""))) k++;
+      const text = c.words.slice(k).map((w) => w.text);
+      const firstSentence = text.slice(0, Math.max(4, text.findIndex((t) => /[.?!]$/.test(t)) + 1)).join(" ");
+      const short = (t: string, max: number) => (t.length <= max ? t : `${t.slice(0, t.lastIndexOf(" ", max - 1))}…`);
+      return {
+        candidate: c.id,
+        from_word: c.words[k]!.id,
+        to_word: c.to,
+        title: short(firstSentence.replace(/[¿?¡!.,]/g, ""), 58),
+        hook_text: short(firstSentence, 68),
+        reason:
+          c.questions > 0
+            ? "Abre con una pregunta que tu audiencia se hace y la responde completa antes de cerrar."
+            : c.numbers > 0
+              ? "Da un dato concreto con cifras y lo explica sin depender de lo que se dijo antes."
+              : "Plantea una idea completa con un cierre claro: se entiende sin contexto.",
+        hook_type: /[¿?]/.test(firstSentence) ? "pregunta" : /\d|mil/.test(firstSentence) ? "resultado" : "contraste",
+        ai_score: Math.max(40, 92 - i * 6),
+      };
+    }),
+    note: "",
   };
 }

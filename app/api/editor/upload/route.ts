@@ -3,6 +3,7 @@ import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/b
 import { getOptionalUser } from "@/lib/auth";
 import { fileDriver, VIDEO_TYPES } from "@/lib/storage";
 import { uploadDelegation } from "@/lib/storage/files";
+import { loadLongVideo } from "@/lib/clips/service";
 import { loadClip } from "@/lib/video/library";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
@@ -27,12 +28,15 @@ export async function POST(request: NextRequest) {
       body,
       request,
       getSignedToken: async (pathname, clientPayload) => {
-        // clientPayload: el id del proyecto, o "estilo:<id>" (referencia de un estilo) o "clip:<id>" (biblioteca).
+        // clientPayload: el id del proyecto, o "estilo:<id>" (referencia de un estilo), "clip:<id>" (biblioteca) o "largo:<id>" (clips desde un video largo).
         const [kind, ref] = clientPayload?.includes(":") ? clientPayload.split(":", 2) : ["proyecto", clientPayload];
         let size: number | null = null;
         if (kind === "estilo" && ref) {
           const style = await loadStyle(ref);
           if (style?.status === "UPLOADING" && style.sourceKey === pathname) size = style.sourceBytes ?? 0;
+        } else if (kind === "largo" && ref) {
+          const video = await loadLongVideo(ref);
+          if (video?.status === "UPLOADING" && video.sourceKey === pathname) size = video.sourceBytes ?? 0;
         } else if (kind === "clip" && ref) {
           const clip = await loadClip(ref);
           if (clip?.status === "UPLOADING" && clip.fileKey === pathname) size = clip.fileBytes ?? 0;

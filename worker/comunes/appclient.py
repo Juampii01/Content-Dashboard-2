@@ -55,7 +55,7 @@ class AppClient:
             raise JobError("No pudimos comunicarnos con la app. Vamos a reintentarlo.", detail=f"{path}: {exc}") from exc
 
     def transfer(self, project_id: str | None, key: str, op: str, content_type: str | None = None, owner: dict[str, str] | None = None) -> dict[str, Any]:
-        """`owner` cambia el dueño del archivo: {"styleId": …} (estilos) o {"clipId": …} (biblioteca de b-roll)."""
+        """`owner` cambia el dueño del archivo: {"styleId": …} (estilos), {"clipId": …} (biblioteca de b-roll) o {"longVideoId": …} (clips)."""
         payload: dict[str, Any] = {**(owner or {"projectId": project_id}), "key": key, "op": op}
         if content_type:
             payload["contentType"] = content_type
@@ -70,6 +70,14 @@ class AppClient:
 
     def plan(self, project_id: str) -> dict[str, Any]:
         return self._post(f"/api/worker/projects/{project_id}/plan", {}, timeout=330)
+
+    def clip_moments(self, long_video_id: str) -> dict[str, Any]:
+        """Clips desde un video largo: la app elige los momentos (reglas + Claude) y devuelve sus tramos."""
+        return self._post(f"/api/worker/clips/{long_video_id}/moments", {}, timeout=330)
+
+    def clip_framing(self, long_video_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Entrega el reencuadre y la vista previa de cada clip; el video queda listo para elegir."""
+        return self._post(f"/api/worker/clips/{long_video_id}/framing", payload, timeout=120)
 
     def style_result(self, style_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Entrega lo medido en la referencia; la app arma y valida el preset y borra la referencia subida."""

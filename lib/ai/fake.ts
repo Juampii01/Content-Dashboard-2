@@ -1,5 +1,6 @@
 import "server-only";
 import { spokenNumbers } from "@/lib/video/graphics";
+import { ICON_TAGS } from "@/lib/video/motion/icons";
 
 /**
  * Respuestas simuladas para probar la interfaz sin clave de IA. Solo en desarrollo con AI_FAKE=1;
@@ -215,6 +216,14 @@ export function fakeResponse(feature: string, task = ""): unknown {
       return fakeVideoPlan(task);
     case "video.broll":
       return fakeBrollPlan(task);
+    case "video.broll.motion":
+      return fakeBrollMotionPlan(task);
+    case "video.motion.pedido":
+      return fakeMotionRequest(task);
+    case "video.motion.ajuste":
+      return fakeMotionAdjust(task);
+    case "video.motion.retry":
+      return fakeMotionRetry(task);
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }
@@ -281,6 +290,237 @@ function fakeBrollPlan(task: string) {
         graphic,
         why: graphic ? "Una idea que se entiende mejor en pantalla." : "La frase describe algo que se puede mostrar.",
       };
+    }),
+  };
+}
+
+// ─── Motion graphics (escenas v2 con el motor) ───────────────────────────
+//
+// Un "director" determinista que responde como Claude con la forma de lib/ai/prompts/motion.ts: mapea palabras del
+// pedido a componentes (embudo, notificación, barras, checklist, tachado…), rechaza lo que entra en los límites
+// (personas, fotos realistas, logos de terceros) y aplica ajustes simples (más grande, arriba, pantalla completa).
+
+type FakeLayer = Record<string, unknown>;
+type FakeScene = { title: string; mode: "full" | "overlay"; position: "top" | "bottom"; layers: FakeLayer[] };
+
+const fakeComp = (component: string, props: Record<string, unknown>, extra: Partial<{ at: number; scale: number; place: string }> = {}): FakeLayer => ({ kind: "component", component, at: 0, scale: 1, place: "auto", props, ...extra });
+const anim = (type: string, at: number) => ({ type, at, dur: 0, dir: "none" });
+const fakeText = (text: string, y: number, o: Partial<{ size: number; color: string; style: string; at: number }> = {}): FakeLayer => ({
+  kind: "text",
+  text,
+  x: 0.5,
+  y,
+  w: 0.84,
+  size: o.size ?? 150,
+  weight: 900,
+  font: "display",
+  color: o.color ?? "text",
+  align: "center",
+  uppercase: true,
+  emphasis_words: o.style && o.style !== "none" ? text : "",
+  emphasis_style: o.style ?? "none",
+  animate: [anim(o.style === "strike" ? "fadeUp" : "pop", o.at ?? 0), ...(o.style === "strike" ? [anim("strike", (o.at ?? 0) + 0.5)] : [])],
+});
+
+const between = (task: string, tag: string) => task.match(new RegExp(`<${tag}>\\n?([\\s\\S]*?)\\n?</${tag}>`))?.[1]?.trim() ?? "";
+const spokenOf = (task: string) => task.match(/Lo que dice la persona(?: en el tramo)?: "([^"]*)"/)?.[1] ?? "";
+const quoted = (text: string) => text.match(/[“"'‘]([^"”'’]{2,90})["”'’]/)?.[1]?.trim() ?? null;
+const cap = (t: string) => (t ? t[0]!.toUpperCase() + t.slice(1) : t);
+const firstWords = (t: string, n: number) => t.replace(/[.?!…]+$/, "").split(/\s+/).filter(Boolean).slice(0, n).join(" ");
+const listAfterColon = (request: string) => {
+  const part = request.includes(":") ? request.slice(request.indexOf(":") + 1) : request;
+  return part
+    .split(/,|\by\b|→|->|>/)
+    .map((x) => x.replace(/[.]+$/, "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+};
+const fakeFmt = (n: number) => (n >= 1e6 ? `${Math.round(n / 1e5) / 10}M` : n >= 10000 ? `${Math.round(n / 100) / 10}K` : String(n));
+
+function fakeIcon(text: string): string {
+  const t = text.toLowerCase();
+  for (const [name, tags] of Object.entries(ICON_TAGS)) if (tags?.split(/,\s*/).some((tag) => tag.length > 3 && t.includes(tag.toLowerCase()))) return name;
+  return "sparkles";
+}
+
+function fakeRefusal(request: string): { refusal: string; alternative: string } | null {
+  if (/\b(logo|logotipo|nike|apple|instagram|whatsapp|tiktok|youtube|coca[- ]?cola|google)\b/i.test(request))
+    return { refusal: "No podemos poner logos ni marcas de otras empresas en tus gráficos.", alternative: "Un ícono de mensaje que aparece con la frase 'Escríbeme'" };
+  if (/\b(personas?|caras?|rostros?|gente|mujer|hombre|cuerpo|avatar|personaje)\b/i.test(request))
+    return { refusal: "Los gráficos no incluyen personas ni caras: se arman con textos, íconos, cifras y formas de tu marca.", alternative: "Un ícono de usuarios que aparece con la frase 'Tu comunidad'" };
+  if (/\b(foto|fotos|fotograf\w*|realista|video real|filmad\w*|imagen real)\b/i.test(request))
+    return { refusal: "No generamos fotos ni videos realistas. Para eso usa una toma de stock o de tu biblioteca.", alternative: "Una palabra clave grande con la idea de este tramo" };
+  return null;
+}
+
+function fakeSceneFor(request: string, spoken: string): FakeScene {
+  const r = request.toLowerCase();
+  const position: "top" | "bottom" = /\babajo\b/.test(r) ? "bottom" : "top";
+  const nums = spokenNumbers(request);
+  const said = spokenNumbers(spoken);
+  if (/embudo/.test(r)) {
+    const levels = request
+      .split(/→|->|>|,/)
+      .map((x, i, all) => x.replace(i === 0 ? /^.*embudo\s*(de\s*)?/i : /$^/, "").replace(i === all.length - 1 ? /\s+que\s.*$/i : /$^/, "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    return { title: "Embudo", mode: "full", position, layers: [fakeComp("funnel", { title: "", levels: (levels.length >= 2 ? levels : ["Seguidores", "Conversaciones", "Clientes"]).map((label) => ({ label: cap(label), value: "" })) })] };
+  }
+  if (/\b(dm|notificaci|mensaje directo|mensaje)\b/.test(r)) {
+    return { title: "Mensaje directo", mode: "overlay", position, layers: [fakeComp("dmNotification", { name: "Nuevo cliente", message: quoted(request) ?? firstWords(spoken, 10), app: "Mensajes", time: "ahora", typing: true, stack: 1 })] };
+  }
+  if (/barras?/.test(r)) {
+    const values = nums.length >= 2 ? nums.slice(0, 6) : said.slice(0, 6);
+    const title = request.match(/\d+\s+([a-záéíóúñ ]{4,40})$/i)?.[1]?.trim() ?? "";
+    const bars = values.length === 2 ? [{ label: "Antes", value: values[0] }, { label: "Ahora", value: values[1] }] : values.map((v, i) => ({ label: `#${i + 1}`, value: v }));
+    if (bars.length >= 2) return { title: "Barras que suben", mode: "full", position, layers: [fakeComp("barChart", { title: cap(title), bars, prefix: "", suffix: "", highlight: -1 })] };
+  }
+  if (/check|tild|palom/.test(r)) return { title: "Checklist", mode: "full", position, layers: [fakeComp("checklist", { title: "", items: listAfterColon(request).map(cap) })] };
+  if (/tachad/.test(r)) {
+    const caps = request.match(/\b[A-ZÁÉÍÓÚÑ]{3,}\b/g) ?? [];
+    const [off, on] = [caps[0] ?? "ANTES", caps[1] ?? "AHORA"];
+    return { title: `${cap(off.toLowerCase())} tachado`, mode: "full", position, layers: [fakeText(off, 0.38, { color: "muted", style: "strike" }), fakeText(on, 0.54, { color: "accent", size: 170, at: 0.95 })] };
+  }
+  if (/\bde\s+\S+\s+a\s+\S+/.test(r) && nums.length >= 2) {
+    return { title: "Antes y después", mode: "full", position, layers: [fakeComp("beforeAfter", { from: fakeFmt(nums[0]!), to: fakeFmt(nums[1]!), fromLabel: "Antes", toLabel: "Ahora", label: firstWords(request.replace(/^.*?\d+\s+a\s+\d+\s*/i, ""), 5) })] };
+  }
+  if (/porcentaje|progreso|anillo/.test(r)) {
+    const v = (nums.length ? nums : said).find((n) => n > 0 && n <= 100);
+    if (v != null) return { title: "Progreso", mode: "full", position, layers: [fakeComp("progress", { value: v, style: /barra/.test(r) ? "bar" : "ring", label: firstWords(spoken, 7), eyebrow: "" })] };
+  }
+  if (/n[uú]mero|cifra|contador/.test(r)) {
+    const v = said[0] ?? nums[0];
+    if (v != null) return { title: "Cifra", mode: "full", position, layers: [fakeComp("statCard", { value: fakeFmt(v), label: firstWords(spoken, 6), eyebrow: "", icon: "" })] };
+  }
+  if (/lista|puntos/.test(r)) return { title: "Lista", mode: "full", position, layers: [fakeComp("list", { title: "", items: listAfterColon(request).map(cap), marker: "number", icons: [] })] };
+  if (/pasos|flujo|proceso|sistema/.test(r)) {
+    const steps = listAfterColon(request).map(cap).slice(0, 4);
+    return { title: "Pasos", mode: "full", position, layers: [fakeComp("steps", { title: "", steps: steps.length >= 2 ? steps : ["Contenido", "Conversación", "Cierre"], icons: [] })] };
+  }
+  if (/compar|mito|versus|\bvs\b/.test(r)) return { title: "Comparación", mode: "full", position, layers: [fakeComp("comparison", { left: { label: "Antes", text: "Lo que hacías" }, right: { label: "Ahora", text: firstWords(spoken, 6) } })] };
+  if (/l[ií]nea de tiempo|hitos/.test(r)) return { title: "Línea de tiempo", mode: "full", position, layers: [fakeComp("timeline", { title: "", items: listAfterColon(request).map((label) => ({ label: cap(label), caption: "" })) })] };
+  if (/[ií]cono/.test(r)) return { title: "Ícono", mode: "overlay", position, layers: [fakeComp("iconBurst", { icon: fakeIcon(request), title: cap(quoted(request) ?? firstWords(spoken, 4)), caption: "" })] };
+  if (/frase|cita/.test(r)) return { title: "Frase", mode: "overlay", position, layers: [fakeComp("quote", { text: cap(quoted(request) ?? firstWords(spoken, 10)), highlight: "", author: "" })] };
+  const word = quoted(request) ?? [...spoken.replace(/[^\p{L}\p{N} ]/gu, "").split(" ")].sort((a, b) => b.length - a.length)[0] ?? "Idea";
+  return { title: "Palabra clave", mode: "overlay", position, layers: [fakeComp("keyword", { text: cap(word.slice(0, 28)), label: "", emphasis: "marker" })] };
+}
+
+function fakeMotionRequest(task: string) {
+  const request = between(task, "pedido");
+  const refusal = fakeRefusal(request);
+  if (refusal) return { title: "", mode: "full", position: "top", layers: [], note: "", ...refusal };
+  return { ...fakeSceneFor(request, spokenOf(task)), refusal: "", alternative: "", note: "" };
+}
+
+function fakeMotionAdjust(task: string) {
+  const request = between(task, "pedido");
+  const refusal = fakeRefusal(request);
+  let scene: FakeScene;
+  try {
+    scene = JSON.parse(between(task, "escena")) as FakeScene;
+  } catch {
+    return { ...fakeSceneFor(request, spokenOf(task)), refusal: "", alternative: "", note: "" };
+  }
+  if (refusal) return { ...scene, layers: [], note: "", ...refusal };
+  const r = request.toLowerCase();
+  const notes: string[] = [];
+  const comps = scene.layers.filter((l) => l.kind === "component");
+  const resize = (f: number) =>
+    scene.layers.forEach((l) => {
+      if (l.kind === "component") l.scale = Math.round(Math.min(1.4, Math.max(0.7, Number(l.scale ?? 1) * f)) * 100) / 100;
+      else if (typeof l.size === "number") l.size = Math.round(l.size * f);
+    });
+  if (/m[aá]s grande|agranda|grande/.test(r)) resize(1.22);
+  if (/m[aá]s (chico|peque)|achica/.test(r)) resize(0.85);
+  if (/arriba/.test(r)) {
+    scene.position = "top";
+    comps.forEach((l) => (l.place = "top"));
+  }
+  if (/abajo/.test(r)) {
+    scene.position = "bottom";
+    comps.forEach((l) => (l.place = "bottom"));
+  }
+  if (/pantalla completa/.test(r)) scene.mode = "full";
+  if (/sobre (el|mi) video|encima/.test(r)) scene.mode = "overlay";
+  if (/flecha.*sub|que suba/.test(r)) {
+    const ba = comps.find((l) => l.component === "beforeAfter");
+    if (ba) {
+      const p = ba.props as { from: string; to: string; fromLabel: string; toLabel: string; label: string };
+      const num = (v: string) => Number(v.replace(/[^\d.,]/g, "").replace(",", ".")) || 0;
+      Object.assign(ba, { component: "barChart", props: { title: cap(p.label), bars: [{ label: p.fromLabel || "Antes", value: num(p.from) }, { label: p.toLabel || "Ahora", value: num(p.to) }], prefix: "", suffix: "", highlight: -1 } });
+      notes.push("La flecha de ese gráfico siempre va hacia la derecha: lo cambié por barras que suben.");
+    } else notes.push("Este gráfico no tiene una flecha que se pueda girar; dejé el resto igual.");
+  }
+  const text = quoted(request);
+  if (text && /dig|texto|cambi|pon/.test(r)) {
+    const main = comps[0]?.props as Record<string, unknown> | undefined;
+    const key = main ? (["message", "text", "title", "label", "value"].find((k) => typeof main[k] === "string") ?? null) : null;
+    if (main && key) main[key] = text;
+    else {
+      const t = scene.layers.find((l) => l.kind === "text");
+      if (t) t.text = text;
+    }
+  }
+  if (/m[aá]s r[aá]pido/.test(r)) scene.layers.forEach((l) => (l.at = 0));
+  if (/m[aá]s lento|despu[eé]s|tarde/.test(r)) comps.forEach((l) => (l.at = Math.min(1.2, Number(l.at ?? 0) + 0.4)));
+  return { ...scene, refusal: "", alternative: "", note: notes.join(" ") };
+}
+
+function fakeMotionRetry(task: string) {
+  const scenes = [...task.matchAll(/- Escena:\n(\{.*\})\n/g)].map((m) => {
+    try {
+      return JSON.parse(m[1]!) as FakeScene;
+    } catch {
+      return null;
+    }
+  });
+  const shrinkText = (v: unknown): unknown => {
+    if (typeof v === "string") return v.length > 18 ? firstWords(v, Math.max(2, Math.ceil(v.split(" ").length * 0.6))) : v;
+    if (Array.isArray(v)) return v.slice(0, 4).map(shrinkText);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, shrinkText(x)]));
+    return v;
+  };
+  return {
+    graphics: scenes.map((s) =>
+      s
+        ? {
+            ...s,
+            mode: "full",
+            layers: s.layers.slice(0, 3).map((l) => (l.kind === "component" ? { ...l, scale: 0.9, props: shrinkText(l.props) } : { ...l, text: typeof l.text === "string" ? shrinkText(l.text) : l.text, size: typeof l.size === "number" ? l.size * 0.85 : l.size })),
+          }
+        : { title: "", mode: "overlay", position: "top", layers: [fakeComp("keyword", { text: "Idea clave", label: "", emphasis: "marker" })] },
+    ),
+  };
+}
+
+/** Plan del b-roll con escenas v2: como fakeBrollPlan, pero los gráficos ya son escenas del motor. */
+function fakeBrollMotionPlan(task: string) {
+  const plan = fakeBrollPlan(task);
+  const frases = [...task.matchAll(/^F\d+ \[(\d+)–(\d+)\] [\d.]+ s \([\d.]+–[\d.]+\): (.*)$/gm)].map((m) => ({ from: Number(m[1]), to: Number(m[2]), text: m[3]! }));
+  return {
+    broll: plan.broll.map((b, n) => {
+      if (b.kind !== "graphic" || !b.graphic) return { ...b, graphic: null };
+      const text = frases.find((f) => f.from <= b.from_word && b.from_word <= f.to)?.text ?? "";
+      const nums = spokenNumbers(text);
+      const clean = text.replace(/^(eh|em|este)\s+/i, "").replace(/[.?!…]+$/, "").trim();
+      const g = b.graphic as { template: string; items?: string[]; item_labels?: string[]; headline?: string };
+      let scene: FakeScene;
+      if (g.template === "number" && /\bde\s+\S+\s+a\s+\S+/i.test(text) && nums.length >= 2) {
+        const rest = clean.replace(/^.*?\ba\s+\S+\s*/i, "");
+        scene = { title: "Antes y después", mode: "full", position: "top", layers: [fakeComp("beforeAfter", { from: fakeFmt(nums[0]!), to: fakeFmt(nums[1]!), fromLabel: "Antes", toLabel: "Ahora", label: firstWords(rest, 6) })] };
+      } else if (g.template === "number") {
+        scene = { title: "Cifra", mode: "full", position: "top", layers: [fakeComp("statCard", { value: g.headline ?? fakeFmt(nums[0] ?? 2), label: firstWords(clean, 6), eyebrow: "", icon: fakeIcon(clean) === "sparkles" ? "" : fakeIcon(clean) })] };
+      } else if (g.template === "compare") {
+        scene = { title: "Comparación", mode: "full", position: "top", layers: [fakeComp("comparison", { left: { label: g.item_labels?.[0] ?? "Antes", text: g.items?.[0] ?? "" }, right: { label: g.item_labels?.[1] ?? "Ahora", text: g.items?.[1] ?? "" } })] };
+      } else if (/\b(precio|pregunt)/i.test(clean) && n % 2 === 0) {
+        scene = { title: "Pasos", mode: "full", position: "top", layers: [fakeComp("steps", { title: "", steps: ["Pregunta", "Escucha", "Propón"], icons: ["search", "mic", "handshake"] })] };
+      } else if (n % 2 === 0) {
+        scene = { title: "Frase", mode: "overlay", position: "top", layers: [fakeComp("quote", { text: firstWords(cap(clean), 11), highlight: g.headline ? "" : "", author: "" })] };
+      } else {
+        const word = [...clean.split(" ")].sort((a, x) => x.length - a.length)[0]?.replace(/[^\p{L}\p{N}]/gu, "") ?? "Idea";
+        scene = { title: "Palabra clave", mode: "overlay", position: "top", layers: [fakeComp("keyword", { text: cap(word), label: "", emphasis: "marker" })] };
+      }
+      return { ...b, graphic: scene };
     }),
   };
 }

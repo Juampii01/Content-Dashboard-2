@@ -1,8 +1,12 @@
 import "server-only";
 import { desc, eq } from "drizzle-orm";
 import { AiError, generateStructured } from "@/lib/ai/client";
-import { BROLL_RULES, brollAiSchema, brollTask, sentences } from "@/lib/ai/prompts/editor";
-import { GRAPHIC_MAX_SECONDS, GRAPHIC_MIN_SECONDS, graphicFromAi, graphicOption, numbersSupported, type GraphicLook } from "./graphics";
+import { brollTask, sentences } from "@/lib/ai/prompts/editor";
+import { BROLL_MOTION_RULES, brollMotionAiSchema, MOTION_RULES, type BrollMotionAiOutput } from "@/lib/ai/prompts/motion";
+import { GRAPHIC_MAX_SECONDS, GRAPHIC_MIN_SECONDS, type GraphicLook } from "./graphics";
+import { resolveScenes, type MotionJob } from "./motion-build";
+import { motionRetry } from "./motion-ai";
+import { brollGraphicOption } from "./motion-graphics";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { libraryOption, libraryScore, mapPexelsVideo, mapPixabayVideo, type LibraryClip, type PexelsVideo, type PixabayVideo } from "./broll-options";
@@ -183,6 +187,8 @@ export async function planBroll(input: {
   context: string;
   /** Colores y fuente de Mi marca para los gráficos (null: sin gráficos). */
   look?: GraphicLook | null;
+  /** Palabras prohibidas de Mi marca (no pueden aparecer en un gráfico). */
+  bannedWords?: string[];
 }): Promise<{ items: BrollItem[]; warning: string | null }> {
   const { words, plan, format } = input;
   const look = input.look ?? null;
@@ -210,12 +216,14 @@ export async function planBroll(input: {
   const tags = await libraryTags();
   const stockReady = brollSourcesReady().stock || tags.length > 0;
 
-  let ai;
+  // Reglas del plan + reglas de motion graphics + marca (todo estable: va en la caché de Claude, también en el reintento).
+  const context = `${BROLL_MOTION_RULES}\n\n${MOTION_RULES}\n\n${input.context}`;
+  let ai: BrollMotionAiOutput;
   try {
-    ai = await generateStructured({
-      feature: "video.broll",
+    ai = (await generateStructured({
+      feature: "video.broll.motion",
       model: "main",
-      context: `${BROLL_RULES}\n\n${input.context}`,
+      context,
       task: brollTask({
         words: kept,
         count: target,
@@ -227,9 +235,9 @@ export async function planBroll(input: {
         graphics: look ? { minSeconds: GRAPHIC_MIN_SECONDS, maxSeconds: GRAPHIC_MAX_SECONDS } : null,
         stock: stockReady,
       }),
-      schema: brollAiSchema,
-      maxTokens: 4000,
-    });
+      schema: brollMotionAiSchema,
+      maxTokens: 12000,
+    })) as BrollMotionAiOutput;
   } catch (error) {
     console.error("[editor] b-roll sin IA:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
     return { items: [], warning: "No pudimos elegir el b-roll con IA. Puedes agregarlo a mano desde la revisión." };
@@ -243,7 +251,7 @@ export async function planBroll(input: {
       .map((f) => f.text)
       .join(" ");
   const chosen: BrollItem[] = [];
-  let droppedNumbers = 0;
+  const pending: { item: BrollItem; job: MotionJob }[] = [];
   for (const b of ai.broll) {
     if (chosen.length >= target) break;
     const from = Math.max(0, Math.min(b.from_word, b.to_word));
@@ -255,27 +263,45 @@ export async function planBroll(input: {
     const span = words[to]!.end - words[from]!.start;
     if (span < 0.8 || span > 8) continue;
     if (chosen.some((c) => from <= c.to_word && c.from_word <= to)) continue;
-    let graphic = null;
-    if (b.kind === "graphic" && b.graphic && look && span >= 1.2) {
-      const spec = graphicFromAi(b.graphic, look);
-      if (spec && numbersSupported(spec, spokenAround(from, to))) graphic = graphicOption(spec);
-      else if (spec) droppedNumbers++;
-    }
     const query = b.query_en.trim().slice(0, 120);
-    // Un gráfico que no sirvió (cifra inventada o mal armado) pasa a ser una toma de stock, si hay qué buscar.
-    if (!graphic && (!query || !stockReady)) continue;
-    chosen.push({
+    const wantsGraphic = b.kind === "graphic" && Boolean(b.graphic) && Boolean(look) && span >= 1.2;
+    if (!wantsGraphic && (!query || !stockReady)) continue;
+    const item: BrollItem = {
       id: newId(),
       from_word: from,
       to_word: to,
       query_en: query || "business concept",
       keywords: b.keywords.map((k) => k.trim().slice(0, 40)).filter(Boolean).slice(0, 4),
       why: b.why.slice(0, 300),
-      choice: graphic,
-      options: graphic ? [graphic] : [],
-    });
+      choice: null,
+      options: [],
+    };
+    chosen.push(item);
+    if (wantsGraphic && look) pending.push({ item, job: { ai: b.graphic, spoken: spokenAround(from, to), look, format, duration: span, bannedWords: input.bannedWords ?? [] } });
   }
-  if (droppedNumbers) console.warn(`[editor] ${droppedNumbers} gráficos descartados por cifras que no se dicen`);
+
+  // Gráficos: se validan con el motor; los que tienen problemas vuelven a Claude una vez (todos juntos) y, si siguen
+  // mal, se arreglan solos o pasan a un componente más simple. Si tampoco, el tramo queda como toma de stock.
+  if (pending.length) {
+    const outcomes = await resolveScenes(
+      pending.map((p) => p.job),
+      { retries: 1, retry: motionRetry(context) },
+    );
+    let dropped = 0;
+    outcomes.forEach((o, i) => {
+      const { item } = pending[i]!;
+      if (o.scene) {
+        const option = brollGraphicOption(o.scene);
+        item.choice = option;
+        item.options = [option];
+      } else dropped++;
+      if (o.how !== "ok") console.info(`[editor] gráfico del b-roll ${o.how === "none" ? "descartado" : `resuelto (${o.how})`}${o.problems.length ? `: ${o.problems.slice(0, 2).join(" | ")}` : ""}`);
+    });
+    if (dropped) {
+      // Sin gráfico y sin stock no queda nada que mostrar en ese tramo.
+      for (let i = chosen.length - 1; i >= 0; i--) if (!chosen[i]!.choice && !stockReady) chosen.splice(i, 1);
+    }
+  }
   chosen.sort((a, b) => a.from_word - b.from_word);
 
   let warning: string | null = null;

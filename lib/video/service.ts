@@ -14,7 +14,10 @@ import { planBroll } from "./broll";
 import { detectCandidates } from "./candidates";
 import { captionBlocks, hideDuring, toSrt } from "./captions";
 import { brollCredits, brollSegments, computeZooms } from "./effects";
-import { brandGraphicLook, graphicSpecSchema } from "./graphics";
+import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
+import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
+import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme } from "./motion-graphics";
+import { sceneSchema } from "./motion/schema";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
 import { alignScript } from "./script-align";
 import type { StyleMetrics } from "./style";
@@ -251,7 +254,7 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
   });
   if (project.brollMode === "auto") {
     const timeline = buildTimeline(words, plan, duration);
-    const { items, warning } = await planBroll({ words, plan, outputDuration: timeline.duration, format: project.format as VideoFormat, preset: style?.preset ?? null, context, look: brandGraphicLook(brand) });
+    const { items, warning } = await planBroll({ words, plan, outputDuration: timeline.duration, format: project.format as VideoFormat, preset: style?.preset ?? null, context, look: brandGraphicLook(brand), bannedWords: brand?.bannedWords ?? [] });
     plan = { ...plan, broll: items, warning: [plan.warning, warning].filter(Boolean).join(" ").slice(0, 1000) };
   }
   const parsed = planSchemaFor(words.length).safeParse(plan);
@@ -352,7 +355,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
   const captionStyle = style?.preset.captions ?? null;
   const preset: CaptionPresetKey = next.captions.preset === "estilo" && !captionStyle ? "clasico" : next.captions.preset;
   // B-roll: cada clip elegido se verifica contra su fuente (nunca se confía en lo que manda el navegador).
-  const broll = await verifiedBroll(brollSegments(timeline, next.broll));
+  const broll = await verifiedBroll(brollSegments(timeline, next.broll), brandGraphicLook(brand));
   // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea.
   const graphicSpans = broll.filter((b) => b.option.source === "graphic");
   const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), graphicSpans);
@@ -411,7 +414,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
  * real, de la base), un video de stock con su archivo en el CDN de su banco (Pixabay o Pexels) o un gráfico
  * con un diseño válido (se vuelve a validar aquí; lo dibuja el worker).
  */
-async function verifiedBroll(segments: ReturnType<typeof brollSegments>): Promise<ReturnType<typeof brollSegments>> {
+async function verifiedBroll(segments: ReturnType<typeof brollSegments>, look: GraphicLook): Promise<ReturnType<typeof brollSegments>> {
   if (!segments.length) return [];
   const library = new Map<string, BrollOption>();
   const ids = segments.filter((s) => s.option.source === "library").map((s) => s.option.id).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
@@ -422,6 +425,12 @@ async function verifiedBroll(segments: ReturnType<typeof brollSegments>): Promis
   const out: ReturnType<typeof brollSegments> = [];
   for (const seg of segments) {
     if (seg.option.source === "graphic") {
+      // Escena v2: siempre con los colores y la fuente actuales de Mi marca. Spec v1 (planes viejos): tal cual.
+      if (isMotionScene(seg.option.graphic)) {
+        const scene = sceneSchema.safeParse(seg.option.graphic);
+        if (scene.success) out.push({ ...seg, option: { ...seg.option, graphic: withBrandTheme(scene.data, look) } });
+        continue;
+      }
       const spec = graphicSpecSchema.safeParse(seg.option.graphic);
       if (spec.success) out.push({ ...seg, option: { ...seg.option, graphic: spec.data } });
     } else if (seg.option.source === "library") {
@@ -445,6 +454,59 @@ function stockFileAllowed(source: BrollOption["source"], url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ─── "Pide tu gráfico" (revisión) ─────────────────────────────────────────
+
+/**
+ * Gráfico pedido en lenguaje natural para un tramo del proyecto (o un ajuste del actual). Lo que se dice en el tramo
+ * sale de la transcripción guardada (no del navegador); colores, fuente, idioma y palabras prohibidas, de Mi marca.
+ */
+export async function requestProjectGraphic(input: {
+  projectId: string;
+  fromWord: number;
+  toWord: number;
+  request: string;
+  kind: "pedido" | "ajuste";
+  current: unknown;
+  format: VideoFormat;
+}): Promise<GraphicRequestResult> {
+  const { project, plan, transcript } = await projectForEdit(input.projectId);
+  if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
+  const words = transcript.words;
+  const from = Math.max(0, Math.min(input.fromWord, input.toWord));
+  const to = Math.min(words.length - 1, Math.max(input.fromWord, input.toWord));
+  if (from >= words.length || to < from) throw new VideoError("Ese tramo ya no existe. Recarga la página.");
+  const text = (a: number, b: number) =>
+    words
+      .slice(a, b + 1)
+      .map((w) => plan.corrections[String(w.id)] ?? w.text)
+      .join(" ");
+  // La frase completa alrededor: da contexto (y sus cifras, si el tramo corta una frase a la mitad).
+  const around = (() => {
+    let a = from;
+    let b = to;
+    while (a > 0 && from - a < 25 && !/[.!?…]$/.test(words[a - 1]!.text)) a--;
+    while (b < words.length - 1 && b - to < 25 && !/[.!?…]$/.test(words[b]!.text)) b++;
+    return text(a, b);
+  })();
+  const current = input.current == null ? null : brollGraphicSchema.safeParse(input.current);
+  if (input.kind === "ajuste" && !current?.success) throw new VideoError("No encontramos el gráfico que quieres ajustar. Pide uno nuevo.");
+  const brand = await getBrand();
+  const look = brandGraphicLook(brand);
+  const result = await requestGraphic({
+    kind: input.kind,
+    request: input.request,
+    spoken: text(from, to),
+    around,
+    current: current?.success ? current.data : null,
+    look,
+    format: input.format,
+    duration: graphicSeconds(words[to]!.end - words[from]!.start),
+    bannedWords: brand?.bannedWords ?? [],
+    brandContext: await brandContext(brand),
+  });
+  return result.ok ? { ...result, scene: withBrandTheme(result.scene, look) } : result;
 }
 
 /** Vuelve a la revisión desde un video terminado (el render anterior se conserva hasta el próximo). */

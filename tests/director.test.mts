@@ -21,7 +21,7 @@ import { diffPlans } from "../lib/video/director/diff";
 import { keyFrames } from "../lib/video/director/keyframes";
 import { mapFromMeasures, mapFromWire, mustKeepRanges } from "../lib/video/director/map";
 import { mapToWire, simulateCritic, simulateDirector } from "../lib/video/director/simulate";
-import { effectiveBrief, EMPTY_BRIEF, type Eyes, type EyesSample, type EyesTramo, type VideoMap } from "../lib/video/director/types";
+import { effectiveBrief, EMPTY_BRIEF, type Eyes, type EyesSample, type EyesTramo } from "../lib/video/director/types";
 
 /** Palabras con duración fija; "|" agrega una pausa de 0.6 s. */
 function speak(text: string, wordSec = 0.3, gap = 0.05): Word[] {
@@ -229,12 +229,10 @@ describe("verificaciones y arreglos seguros", () => {
   const base = (over: Partial<EditPlan> = {}): EditPlan => planFromDirector(emptyWire(), input()).plan && { ...planFromDirector(emptyWire(), input()).plan, ...over };
 
   test("encuentra la toma mala, el b-roll sobre el panel, subtítulos sobre texto y un final cortado", () => {
-    const gopt = { source: "graphic" as const, id: "g1", duration: 0, width: 0, height: 0, graphic: { version: 2 } as never };
     const plan = base({
       broll: [{ id: "b1", from_word: phrase(2).from, to_word: phrase(2).from + 4, query_en: "", keywords: [], choice: { source: "pexels", id: "1", duration: 5, width: 1080, height: 1920, file: "https://videos.pexels.com/x.mp4" }, options: [] }],
       removals: [{ from_word: phrase(7).from + 3, to_word: phrase(7).to, reason: "off_topic", confidence: 1, source: "ai" }],
     });
-    void gopt;
     const issues = checkPlan({ plan, words, duration, map, eyes });
     const kinds = new Set(issues.map((i) => i.kind));
     assert.ok(kinds.has("tapa_importante"));

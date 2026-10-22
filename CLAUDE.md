@@ -165,6 +165,8 @@ placeholder   #6f84a8
 
 **Subtítulos animados y sonido:** ✅ galería de 6 estilos con la marca (Caja, Hormozi, Karaoke, Palabra a palabra, Minimal, Resaltador) iguales en la vista previa y en el render (`lib/video/caption-styles.ts`, `worker/video/ass.py`), emojis opcionales (Noto Emoji), efectos de sonido procedurales (Sin efectos / Sutil / Marcado) y música propia de la biblioteca con ducking bajo la voz (`lib/video/sfx.ts`, `render.mix_audio`).
 
+**Director de edición con ojos:** ✅ el worker mide cada escena (caras y si mira a cámara, nitidez, luz, movimiento, texto quemado) y arma hojas de contacto; Opus mira el video, entiende la historia (mapa), lee el brief (opcional, o lo infiere), dirige toda la edición junta con su "por qué" y revisa cuadros del plan antes de renderizar y del MP4 después; "Edítalo así", versiones para probar y tope de IA por video con degradación ordenada (`lib/video/director/`, `worker/video/eyes.py`, `docs/worker.md`).
+
 **Audio de estudio:** ✅ Apagado / Suave / Fuerte en la revisión (nuevos en Suave) con muestra de 10 s antes y después: ruido fuera con DeepFilterNet3 en ONNX (CPU, MIT/Apache), quita de eco tardío y zumbido, ecualización de voz, de-esser y compresión; la voz queda alineada con el video (`worker/video/studio.py`, `lib/video/studio-audio.ts`, `docs/worker.md`).
 
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).

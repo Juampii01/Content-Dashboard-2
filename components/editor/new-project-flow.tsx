@@ -192,7 +192,7 @@ export function NewProjectFlow({
   const uploadStatus = !upload ? "idle" : upload.status === "uploading" ? "uploading" : upload.status === "error" ? "error" : "done";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
       <div className="lg:pt-2">
         <Steps steps={steps} onSelect={(id) => go(id as StepId)} />
       </div>

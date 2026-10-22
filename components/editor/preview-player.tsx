@@ -4,18 +4,20 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 import type { OutputZoom } from "@/lib/video/effects";
+import type { GraphicSpec } from "@/lib/video/graphics";
 import type { CaptionStyle } from "@/lib/video/style";
 import { outputToSource } from "@/lib/video/timeline";
 import { FPS, type CaptionBlock, type CaptionPresetKey, type Clip, type VideoFormat } from "@/lib/video/types";
 import { CaptionOverlay } from "./caption-overlay";
+import { GraphicCanvas } from "./graphic-canvas";
 
 export type PreviewHandle = {
   /** Salta a un instante del video final y, si se pide, reproduce. */
   seekOutput: (out: number, play?: boolean) => void;
 };
 
-/** Un b-roll en la vista previa: tramo del video final y el clip (video liviano o, si no hay, su miniatura). */
-export type PreviewBroll = { id: string; start: number; end: number; previewUrl: string | null; thumbUrl: string | null };
+/** Un b-roll en la vista previa: tramo del video final y el clip (video liviano o, si no hay, su miniatura) o el gráfico. */
+export type PreviewBroll = { id: string; start: number; end: number; previewUrl: string | null; thumbUrl: string | null; graphic?: GraphicSpec | null };
 
 /** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
 export function zoomAt(zooms: OutputZoom[], t: number): number {
@@ -244,13 +246,18 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
           </div>
         ) : null}
         {activeBroll &&
-          (activeBroll.previewUrl ? (
+          (activeBroll.graphic ? (
+            // El gráfico se dibuja en el mismo instante que el render (en "sobre tu video", el video sigue debajo).
+            <div key={activeBroll.id} className="pointer-events-none absolute inset-0">
+              <GraphicCanvas spec={activeBroll.graphic} format={format} duration={activeBroll.end - activeBroll.start} time={Math.max(0, out - activeBroll.start)} scale={0.5} />
+            </div>
+          ) : activeBroll.previewUrl ? (
             <video key={activeBroll.id} ref={brollVideo} src={activeBroll.previewUrl} muted playsInline preload="auto" className="absolute inset-0 h-full w-full object-cover" aria-hidden />
           ) : activeBroll.thumbUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={activeBroll.thumbUrl} alt="" className="absolute inset-0 h-full w-full object-cover" aria-hidden />
           ) : null)}
-        {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">B-roll</span>}
+        {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeBroll.graphic ? "Gráfico" : "B-roll"}</span>}
         <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">

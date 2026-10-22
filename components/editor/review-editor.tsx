@@ -13,10 +13,11 @@ import { brollSegments, computeZooms } from "@/lib/video/effects";
 import { rangesFromIds } from "@/lib/video/plan";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
 import { buildTimeline } from "@/lib/video/timeline";
+import type { GraphicLook } from "@/lib/video/graphics";
 import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { renderAction, saveReviewAction } from "./actions";
-import { BrollPanel, BrollPicker, optionKey, type SignedOption } from "./broll-panel";
+import { BrollPanel, BrollPicker, optionKey, type PickerTab, type SignedOption } from "./broll-panel";
 import { PreviewPlayer, type PreviewHandle } from "./preview-player";
 import { TranscriptEditor, type BrollMark } from "./transcript-editor";
 
@@ -42,6 +43,7 @@ export function ReviewEditor({
   canEdit,
   signedBroll = {},
   style = null,
+  graphicLook,
 }: {
   projectId: string;
   plan: EditPlan;
@@ -57,6 +59,8 @@ export function ReviewEditor({
   signedBroll?: Record<string, SignedOption>;
   /** Estilo con el que se armó el plan (nombre, zooms y subtítulos), si hay. */
   style?: { id: string; name: string; zoom: StylePreset["zoom"]; captions: CaptionStyle | null; focusY: number } | null;
+  /** Colores y fuente de Mi marca para los gráficos nuevos del b-roll. */
+  graphicLook: GraphicLook;
 }) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
@@ -73,6 +77,7 @@ export function ReviewEditor({
   const [signed, setSigned] = useState<Record<string, SignedOption>>(signedBroll);
   const [activeBroll, setActiveBroll] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
+  const [pickTab, setPickTab] = useState<PickerTab | undefined>(undefined);
   const captionStyle = style?.captions ?? null;
 
   const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
@@ -115,11 +120,19 @@ export function ReviewEditor({
     [signed],
   );
   const previewBroll = useMemo(
-    () => segments.map((sg) => ({ id: sg.id, start: sg.start, end: sg.end, previewUrl: signedOf(sg.option)?.previewUrl ?? null, thumbUrl: signedOf(sg.option)?.thumbUrl ?? null })),
+    () =>
+      segments.map((sg) => ({
+        id: sg.id,
+        start: sg.start,
+        end: sg.end,
+        previewUrl: signedOf(sg.option)?.previewUrl ?? null,
+        thumbUrl: signedOf(sg.option)?.thumbUrl ?? null,
+        graphic: sg.option.graphic ?? null,
+      })),
     [segments, signedOf],
   );
   const brollMarks = useMemo<BrollMark[]>(
-    () => brollItems.map((b) => ({ id: b.id, from: b.from_word, to: b.to_word, thumbUrl: signedOf(b.choice)?.thumbUrl ?? null, empty: !b.choice })),
+    () => brollItems.map((b) => ({ id: b.id, from: b.from_word, to: b.to_word, thumbUrl: signedOf(b.choice)?.thumbUrl ?? null, empty: !b.choice, graphic: b.choice?.source === "graphic" })),
     [brollItems, signedOf],
   );
 
@@ -139,6 +152,7 @@ export function ReviewEditor({
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: query.join(" ").slice(0, 100) || "b-roll", keywords: query.map((w) => w.toLowerCase()), choice: null, options: [] };
     setBrollItems((prev) => [...prev.filter((b) => !overlaps(b)), item].sort((a, b) => a.from_word - b.from_word));
     setActiveBroll(item.id);
+    setPickTab(undefined);
     setPicking(item.id);
   }
 
@@ -296,13 +310,22 @@ export function ReviewEditor({
           activeId={activeBroll}
           onActivate={showBroll}
           onRemove={(id) => setBrollItems((prev) => prev.filter((b) => b.id !== id))}
-          onChange={(id) => setPicking(id)}
+          onChange={(id, tab) => {
+            setPickTab(tab);
+            setPicking(id);
+          }}
           format={format}
         />
         <BrollPicker
           key={picking ?? "none"}
           item={brollItems.find((b) => b.id === picking) ?? null}
           signed={signed}
+          look={graphicLook}
+          initialTab={pickTab}
+          spokenText={(() => {
+            const b = brollItems.find((x) => x.id === picking);
+            return b ? words.slice(b.from_word, b.to_word + 1).map((w) => corrections[String(w.id)] ?? w.text).join(" ") : "";
+          })()}
           format={format}
           minDuration={(() => {
             const b = brollItems.find((x) => x.id === picking);
@@ -314,13 +337,14 @@ export function ReviewEditor({
             const plain: BrollOption = { ...option };
             delete (plain as Partial<SignedOption>).thumbUrl;
             delete (plain as Partial<SignedOption>).previewUrl;
-            setSigned((prev) => ({ ...prev, [optionKey(option)]: option }));
+            if (plain.source !== "graphic") setSigned((prev) => ({ ...prev, [optionKey(option)]: option }));
             setBrollItems((prev) =>
-              prev.map((b) =>
-                b.id === picking
-                  ? { ...b, choice: plain, options: b.options.some((o) => optionKey(o) === optionKey(plain)) ? b.options : [plain, ...b.options].slice(0, 12) }
-                  : b,
-              ),
+              prev.map((b) => {
+                if (b.id !== picking) return b;
+                // Un gráfico editado reemplaza al anterior en las alternativas (queda uno solo por tramo).
+                if (plain.source === "graphic") return { ...b, choice: plain, options: [plain, ...b.options.filter((o) => o.source !== "graphic")].slice(0, 12) };
+                return { ...b, choice: plain, options: b.options.some((o) => optionKey(o) === optionKey(plain)) ? b.options : [plain, ...b.options].slice(0, 12) };
+              }),
             );
             setPicking(null);
             if (picking) setActiveBroll(picking);

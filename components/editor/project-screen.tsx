@@ -18,6 +18,7 @@ import { statusLabel, statusTone, type ProjectStatus } from "./labels";
 import { ProcessingView } from "./processing-view";
 import { ResultView } from "./result-view";
 import type { SignedOption } from "./broll-panel";
+import type { GraphicLook } from "@/lib/video/graphics";
 import { ReviewEditor } from "./review-editor";
 import { startUpload, submitUpload, useUpload } from "./upload-manager";
 
@@ -27,8 +28,10 @@ export function ProjectScreen({
   project,
   signedBroll = {},
   style = null,
+  graphicLook,
 }: {
   project: View;
+  graphicLook: GraphicLook;
   signedBroll?: Record<string, SignedOption>;
   style?: ComponentProps<typeof ReviewEditor>["style"];
 }) {
@@ -58,6 +61,7 @@ export function ProjectScreen({
           canEdit={project.canEdit}
           signedBroll={signedBroll}
           style={style}
+          graphicLook={graphicLook}
         />
       )}
       {status === "DONE" && project.output && (

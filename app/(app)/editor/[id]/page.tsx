@@ -9,6 +9,7 @@ import { getBrand } from "@/lib/ai/brand-context";
 import { getStyle, signedBroll } from "@/lib/dal/editor-media";
 import { getProject } from "@/lib/dal/video";
 import { fileDriver } from "@/lib/storage";
+import { brandGraphicLook } from "@/lib/video/graphics";
 
 export const metadata: Metadata = { title: "Video" };
 
@@ -36,6 +37,7 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
         uploadMode: fileDriver() === "blob" ? "blob" : "local",
       }}
       signedBroll={signed}
+      graphicLook={brandGraphicLook(brand)}
       style={
         style?.status === "READY" && style.preset
           ? { id: style.id, name: style.name, zoom: style.preset.zoom, captions: style.preset.captions, focusY: Math.max(0.25, Math.min(0.6, style.metrics?.faces.center?.y ?? 0.42)) }

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { Clapperboard, Headphones, PenLine, Scissors, Undo2, X } from "lucide-react";
+import { Clapperboard, Headphones, PenLine, Scissors, Sparkles, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
@@ -11,7 +11,7 @@ import { reasonLabel } from "./labels";
 
 type Range = { from: number; to: number };
 /** Un b-roll marcado sobre el texto (rango de palabras y miniatura del clip elegido). */
-export type BrollMark = { id: string; from: number; to: number; thumbUrl: string | null; empty: boolean };
+export type BrollMark = { id: string; from: number; to: number; thumbUrl: string | null; empty: boolean; graphic?: boolean };
 
 /**
  * Editor por transcript: cada palabra es un botón. Lo cortado aparece tachado con la etiqueta del motivo.
@@ -338,15 +338,17 @@ const WordList = memo(function WordList({
               mark.empty ? "border-warning/50 bg-warning/10 text-warning" : "border-success/45 bg-success/10 text-success",
               activeBroll === mark.id && "ring-2 ring-accent-hi",
             )}
-            aria-label={mark.empty ? "B-roll sin clip: elegir uno" : "Ver este b-roll"}
+            aria-label={mark.empty ? "B-roll sin clip: elegir uno" : mark.graphic ? "Ver este gráfico" : "Ver este b-roll"}
           >
-            {mark.thumbUrl ? (
+            {mark.graphic ? (
+              <Sparkles className="ml-1 h-3 w-3" aria-hidden />
+            ) : mark.thumbUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={mark.thumbUrl} alt="" className="h-4 w-6 rounded-full object-cover" />
             ) : (
               <Clapperboard className="ml-1 h-3 w-3" aria-hidden />
             )}
-            B-roll
+            {mark.graphic ? "Gráfico" : "B-roll"}
           </button>,
         );
       }

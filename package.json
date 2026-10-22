@@ -14,7 +14,7 @@
     "crear-dueno": "tsx --conditions=react-server --env-file=.env.local scripts/crear-dueno.ts",
     "test:sync": "node --conditions=react-server --import tsx --test tests/sync.test.mts",
     "test:calendar": "node --conditions=react-server --import tsx --test tests/calendar.test.mts",
-    "test:video": "node --import tsx --test tests/video.test.mts tests/video-style.test.mts",
+    "test:video": "node --import tsx --test tests/video.test.mts tests/video-style.test.mts tests/video-graphics.test.mts",
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",
     "vercel-build": "pnpm preparar && next build",
     "demo": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/demo.ts"

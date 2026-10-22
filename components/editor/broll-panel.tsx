@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Clapperboard, ExternalLink, Library, Play, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { Clapperboard, ExternalLink, Library, PenLine, Play, RefreshCcw, Search, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
@@ -9,17 +9,34 @@ import { Notice, Skeleton } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { formatDuration } from "@/lib/format";
 import type { OutputBroll } from "@/lib/video/effects";
+import { defaultGraphic, GRAPHIC_MAX_SECONDS, GRAPHIC_MIN_SECONDS, GRAPHIC_TEMPLATES, graphicOption, type GraphicLook, type GraphicSpec } from "@/lib/video/graphics";
 import type { BrollItem, BrollOption, VideoFormat, Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
+import { GraphicCanvas } from "./graphic-canvas";
+import { GraphicEditor } from "./graphic-editor";
 import { libraryOptionsAction, searchBrollAction } from "./media-actions";
 
 /** Alternativa con las URLs listas para el navegador (las de la biblioteca vienen firmadas). */
 export type SignedOption = BrollOption & { thumbUrl: string | null; previewUrl: string | null };
 export const optionKey = (o: Pick<BrollOption, "source" | "id">) => `${o.source}:${o.id}`;
 
+/** Duración con la que se ve un gráfico en la vista previa del selector (la del tramo, entre 1,5 y 6 s). */
+export const graphicPreviewSeconds = (span: number) => Math.max(GRAPHIC_MIN_SECONDS, Math.min(GRAPHIC_MAX_SECONDS + 1, span || 3));
+
+const FAKE_VIDEO = "bg-[radial-gradient(ellipse_at_50%_42%,#b9a48f_0%,#6d655c_38%,#2f2b27_100%)]";
+
+/** Cuadro quieto de un gráfico (miniatura), ya con todo a la vista. */
+function GraphicThumb({ spec, format }: { spec: GraphicSpec; format: VideoFormat }) {
+  return (
+    <span className={cn("absolute inset-0", spec.mode === "overlay" && FAKE_VIDEO)}>
+      <GraphicCanvas spec={spec} format={format} duration={3} time={2.2} scale={0.15} />
+    </span>
+  );
+}
+
 /**
  * Lista de b-roll de la revisión: cada toma con su miniatura, el texto que tapa, su origen (con la atribución
- * de Pexels) y las acciones para cambiarla, moverla o quitarla.
+ * de Pexels, o "Gráfico con tu marca") y las acciones para cambiarla, editarla, moverla o quitarla.
  */
 export function BrollPanel({
   items,
@@ -43,7 +60,7 @@ export function BrollPanel({
   activeId: string | null;
   onActivate: (id: string) => void;
   onRemove: (id: string) => void;
-  onChange: (id: string) => void;
+  onChange: (id: string, tab?: PickerTab) => void;
   format: VideoFormat;
 }) {
   return (
@@ -52,7 +69,7 @@ export function BrollPanel({
         <h2 id="broll-title" className="text-base font-semibold">
           B-roll
         </h2>
-        <p className="text-sm text-muted">Tomas de apoyo sobre lo que dices; tu voz sigue debajo. Cámbialas, quítalas o agrega otras seleccionando palabras en el texto.</p>
+        <p className="text-sm text-muted">Tomas de apoyo y gráficos con tu marca sobre lo que dices; tu voz sigue debajo. Cámbialos, edítalos, quítalos o agrega otros seleccionando palabras en el texto.</p>
       </div>
       {items.length === 0 ? (
         <p className="card p-4 text-sm text-muted">
@@ -67,8 +84,15 @@ export function BrollPanel({
             return (
               <li key={item.id}>
                 <div className={cn("card flex h-full gap-3 p-3 transition", activeId === item.id && "!border-accent bg-accent/10")}>
-                  <button type="button" onClick={() => onActivate(item.id)} className="relative aspect-[9/16] w-14 flex-none overflow-hidden rounded-lg bg-black/40" aria-label="Ver este b-roll en la vista previa">
-                    {choice?.thumbUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => onActivate(item.id)}
+                    className={cn("relative flex-none self-start overflow-hidden rounded-lg bg-black/40", format === "9:16" ? "aspect-[9/16] w-14" : "aspect-video w-24")}
+                    aria-label="Ver este b-roll en la vista previa"
+                  >
+                    {choice?.graphic ? (
+                      <GraphicThumb spec={choice.graphic} format={format} />
+                    ) : choice?.thumbUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={choice.thumbUrl} alt="" className="h-full w-full object-cover" />
                     ) : (
@@ -86,6 +110,11 @@ export function BrollPanel({
                     {choice ? <SourceLine option={choice} /> : <p className="text-xs text-warning">Elige un clip o quítalo.</p>}
                     {canEdit && (
                       <div className="mt-auto flex flex-wrap gap-1 pt-1">
+                        {choice?.graphic && (
+                          <Button size="sm" variant="ghost" className="!h-8 !px-2.5" icon={<PenLine className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(item.id, "grafico")}>
+                            Editar
+                          </Button>
+                        )}
                         <Button size="sm" variant="ghost" className="!h-8 !px-2.5" icon={<RefreshCcw className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(item.id)}>
                           Cambiar
                         </Button>
@@ -107,6 +136,16 @@ export function BrollPanel({
 
 /** Origen del clip; los de Pexels llevan la atribución que pide su guía. */
 function SourceLine({ option }: { option: BrollOption }) {
+  if (option.source === "graphic" && option.graphic) {
+    return (
+      <p className="flex items-center gap-1 truncate text-xs text-muted">
+        <Sparkles className="h-3 w-3 flex-none text-accent-hi" aria-hidden />
+        <span className="truncate">
+          Gráfico con tu marca · {GRAPHIC_TEMPLATES[option.graphic.template].label} · {option.graphic.mode === "full" ? "pantalla completa" : "sobre tu video"}
+        </span>
+      </p>
+    );
+  }
   if (option.source === "library") {
     return (
       <p className="flex items-center gap-1 truncate text-xs text-muted">
@@ -125,11 +164,16 @@ function SourceLine({ option }: { option: BrollOption }) {
 }
 
 const stockLabel = (source: BrollOption["source"]) => (source === "pixabay" ? "Pixabay" : "Pexels");
+const optionName = (o: BrollOption) =>
+  o.graphic ? `el gráfico ${GRAPHIC_TEMPLATES[o.graphic.template].label.toLowerCase()}` : o.source !== "library" ? `el video de ${o.credit?.name ?? stockLabel(o.source)}` : (o.title ?? "este clip");
 const stockHome = (source: BrollOption["source"]) => (source === "pixabay" ? "https://pixabay.com" : "https://www.pexels.com");
 
-type Tab = "sugeridos" | "biblioteca" | "buscar";
+export type PickerTab = "sugeridos" | "grafico" | "biblioteca" | "buscar";
 
-/** Selector de clip para un tramo: sugeridos (4 a 6), los de la biblioteca o una búsqueda nueva. */
+/**
+ * Selector de b-roll para un tramo: sugeridos (4 a 6, con el gráfico que propuso la IA), un gráfico con tu marca
+ * (crearlo o editarlo), los clips de la biblioteca o una búsqueda nueva.
+ */
 export function BrollPicker({
   item,
   signed,
@@ -137,6 +181,9 @@ export function BrollPicker({
   minDuration,
   onPick,
   onClose,
+  look,
+  spokenText,
+  initialTab,
 }: {
   item: BrollItem | null;
   signed: Record<string, SignedOption>;
@@ -144,8 +191,13 @@ export function BrollPicker({
   minDuration: number;
   onPick: (option: SignedOption) => void;
   onClose: () => void;
+  /** Colores y fuente de Mi marca (para un gráfico nuevo). */
+  look: GraphicLook;
+  /** Lo que se dice en el tramo. */
+  spokenText: string;
+  initialTab?: PickerTab;
 }) {
-  const [tab, setTab] = useState<Tab>("sugeridos");
+  const [tab, setTab] = useState<PickerTab>(() => initialTab ?? (item?.choice?.source === "graphic" || (item && !item.choice && item.options.length === 0) ? "grafico" : "sugeridos"));
   const [library, setLibrary] = useState<SignedOption[] | null>(null);
   const [results, setResults] = useState<SignedOption[] | null>(null);
   const [query, setQuery] = useState("");
@@ -180,25 +232,43 @@ export function BrollPicker({
   }
 
   const list = tab === "sugeridos" ? suggested : tab === "biblioteca" ? library : results;
+  const currentGraphic = item.choice?.graphic ?? item.options.find((o) => o.graphic)?.graphic ?? null;
+  const graphicSeconds = graphicPreviewSeconds(minDuration);
+  const quoted = spokenText.length > 90 ? `${spokenText.slice(0, 90)}…` : spokenText;
   return (
     <Dialog
       open={Boolean(item)}
       onOpenChange={(open) => !open && onClose()}
-      title="Elige el b-roll"
-      description={`Para “${item.query_en}”. Toca un clip para usarlo; con el botón de reproducir lo ves antes.`}
-      className="max-w-3xl"
+      title={tab === "grafico" ? "Gráfico con tu marca" : "Elige el b-roll"}
+      description={
+        tab === "grafico"
+          ? `Sobre “${quoted}”. Elige la plantilla y escribe los textos.`
+          : `Para “${item.query_en}”. Toca un clip para usarlo; con el botón de reproducir lo ves antes.`
+      }
+      className={tab === "grafico" ? "max-w-4xl" : "max-w-3xl"}
     >
       <div className="flex flex-col gap-4">
         <SegmentedControl
-          label="Origen de los clips"
+          label="Origen del b-roll"
           value={tab}
           onValueChange={(v) => (v === "biblioteca" ? openLibrary() : setTab(v))}
           options={[
             { value: "sugeridos", label: "Sugeridos" },
-            { value: "biblioteca", label: "Mi biblioteca" },
+            { value: "grafico", label: "Gráfico" },
+            { value: "biblioteca", label: "Biblioteca" },
             { value: "buscar", label: "Buscar" },
           ]}
         />
+        {tab === "grafico" && (
+          <GraphicEditor
+            initial={currentGraphic ?? defaultGraphic(spokenText, look)}
+            current={Boolean(item.choice?.graphic)}
+            format={format}
+            duration={graphicSeconds}
+            spokenText={spokenText}
+            onUse={(spec) => onPick({ ...graphicOption(spec), thumbUrl: null, previewUrl: null })}
+          />
+        )}
         {tab === "buscar" && (
           <form
             className="flex gap-2"
@@ -218,7 +288,7 @@ export function BrollPicker({
         )}
         {tab === "buscar" && <p className="-mt-2 text-xs text-muted">En inglés encuentra más videos de stock. También busca en las etiquetas de tu biblioteca.</p>}
         {notice && <Notice tone="warning">{notice}</Notice>}
-        {pending && !list ? (
+        {tab === "grafico" ? null : pending && !list ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => (
               <Skeleton key={i} className="aspect-[9/16]" />
@@ -232,8 +302,16 @@ export function BrollPicker({
               return (
                 <li key={key}>
                   <div className={cn("group relative overflow-hidden rounded-xl border bg-black/40", chosen ? "border-accent ring-2 ring-accent/60" : "border-white/10")}>
-                    <button type="button" onClick={() => onPick(o)} className={cn("block w-full", format === "9:16" ? "aspect-[9/16]" : "aspect-video")} aria-label={`Usar ${o.source !== "library" ? `el video de ${o.credit?.name ?? stockLabel(o.source)}` : (o.title ?? "este clip")}`}>
-                      {previewing === key && o.previewUrl ? (
+                    <button type="button" onClick={() => onPick(o)} className={cn("relative block w-full", format === "9:16" ? "aspect-[9/16]" : "aspect-video")} aria-label={`Usar ${optionName(o)}`}>
+                      {o.graphic ? (
+                        previewing === key ? (
+                          <span className={cn("absolute inset-0", o.graphic.mode === "overlay" && FAKE_VIDEO)}>
+                            <GraphicCanvas spec={o.graphic} format={format} duration={graphicSeconds} scale={0.25} />
+                          </span>
+                        ) : (
+                          <GraphicThumb spec={o.graphic} format={format} />
+                        )
+                      ) : previewing === key && o.previewUrl ? (
                         <video src={o.previewUrl} autoPlay muted loop playsInline className="h-full w-full object-cover" />
                       ) : o.thumbUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -243,18 +321,26 @@ export function BrollPicker({
                       )}
                     </button>
                     {chosen && <span className="pointer-events-none absolute top-2 left-2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-semibold text-white">Elegido</span>}
-                    {o.previewUrl && (
+                    {(o.previewUrl || o.graphic) && (
                       <button
                         type="button"
                         onClick={() => setPreviewing(previewing === key ? null : key)}
                         className="absolute top-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/80"
-                        aria-label={previewing === key ? "Detener la vista previa" : "Ver el clip"}
+                        aria-label={previewing === key ? "Detener la vista previa" : o.graphic ? "Ver el gráfico animado" : "Ver el clip"}
                       >
                         <Play className="h-3.5 w-3.5" aria-hidden />
                       </button>
                     )}
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pt-6 pb-1.5 text-[11px] text-white">
-                      <span className="font-mono">{formatDuration(o.duration)}</span> · {o.source !== "library" ? `${o.credit?.name ?? stockLabel(o.source)} · ${stockLabel(o.source)}` : (o.title ?? "Tu biblioteca")}
+                      {o.graphic ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" aria-hidden /> Gráfico · {GRAPHIC_TEMPLATES[o.graphic.template].label}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="font-mono">{formatDuration(o.duration)}</span> · {o.source !== "library" ? `${o.credit?.name ?? stockLabel(o.source)} · ${stockLabel(o.source)}` : (o.title ?? "Tu biblioteca")}
+                        </>
+                      )}
                     </div>
                   </div>
                 </li>
@@ -262,9 +348,16 @@ export function BrollPicker({
             })}
           </ul>
         ) : (
-          <p className="rounded-xl border border-white/10 p-4 text-sm text-muted">
-            {tab === "biblioteca" ? "Tu biblioteca no tiene clips listos. Súbelos en Editor → Biblioteca de b-roll." : tab === "buscar" ? (results ? "No encontramos clips. Prueba con otras palabras." : "Escribe qué quieres mostrar y toca Buscar.") : "No hay sugerencias para este tramo. Busca otra cosa o elige uno de tu biblioteca."}
-          </p>
+          <div className="flex flex-col items-start gap-2 rounded-xl border border-white/10 p-4 text-sm text-muted">
+            <p>
+              {tab === "biblioteca" ? "Tu biblioteca no tiene clips listos. Súbelos en Editor → Biblioteca de b-roll." : tab === "buscar" ? (results ? "No encontramos clips. Prueba con otras palabras." : "Escribe qué quieres mostrar y toca Buscar.") : "No hay sugerencias para este tramo. Crea un gráfico con tu marca, busca otra cosa o elige uno de tu biblioteca."}
+            </p>
+            {tab === "sugeridos" && (
+              <Button size="sm" variant="ghost" icon={<Sparkles className="h-3.5 w-3.5" aria-hidden />} onClick={() => setTab("grafico")}>
+                Crear un gráfico
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </Dialog>

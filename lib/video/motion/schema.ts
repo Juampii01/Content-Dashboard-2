@@ -150,6 +150,8 @@ export const componentLayer = z.object({
   at: z.number().min(0).max(30).default(0),
   /** Caja propia (fracciones). Si falta, la del modo y el formato. */
   region: z.object({ x: frac, y: frac, w: frac, h: frac }).optional(),
+  /** Tamaño respecto del normal (1). Si no entra en su caja, el componente igual se achica. */
+  scale: z.number().min(0.5).max(1.6).default(1),
 });
 
 export type PrimitiveLayer =

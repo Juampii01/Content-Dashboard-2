@@ -191,7 +191,7 @@ function buildComponent(l: ComponentLayer, k: Kit, notes: string[]): Node[] {
     notes.push(`El componente "${def.label}" tiene datos que no sirven: ${parsed.error.issues[0]?.message ?? "revisa los textos"}.`);
     return [];
   }
-  const kk: Kit = l.region ? { ...k, region: { x: l.region.x * k.W, y: l.region.y * k.H, w: l.region.w * k.W, h: l.region.h * k.H } } : k;
+  const kk: Kit = { ...k, s: k.s * (l.scale ?? 1), ...(l.region ? { region: { x: l.region.x * k.W, y: l.region.y * k.H, w: l.region.w * k.W, h: l.region.h * k.H } } : {}) };
   const nodes = (def.build as (p: unknown, k: Kit) => Node[])(parsed.data, kk);
   if (l.at) retime(nodes, 1, l.at);
   if (l.id) nodes.forEach((n, i) => (n.id ??= `${l.id}.${i}`));

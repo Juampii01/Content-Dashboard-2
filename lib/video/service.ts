@@ -27,6 +27,7 @@ import { hookEnd, MUSIC_DB, sfxCues, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
 import type { StyleMetrics } from "./style";
 import { stylePreset } from "./styles";
+import { readEditorDefaults } from "./defaults";
 import { buildTimeline } from "./timeline";
 import { FPS, type BrollItem, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type Transcript, type VideoFormat } from "./types";
 
@@ -70,6 +71,9 @@ export async function createProject(input: {
   scriptId: string | null;
   styleId?: string | null;
   brollMode?: BrollMode;
+  /** "Hazlo por mí": se exporta solo apenas está el plan. */
+  autoExport?: boolean;
+  origin?: ProjectOrigin;
   userId: string;
 }): Promise<{ id: string; key: string }> {
   if (!fileDriver()) throw new VideoError("Falta configurar el almacenamiento de videos en esta instalación. Avísale a soporte.");
@@ -88,6 +92,8 @@ export async function createProject(input: {
     scriptId: input.scriptId,
     styleId: await readyStyleId(input.styleId),
     brollMode: input.brollMode ?? "off",
+    autoExport: input.autoExport ?? false,
+    origin: input.origin ?? "upload",
     sourceKey: key,
     sourceName: input.fileName.slice(0, 200),
     sourceBytes: input.fileSize,
@@ -97,8 +103,17 @@ export async function createProject(input: {
 }
 
 export type BrollMode = "auto" | "off";
+export type ProjectOrigin = "upload" | "recorder" | "clone" | "clip";
 
-export type DraftSettings = { title: string; format: VideoFormat; preset: CaptionPresetKey; scriptId: string | null; styleId?: string | null; brollMode?: BrollMode };
+export type DraftSettings = {
+  title: string;
+  format: VideoFormat;
+  preset: CaptionPresetKey;
+  scriptId: string | null;
+  styleId?: string | null;
+  brollMode?: BrollMode;
+  autoExport?: boolean;
+};
 
 /** Solo se guarda un estilo que existe y está listo. */
 async function readyStyleId(id: string | null | undefined): Promise<string | null> {
@@ -113,6 +128,7 @@ async function draftColumns(settings: DraftSettings) {
     scriptId: settings.scriptId,
     ...(settings.styleId !== undefined ? { styleId: await readyStyleId(settings.styleId) } : {}),
     ...(settings.brollMode ? { brollMode: settings.brollMode } : {}),
+    ...(settings.autoExport != null ? { autoExport: settings.autoExport } : {}),
   };
 }
 
@@ -158,7 +174,7 @@ export async function createFromClone(
   format: VideoFormat,
   preset: CaptionPresetKey,
   userId: string,
-  extra: { styleId?: string | null; brollMode?: BrollMode } = {},
+  extra: { styleId?: string | null; brollMode?: BrollMode; autoExport?: boolean } = {},
 ): Promise<string> {
   const [clone] = await getDb().select().from(schema.cloneVideos).where(eq(schema.cloneVideos.id, cloneVideoId)).limit(1);
   if (!clone || clone.status !== "COMPLETED" || !clone.videoUrl) throw new VideoError("Ese video con clon todavía no está listo.");
@@ -175,6 +191,8 @@ export async function createFromClone(
     scriptId: clone.scriptId,
     styleId: await readyStyleId(extra.styleId),
     brollMode: extra.brollMode ?? "off",
+    autoExport: extra.autoExport ?? false,
+    origin: "clone",
     sourceKey,
     sourceName: `${clone.title}.mp4`,
     createdBy: userId,
@@ -257,6 +275,7 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
       ? { id: style.id, aggressiveness: style.preset.pacing.aggressiveness, hookTarget: style.preset.hook.targetSeconds, longPause: style.preset.pacing.longPause, zoom: style.preset.zoom.enabled }
       : null,
   });
+  plan = await withEditorDefaults(plan, brand);
   if (project.brollMode === "auto") {
     const timeline = buildTimeline(words, plan, duration);
     const { items, warning } = await planBroll({ words, plan, outputDuration: timeline.duration, format: project.format as VideoFormat, preset: style?.preset ?? null, context, look: brandGraphicLook(brand), bannedWords: brand?.bannedWords ?? [] });
@@ -273,6 +292,21 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
     .set({ plan, status: "AWAITING_REVIEW", errorMessage: null })
     .where(and(eq(schema.videoProjects.id, projectId), eq(schema.videoProjects.status, "PROCESSING")));
   return { status: "AWAITING_REVIEW", plannedBy: plan.planned_by };
+}
+
+/**
+ * Sonido, música y emojis de un plan nuevo según los valores por defecto del editor (Mi marca). La música solo si la
+ * pista existe y está lista; los emojis solo en los estilos de la galería.
+ */
+async function withEditorDefaults(plan: EditPlan, brand: Awaited<ReturnType<typeof getBrand>>): Promise<EditPlan> {
+  const d = readEditorDefaults(brand);
+  const track = d.music.trackId ? await loadTrack(d.music.trackId) : null;
+  const music = track?.status === "READY" ? { music_asset_id: track.id, music_db: d.music.db } : {};
+  return {
+    ...plan,
+    captions: { ...plan.captions, ...(isCaptionStyle(plan.captions.preset) && d.emoji ? { emoji: true } : {}) },
+    audio: { ...plan.audio, sfx: d.sfx, studio: d.studio, ...music },
+  };
 }
 
 // ─── Revisión y render ────────────────────────────────────────────────────
@@ -361,7 +395,8 @@ const DEFAULT_CAPTION_ACCENT = "#FFD84D";
 /** El worker dibuja hasta 24 emojis por video (worker/video/pipeline.py); los pop siguen a esos. */
 const MAX_EMOJIS = 24;
 
-export async function startRender(projectId: string, review: Review, format: VideoFormat, userId: string): Promise<void> {
+/** `manual`: lo exporta la persona desde la revisión (deja de ser "Hazlo por mí"). */
+export async function startRender(projectId: string, review: Review, format: VideoFormat, userId: string | null, opts: { manual?: boolean } = {}): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
   const duration = media.duration || transcript.duration;
@@ -411,7 +446,10 @@ export async function startRender(projectId: string, review: Review, format: Vid
   const track = next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
   const music = track?.status === "READY" ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db } : null;
 
-  await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null }).where(eq(schema.videoProjects.id, projectId));
+  await getDb()
+    .update(schema.videoProjects)
+    .set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null, ...(opts.manual ? { autoExport: false } : {}) })
+    .where(eq(schema.videoProjects.id, projectId));
   await enqueueJob({
     type: "VIDEO_RENDER",
     videoProjectId: projectId,
@@ -566,7 +604,8 @@ export async function reopenProject(projectId: string): Promise<void> {
   if (!project) throw new VideoError("No encontramos ese proyecto.");
   if (project.status !== "DONE" && project.status !== "FAILED") throw new VideoError("Este video todavía se está procesando.");
   if (!project.plan) throw new VideoError("Este video todavía no tiene plan de edición.");
-  await getDb().update(schema.videoProjects).set({ status: "AWAITING_REVIEW", errorMessage: null }).where(eq(schema.videoProjects.id, projectId));
+  // Al volver a la revisión, lo que siga lo decide la persona: deja de exportarse solo.
+  await getDb().update(schema.videoProjects).set({ status: "AWAITING_REVIEW", errorMessage: null, autoExport: false }).where(eq(schema.videoProjects.id, projectId));
 }
 
 /** Reintenta el último trabajo fallido del proyecto (un trabajo nuevo con la misma entrada). */

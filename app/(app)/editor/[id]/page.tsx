@@ -6,6 +6,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/feedback";
 import { ProjectScreen } from "@/components/editor/project-screen";
 import { getBrand } from "@/lib/ai/brand-context";
+import { getEditorDefaults } from "@/lib/dal/editor-defaults";
 import { getStyle, listTracks, signedBroll } from "@/lib/dal/editor-media";
 import { getProject } from "@/lib/dal/video";
 import { fileDriver } from "@/lib/storage";
@@ -20,9 +21,12 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
   const project = await getProject(id);
   if (!project) notFound();
   const brand = await getBrand();
+  const autoPending = project.autoPending;
+  const working = project.status === "PROCESSING" || project.status === "RENDERING" || autoPending;
+  const autoSummary = working && project.canEdit ? (await getEditorDefaults()).summary : undefined;
   const accent = [brand?.colors?.accent, brand?.colors?.primary].find((c) => c && /^#[0-9a-f]{6}$/i.test(c)) ?? DEFAULT_ACCENT;
   // Estilo y b-roll solo hacen falta en la revisión.
-  const reviewing = project.status === "AWAITING_REVIEW" && project.plan;
+  const reviewing = project.status === "AWAITING_REVIEW" && !autoPending && project.plan;
   const styleId = project.plan?.style_id ?? project.styleId;
   const style = reviewing && styleId ? await getStyle(styleId) : null;
   const signed = reviewing ? await signedBroll(project.plan!.broll ?? []) : {};
@@ -36,6 +40,7 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
         worker: { ...project.worker, lastSeen: project.worker.lastSeen },
         accent,
         uploadMode: fileDriver() === "blob" ? "blob" : "local",
+        autoSummary,
       }}
       signedBroll={signed}
       graphicLook={brandGraphicLook(brand)}

@@ -9,9 +9,10 @@ import { getDb, schema } from "@/lib/db";
 import { enqueueJob } from "@/lib/jobs";
 import { hookRankingUnchecked } from "@/lib/metrics/hooks";
 import { deletePrefix, fileDriver, fileInfo, MAX_VIDEO_BYTES, VIDEO_EXTENSIONS, VIDEO_TYPES } from "@/lib/storage";
-import { startRender, VideoError } from "@/lib/video/service";
+import { autoExportProject } from "@/lib/video/auto-export";
+import { readEditorDefaults } from "@/lib/video/defaults";
 import { parseReferenceLink } from "@/lib/video/styles";
-import { CAPTION_PRESET_KEYS, type CaptionPresetKey, type EditPlan, type Transcript } from "@/lib/video/types";
+import type { CaptionPresetKey, Transcript } from "@/lib/video/types";
 import {
   clipBounds,
   generateCandidates,
@@ -378,14 +379,9 @@ export async function setClipDiscarded(clipId: string, discarded: boolean): Prom
 
 // ─── Del clip al Editor ───────────────────────────────────────────────────
 
-// "Del estilo" necesita un video de referencia y "Sin subtítulos" no sirve de valor por defecto.
-const CAPTION_PRESETS: CaptionPresetKey[] = CAPTION_PRESET_KEYS.filter((k) => k !== "estilo" && k !== "ninguno");
-
-/** Subtítulos por defecto de Mi marca (`subtitle_preset`: "caja" o { preset: "caja" }); si no hay, Clásico. */
+/** Subtítulos por defecto de Mi marca (valores por defecto del editor, ver lib/video/defaults.ts). */
 export function brandCaptionPreset(brand: Brand | null): CaptionPresetKey {
-  const raw = brand?.subtitlePreset as unknown;
-  const value = typeof raw === "string" ? raw : raw && typeof raw === "object" ? (raw as { preset?: unknown }).preset : null;
-  return typeof value === "string" && (CAPTION_PRESETS as string[]).includes(value) ? (value as CaptionPresetKey) : "clasico";
+  return readEditorDefaults(brand).captions;
 }
 
 /** La transcripción del tramo, con tiempos desde el inicio del clip e ids desde 0 (como la de un video subido). */
@@ -404,7 +400,8 @@ export function clipTranscript(words: Transcript["words"], fromWord: number, toW
 /**
  * Crea (o reutiliza) el proyecto del Editor de un clip. El worker corta y reencuadra el tramo a 9:16 al empezar
  * el análisis (no hace falta volver a transcribir) y arma el plan como con cualquier video.
- * "export": apenas está el plan, se exporta solo con los subtítulos por defecto de Mi marca.
+ * "export": apenas está el plan, se exporta solo con los valores por defecto del editor ("Hazlo por mí", el mismo
+ * mecanismo de lib/video/auto-export.ts: `video_projects.auto_export`).
  */
 export async function createClipProject(clipId: string, mode: "editor" | "export", userId: string): Promise<string> {
   const { clip, video, words } = await clipWithVideo(clipId);
@@ -415,9 +412,10 @@ export async function createClipProject(clipId: string, mode: "editor" | "export
   if (clip.projectId) {
     const [project] = await db.select().from(schema.videoProjects).where(eq(schema.videoProjects.id, clip.projectId)).limit(1);
     if (project) {
-      if (mode === "export" && clip.exportMode !== "export") {
+      if (mode === "export" && (clip.exportMode !== "export" || !project.autoExport)) {
         await db.update(schema.longVideoClips).set({ exportMode: "export" }).where(eq(schema.longVideoClips.id, clipId));
-        if (project.status === "AWAITING_REVIEW") await autoExport(project.id, userId);
+        await db.update(schema.videoProjects).set({ autoExport: true }).where(eq(schema.videoProjects.id, project.id));
+        if (project.status === "AWAITING_REVIEW") await autoExportProject(project.id, userId);
       }
       return project.id;
     }
@@ -436,6 +434,8 @@ export async function createClipProject(clipId: string, mode: "editor" | "export
     format: "9:16",
     captionPreset: brandCaptionPreset(brand),
     brollMode: "off",
+    autoExport: mode === "export",
+    origin: "clip",
     sourceKey,
     sourceName: `${clip.title.slice(0, 80)}.mp4`,
     transcript,
@@ -452,36 +452,6 @@ export async function createClipProject(clipId: string, mode: "editor" | "export
     input: { projectId: id, sourceKey, language: lang, clip: { ...clipInput, autoExport: mode === "export" } },
   });
   return id;
-}
-
-/** Revisión por defecto: los cortes que el plan ya da por seguros, sin cambiar el gancho ni el encuadre. */
-async function autoExport(projectId: string, userId: string | null): Promise<void> {
-  const [project] = await getDb().select().from(schema.videoProjects).where(eq(schema.videoProjects.id, projectId)).limit(1);
-  if (!project || project.status !== "AWAITING_REVIEW" || !project.plan) return;
-  const plan = project.plan as EditPlan;
-  const removed: number[] = [];
-  for (const r of plan.removals) for (let w = r.from_word; w <= r.to_word; w++) removed.push(w);
-  try {
-    await startRender(
-      projectId,
-      { removed, selectedHook: null, preset: project.captionPreset as CaptionPresetKey, offsetX: 0, corrections: plan.corrections ?? {} },
-      "9:16",
-      userId ?? project.createdBy ?? (null as unknown as string),
-    );
-  } catch (error) {
-    // Si no se pudo exportar solo, queda en revisión: la persona lo exporta desde el Editor.
-    console.error("[clips] exportación directa:", error instanceof VideoError ? error.message : error instanceof Error ? error.message : error);
-  }
-}
-
-/** Lo llama la ruta del plan del worker: si el proyecto viene de "Exportar directo", se exporta apenas está el plan. */
-export async function maybeAutoExport(projectId: string): Promise<void> {
-  const [clip] = await getDb()
-    .select({ id: schema.longVideoClips.id, exportMode: schema.longVideoClips.exportMode })
-    .from(schema.longVideoClips)
-    .where(eq(schema.longVideoClips.projectId, projectId))
-    .limit(1);
-  if (clip?.exportMode === "export") await autoExport(projectId, null);
 }
 
 /** Proyectos de varios clips, para mostrar su estado en las tarjetas. */

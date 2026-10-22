@@ -45,3 +45,16 @@ export const RENDER_STAGES = [
   { label: "Revisando la calidad", until: 95, match: ["Revisando la calidad"] },
   { label: "Guardando el video", until: 100, match: ["Guardando el video"] },
 ];
+
+/**
+ * "Hazlo por mí": una sola barra para todo el camino (análisis + plan + render). El análisis ocupa la primera mitad
+ * de la barra y el render la segunda; cada etapa dice de qué trabajo y de qué tramo de su progreso sale.
+ */
+export const AUTO_STAGES = [
+  { label: "Preparando el video", phase: "analyze", until: 55 },
+  { label: "Transcribiendo palabra por palabra", phase: "analyze", until: 85 },
+  { label: "Armando la edición: cortes, gancho, gráficos y b-roll", phase: "analyze", until: 101 },
+  { label: "Cortando las tomas y limpiando el audio", phase: "render", until: 45 },
+  { label: "Renderizando con subtítulos", phase: "render", until: 90 },
+  { label: "Revisando la calidad y guardando", phase: "render", until: 101 },
+] as const;

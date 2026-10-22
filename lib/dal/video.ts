@@ -22,6 +22,8 @@ export type ProjectListItem = {
   outputDuration: number | null;
   posterUrl: string | null;
   errorMessage: string | null;
+  autoExport: boolean;
+  origin: string;
   updatedAt: Date;
 };
 
@@ -37,6 +39,8 @@ export async function listProjects(): Promise<{ projects: ProjectListItem[]; wor
       media: schema.videoProjects.media,
       outputMeta: schema.videoProjects.outputMeta,
       errorMessage: schema.videoProjects.errorMessage,
+      autoExport: schema.videoProjects.autoExport,
+      origin: schema.videoProjects.origin,
       updatedAt: schema.videoProjects.updatedAt,
     })
     .from(schema.videoProjects)
@@ -70,6 +74,8 @@ export async function listProjects(): Promise<{ projects: ProjectListItem[]; wor
         outputDuration: out.duration ?? null,
         posterUrl: posterKey && fileDriver() ? await readUrl(posterKey).catch(() => null) : null,
         errorMessage: r.errorMessage,
+        autoExport: r.autoExport,
+        origin: r.origin,
         updatedAt: r.updatedAt,
       };
     }),
@@ -102,6 +108,11 @@ export type ProjectView = {
   scriptId: string | null;
   styleId: string | null;
   brollMode: string;
+  /** "Hazlo por mí": se exporta solo apenas está el plan. */
+  autoExport: boolean;
+  /** "Hazlo por mí" con el plan recién hecho: el render está por arrancar (si en 90 s no arrancó, se muestra la revisión). */
+  autoPending: boolean;
+  origin: string;
   sourceName: string | null;
   sourceBytes: number | null;
   sourceKey: string | null;
@@ -152,6 +163,9 @@ export async function getProject(id: string): Promise<ProjectView | null> {
     scriptId: p.scriptId,
     styleId: p.styleId,
     brollMode: p.brollMode,
+    autoExport: p.autoExport,
+    autoPending: p.autoExport && p.status === "AWAITING_REVIEW" && !p.errorMessage && Date.now() - p.updatedAt.getTime() < 90_000,
+    origin: p.origin,
     sourceName: p.sourceName,
     sourceBytes: p.sourceBytes,
     sourceKey: p.sourceKey,
@@ -188,7 +202,7 @@ export async function getProjectStatus(id: string) {
   await getCurrentUser();
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const [p] = await getDb()
-    .select({ status: schema.videoProjects.status, errorMessage: schema.videoProjects.errorMessage, updatedAt: schema.videoProjects.updatedAt })
+    .select({ status: schema.videoProjects.status, errorMessage: schema.videoProjects.errorMessage, autoExport: schema.videoProjects.autoExport, updatedAt: schema.videoProjects.updatedAt })
     .from(schema.videoProjects)
     .where(eq(schema.videoProjects.id, id))
     .limit(1);
@@ -198,6 +212,7 @@ export async function getProjectStatus(id: string) {
   return {
     status: p.status,
     errorMessage: p.errorMessage,
+    autoExport: p.autoExport,
     updatedAt: p.updatedAt.toISOString(),
     job: job ? { type: job.type, status: job.status, progress: job.progress, stage: job.stage, attempts: job.attempts, maxAttempts: job.maxAttempts, errorMessage: job.errorMessage } : null,
     worker: { online: worker.online, autoStart: worker.autoStart },

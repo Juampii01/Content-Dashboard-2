@@ -31,7 +31,10 @@ export function AudioPanel({
   onMusic,
   tracks,
   canEdit,
+  showStudioPreview = true,
 }: {
+  /** Fuera de un video (valores por defecto de Mi marca) no hay muestra de antes y después. */
+  showStudioPreview?: boolean;
   studio: StudioLevel;
   onStudio: (level: StudioLevel) => void;
   audioPreview: AudioPreview | null;
@@ -70,7 +73,7 @@ export function AudioPanel({
           options={STUDIO_LEVELS.map((k) => ({ value: k, label: STUDIO_LEVEL_LABELS[k].label }))}
         />
         <p className="text-xs text-muted">{STUDIO_LEVEL_LABELS[studio].description}</p>
-        <StudioPreview key={studio} preview={audioPreview} level={studio} />
+        {showStudioPreview && <StudioPreview key={studio} preview={audioPreview} level={studio} />}
       </div>
 
       <div className="flex flex-col gap-2">

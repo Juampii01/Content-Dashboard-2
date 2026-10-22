@@ -15,10 +15,8 @@ import { describePreset, type StylePreset } from "@/lib/video/style";
 import type { CaptionPresetKey, VideoFormat } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { createFromCloneAction, createProjectAction, discardDraftAction } from "./actions";
+import { AutoExportToggle } from "./auto-export-toggle";
 import { CaptionPicker } from "./caption-picker";
-
-/** Subtítulos por defecto de un video nuevo: la píldora con el color de la marca. */
-const DEFAULT_PRESET: CaptionPresetKey = "caja";
 import { MAX_VIDEO_BYTES_CLIENT, VIDEO_ACCEPT } from "./constants";
 import { cancelUpload, startUpload, submitUpload, useUpload } from "./upload-manager";
 
@@ -64,6 +62,8 @@ export function NewProjectFlow({
   initialStyleId = null,
   broll = { stock: false, libraryClips: 0 },
   captionBrand = { accent: "#FFD84D", font: "montserrat" },
+  defaults = { format: "9:16", captions: "caja", broll: "auto" },
+  autoSummary,
 }: {
   scripts: ScriptOption[];
   initialScriptId: string | null;
@@ -73,14 +73,19 @@ export function NewProjectFlow({
   broll?: BrollAvailability;
   /** Acento y fuente de títulos de Mi marca, para las miniaturas de los subtítulos. */
   captionBrand?: { accent: string; font: "montserrat" | "inter" };
+  /** Valores por defecto del editor (Mi marca): formato, subtítulos y b-roll con que arranca el flujo. */
+  defaults?: { format: VideoFormat; captions: CaptionPresetKey; broll: "auto" | "off" };
+  /** Qué usa "Hazlo por mí" (subtítulos, música…), para mostrarlo al lado del interruptor. */
+  autoSummary?: string;
 }) {
+  const DEFAULT_PRESET = defaults.captions;
   const router = useRouter();
   const [step, setStep] = useState<StepId>("video");
   const [visited, setVisited] = useState<Set<StepId>>(new Set(["video"]));
   const [project, setProject] = useState<{ id: string; key: string; mode: "blob" | "local" } | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [title, setTitle] = useState(clone?.title ?? "");
-  const [format, setFormat] = useState<VideoFormat>(clone?.aspectRatio === "16:9" ? "16:9" : "9:16");
+  const [format, setFormat] = useState<VideoFormat>(clone ? (clone.aspectRatio === "16:9" ? "16:9" : "9:16") : defaults.format);
   const [formatTouched, setFormatTouched] = useState(false);
   const [orientation, setOrientation] = useState<"landscape" | "portrait" | null>(clone ? (clone.aspectRatio === "16:9" ? "landscape" : "portrait") : null);
   const initialStyle = styles.find((st) => st.id === initialStyleId) ?? null;
@@ -89,7 +94,8 @@ export function NewProjectFlow({
   const [presetTouched, setPresetTouched] = useState(false);
   // Siempre hay b-roll posible: aunque no haya stock ni clips propios, la IA arma gráficos con tu marca.
   const clipsReady = broll.stock || broll.libraryClips > 0;
-  const [brollMode, setBrollMode] = useState<"auto" | "off">("auto");
+  const [brollMode, setBrollMode] = useState<"auto" | "off">(defaults.broll);
+  const [autoExport, setAutoExport] = useState(false);
   const style = styles.find((st) => st.id === styleId) ?? null;
   const presetKeys = CAPTION_PICKER_ORDER.filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
 
@@ -137,11 +143,11 @@ export function NewProjectFlow({
       const o = dims.w > dims.h ? "landscape" : "portrait";
       setOrientation(o);
       if (!formatTouchedRef.current) {
-        nextFormat = "9:16"; // Reels y TikTok primero; un horizontal se recorta y se puede mover el encuadre.
+        nextFormat = defaults.format; // Por defecto, el de Mi marca (Reels y TikTok primero); un horizontal se recorta y se puede mover el encuadre.
         setFormat(nextFormat);
       }
     }
-    const result = await createProjectAction({ title: nextTitle, fileName: file.name, fileType: file.type, fileSize: file.size, format: nextFormat, preset, scriptId, styleId, brollMode });
+    const result = await createProjectAction({ title: nextTitle, fileName: file.name, fileType: file.type, fileSize: file.size, format: nextFormat, preset, scriptId, styleId, brollMode, autoExport });
     if (!result.ok || !result.data) {
       setError(result.ok ? "No pudimos preparar la subida." : result.error);
       return;
@@ -153,12 +159,12 @@ export function NewProjectFlow({
   function process() {
     startSubmit(async () => {
       if (clone) {
-        const result = await createFromCloneAction(clone.id, format, preset, { styleId, brollMode });
+        const result = await createFromCloneAction(clone.id, format, preset, { styleId, brollMode, autoExport });
         if (result && !result.ok) toast.error(result.error);
         return;
       }
       if (!project) return;
-      const result = await submitUpload(project.id, { title: title.trim() || "Video sin título", format, preset, scriptId, styleId, brollMode });
+      const result = await submitUpload(project.id, { title: title.trim() || "Video sin título", format, preset, scriptId, styleId, brollMode, autoExport });
       if (!result.ok && result.error) {
         toast.error(result.error);
         return;
@@ -416,6 +422,8 @@ export function NewProjectFlow({
           )}
         </div>
 
+        <AutoExportToggle checked={autoExport} onChange={setAutoExport} summary={autoSummary} />
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Button variant="ghost" disabled={index === 0} icon={<ArrowLeft className="h-4 w-4" aria-hidden />} onClick={() => go(STEPS[Math.max(0, index - 1)]!.id)}>
             Atrás
@@ -428,7 +436,7 @@ export function NewProjectFlow({
               </Button>
             )}
             <Button onClick={process} disabled={!hasSource || submitting || upload?.status === "error" || (clone ? !clone.ready : false)} icon={<Sparkles className="h-4 w-4" aria-hidden />}>
-              {submitting ? "Enviando…" : "Procesar"}
+              {submitting ? "Enviando…" : autoExport ? "Hacerlo por mí" : "Procesar"}
             </Button>
           </div>
         </div>

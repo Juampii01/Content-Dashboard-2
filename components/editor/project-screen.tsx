@@ -22,7 +22,14 @@ import type { GraphicLook } from "@/lib/video/graphics";
 import { ReviewEditor } from "./review-editor";
 import { startUpload, submitUpload, useUpload } from "./upload-manager";
 
-type View = Omit<ProjectView, "createdAt" | "updatedAt"> & { createdAt: string; updatedAt: string; accent: string; uploadMode: "blob" | "local" };
+type View = Omit<ProjectView, "createdAt" | "updatedAt"> & {
+  createdAt: string;
+  updatedAt: string;
+  accent: string;
+  uploadMode: "blob" | "local";
+  /** Qué valores usa "Hazlo por mí" (para la pantalla de progreso). */
+  autoSummary?: string;
+};
 
 export function ProjectScreen({
   project,
@@ -38,18 +45,26 @@ export function ProjectScreen({
   style?: ComponentProps<typeof ReviewEditor>["style"];
 }) {
   const status = project.status as ProjectStatus;
+  const working = status === "PROCESSING" || status === "RENDERING" || (status === "AWAITING_REVIEW" && project.autoPending);
   return (
     <div className="flex flex-col gap-6">
       <ProjectHeader project={project} status={status} />
       {status === "UPLOADING" && <UploadPending project={project} />}
-      {(status === "PROCESSING" || status === "RENDERING") && (
+      {working && (
         <ProcessingView
           projectId={project.id}
           kind={status === "RENDERING" ? "render" : "analyze"}
-          initial={{ status, errorMessage: project.errorMessage, job: project.job, worker: { online: project.worker.online, autoStart: project.worker.autoStart } }}
+          canEdit={project.canEdit}
+          autoSummary={project.autoSummary}
+          initial={{ status, errorMessage: project.errorMessage, autoExport: project.autoExport, job: project.job, worker: { online: project.worker.online, autoStart: project.worker.autoStart } }}
         />
       )}
-      {status === "AWAITING_REVIEW" && project.plan && project.transcript && (
+      {status === "AWAITING_REVIEW" && !project.autoPending && project.errorMessage && (
+        <Notice tone="warning" title="No lo exportamos solo">
+          {project.errorMessage.replace(/^No pudimos exportarlo solo: /, "")} Revisa la propuesta y expórtala cuando quieras.
+        </Notice>
+      )}
+      {status === "AWAITING_REVIEW" && !project.autoPending && project.plan && project.transcript && (
         <ReviewEditor
           projectId={project.id}
           plan={project.plan}
@@ -69,7 +84,7 @@ export function ProjectScreen({
         />
       )}
       {status === "DONE" && project.output && (
-        <ResultView projectId={project.id} format={project.format} output={project.output} posterUrl={project.posterUrl} canEdit={project.canEdit} />
+        <ResultView projectId={project.id} format={project.format} output={project.output} posterUrl={project.posterUrl} canEdit={project.canEdit} auto={project.autoExport} />
       )}
       {status === "DONE" && !project.output && <Notice tone="warning">El video quedó listo, pero no encontramos el archivo. Vuelve a editarlo y renderízalo otra vez.</Notice>}
       {status === "FAILED" && <FailedView project={project} />}
@@ -175,7 +190,7 @@ function UploadPending({ project }: { project: View }) {
           }
           setError(null);
           startUpload({ file, projectId: project.id, key: project.sourceKey, mode: project.uploadMode });
-          void submitUpload(project.id, { title: project.title, format: project.format, preset: project.captionPreset as CaptionPresetKey, scriptId: project.scriptId }).then((r) => {
+          void submitUpload(project.id, { title: project.title, format: project.format, preset: project.captionPreset as CaptionPresetKey, scriptId: project.scriptId, autoExport: project.autoExport }).then((r) => {
             if (r.ok) router.refresh();
           });
         }}

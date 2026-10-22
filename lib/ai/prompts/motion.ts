@@ -171,15 +171,13 @@ export const motionSceneAiSchema = z.object({
     .describe("Normalmente un componente; primitivas solo si hace falta."),
 });
 
-/** Respuesta a un pedido o un ajuste de la persona. */
+/** Respuesta a un pedido o un ajuste de la persona, ya leída (no va a la API: ver el formato de cable). */
 export const motionRequestAiSchema = motionSceneAiSchema.extend({
   refusal: str("Vacío si se puede hacer. Si el pedido no se puede (ver LÍMITES), una frase amable que explique por qué."),
   alternative: str("Si hay refusal: un pedido parecido que sí se pueda, escrito como lo pediría la persona. Si no, vacío."),
   note: str("Opcional: una frase si cambiaste algo del pedido (por ejemplo, una cifra que no se dice). Si no, vacío."),
 });
 
-/** Corrección de escenas con problemas (mismo orden que en la tarea). */
-export const motionRetryAiSchema = z.object({ graphics: list(motionSceneAiSchema, "Una escena corregida por cada GRÁFICO de la tarea, en el mismo orden.") });
 
 export type MotionLayerAi = { kind: "component"; component: ComponentName; at: number; scale: number; place: "auto" | "top" | "bottom"; props: Record<string, unknown> } | MotionPrimitiveAi;
 type BehaviorAi = { type: string; at: number; dur: number; dir: string };
@@ -192,6 +190,87 @@ export type MotionPrimitiveAi =
 export type MotionSceneAi = { title: string; mode: "full" | "overlay"; position: "top" | "bottom"; layers: MotionLayerAi[] };
 export type MotionRequestAi = MotionSceneAi & { refusal: string; alternative: string; note: string };
 
+// ─── Formato de cable (lo que viaja a la API) ─────────────────────────────
+//
+// La salida estructurada de Anthropic compila el esquema a una gramática con un tamaño máximo: la unión de 15
+// componentes con 103 íconos cada uno la supera ("The compiled grammar is too large"). Por eso a la API va un esquema
+// chico: cada capa es { kind, component, spec } y `spec` es el JSON (en texto) del resto de la capa. Al volver, cada
+// spec se lee con los esquemas detallados de arriba (permisivos) y la capa que no se entiende se descarta.
+
+const LAYER_KINDS = ["component", "text", "icon", "counter", "line", "shape"] as const;
+
+const layerWireSchema = z.object({
+  kind: z.enum(LAYER_KINDS),
+  component: z.string().describe("Si kind es component: nombre exacto del CATÁLOGO. Si no, vacío."),
+  spec: z.string().describe('JSON en una línea con el resto de la capa. Componente: {"at":0,"scale":1,"place":"auto","props":{…}}. Primitiva: todos sus campos menos kind.'),
+});
+const sceneWireSchema = z.object({
+  title: z.string().describe("Nombre corto del gráfico para la persona (por ejemplo 'Embudo de ventas')."),
+  mode: z.enum(["full", "overlay"]),
+  position: z.enum(["top", "bottom"]).describe("Solo en overlay: arriba (normal) o abajo."),
+  layers: z.array(layerWireSchema).describe("Normalmente un componente; primitivas solo si hace falta."),
+});
+export type MotionLayerWire = z.infer<typeof layerWireSchema>;
+export type MotionSceneWire = z.infer<typeof sceneWireSchema>;
+
+/** Respuesta a un pedido o un ajuste (formato de cable). */
+export const motionRequestWireSchema = sceneWireSchema.extend({
+  refusal: z.string().describe("Vacío si se puede hacer. Si el pedido no se puede (ver LÍMITES), una frase amable que explique por qué."),
+  alternative: z.string().describe("Si hay refusal: un pedido parecido que sí se pueda, escrito como lo pediría la persona. Si no, vacío."),
+  note: z.string().describe("Opcional: una frase si cambiaste algo del pedido (por ejemplo, una cifra que no se dice). Si no, vacío."),
+});
+/** Corrección de escenas con problemas (formato de cable, mismo orden que en la tarea). */
+export const motionRetryWireSchema = z.object({ graphics: z.array(sceneWireSchema).describe("Una escena corregida por cada GRÁFICO de la tarea, en el mismo orden.") });
+
+const asRecord = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+
+/** Una capa de cable → capa detallada (o null si no se entiende). */
+export function layerFromWire(l: MotionLayerWire): MotionLayerAi | null {
+  let spec: Record<string, unknown> | null = null;
+  try {
+    spec = asRecord(JSON.parse(l.spec || "{}"));
+  } catch {
+    return null;
+  }
+  if (!spec) return null;
+  let raw: Record<string, unknown>;
+  if (l.kind === "component") {
+    const { at, scale, place, props, component, kind: _kind, ...rest } = spec;
+    void _kind;
+    raw = { kind: "component", component: l.component || component, at, scale, place, props: asRecord(props) ?? rest };
+  } else {
+    raw = { ...spec, kind: l.kind };
+  }
+  const parsed = motionLayerAiSchema.safeParse(raw);
+  return parsed.success ? (parsed.data as MotionLayerAi) : null;
+}
+
+/** Escena de cable → escena detallada (las capas que no se entienden se descartan). */
+export function sceneFromWire(w: MotionSceneWire | null | undefined): MotionSceneAi | null {
+  if (!w) return null;
+  const scene = motionSceneAiSchema.parse({ title: w.title, mode: w.mode, position: w.position, layers: [] }) as MotionSceneAi;
+  scene.layers = (w.layers ?? []).map(layerFromWire).filter((l): l is MotionLayerAi => Boolean(l));
+  return scene;
+}
+
+/** Escena detallada → cable (para las respuestas simuladas y las pruebas). */
+export function sceneToWire(s: MotionSceneAi): MotionSceneWire {
+  return {
+    title: s.title,
+    mode: s.mode,
+    position: s.position,
+    layers: s.layers.map((l) => {
+      if (l.kind === "component") return { kind: "component" as const, component: l.component, spec: JSON.stringify({ at: l.at, scale: l.scale, place: l.place, props: l.props }) };
+      const { kind, ...rest } = l;
+      return { kind, component: "", spec: JSON.stringify(rest) };
+    }),
+  };
+}
+
+export function motionRequestFromWire(w: z.infer<typeof motionRequestWireSchema>): MotionRequestAi {
+  return { ...(sceneFromWire(w) as MotionSceneAi), refusal: w.refusal ?? "", alternative: w.alternative ?? "", note: w.note ?? "" };
+}
+
 // ─── Reglas (contexto en caché) ───────────────────────────────────────────
 
 const catalog = COMPONENT_NAMES.map((name) => {
@@ -201,7 +280,7 @@ const catalog = COMPONENT_NAMES.map((name) => {
 
 const icons = ICON_NAMES.map((name) => `${name}${ICON_TAGS[name] ? `: ${ICON_TAGS[name]}` : ""}`).join(" · ");
 
-const example = (scene: MotionSceneAi) => JSON.stringify(scene);
+const example = (scene: MotionSceneAi) => JSON.stringify(sceneToWire(scene));
 const comp = (component: ComponentName, props: Record<string, unknown>, extra: Partial<{ at: number; scale: number; place: "auto" | "top" | "bottom" }> = {}): MotionLayerAi => ({ kind: "component", component, at: 0, scale: 1, place: "auto", props, ...extra });
 
 const GOOD = [
@@ -258,6 +337,17 @@ PRIMITIVAS
 - Zona segura en 9:16: x entre 0.08 y 0.92, y entre 0.08 y 0.80. Abajo a la derecha están los botones de Reels (x > 0.86, y > 0.6): ahí nada de texto. En overlay, el contenido va entre y 0.07 y 0.35 (top) o entre 0.57 y 0.82 (bottom). En 16:9, x entre 0.06 y 0.94, y entre 0.08 y 0.9.
 - Deja aire entre elementos: que no se pisen.
 - text: emphasis_words marca palabras del mismo texto con emphasis_style (marker = resaltador, underline, strike = tachado, accent = color de acento).
+
+CAMPOS DE CADA PRIMITIVA (todos van en spec)
+- text: text, x, y, w (ancho de la caja; 0.84 normal), size (títulos 90 a 160, textos 48 a 70), weight (400 a 900), font (display | body), color (token), align (center | left | right), uppercase (true | false), emphasis_words, emphasis_style (none | marker | underline | strike | accent), animate.
+- icon: name (nombre exacto de ÍCONOS), x, y, size (120 a 260), color (token), tile (none | accent | soft | outline), animate.
+- counter: value (cifra dicha, como se lee: +40%, 10K), x, y, size (160 a 320), color (token), animate (normalmente countUp).
+- line: points (2 a 12 puntos {x, y} en fracciones), bend (curvatura con 2 puntos, -1 a 1; 0 = recta), color (token), width (6 a 14), head (none | end = flecha), animate (normalmente draw).
+- shape: shape (rect | pill | circle), x, y, w, h (fracciones), fill (token o none), stroke (token o none), card (true = tarjeta de la marca), animate.
+- animate: lista de {type, at, dur, dir}. type: ${BEHAVIORS.join(", ")}. at = segundo en que empieza; dur = 0 para la duración de siempre; dir (left | right | up | down) solo en slide y wipe, en los demás none.
+
+FORMATO DE RESPUESTA
+Cada capa va como {"kind", "component", "spec"}. kind es component, text, icon, counter, line o shape. component es el nombre del CATÁLOGO (vacío en las primitivas). spec es un texto con el JSON del resto de la capa, en una línea: para un componente {"at":0,"scale":1,"place":"auto","props":{…}} con las props de su forma; para una primitiva, todos sus campos menos kind. Los gráficos que te muestran en las tareas (GRÁFICO ACTUAL, Escena) vienen en la forma legible, con los campos sueltos: respóndelos siempre en este formato.
 
 LÍMITES (no se pueden hacer)
 - Personas, caras, cuerpos o personajes dibujados.
@@ -375,7 +465,7 @@ REGLAS DEL PLAN
 - En los tramos "stock", graphic va en null.
 - Usa solo ids que existan. "why" va en una frase corta para el creador, en español neutro con trato de "tú".`;
 
-export const brollMotionAiSchema = z.object({
+export const brollMotionWireSchema = z.object({
   broll: z
     .array(
       z.object({
@@ -384,10 +474,14 @@ export const brollMotionAiSchema = z.object({
         kind: z.enum(["stock", "graphic"]),
         query_en: z.string().describe("Consulta en inglés para bancos de videos de stock, 2 a 5 palabras."),
         keywords: z.array(z.string()).describe("2 a 4 palabras clave en español para la biblioteca."),
-        graphic: motionSceneAiSchema.nullable().catch(null).describe("La escena si kind es graphic; null si es stock."),
+        graphic: sceneWireSchema.nullable().describe("La escena si kind es graphic; null si es stock."),
         why: z.string().describe("Por qué ahí, en una frase."),
       }),
     )
     .describe("Tramos de b-roll en orden, sin superponerse."),
 });
 export type BrollMotionAiOutput = { broll: { from_word: number; to_word: number; kind: "stock" | "graphic"; query_en: string; keywords: string[]; graphic: MotionSceneAi | null; why: string }[] };
+
+export function brollMotionFromWire(w: z.infer<typeof brollMotionWireSchema>): BrollMotionAiOutput {
+  return { broll: w.broll.map((b) => ({ ...b, graphic: b.kind === "graphic" ? sceneFromWire(b.graphic) : null })) };
+}

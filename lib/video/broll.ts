@@ -2,7 +2,7 @@ import "server-only";
 import { desc, eq } from "drizzle-orm";
 import { AiError, generateStructured } from "@/lib/ai/client";
 import { brollTask, sentences } from "@/lib/ai/prompts/editor";
-import { BROLL_MOTION_RULES, brollMotionAiSchema, MOTION_RULES, type BrollMotionAiOutput } from "@/lib/ai/prompts/motion";
+import { BROLL_MOTION_RULES, brollMotionFromWire, brollMotionWireSchema, MOTION_RULES, type BrollMotionAiOutput } from "@/lib/ai/prompts/motion";
 import { GRAPHIC_MAX_SECONDS, GRAPHIC_MIN_SECONDS, type GraphicLook } from "./graphics";
 import { resolveScenes, type MotionJob } from "./motion-build";
 import { motionRetry } from "./motion-ai";
@@ -220,7 +220,8 @@ export async function planBroll(input: {
   const context = `${BROLL_MOTION_RULES}\n\n${MOTION_RULES}\n\n${input.context}`;
   let ai: BrollMotionAiOutput;
   try {
-    ai = (await generateStructured({
+    ai = brollMotionFromWire(
+      await generateStructured({
       feature: "video.broll.motion",
       model: "main",
       context,
@@ -235,9 +236,10 @@ export async function planBroll(input: {
         graphics: look ? { minSeconds: GRAPHIC_MIN_SECONDS, maxSeconds: GRAPHIC_MAX_SECONDS } : null,
         stock: stockReady,
       }),
-      schema: brollMotionAiSchema,
+      schema: brollMotionWireSchema,
       maxTokens: 12000,
-    })) as BrollMotionAiOutput;
+      }),
+    );
   } catch (error) {
     console.error("[editor] b-roll sin IA:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
     return { items: [], warning: "No pudimos elegir el b-roll con IA. Puedes agregarlo a mano desde la revisión." };

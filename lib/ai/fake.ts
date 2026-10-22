@@ -1,6 +1,7 @@
 import "server-only";
 import { spokenNumbers } from "@/lib/video/graphics";
 import { ICON_TAGS } from "@/lib/video/motion/icons";
+import { sceneToWire, type MotionSceneAi } from "@/lib/ai/prompts/motion";
 
 /**
  * Respuestas simuladas para probar la interfaz sin clave de IA. Solo en desarrollo con AI_FAKE=1;
@@ -216,14 +217,17 @@ export function fakeResponse(feature: string, task = ""): unknown {
       return fakeVideoPlan(task);
     case "video.broll":
       return fakeBrollPlan(task);
-    case "video.broll.motion":
-      return fakeBrollMotionPlan(task);
+    // Los gráficos viajan en el formato de cable de lib/ai/prompts/motion.ts (capas con spec en JSON).
+    case "video.broll.motion": {
+      const plan = fakeBrollMotionPlan(task);
+      return { broll: plan.broll.map((b) => ({ ...b, graphic: b.graphic ? toWire(b.graphic) : null })) };
+    }
     case "video.motion.pedido":
-      return fakeMotionRequest(task);
+      return toWireRequest(fakeMotionRequest(task));
     case "video.motion.ajuste":
-      return fakeMotionAdjust(task);
+      return toWireRequest(fakeMotionAdjust(task));
     case "video.motion.retry":
-      return fakeMotionRetry(task);
+      return { graphics: fakeMotionRetry(task).graphics.map(toWire) };
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }
@@ -404,6 +408,9 @@ function fakeSceneFor(request: string, spoken: string): FakeScene {
   const word = quoted(request) ?? [...spoken.replace(/[^\p{L}\p{N} ]/gu, "").split(" ")].sort((a, b) => b.length - a.length)[0] ?? "Idea";
   return { title: "Palabra clave", mode: "overlay", position, layers: [fakeComp("keyword", { text: cap(word.slice(0, 28)), label: "", emphasis: "marker" })] };
 }
+
+const toWire = (scene: unknown) => sceneToWire(scene as MotionSceneAi);
+const toWireRequest = (r: { refusal: string; alternative: string; note: string }) => ({ ...toWire(r), refusal: r.refusal, alternative: r.alternative, note: r.note });
 
 function fakeMotionRequest(task: string) {
   const request = between(task, "pedido");

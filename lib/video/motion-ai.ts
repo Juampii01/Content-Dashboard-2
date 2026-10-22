@@ -3,12 +3,13 @@ import { generateStructured } from "@/lib/ai/client";
 import {
   MOTION_RULES,
   motionAdjustTask,
-  motionRequestAiSchema,
+  motionRequestFromWire,
+  motionRequestWireSchema,
   motionRequestTask,
-  motionRetryAiSchema,
+  motionRetryWireSchema,
+  sceneFromWire,
   motionRetryTask,
   type MotionRequestAi,
-  type MotionSceneAi,
 } from "@/lib/ai/prompts/motion";
 import { sceneFromV1 } from "./motion/v1";
 import type { GraphicLook } from "./graphics";
@@ -33,10 +34,10 @@ export function motionRetry(context: string): RetryFn {
       model: "main",
       context,
       task: motionRetryTask(items.map((it) => ({ spoken: it.job.spoken, format: it.job.format, duration: it.job.duration, scene: it.scene, problems: it.problems, ...(it.job.request ? { request: it.job.request } : {}) }))),
-      schema: motionRetryAiSchema,
+      schema: motionRetryWireSchema,
       maxTokens: 3000 + items.length * 1500,
     });
-    return items.map((_, i) => (out.graphics[i] as MotionSceneAi | undefined) ?? null);
+    return items.map((_, i) => sceneFromWire(out.graphics[i]));
   };
 }
 
@@ -65,14 +66,15 @@ export async function requestGraphic(input: GraphicRequest): Promise<GraphicRequ
   const context = motionContext(input.brandContext);
   const current = input.current ? (isMotionScene(input.current) ? input.current : sceneFromV1(input.current, { duration: input.duration, format: input.format })) : null;
   const common = { request: input.request, spoken: input.spoken, around: input.around, format: input.format, duration: input.duration };
-  const ai = (await generateStructured({
+  const wire = await generateStructured({
     feature: input.kind === "ajuste" ? "video.motion.ajuste" : "video.motion.pedido",
     model: "main",
     context,
     task: input.kind === "ajuste" && current ? motionAdjustTask({ ...common, current: sceneToAi(current) }) : motionRequestTask(common),
-    schema: motionRequestAiSchema,
+    schema: motionRequestWireSchema,
     maxTokens: 4000,
-  })) as MotionRequestAi;
+  });
+  const ai: MotionRequestAi = motionRequestFromWire(wire);
 
   if (ai.refusal.trim() && !ai.layers.length) return { ok: false, refusal: ai.refusal.trim().slice(0, 300), alternative: ai.alternative.trim().slice(0, 200) };
   // En un ajuste, las cifras que ya tenía el gráfico (las aceptó la persona) siguen valiendo.

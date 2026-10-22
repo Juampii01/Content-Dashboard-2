@@ -92,7 +92,7 @@ export function Teleprompter({
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/70 to-transparent" />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/70 to-transparent" />
       {waiting && (
-        <span className="absolute right-3 top-3 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[11px] font-medium text-muted" role="status">
+        <span className="absolute bottom-2 right-3 rounded-full border border-white/15 bg-black/70 px-2.5 py-1 text-[11px] font-medium text-muted" role="status">
           En pausa: sigue cuando hables
         </span>
       )}

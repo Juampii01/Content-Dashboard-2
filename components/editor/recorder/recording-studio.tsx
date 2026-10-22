@@ -111,6 +111,7 @@ export function RecordingStudio({
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const startedAt = useRef(0);
+  const stage = useRef<HTMLDivElement>(null);
   const current = freeMode ? null : (session[index] ?? null);
 
   // Preferencias del teleprompter (solo de este navegador).
@@ -153,6 +154,13 @@ export function RecordingStudio({
       void preview.current.play().catch(() => undefined);
     }
   }, [stream, phase]);
+
+  // Al empezar la cuenta regresiva, el escenario (con el teleprompter arriba) sube a la vista, debajo de la barra fija.
+  useEffect(() => {
+    if (phase !== "countdown" || !stage.current) return;
+    const top = stage.current.getBoundingClientRect().top + window.scrollY - 76;
+    if (Math.abs(window.scrollY - top) > 8) window.scrollTo({ top: Math.max(0, top) });
+  }, [phase]);
 
   // Cronómetro (y corte a los 20 minutos).
   useEffect(() => {
@@ -295,14 +303,14 @@ export function RecordingStudio({
       paragraphs={current.paragraphs.length ? current.paragraphs : ["Este guion todavía no tiene texto. Escríbelo en Guiones o graba sin guion."]}
       running={phase === "recording"}
       wpm={prefs.wpm}
-      size={prompterOutside ? Math.min(prefs.size, 28) : prefs.size}
+      size={wide ? prefs.size : Math.min(prefs.size, 26)}
       followVoice={prefs.followVoice}
       speaking={voice.speaking}
       resetKey={`${current.id}-${phase === "countdown" ? "c" : ""}`}
       className={
         prompterOutside
           ? "h-56 rounded-2xl border border-white/10 bg-black"
-          : "absolute inset-x-0 top-0 h-[44%] bg-gradient-to-b from-black/80 via-black/65 to-black/30"
+          : cn("absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 via-black/65 to-black/30", aspect < 1 ? "h-[50%]" : "h-[44%]")
       }
     />
   ) : null;
@@ -340,10 +348,11 @@ export function RecordingStudio({
             />
           </header>
 
+          <div ref={stage} className="flex flex-col gap-4" data-stage>
           {prompterOutside && prompter}
 
           {/* Escenario: la cámara tal cual llega, con el recorte del formato marcado y el teleprompter arriba (cerca del lente). */}
-          <div className="relative mx-auto w-full overflow-hidden rounded-2xl border border-white/10 bg-black" style={{ aspectRatio: `${camW} / ${camH}`, maxWidth: `calc(72vh * ${aspect})` }}>
+          <div className="relative mx-auto w-full overflow-hidden rounded-2xl border border-white/10 bg-black" style={{ aspectRatio: `${camW} / ${camH}`, maxWidth: `calc(${wide ? 72 : 56}svh * ${aspect})` }}>
             {camera.state.status === "ready" && phase !== "review" && (
               <video ref={preview} muted playsInline autoPlay className={cn("absolute inset-0 h-full w-full object-cover", prefs.mirror && "-scale-x-100")} aria-label="Vista de tu cámara" />
             )}
@@ -379,6 +388,8 @@ export function RecordingStudio({
                 ))}
               </span>
             )}
+          </div>
+
           </div>
 
           {recError && <Notice tone="danger">{recError}</Notice>}

@@ -7,8 +7,9 @@
 2. Unión con el demuxer concat (sin recodificar; el audio va en PCM, que no agrega relleno entre tramos).
 3. Audio: con "Audio de estudio" (Suave o Fuerte), ruido y eco fuera con DeepFilterNet3 (`studio.py`) y después
    ecualización de voz, de-esser y compresión; apagado (y en los planes de antes), la cadena de siempre (pasa altos
-   80 Hz, reducción de ruido de ffmpeg, +2 dB entre 3 y 5 kHz, de-esser, compresor 3:1). Luego limitador y
-   `loudnorm` en dos pasadas con `linear=true` a -14 LUFS y -1 dBTP (solo ganancia, sin "bombeo"). El retraso que
+   80 Hz, reducción de ruido de ffmpeg, +2 dB entre 3 y 5 kHz, de-esser, compresor 3:1). Luego ganancia y
+   limitador, medición con `loudnorm` y ganancia final exacta a -14 LUFS con techo de -1,5 dBFS (solo ganancia,
+   sin "bombeo"). El retraso que
    agregan los filtros (afftdn corre la voz 25 ms) se mide y se compensa: la voz queda alineada con el video.
 4. Video final: reencuadre (16:9 → 9:16 con recorte estático y ajuste horizontal), subtítulos ASS y
    H.264 High, yuv420p, 30 fps, CRF 18, BT.709, AAC 48 kHz 192k, `+faststart`.
@@ -208,27 +209,36 @@ def process_audio(src: Path, out: Path, target: float = -14.0, tp: float = -1.0,
     measured_i = float(first["input_i"])
     if measured_i < -60:
         raise JobError("El audio está prácticamente en silencio. Revisa que el micrófono haya grabado.", retry=False, detail=f"input_i {measured_i}")
-    # Ganancia para llegar cerca del objetivo y limitador a -1.5 dBFS: después loudnorm solo ajusta en modo lineal.
+    # Ganancia para llegar cerca del objetivo y limitador a -2.5 dBFS: después loudnorm solo ajusta en modo lineal.
+    # El limitador baja un poco la sonoridad (~1 dB) y la pasada final la recupera: con el techo en -1.5 dBFS no
+    # quedaba lugar para esa ganancia sin pasar el pico de -1 dBTP y loudnorm caía al modo dinámico (con "bombeo").
     gain = max(-20.0, min(30.0, target - measured_i))
     # latency=1: el limitador mira 5 ms adelante y lo compensa (sin eso, la voz se corría 5 ms respecto del video).
-    chain = [*voice, f"volume={gain:.2f}dB", "alimiter=limit=0.84:attack=5:release=60:level=disabled:latency=1"]
+    chain = [*voice, f"volume={gain:.2f}dB", "alimiter=limit=0.75:attack=5:release=60:level=disabled:latency=1"]
     second = measure(src, chain, target, tp)
-    # loudnorm solo usa el modo lineal si el LRA medido es mayor que 0 (un tono puro mide 0).
-    lra = max(0.1, float(second["input_lra"]))
-    final_filter = (
-        f"loudnorm=I={target}:TP={tp}:LRA=18:measured_I={second['input_i']}:measured_TP={second['input_tp']}:"
-        f"measured_LRA={lra}:measured_thresh={second['input_thresh']}:offset={second['target_offset']}:linear=true:print_format=json"
-    )
+    # Ganancia final exacta (lo que haría loudnorm en modo lineal) y un limitador a -1,5 dBFS (≈ -1 dBTP) que solo
+    # toca algún pico suelto. loudnorm con linear=true caía al modo dinámico (con "bombeo") casi siempre: le
+    # alcanzaba con que la ganancia final llevara el pico verdadero medido apenas por encima de -1 dBTP.
+    final_gain = max(-10.0, min(10.0, target - float(second["input_i"])))
     tmp = _atomic(out)
-    stderr = ffmpeg.run(
-        ["-i", str(src), "-map", "0:a:0", "-af", ",".join([*chain, final_filter, f"aresample={SAMPLE_RATE}"]), "-ac", "1", "-c:a", "pcm_s16le", str(tmp)],
-        what="mezcla de audio",
-    )
+    for attempt in range(2):
+        ffmpeg.run(
+            [
+                "-i", str(src), "-map", "0:a:0",
+                "-af", ",".join([*chain, f"volume={final_gain:.2f}dB", "alimiter=limit=0.84:attack=5:release=60:level=disabled:latency=1", f"aresample={SAMPLE_RATE}"]),
+                "-ac", "1", "-c:a", "pcm_s16le", str(tmp),
+            ],
+            what="mezcla de audio",
+        )
+        # El limitador puede comerse unas décimas de sonoridad: si quedó lejos del objetivo, una vuelta más corregida.
+        got, _peak = loudness(tmp)
+        if attempt or not (got == got) or abs(got - target) <= 0.25:
+            break
+        final_gain = max(-10.0, min(10.0, final_gain + (target - got)))
     os.replace(tmp, out)
-    result = _loudnorm_json(stderr)
     if studio_info and studio_info.get("applied"):
         clean.unlink(missing_ok=True)
-    return {"gain": round(gain, 2), "normalization": result.get("normalization_type"), "input_i": measured_i, **({"studio": studio_info} if studio_info else {})}
+    return {"gain": round(gain + final_gain, 2), "normalization": "linear", "input_i": measured_i, **({"studio": studio_info} if studio_info else {})}
 
 
 # Efectos de sonido (worker/assets/sfx, generados con scripts/make_sfx.py) y música de fondo bajo la voz.

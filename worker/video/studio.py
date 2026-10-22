@@ -160,6 +160,9 @@ def _load(models_dir: Path) -> tuple[Any, Any, Any]:
             opts.intra_op_num_threads = max(1, min(4, os.cpu_count() or 1))
             opts.inter_op_num_threads = 1
             opts.log_severity_level = 3
+            # Sin la reserva de memoria de onnxruntime: con 5 min de audio el pico baja de ~2 GB a ~1,1 GB (la máquina
+            # tiene 8 GB y Parakeet vive en el mismo proceso), a cambio de ~20 % más de CPU.
+            opts.enable_cpu_mem_arena = False
             d = models_dir / MODEL_DIR
             _sessions[key] = tuple(ort.InferenceSession(str(d / f), opts, providers=["CPUExecutionProvider"]) for f in MODEL_FILES)  # type: ignore[assignment]
         return _sessions[key]

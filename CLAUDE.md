@@ -165,6 +165,8 @@ placeholder   #6f84a8
 
 **Subtítulos animados y sonido:** ✅ galería de 6 estilos con la marca (Caja, Hormozi, Karaoke, Palabra a palabra, Minimal, Resaltador) iguales en la vista previa y en el render (`lib/video/caption-styles.ts`, `worker/video/ass.py`), emojis opcionales (Noto Emoji), efectos de sonido procedurales (Sin efectos / Sutil / Marcado) y música propia de la biblioteca con ducking bajo la voz (`lib/video/sfx.ts`, `render.mix_audio`).
 
+**Audio de estudio:** ✅ Apagado / Suave / Fuerte en la revisión (nuevos en Suave) con muestra de 10 s antes y después: ruido fuera con DeepFilterNet3 en ONNX (CPU, MIT/Apache), quita de eco tardío y zumbido, ecualización de voz, de-esser y compresión; la voz queda alineada con el video (`worker/video/studio.py`, `lib/video/studio-audio.ts`, `docs/worker.md`).
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

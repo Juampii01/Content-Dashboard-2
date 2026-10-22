@@ -10,7 +10,7 @@ import { sentences } from "@/lib/ai/prompts/editor";
 import { confidentRemovals, type Candidate } from "./candidates";
 import { brollGraphicSchema } from "./motion-graphics";
 import { buildTimeline, planSegments } from "./timeline";
-import { REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
+import { CAPTION_PRESET_KEYS, REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
 
 const removalSchema = z.object({
   from_word: z.number().int().min(0),
@@ -65,7 +65,7 @@ export const planSchema = z.object({
   proposed_removals: z.array(removalSchema).max(5000),
   hook_candidates: z.array(hookSchema).max(5),
   selected_hook: z.number().int().min(0).max(4).nullable(),
-  captions: z.object({ preset: z.enum(["clasico", "pop", "estilo", "ninguno"]), emphasis_words: z.array(z.number().int().min(0)).max(40) }),
+  captions: z.object({ preset: z.enum(CAPTION_PRESET_KEYS), emphasis_words: z.array(z.number().int().min(0)).max(40), emoji: z.boolean().optional() }),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   overlays: z.array(z.object({ text: z.string().max(120), from_word: z.number().int(), to_word: z.number().int(), position: z.enum(["top", "center"]) })).max(20),
   broll: z.array(brollItemSchema).max(20),

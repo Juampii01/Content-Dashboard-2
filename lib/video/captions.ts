@@ -2,11 +2,18 @@
  * Bloques de subtítulos a partir de las palabras del video final. Lo usan la vista previa (HTML)
  * y el worker (ASS y SRT), así el texto y los tiempos son los mismos en los dos lados.
  */
+import { CAPTION_STYLES, isCaptionStyle, styleBlockLimits } from "./caption-styles";
 import type { CaptionBlock, CaptionPresetKey, TimedWord } from "./types";
 
 export const CAPTION_PRESETS: Record<CaptionPresetKey, { label: string; description: string }> = {
   clasico: { label: "Clásico", description: "Tres palabras por bloque; la que estás diciendo, en tu color de acento." },
   pop: { label: "Pop", description: "Una o dos palabras grandes, en mayúsculas, que entran con un pequeño salto." },
+  caja: { label: CAPTION_STYLES.caja.label, description: CAPTION_STYLES.caja.description },
+  hormozi: { label: CAPTION_STYLES.hormozi.label, description: CAPTION_STYLES.hormozi.description },
+  karaoke: { label: CAPTION_STYLES.karaoke.label, description: CAPTION_STYLES.karaoke.description },
+  palabra: { label: CAPTION_STYLES.palabra.label, description: CAPTION_STYLES.palabra.description },
+  minimal: { label: CAPTION_STYLES.minimal.label, description: CAPTION_STYLES.minimal.description },
+  resaltador: { label: CAPTION_STYLES.resaltador.label, description: CAPTION_STYLES.resaltador.description },
   estilo: { label: "Del estilo", description: "Copia los subtítulos del video de referencia: posición, tamaño, colores y palabras por bloque." },
   ninguno: { label: "Sin subtítulos", description: "El video sale limpio. Igual recibes el archivo SRT." },
 };
@@ -17,8 +24,9 @@ const BRIDGE = 0.35;
 
 export function captionBlocks(words: TimedWord[], preset: CaptionPresetKey, style?: { wordsPerBlock: number } | null): CaptionBlock[] {
   const styled = preset === "estilo" ? Math.max(1, Math.min(6, style?.wordsPerBlock ?? 3)) : null;
-  const maxWords = styled ?? (preset === "pop" ? 2 : 3);
-  const maxChars = styled ? Math.max(12, styled * 9) : preset === "pop" ? 14 : 24;
+  const gallery = isCaptionStyle(preset) ? styleBlockLimits(preset) : null;
+  const maxWords = gallery?.words ?? styled ?? (preset === "pop" ? 2 : 3);
+  const maxChars = gallery?.chars ?? (styled ? Math.max(12, styled * 9) : preset === "pop" ? 14 : 24);
   const blocks: CaptionBlock[] = [];
   let current: TimedWord[] = [];
   const flush = () => {
@@ -49,6 +57,10 @@ export function captionBlocks(words: TimedWord[], preset: CaptionPresetKey, styl
 /** Texto de un bloque tal como se ve en pantalla. */
 export function blockText(block: CaptionBlock, preset: CaptionPresetKey, style?: { uppercase: boolean } | null): string {
   const text = block.words.map((w) => w.text).join(" ");
+  if (isCaptionStyle(preset)) {
+    const textCase = CAPTION_STYLES[preset].textCase;
+    return textCase === "upper" ? text.toLocaleUpperCase("es") : textCase === "lower" ? text.toLocaleLowerCase("es") : text;
+  }
   return preset === "pop" || (preset === "estilo" && style?.uppercase) ? text.toLocaleUpperCase("es") : text;
 }
 

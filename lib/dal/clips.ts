@@ -57,8 +57,8 @@ export async function listLongVideos(): Promise<{ videos: LongVideoListItem[]; w
       media: schema.longVideos.media,
       errorMessage: schema.longVideos.errorMessage,
       updatedAt: schema.longVideos.updatedAt,
-      clips: sql<number>`(select count(*)::int from long_video_clips c where c.long_video_id = ${schema.longVideos.id} and not c.discarded)`,
-      best: sql<number | null>`(select max(score) from long_video_clips c where c.long_video_id = ${schema.longVideos.id} and not c.discarded)`,
+      clips: sql<number>`(select count(*)::int from long_video_clips c where c.long_video_id = long_videos.id and not c.discarded)`,
+      best: sql<number | null>`(select max(score) from long_video_clips c where c.long_video_id = long_videos.id and not c.discarded)`,
     })
     .from(schema.longVideos)
     .orderBy(desc(schema.longVideos.updatedAt))

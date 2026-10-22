@@ -83,7 +83,8 @@ export function LongVideoScreen({ video }: { video: LongVideoScreenData }) {
   const [showDiscarded, setShowDiscarded] = useState(false);
   const [pending, start] = useTransition();
 
-  const status = live.status;
+  // Lo que se muestra sale de los datos del servidor; el estado en vivo solo trae el progreso (y dispara el refresco).
+  const status = video.status;
   const failedAt = status === "FAILED" ? (video.clips.length ? 3 : video.words ? 2 : 1) : 0;
   const stepState = (n: 1 | 2 | 3): StepState => {
     const current = status === "UPLOADING" ? 1 : status === "PROCESSING" ? 2 : status === "READY" ? 3 : failedAt;

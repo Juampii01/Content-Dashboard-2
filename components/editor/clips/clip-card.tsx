@@ -9,7 +9,7 @@ import { Field, Input, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
-import { formatTimecode } from "@/lib/format";
+import { formatNumber, formatTimecode } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { validRange, WINDOW_MARGIN, type RuleKey } from "@/lib/clips/score";
 import type { ClipView } from "@/lib/dal/clips";
@@ -140,11 +140,13 @@ export function ClipCard({ clip, total, canEdit }: { clip: ClipView; total: numb
           )}
 
           {project && (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm">
+            <div className="flex flex-col gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:gap-3">
+              <span className="flex flex-none items-center gap-2">
               <StatusBadge tone={PROJECT_LABEL[project.status]?.tone ?? "neutral"}>
                 {project.mode === "export" && project.status === "AWAITING_REVIEW" ? "Exportando" : (PROJECT_LABEL[project.status]?.label ?? project.status)}
               </StatusBadge>
               {busy && <Loader2 className="h-4 w-4 animate-spin text-accent-hi motion-reduce:animate-none" aria-hidden />}
+              </span>
               <span className="min-w-0 flex-1 text-muted">
                 {project.status === "FAILED"
                   ? (project.errorMessage ?? "Algo falló. Ábrelo en el editor para ver qué pasó.")
@@ -154,6 +156,7 @@ export function ClipCard({ clip, total, canEdit }: { clip: ClipView; total: numb
                       : "Lo exportamos con los subtítulos de tu marca. Puedes salir: te avisamos."
                     : "Es un proyecto del Editor: suma subtítulos, gráficos, b-roll y música."}
               </span>
+              <span className="flex flex-none flex-wrap gap-2">
               {project.downloadUrl && (
                 <a href={project.downloadUrl} className="btn !px-3 !py-1.5 !text-xs" download>
                   <Download className="h-3.5 w-3.5" aria-hidden />
@@ -163,6 +166,7 @@ export function ClipCard({ clip, total, canEdit }: { clip: ClipView; total: numb
               <ButtonLink href={`/editor/${project.id}`} variant="ghost" size="sm">
                 Ver en el editor
               </ButtonLink>
+              </span>
             </div>
           )}
 
@@ -290,7 +294,7 @@ function ScoreDetailView({ clip }: { clip: ClipView }) {
         </p>
       </div>
       <p className="text-xs text-placeholder">
-        {f.questions} {f.questions === 1 ? "pregunta" : "preguntas"} · {f.numbers} {f.numbers === 1 ? "cifra" : "cifras"} · {f.wordsPerSecond.toFixed(1)} palabras por segundo · {f.pauseSeconds.toFixed(1)} s de pausas. Puntaje relativo a los demás momentos de este video.
+        {f.questions} {f.questions === 1 ? "pregunta" : "preguntas"} · {f.numbers} {f.numbers === 1 ? "cifra" : "cifras"} · {formatNumber(f.wordsPerSecond, { digits: 1 })} palabras por segundo · {formatNumber(f.pauseSeconds, { digits: 1 })} s de pausas. Puntaje relativo a los demás momentos de este video.
       </p>
     </div>
   );

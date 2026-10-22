@@ -6,6 +6,7 @@
  * Los del timeline final ("out") están en segundos del video editado.
  */
 import type { GraphicSpec } from "./graphics";
+import type { MotionScene } from "./motion/schema";
 
 /** Una palabra con su id (posición en la transcripción), su texto tal como se dijo y sus bordes. */
 export type Word = {
@@ -120,8 +121,11 @@ export type BrollOption = {
   key?: string | null;
   thumbKey?: string | null;
   title?: string | null;
-  /** Gráfico: plantilla, textos, colores de marca y modo (pantalla completa o sobre el video). */
-  graphic?: GraphicSpec | null;
+  /**
+   * Gráfico: una escena v2 del motor de motion graphics (lib/video/motion) o, en planes guardados antes, un spec v1
+   * (plantilla, textos, colores de marca y modo). Los dos se dibujan con el motor.
+   */
+  graphic?: GraphicSpec | MotionScene | null;
 };
 
 export type BrollItem = {

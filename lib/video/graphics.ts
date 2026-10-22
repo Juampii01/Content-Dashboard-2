@@ -280,8 +280,13 @@ export function spokenNumbers(text: string): number[] {
 
 /** Cifras que aparecen escritas en los textos de un gráfico. */
 export function writtenNumbers(spec: GraphicSpec): number[] {
+  return numbersInTexts(graphicTexts(spec));
+}
+
+/** Cifras escritas con números en una lista de textos ("+40%", "10K", "1.500"). */
+export function numbersInTexts(texts: string[]): number[] {
   const out: number[] = [];
-  for (const text of graphicTexts(spec)) {
+  for (const text of texts) {
     for (const m of text.matchAll(/\d+(?:[.,]\d+)*\s*[km]?\b/gi)) {
       const n = parseDigits(m[0]);
       if (n != null) out.push(n);
@@ -289,6 +294,9 @@ export function writtenNumbers(spec: GraphicSpec): number[] {
   }
   return out;
 }
+
+/** Dos cifras son la misma (con una tolerancia mínima por redondeo). */
+export const sameNumber = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.001, Math.abs(b) * 0.001);
 
 /**
  * Las cifras del gráfico tienen que salir de lo que dice la persona en ese momento: cada número escrito tiene
@@ -302,8 +310,7 @@ export function numbersSupported(spec: GraphicSpec, spoken: string): boolean {
 /** Las cifras escritas en el gráfico que no se dicen en el tramo (sin repetir). */
 export function unsupportedNumbers(spec: GraphicSpec, spoken: string): number[] {
   const said = spokenNumbers(spoken);
-  const close = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.001, Math.abs(b) * 0.001);
-  const missing = writtenNumbers(spec).filter((n) => !(n >= 1 && n <= 4 && Number.isInteger(n) && spec.template !== "number") && !said.some((s) => close(s, n)));
+  const missing = writtenNumbers(spec).filter((n) => !(n >= 1 && n <= 4 && Number.isInteger(n) && spec.template !== "number") && !said.some((s) => sameNumber(s, n)));
   return [...new Set(missing)];
 }
 

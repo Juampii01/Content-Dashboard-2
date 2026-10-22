@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { PlanAiOutput } from "@/lib/ai/prompts/editor";
 import { sentences } from "@/lib/ai/prompts/editor";
 import { confidentRemovals, type Candidate } from "./candidates";
-import { graphicSpecSchema } from "./graphics";
+import { brollGraphicSchema } from "./motion-graphics";
 import { buildTimeline, planSegments } from "./timeline";
 import { REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
 
@@ -41,7 +41,8 @@ const brollOptionSchema = z.object({
   key: z.string().max(300).nullable().optional(),
   thumbKey: z.string().max(300).nullable().optional(),
   title: z.string().max(200).nullable().optional(),
-  graphic: graphicSpecSchema.nullable().optional(),
+  /** Escena v2 o, en planes viejos, spec v1. */
+  graphic: brollGraphicSchema.nullable().optional(),
 }).refine((o) => (o.source === "graphic") === Boolean(o.graphic), { message: "Un gráfico necesita su diseño (y solo un gráfico lo lleva)." });
 
 export const brollItemSchema = z.object({

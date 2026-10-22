@@ -198,7 +198,7 @@ describe("componentes", () => {
           if (n.role !== "text" && n.role !== "card") continue;
           assert.ok(n.box.y >= region.y - 4 && n.box.y + n.box.h <= region.y + region.h + 4, `${name}: ${n.label ?? n.kind} fuera de la caja vertical`);
         }
-        assert.ok(def.texts(def.props.parse(def.example)).length > 0);
+        assert.ok((def.texts as (p: unknown) => string[])(def.props.parse(def.example)).length > 0);
       });
     }
   }

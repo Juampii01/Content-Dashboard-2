@@ -135,7 +135,8 @@ export function validateCompiled(c: CompiledScene): SceneIssue[] {
   // Contraste del texto con lo que tiene detrás.
   for (const p of texts) {
     const n = p.node;
-    const color = n.kind === "text" || n.kind === "counter" ? n.color : null;
+    if (n.kind !== "text" && n.kind !== "counter") continue;
+    const color = n.color;
     if (typeof color !== "string") continue;
     const under = p.on ?? ground;
     const fg = solidOver(color, under);

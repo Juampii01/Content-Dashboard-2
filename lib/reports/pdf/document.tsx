@@ -25,8 +25,19 @@ const CONTENT = W - MARGIN * 2;
 
 // ─── Utilidades de texto ───────────────────────────────────────────────────
 
+/**
+ * Texto apto para las fuentes del PDF (subconjunto latino): quita emojis y símbolos que se verían como
+ * cuadros o letras sueltas ("=G"). Respeta tildes, ñ, ¿¡, comillas tipográficas, guiones, ×, · y €.
+ */
+export function pdfText(text: string): string {
+  return text
+    .replace(/[^\u0009\u000a\u0020-\u007e\u00a0-\u00ff\u2013\u2014\u2018-\u201e\u2022\u2026\u20ac\u2212]/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 function clip(text: string, max: number): string {
-  const t = text.replace(/\s+/g, " ").trim();
+  const t = pdfText(text).replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
@@ -81,11 +92,11 @@ function DeltaText({ d, theme, size = 7.5 }: { d: Delta; theme: PdfTheme; size?:
 }
 
 /** Tarjeta de cifra: etiqueta, número grande y variación. */
-function Kpi({ label, value, d, sub, theme, width }: { label: string; value: string; d?: Delta; sub?: string; theme: PdfTheme; width: number }) {
+function Kpi({ label, value, d, sub, theme, width, size = 22 }: { label: string; value: string; d?: Delta; sub?: string; theme: PdfTheme; width: number; size?: number }) {
   return (
     <View style={{ width, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 0.8, borderColor: theme.line, borderRadius: 8 }}>
-      <Text style={{ fontSize: 8, color: theme.muted, fontWeight: 500 }}>{label}</Text>
-      <Text style={{ fontSize: 22, fontWeight: 800, letterSpacing: -0.7, color: theme.ink, marginTop: 6 }}>{value}</Text>
+      <Text style={{ fontSize: 8, color: theme.muted, fontWeight: 500, minHeight: size < 20 ? 20 : undefined }}>{label}</Text>
+      <Text style={{ fontSize: size, fontWeight: 800, letterSpacing: -0.7, color: theme.ink, marginTop: 6 }}>{value}</Text>
       {d && <DeltaText d={d} theme={theme} />}
       {sub && <Text style={{ fontSize: 7.5, color: theme.faint, marginTop: 2 }}>{sub}</Text>}
     </View>
@@ -99,7 +110,7 @@ function Dot({ color, size = 7 }: { color: string; size?: number }) {
 function Header({ data, theme }: { data: MonthlyReportData; theme: PdfTheme }) {
   return (
     <View fixed style={{ position: "absolute", top: 22, left: MARGIN, right: MARGIN, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-      <Text style={{ fontSize: 7.5, fontWeight: 600, color: theme.ink }}>{data.brand.name}</Text>
+      <Text style={{ fontSize: 7.5, fontWeight: 600, color: theme.ink }}>{pdfText(data.brand.name)}</Text>
       <Eyebrow color={theme.faint} style={{ fontSize: 6.5, letterSpacing: 1.2 }}>{`Informe · ${monthLabel(data.month)}`}</Eyebrow>
     </View>
   );
@@ -152,8 +163,8 @@ function Cover({ data, theme, images }: { data: MonthlyReportData; theme: PdfThe
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <Avatar image={images.brand} name={data.brand.name} size={40} theme={theme} />
           <View style={{ marginLeft: 11 }}>
-            <Text style={{ fontSize: 12, fontWeight: 700 }}>{data.brand.name}</Text>
-            {data.brand.handle && <Text style={{ fontSize: 8.5, color: theme.coverMuted, marginTop: 2 }}>{data.brand.handle}</Text>}
+            <Text style={{ fontSize: 12, fontWeight: 700 }}>{pdfText(data.brand.name)}</Text>
+            {data.brand.handle && <Text style={{ fontSize: 8.5, color: theme.coverMuted, marginTop: 2 }}>{pdfText(data.brand.handle)}</Text>}
           </View>
         </View>
         <Eyebrow color={theme.coverMuted}>Informe mensual</Eyebrow>
@@ -169,7 +180,7 @@ function Cover({ data, theme, images }: { data: MonthlyReportData; theme: PdfThe
             <Text style={{ fontSize: 8, color: theme.coverMuted }}>{`Mes en curso · datos hasta el ${formatDate(data.to)}`}</Text>
           </View>
         )}
-        {data.summary && <Text style={{ fontSize: 14, lineHeight: 1.45, marginTop: 22, maxWidth: 430, color: "#dce7f7" }}>{data.summary.headline}</Text>}
+        {data.summary && <Text style={{ fontSize: 14, lineHeight: 1.45, marginTop: 22, maxWidth: 430, color: "#dce7f7" }}>{pdfText(data.summary.headline)}</Text>}
       </View>
 
       <View style={{ position: "absolute", left: MARGIN, right: MARGIN, bottom: 40 }}>
@@ -202,16 +213,16 @@ function Summary({ data, theme }: { data: MonthlyReportData; theme: PdfTheme }) 
     <View>
       <SectionTitle number="01" eyebrow="Resumen" title="El mes en una página" description="Los números de todas tus redes juntas y lo que dicen, contra el mes anterior." theme={theme} />
       <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 24 }}>
-        <Kpi width={kpiW} theme={theme} label="Seguidores ganados" value={signed(t.followersGained.current)} d={delta(t.followersGained)} />
-        <Kpi width={kpiW} theme={theme} label="Visualizaciones" value={formatCompact(t.views.current)} d={delta(t.views)} />
-        <Kpi width={kpiW} theme={theme} label="Interacciones" value={formatCompact(t.interactions.current)} d={delta(t.interactions)} />
-        <Kpi width={kpiW} theme={theme} label="Tasa de interacción" value={formatPercent(t.engagementRate.current)} d={deltaPoints(t.engagementRate)} />
-        <Kpi width={kpiW} theme={theme} label="Publicaciones" value={formatNumber(t.pieces.current)} d={delta(t.pieces)} />
+        <Kpi width={kpiW} size={17} theme={theme} label="Seguidores ganados" value={signed(t.followersGained.current)} d={delta(t.followersGained)} />
+        <Kpi width={kpiW} size={17} theme={theme} label="Visualizaciones" value={formatCompact(t.views.current)} d={delta(t.views)} />
+        <Kpi width={kpiW} size={17} theme={theme} label="Interacciones" value={formatCompact(t.interactions.current)} d={delta(t.interactions)} />
+        <Kpi width={kpiW} size={17} theme={theme} label="Tasa de interacción" value={formatPercent(t.engagementRate.current)} d={deltaPoints(t.engagementRate)} />
+        <Kpi width={kpiW} size={17} theme={theme} label="Publicaciones" value={formatNumber(t.pieces.current)} d={delta(t.pieces)} />
       </View>
 
       {data.summary ? (
         <View>
-          <Text style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4, color: theme.ink, marginBottom: 20, letterSpacing: -0.2 }}>{data.summary.headline}</Text>
+          <Text style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4, color: theme.ink, marginBottom: 20, letterSpacing: -0.2 }}>{pdfText(data.summary.headline)}</Text>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
             <List title="Logros del mes" items={data.summary.wins} theme={theme} color={theme.positive} width={CONTENT * 0.54} />
             <List title="A vigilar" items={data.summary.watch} theme={theme} color={theme.negative} width={CONTENT * 0.41} />
@@ -248,7 +259,7 @@ function List({ title, items, theme, color, width }: { title: string; items: str
       {items.map((item, i) => (
         <View key={i} style={{ flexDirection: "row", marginBottom: 9 }} wrap={false}>
           <Text style={{ fontFamily: "JetBrains Mono", fontSize: 8, fontWeight: 600, color, width: 18, marginTop: 1 }}>{String(i + 1).padStart(2, "0")}</Text>
-          <Text style={{ fontSize: 9.5, lineHeight: 1.45, color: theme.ink, flex: 1 }}>{item}</Text>
+          <Text style={{ fontSize: 9.5, lineHeight: 1.45, color: theme.ink, flex: 1 }}>{pdfText(item)}</Text>
         </View>
       ))}
     </View>
@@ -313,7 +324,7 @@ function PlatformPage({ p, index, data, theme }: { p: ReportPlatform; index: num
         <View style={{ borderTopWidth: 0.6, borderTopColor: theme.line, paddingTop: 10 }} wrap={false}>
           <Text style={{ fontSize: 7.5, fontWeight: 600, color: theme.muted, marginBottom: 4 }}>Sobre estos datos</Text>
           {p.notes.map((n, i) => (
-            <Text key={i} style={{ fontSize: 7.5, color: theme.muted, lineHeight: 1.5 }}>{`· ${n}`}</Text>
+            <Text key={i} style={{ fontSize: 7.5, color: theme.muted, lineHeight: 1.5 }}>{`· ${pdfText(n)}`}</Text>
           ))}
         </View>
       )}
@@ -339,12 +350,12 @@ function PieceRow({ piece, rank, image, theme, tz, lesson }: { piece: ReportPiec
   ];
   const note = lesson ?? piece.why;
   return (
-    <View wrap={false} style={{ flexDirection: "row", paddingVertical: 11, borderBottomWidth: 0.6, borderBottomColor: theme.line }}>
+    <View wrap={false} style={{ flexDirection: "row", paddingVertical: 8, borderBottomWidth: 0.6, borderBottomColor: theme.line }}>
       <Text style={{ width: 30, fontFamily: "JetBrains Mono", fontSize: 15, fontWeight: 600, color: theme.accent, marginTop: 1 }}>{rank}</Text>
       {image ? (
-        <PdfImage src={{ data: image, format: "jpg" }} style={{ width: 54, height: 72, borderRadius: 5, objectFit: "cover" }} />
+        <PdfImage src={{ data: image, format: "jpg" }} style={{ width: 45, height: 60, borderRadius: 5, objectFit: "cover" }} />
       ) : (
-        <View style={{ width: 54, height: 72, borderRadius: 5, backgroundColor: theme.soft, borderWidth: 0.6, borderColor: theme.line }} />
+        <View style={{ width: 45, height: 60, borderRadius: 5, backgroundColor: theme.soft, borderWidth: 0.6, borderColor: theme.line }} />
       )}
       <View style={{ flex: 1, marginLeft: 12 }}>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -405,7 +416,7 @@ function TopPieces({ data, theme, images }: { data: MonthlyReportData; theme: Pd
         </View>
       )}
       {data.worst && (
-        <View wrap={false} style={{ marginTop: 20, backgroundColor: theme.soft, borderRadius: 8, paddingHorizontal: 12, paddingTop: 10 }}>
+        <View wrap={false} style={{ marginTop: 14, backgroundColor: theme.soft, borderRadius: 8, paddingHorizontal: 12, paddingTop: 10 }}>
           <Eyebrow color={theme.negative}>La que menos funcionó</Eyebrow>
           <PieceRow piece={data.worst} rank="—" image={images.pieces[data.worst.id] ?? null} theme={theme} tz={data.timezone} lesson={lesson ?? "Revisa el gancho y los primeros segundos: es donde se decide si la gente se queda."} />
         </View>

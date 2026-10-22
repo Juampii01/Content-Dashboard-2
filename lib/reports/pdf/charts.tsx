@@ -129,7 +129,7 @@ export function WeekBars({
   height: number;
   theme: PdfTheme;
 }) {
-  const max = Math.max(1, ...weeks.map((w) => Math.max(w.pieces, w.target))) * 1.15;
+  const max = Math.max(1, ...weeks.map((w) => Math.max(w.pieces, w.target))) * 1.3;
   const slot = width / Math.max(1, weeks.length);
   const barW = Math.min(46, slot * 0.5);
   return (
@@ -150,11 +150,12 @@ export function WeekBars({
           })}
         </Svg>
         {weeks.map((w, i) => {
-          const h = (w.pieces / max) * height;
+          // El número va por encima de la barra y de la línea de la meta, para que no se crucen.
+          const top = Math.max(w.pieces, w.target) / max * height;
           return (
             <Text
               key={i}
-              style={{ position: "absolute", left: slot * i, width: slot, top: Math.max(0, height - h - 13), textAlign: "center", fontSize: 9, fontWeight: 700, color: theme.ink }}
+              style={{ position: "absolute", left: slot * i, width: slot, top: Math.max(0, height - top - 14), textAlign: "center", fontSize: 9, fontWeight: 700, color: theme.ink }}
             >
               {w.pieces}
             </Text>

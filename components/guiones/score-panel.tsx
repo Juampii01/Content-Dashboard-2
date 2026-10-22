@@ -106,7 +106,19 @@ export function ScorePanel({
   const [busy, setBusy] = useState<"clasificar" | "explicar" | null>(null);
   const [, startTransition] = useTransition();
 
-  function load() {
+  useEffect(() => {
+    let alive = true;
+    void loadScoreHistoryAction().then((res) => {
+      if (!alive) return;
+      if (res.ok) setHistory(res.data);
+      else setLoadError(res.error);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  function retry() {
     setLoadError(null);
     startTransition(async () => {
       const res = await loadScoreHistoryAction();
@@ -114,7 +126,6 @@ export function ScorePanel({
       else setLoadError(res.error);
     });
   }
-  useEffect(load, []);
 
   const knownType = (hookType && hookType in hookKindLabel ? hookType : null) as HookKind | null;
   const effectiveType = classified && classified.text === hook ? classified.type : knownType;
@@ -176,7 +187,7 @@ export function ScorePanel({
       {loadError ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-text">
           <span>{loadError}</span>
-          <Button variant="ghost" size="sm" onClick={load} icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />}>
+          <Button variant="ghost" size="sm" onClick={retry} icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />}>
             Reintentar
           </Button>
         </div>
@@ -294,7 +305,7 @@ export function ScorePanel({
                     </li>
                   ))}
                 </ul>
-                <p className="text-xs text-placeholder">El parecido mira el tipo de gancho, las palabras en común y la forma (pregunta, cifra, si le hablas a "tú", largo).</p>
+                <p className="text-xs text-placeholder">El parecido mira el tipo de gancho, las palabras en común y la forma (pregunta, cifra, si le hablas de «tú», largo).</p>
               </div>
             )}
 

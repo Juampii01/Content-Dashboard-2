@@ -914,3 +914,73 @@ export const reportSettings = pgTable("report_settings", {
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
   updatedAt: updatedAt(),
 });
+
+// ─── Estratega ─────────────────────────────────────────────────────────────
+
+/** Fuente citada en una respuesta del estratega: una pieza, una cifra o una entrada del calendario. */
+export type StrategistCitation = {
+  ref: string; // "P3", "C1", "E2"
+  kind: "pieza" | "cifra" | "calendario";
+  label: string;
+  detail: string | null;
+  href: string;
+  /** id de la pieza o de la entrada del calendario (para volver a usarla en la conversación). */
+  targetId: string | null;
+  platform: "INSTAGRAM" | "YOUTUBE" | "TIKTOK" | null;
+};
+
+/** Idea que propuso el estratega, con botones para crear el guion o agregarla al calendario. */
+export type StrategistIdea = {
+  id: string;
+  title: string;
+  idea: string;
+  hook: string | null;
+  format: "REEL" | "CAROUSEL" | "VIDEO" | "SHORT" | "STORY" | "POST";
+  platforms: ("INSTAGRAM" | "YOUTUBE" | "TIKTOK")[];
+  date: string | null; // YYYY-MM-DD sugerido
+  why: string | null;
+  /** Entrada del calendario creada desde esta idea (para no duplicarla). */
+  calendarEntryId?: string | null;
+};
+
+/** Herramienta que usó el estratega para responder (para mostrar "Revisé…" y depurar). */
+export type StrategistToolCall = { name: string; input: unknown; summary: string; error?: boolean };
+
+/** Conversaciones con el estratega. Cada una es de quien la empezó. */
+export const strategistConversations = pgTable(
+  "strategist_conversations",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("strategist_conversations_user_idx").on(t.userId, t.updatedAt)],
+);
+
+/** Mensajes de una conversación. Los del usuario cuentan para el límite diario. */
+export const strategistMessages = pgTable(
+  "strategist_messages",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => strategistConversations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    role: text("role").notNull().$type<"user" | "assistant">(),
+    content: text("content").notNull(),
+    citations: jsonb("citations").$type<StrategistCitation[]>().notNull().default([]),
+    ideas: jsonb("ideas").$type<StrategistIdea[]>().notNull().default([]),
+    toolCalls: jsonb("tool_calls").$type<StrategistToolCall[]>().notNull().default([]),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    /** Mensaje de error en español si la respuesta no se pudo completar. */
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("strategist_messages_conversation_idx").on(t.conversationId, t.createdAt), index("strategist_messages_user_idx").on(t.userId, t.createdAt)],
+);

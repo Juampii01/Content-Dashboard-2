@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { Ban, Check, ChevronDown, Loader2, PenLine, SlidersHorizontal, Sparkles, Undo2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
@@ -131,8 +131,7 @@ export function GraphicStudio({
 
   const allowed = `${spokenText} ${asked.join(" ")}`;
 
-  return (
-    <div className="flex flex-col gap-5">
+  const askSection = (
       <section aria-labelledby={`${id}-ask`} className="flex flex-col gap-3 rounded-2xl border border-accent/30 bg-accent/[0.06] p-4">
         <div className="flex items-start gap-3">
           <span className="tile-icon grid h-9 w-9 flex-none place-items-center rounded-xl bg-accent/20 text-accent-hi" aria-hidden>
@@ -209,8 +208,8 @@ export function GraphicStudio({
         </details>
         {pendingKind === "pedido" && <p className="text-xs text-accent-glow" aria-live="polite">Armando tu gráfico… tarda unos segundos.</p>}
       </section>
-
-      {feedback && (
+  );
+  const feedbackNode = feedback && (
         <Notice tone={feedback.tone} {...(feedback.title ? { title: feedback.title } : {})}>
           <span>{feedback.text}</span>
           {feedback.alternative && (
@@ -229,10 +228,8 @@ export function GraphicStudio({
             </span>
           )}
         </Notice>
-      )}
-
-      {graphic ? (
-        <>
+      );
+  const adjustSection = graphic ? (
           <div className="flex flex-col gap-2 rounded-2xl border border-white/10 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -244,7 +241,7 @@ export function GraphicStudio({
               </Button>
             </div>
             <form
-              className="flex gap-2"
+              className="flex flex-col gap-2 sm:flex-row"
               onSubmit={(e) => {
                 e.preventDefault();
                 ask("ajuste", adjust);
@@ -266,12 +263,37 @@ export function GraphicStudio({
               ))}
             </div>
           </div>
+  ) : null;
 
-          {isMotionScene(graphic) ? (
-            <SceneEditor key={version} scene={graphic} format={format} duration={duration} allowed={allowed} current={current} busy={pending} onUse={(s) => onUse(brollGraphicOption(s))} />
-          ) : (
-            <GraphicEditor key={version} initial={graphic} current={current} format={format} duration={duration} spokenText={spokenText} onUse={(spec) => onUse(brollGraphicOption(spec))} />
-          )}
+  if (graphic && isMotionScene(graphic)) {
+    return (
+      <SceneEditor
+        key={version}
+        scene={graphic}
+        format={format}
+        duration={duration}
+        allowed={allowed}
+        current={current}
+        busy={pending}
+        onUse={(sc) => onUse(brollGraphicOption(sc))}
+        top={
+          <>
+            {askSection}
+            {feedbackNode}
+            {adjustSection}
+          </>
+        }
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-5">
+      {askSection}
+      {feedbackNode}
+      {graphic ? (
+        <>
+          {adjustSection}
+          <GraphicEditor key={version} initial={graphic} current={current} format={format} duration={duration} spokenText={spokenText} onUse={(spec) => onUse(brollGraphicOption(spec))} />
         </>
       ) : (
         <div className="flex flex-col items-start gap-2 rounded-2xl border border-dashed border-white/15 p-4 text-sm text-muted">
@@ -294,7 +316,9 @@ function SceneEditor({
   current,
   busy,
   onUse,
+  top,
 }: {
+  top?: ReactNode;
   scene: MotionScene;
   format: VideoFormat;
   duration: number;
@@ -321,9 +345,9 @@ function SceneEditor({
   const groups = [...new Set(fields.map((f) => f.group))];
 
   return (
-    <div className="grid gap-5 sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)] md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-      <div className="flex flex-col gap-2">
-        <div className={cn("relative mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-[#6d655c]", format === "9:16" ? "aspect-[9/16] max-w-[220px] sm:max-w-none" : "aspect-video")}>
+    <div className="grid gap-5 sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)] md:grid-cols-[minmax(0,250px)_minmax(0,1fr)]">
+      <div className="flex flex-col gap-2 sm:sticky sm:top-0 sm:self-start">
+        <div className={cn("relative mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-[#6d655c]", format === "9:16" ? "aspect-[9/16] max-w-[170px] sm:max-w-none" : "aspect-video")}>
           {scene.mode === "overlay" && <div aria-hidden className={cn("absolute inset-0", FAKE_VIDEO)} />}
           {preview ? (
             <GraphicCanvas spec={preview} format={format} duration={duration} scale={0.4} className="relative" label={`Vista previa del gráfico: ${graphicKindLabel(preview)}`} />
@@ -342,6 +366,7 @@ function SceneEditor({
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
+        {top}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-semibold text-white">Dónde va</span>
           <SegmentedControl

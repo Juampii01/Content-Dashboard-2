@@ -15,7 +15,7 @@
     "test:sync": "node --conditions=react-server --import tsx --test tests/sync.test.mts",
     "test:calendar": "node --conditions=react-server --import tsx --test tests/calendar.test.mts",
     "test:video": "node --import tsx --test tests/video.test.mts tests/video-style.test.mts tests/video-graphics.test.mts",
-    "test:motion": "node --import tsx --test tests/motion.test.mts",
+    "test:motion": "node --conditions=react-server --import tsx --test tests/motion.test.mts tests/motion-ai.test.mts",
     "motion:icons": "node scripts/motion-icons.mjs",
     "motion:bundle": "node scripts/motion-bundle.mjs",
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",

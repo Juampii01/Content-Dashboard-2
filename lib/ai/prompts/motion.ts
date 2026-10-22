@@ -34,7 +34,7 @@ const pick = <const T extends readonly [string, ...string[]]>(values: T, what?: 
 };
 const list = <T extends z.ZodType>(item: T, what: string) => z.array(item).catch([]).describe(what);
 
-const iconAi = pick(ICON_NAMES, "Nombre exacto de un ícono de la lista ÍCONOS.");
+const iconAi = z.enum(ICON_NAMES).catch("sparkles").describe("Nombre exacto de un ícono de la lista ÍCONOS.");
 const iconOrNone = pick(["", ...ICON_NAMES] as unknown as readonly [string, ...string[]], "Nombre de un ícono de la lista, o vacío.");
 const tokenAi = pick(THEME_TOKENS, "Color del tema (nunca hex).");
 const tokenOrNone = pick(["none", ...THEME_TOKENS] as unknown as readonly [string, ...string[]], "Color del tema, o none.");

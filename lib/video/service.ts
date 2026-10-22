@@ -13,6 +13,7 @@ import { storedKey } from "@/lib/storage/copy";
 import { planBroll } from "./broll";
 import { detectCandidates } from "./candidates";
 import { captionBlocks, hideDuring, toSrt } from "./captions";
+import { brollRenderEdit } from "./broll-edit";
 import { brollCredits, brollSegments, computeZooms } from "./effects";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
@@ -355,13 +356,30 @@ export async function startRender(projectId: string, review: Review, format: Vid
   const captionStyle = style?.preset.captions ?? null;
   const preset: CaptionPresetKey = next.captions.preset === "estilo" && !captionStyle ? "clasico" : next.captions.preset;
   // B-roll: cada clip elegido se verifica contra su fuente (nunca se confía en lo que manda el navegador).
-  const broll = await verifiedBroll(brollSegments(timeline, next.broll), brandGraphicLook(brand));
+  const look = brandGraphicLook(brand);
+  const broll = await verifiedBroll(brollSegments(timeline, next.broll), look);
   // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea.
   const graphicSpans = broll.filter((b) => b.option.source === "graphic");
   const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), graphicSpans);
   const zooms = style && next.zooms_enabled !== false ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: broll }) : [];
   const credits = brollCredits(broll);
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;
+  const faceY = focusY ? Math.max(0.25, Math.min(0.6, focusY)) : 0.42;
+  // Ubicación, encuadre, look y tiempo de cada b-roll, en píxeles de salida (los mismos números que la vista previa).
+  const brollEdit = (b: (typeof broll)[number]) => {
+    const g = b.option.source === "graphic" && isMotionScene(b.option.graphic) ? b.option.graphic : null;
+    return brollRenderEdit({
+      edit: b.edit,
+      format,
+      duration: b.end - b.start,
+      clipWidth: b.option.width,
+      clipHeight: b.option.height,
+      focusY: faceY,
+      accent: look.theme.accent,
+      ground: look.theme.bg,
+      graphic: b.option.source === "graphic" ? { mode: g?.mode ?? (b.option.graphic as { mode?: string } | null)?.mode, position: g?.position } : null,
+    });
+  };
 
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null }).where(eq(schema.videoProjects.id, projectId));
   await enqueueJob({
@@ -376,7 +394,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
       fps: FPS,
       clips: timeline.clips.map((c) => ({ start: c.startFrame, end: c.endFrame, role: c.role })),
       expectedDuration: timeline.duration,
-      framing: { offsetX: next.framing.offset_x, focusY: focusY ? Math.max(0.25, Math.min(0.6, focusY)) : 0.42 },
+      framing: { offsetX: next.framing.offset_x, focusY: faceY },
       captions: {
         preset,
         accent,
@@ -387,10 +405,10 @@ export async function startRender(projectId: string, review: Review, format: Vid
       zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
       broll: broll.map((b) =>
         b.option.source === "graphic"
-          ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic }
+          ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic, edit: brollEdit(b) }
           : b.option.source !== "library"
-            ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file }
-            : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key },
+            ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: brollEdit(b) }
+            : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key, edit: brollEdit(b) },
       ),
       credits,
       creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,

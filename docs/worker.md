@@ -164,6 +164,23 @@ Análisis de un reel de 30 s en 2 vCPU de desarrollo: unos 30–60 s (lo más le
   - Los gráficos son propios: no van en `creditos.txt`.
 - Límites: Pixabay 100 búsquedas por minuto, Pexels 200 por hora; si se pasa, el editor avisa y sigue con la biblioteca.
 
+## Subtítulos animados (galería)
+
+Seis estilos además de Clásico, Pop y "Del estilo": **Caja** (píldora del acento que salta de palabra en palabra), **Hormozi** (mayúsculas con contorno, la palabra clave en el acento y más grande), **Karaoke** (la frase completa que se va pintando), **Palabra a palabra** (una palabra enorme con salto), **Minimal** (minúsculas Inter con sombra suave) y **Resaltador** (marcador del acento detrás de la palabra clave). Usan el acento y la fuente de títulos de Mi marca (Montserrat o Inter, las del worker; no se agregó ninguna fuente).
+
+- **Una sola fuente de verdad** (`lib/video/caption-styles.ts`): la app arma, por bloque, el renglón de cada palabra y sus pistas (color, opacidad, escala, caja, resaltador, emoji) como claves con tiempos del video final. La vista previa (`components/editor/caption-overlay.tsx`) evalúa esas claves en cada cuadro y el worker (`worker/video/ass.py`, `build_look_ass`) las traduce a `\t` lineales de ASS, con la caja y el resaltador como dibujos `\p1` y la sombra como una copia desenfocada. El worker solo mide los anchos (Pillow, misma fuente) y corrige la línea de base con las métricas de la fuente (libass y el navegador las usan distinto). Si un renglón no entra, el bloque se achica igual en los dos lados.
+- **Posición segura de Reels**: el centro del bloque va al 66 % del alto en vertical (lejos de la interfaz de abajo y de la cara).
+- **Emojis opcionales** sobre la palabra clave (uno por frase, solo en el primer renglón): imágenes de **Noto Emoji** (OFL, `worker/assets/emoji` y `public/emoji`, generadas con `scripts/make_emoji.py`), superpuestas con `overlay` en el grafo (hasta 24 por video). Se eligen por la raíz de la palabra (dinero, tiempo, idea, error…); si no hay una que encaje, no va emoji.
+- **Comparación**: `scripts/caption-dump.mts` vuelca lo que la app manda al worker (también es el fixture `worker/tests/fixtures/caption-styles.json`) y `/subtitulos?style=caja&t=2.9` (solo en desarrollo) dibuja la vista previa a tamaño real para compararla cuadro a cuadro con el render.
+- Los planes viejos siguen igual: Clásico, Pop y "Del estilo" usan el ASS de antes.
+
+## Efectos de sonido y música
+
+- **Efectos** (`lib/video/sfx.ts`): "whoosh" cuando entra un b-roll o un gráfico; en "Marcado", además, un "pop" en cada emoji y un "riser" que termina justo en el corte entre el gancho y el resto. Nivel global en la revisión: Sin efectos, Sutil (nuevo por defecto) o Marcado; los planes de antes quedan sin efectos. Los sonidos son **procedurales** (`worker/scripts/make_sfx.py`: ruido filtrado con envolvente, senoidal corta y barrido, semilla fija; sin licencias de terceros) y viven en `worker/assets/sfx` y `public/sfx` (para escucharlos en la revisión).
+- **Música**: el cliente sube sus pistas en Editor → Biblioteca → Música (`music_tracks`, subida directa al almacenamiento privado, `editor/musica/<id>/`) y elige una en la revisión con su volumen (de -30 a -8 dB respecto de la voz). La app no trae música de terceros.
+- **Mezcla** (`render.mix_audio`): la voz ya normalizada a -14 LUFS no se toca; los efectos van con `adelay` y su ganancia, la música se mide, se lleva a "voz + volumen", se repite hasta el final con fundidos y baja ~9 dB mientras hablas (`sidechaincompress` con la voz como llave, ataque 20 ms, salida 450 ms). `amix` sin normalizar y un limitador al techo de la voz (-1 dBFS, que la voz sola no toca, con la latencia compensada).
+- **Medido** en un render real de 24 s (Caja con emojis, Marcado y música a -12 dB): sonoridad -14,3 LUFS con y sin efectos y música (igual), pico -3,8 dBFS; en los whoosh, el efecto queda 11 a 14 dB por debajo de la voz cuando hablas; la música, unos 19 dB por debajo bajo la voz. Pruebas: `tests/test_audio_mix.py`.
+
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 
 | Concepto | Costo |
@@ -210,7 +227,7 @@ Requiere ffmpeg con libass, libx264, libopus y zimg, y Tesseract.
 2. **Transcripción** por palabra con bordes ajustados a la energía del audio (ventanas de 10 ms, umbral relativo al ruido).
 3. **Plan** en la app (candidatos sin IA en `lib/video/candidates.ts`, Claude con `video.plan`, validación en `lib/video/plan.ts`).
 4. **Revisión** de la persona. La vista previa y el render usan el mismo timeline (`lib/video/timeline.ts`).
-5. **Render**: tramos con `-ss` exacto y cantidad fija de cuadros (1600 muestras de audio por cuadro, sin desfase), fundido de 10 ms, unión con concat, cadena de voz y `loudnorm` lineal en dos pasadas a -14 LUFS / -1 dBTP, reencuadre, subtítulos ASS (Clásico o Pop), H.264 High CRF 18, BT.709, AAC 192k, `+faststart`.
+5. **Render**: tramos con `-ss` exacto y cantidad fija de cuadros (1600 muestras de audio por cuadro, sin desfase), fundido de 10 ms, unión con concat, cadena de voz y `loudnorm` lineal en dos pasadas a -14 LUFS / -1 dBTP, efectos y música bajo la voz (opcionales), reencuadre, subtítulos ASS (galería animada, Clásico, Pop o del estilo) y emojis, H.264 High CRF 18, BT.709, AAC 192k, `+faststart`.
 6. **Control de calidad**: duración, tamaño, fps, sonoridad, pico y sincronía. Si fallan duración o sincronía, se reintenta; los demás quedan como aviso en el resultado. Sale el MP4 con su SRT.
 
-Pendiente para v2: música con sidechain, seguimiento de cara, presets Caja y Mínimo, b-roll generado con IA, aplicar la sonoridad medida en la referencia (hoy se mide y se muestra; el render sigue a -14 LUFS).
+Pendiente para v2: seguimiento de cara, b-roll generado con IA, mezclar el audio en la vista previa (hoy los efectos y la música se escuchan por separado en la revisión), aplicar la sonoridad medida en la referencia (hoy se mide y se muestra; el render sigue a -14 LUFS).

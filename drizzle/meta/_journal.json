@@ -120,6 +120,13 @@
       "when": 1792682634875,
       "tag": "0016_jugo-y-autopiloto",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792683842650,
+      "tag": "0017_clips",
+      "breakpoints": true
     }
   ]
 }

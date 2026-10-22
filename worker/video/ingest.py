@@ -27,7 +27,7 @@ MIN_DURATION = 2.0
 HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
 
 
-def analyze_probe(probe: dict[str, Any]) -> dict[str, Any]:
+def analyze_probe(probe: dict[str, Any], *, max_duration: float = MAX_DURATION, min_duration: float = MIN_DURATION, too_long: str | None = None, too_short: str | None = None) -> dict[str, Any]:
     streams = probe.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
@@ -65,10 +65,10 @@ def analyze_probe(probe: dict[str, Any]) -> dict[str, Any]:
     }
     if not info["hasAudio"]:
         raise JobError("El video no tiene audio. El editor trabaja con lo que dices: sube un video con sonido.", retry=False)
-    if duration < MIN_DURATION:
-        raise JobError("El video es demasiado corto (menos de 2 segundos).", retry=False)
-    if duration > MAX_DURATION:
-        raise JobError("El video dura más de 20 minutos. Córtalo en partes más cortas y súbelas por separado.", retry=False)
+    if duration < min_duration:
+        raise JobError(too_short or "El video es demasiado corto (menos de 2 segundos).", retry=False)
+    if duration > max_duration:
+        raise JobError(too_long or "El video dura más de 20 minutos. Córtalo en partes más cortas y súbelas por separado.", retry=False)
     if width < 160 or height < 160:
         raise JobError("La resolución del video es demasiado baja.", retry=False)
     return info

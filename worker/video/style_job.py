@@ -57,8 +57,8 @@ def link_allowed(url: str) -> bool:
     return parts.scheme == "https" and any(host == h or host.endswith("." + h) for h in ALLOWED_LINK_HOSTS)
 
 
-def download_link(url: str, dest_dir: Path) -> Path:
-    """Baja el video de un link público con yt-dlp (mejor calidad hasta 1080p, en MP4)."""
+def download_link(url: str, dest_dir: Path, *, name: str = "referencia", max_seconds: float = MAX_LINK_SECONDS, max_bytes: int = MAX_LINK_BYTES) -> Path:
+    """Baja el video de un link público con yt-dlp (mejor calidad hasta 1080p, en MP4). También lo usan los clips."""
     if not link_allowed(url):
         raise JobError("Ese link no es de Instagram, TikTok ni YouTube. Descarga el video y súbelo.", retry=False)
     try:
@@ -69,21 +69,21 @@ def download_link(url: str, dest_dir: Path) -> Path:
 
     def too_long(info: dict[str, Any], *, incomplete: bool = False) -> str | None:
         duration = info.get("duration")
-        return "demasiado largo" if duration and duration > MAX_LINK_SECONDS else None
+        return "demasiado largo" if duration and duration > max_seconds else None
 
     def hook(_status: dict[str, Any]) -> None:
         if stop_event.is_set():
             raise Cancelled()
 
     opts = {
-        "outtmpl": str(dest_dir / "referencia.%(ext)s"),
+        "outtmpl": str(dest_dir / f"{name}.%(ext)s"),
         "format": "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
         "merge_output_format": "mp4",
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
-        "max_filesize": MAX_LINK_BYTES,
+        "max_filesize": max_bytes,
         "socket_timeout": 30,
         "retries": 2,
         "match_filter": too_long,
@@ -102,7 +102,7 @@ def download_link(url: str, dest_dir: Path) -> Path:
         raise JobError(LINK_ERROR, retry=False, detail=f"yt-dlp: {exc.__class__.__name__}: {str(exc)[:200]}") from exc
     if not info:
         raise JobError(LINK_ERROR, retry=False, detail="yt-dlp sin info (filtrado por duración)")
-    files = [p for p in dest_dir.glob("referencia.*") if p.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov") and p.stat().st_size > 0]
+    files = [p for p in dest_dir.glob(f"{name}.*") if p.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov") and p.stat().st_size > 0]
     if not files:
         raise JobError(LINK_ERROR, retry=False, detail="yt-dlp no dejó archivo")
     return files[0]

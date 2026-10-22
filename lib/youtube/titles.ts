@@ -12,9 +12,7 @@ let segmenter: Intl.Segmenter | null = null;
 
 export function visibleLength(text: string): number {
   segmenter ??= new Intl.Segmenter("es", { granularity: "grapheme" });
-  let n = 0;
-  for (const _ of segmenter.segment(text)) n++;
-  return n;
+  return Array.from(segmenter.segment(text)).length;
 }
 
 /** Limpia un título: sin comillas alrededor, sin espacios dobles ni punto final. */

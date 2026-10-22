@@ -61,7 +61,10 @@ function YoutubeRetention({ data, canEdit, aiReady }: { data: Exclude<RetentionP
   const [fetching, setFetching] = useState(data.shouldFetch);
   const [fetchNote, setFetchNote] = useState<{ tone: "info" | "warning" | "danger"; text: string } | null>(null);
   const [pending, start] = useTransition();
-  const [jobId, setJobId] = useState<string | null>(data.transcriptJob && ["QUEUED", "RUNNING"].includes(data.transcriptJob.status) ? data.transcriptJob.id : null);
+  // El trabajo de subtítulos sale de los datos del servidor (sirve también si se pidió desde otra pestaña).
+  const [finishedJob, setFinishedJob] = useState<string | null>(null);
+  const serverJob = data.transcriptJob && ["QUEUED", "RUNNING"].includes(data.transcriptJob.status) ? data.transcriptJob.id : null;
+  const jobId = serverJob && serverJob !== finishedJob ? serverJob : null;
   const asked = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -82,7 +85,7 @@ function YoutubeRetention({ data, canEdit, aiReady }: { data: Exclude<RetentionP
     if (jobActive(state)) return;
     if (state.status === "SUCCEEDED") toast.success("Listo: ya tenemos lo que decías en cada momento.");
     else if (state.status === "FAILED") toast.error(state.error ?? "No pudimos traer los subtítulos de YouTube.");
-    setJobId(null);
+    setFinishedJob(state.id);
     router.refresh();
   });
 
@@ -116,11 +119,6 @@ function YoutubeRetention({ data, canEdit, aiReady }: { data: Exclude<RetentionP
         router.refresh();
       }
     });
-
-  // Cuando el trabajo de subtítulos se creó desde otra pestaña o recién ahora, se sigue desde los datos del servidor.
-  useEffect(() => {
-    if (data.transcriptJob && ["QUEUED", "RUNNING"].includes(data.transcriptJob.status)) setJobId(data.transcriptJob.id);
-  }, [data.transcriptJob]);
 
   const insight = data.insight;
   const explanationFor = (n: number) => insight?.explanation.drops.find((d) => d.n === n) ?? null;

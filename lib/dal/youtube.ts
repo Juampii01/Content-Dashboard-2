@@ -121,7 +121,7 @@ export async function activePackageJob(packageId: string) {
 }
 
 /** Fotos del personaje (Mi marca) con su recorte, si ya se hizo. */
-export async function characterPhotos(): Promise<{ key: string; cutoutKey: string | null; cutoutStatus: "pending" | "ready" | "failed" | "none" }[]> {
+export async function characterPhotos(): Promise<{ key: string; cutoutKey: string | null; cutoutStatus: "pending" | "ready" | "failed" | "none"; error: string | null }[]> {
   await getCurrentUser();
   const db = getDb();
   const [brand] = await db.select({ photos: schema.brandProfile.characterPhotos }).from(schema.brandProfile).limit(1);
@@ -131,7 +131,7 @@ export async function characterPhotos(): Promise<{ key: string; cutoutKey: strin
   const byKey = new Map(cutouts.map((c) => [c.photoKey, c]));
   return keys.map((key) => {
     const c = byKey.get(key);
-    return { key, cutoutKey: c?.status === "ready" ? c.cutoutKey : null, cutoutStatus: c?.status ?? "none" };
+    return { key, cutoutKey: c?.status === "ready" ? c.cutoutKey : null, cutoutStatus: c?.status ?? "none", error: c?.error ?? null };
   });
 }
 

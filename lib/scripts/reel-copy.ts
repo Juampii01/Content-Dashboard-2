@@ -277,9 +277,8 @@ export const hookTypeLabel: Record<(typeof HOOK_TYPES)[number], string> = {
 export const secondsLabel = (s: number) => `${formatNumber(s, { digits: 1 })} s`;
 
 /**
- * Grabar con el guion. La grabación con teleprompter se está construyendo aparte: por ahora abre el guion con
- * `?grabar=1` (el parámetro queda listo para cuando exista la pantalla de grabación).
+ * Grabar con el guion: la pantalla de grabación con teleprompter del Editor (cada toma se vuelve un video del Editor).
  */
-export const recordHref = (scriptId: string) => `/guiones/${scriptId}?grabar=1`;
+export const recordHref = (scriptId: string) => `/editor/grabar?guion=${scriptId}`;
 /** El Editor ya acepta `?estilo=<id>&guion=<id>` en /editor/nuevo. */
 export const editWithStyleHref = (styleId: string, scriptId: string | null) => `/editor/nuevo?estilo=${styleId}${scriptId ? `&guion=${scriptId}` : ""}`;

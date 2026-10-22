@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { workerAuthorized } from "@/lib/jobs";
-import { maybeAutoExport } from "@/lib/clips/service";
+import { maybeAutoExport } from "@/lib/video/auto-export";
 import { generatePlan, VideoError } from "@/lib/video/service";
 
 /**
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
   const { id } = await params;
   try {
     const result = await generatePlan(id);
-    // Un clip de "Clips desde un video largo" con "Exportar directo" se exporta apenas está el plan.
+    // "Hazlo por mí" (y los clips con "Exportar directo"): se exporta apenas está el plan, sin pasar por la revisión.
     if (result.status === "AWAITING_REVIEW") await maybeAutoExport(id);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

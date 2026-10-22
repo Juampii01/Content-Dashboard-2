@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArchiveRestore, CalendarCheck, Check, CheckCheck, ExternalLink, Loader2, Palette, PencilLine, RefreshCw, Sparkles, TriangleAlert, Wand2, X } from "lucide-react";
+import { ArchiveRestore, CalendarCheck, Check, CheckCheck, ExternalLink, Loader2, Palette, PencilLine, RefreshCw, Sparkles, TriangleAlert, Video, Wand2, X } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Notice, Progress, Skeleton } from "@/components/ui/feedback";
@@ -193,6 +193,11 @@ function Ready({ view }: { view: AutopilotView }) {
         {!waiting && approved > 0 && (
           <ButtonLink href={`/calendario?vista=semana&fecha=${pack.weekStart}`} variant="ghost" icon={<CalendarCheck className="h-4 w-4" aria-hidden />}>
             Ver en el calendario
+          </ButtonLink>
+        )}
+        {pack.items.some((i) => i.script && i.decision !== "discarded") && (
+          <ButtonLink href={`/editor/grabar?semana=${pack.weekStart}`} variant="ghost" icon={<Video className="h-4 w-4" aria-hidden />}>
+            Grabar mi semana
           </ButtonLink>
         )}
       </div>

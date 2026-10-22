@@ -74,6 +74,8 @@ type JobRow = {
   long_video_title?: string | null;
   package_title?: string | null;
   clip_count?: number | null;
+  /** El proyecto tiene "Hazlo por mí": no se revisa, avisa solo al terminar el render. */
+  project_auto_export?: boolean | null;
 };
 
 const quoted = (title: string | null) => (title ? `"${title}"` : "Tu video");
@@ -87,8 +89,8 @@ export function jobNotification(job: JobRow): Omit<NotificationInput, "email" | 
     case "VIDEO_ANALYZE":
     case "VIDEO_EDIT": {
       if (!job.video_project_id) return null;
-      // Un clip con "Exportar directo" no se revisa: avisa solo al terminar el render.
-      if (ok && (job.input?.clip as { autoExport?: boolean } | undefined)?.autoExport) return null;
+      // "Hazlo por mí" (o un clip con "Exportar directo") no se revisa: avisa solo al terminar el render.
+      if (ok && (job.project_auto_export || (job.input?.clip as { autoExport?: boolean } | undefined)?.autoExport)) return null;
       const href = `/editor/${job.video_project_id}`;
       return ok
         ? { tone: "success", title: "Tu video está listo para revisar", body: `${quoted(job.project_title)} ya tiene la edición propuesta: cortes, subtítulos y b-roll. Revísala y expórtala.`, href, emailable: true }
@@ -98,7 +100,9 @@ export function jobNotification(job: JobRow): Omit<NotificationInput, "email" | 
       if (!job.video_project_id) return null;
       const href = `/editor/${job.video_project_id}`;
       return ok
-        ? { tone: "success", title: "Tu video está exportado", body: `${quoted(job.project_title)} ya se puede descargar.`, href, emailable: true }
+        ? job.project_auto_export
+          ? { tone: "success", title: "Tu video está listo", body: `${quoted(job.project_title)} ya está editado y exportado, con tu estilo. Descárgalo o, si quieres cambiar algo, revísalo y vuelve a exportarlo.`, href, emailable: true }
+          : { tone: "success", title: "Tu video está exportado", body: `${quoted(job.project_title)} ya se puede descargar.`, href, emailable: true }
         : { tone: "error", title: "No pudimos exportar tu video", body: failure, href, emailable: true };
     }
     case "CAROUSEL_IMAGES": {
@@ -173,7 +177,7 @@ export async function sweepJobNotifications(limit = 50): Promise<number> {
   const result = await getDb().execute<JobRow>(sql`
     select j.id, j.type, j.status, j.input, j.error_message, j.video_project_id, j.created_by,
       extract(epoch from (j.finished_at - j.created_at))::float as seconds,
-      p.title as project_title, c.title as carousel_title,
+      p.title as project_title, p.auto_export as project_auto_export, c.title as carousel_title,
       lv.title as long_video_title, yp.title as package_title,
       (select count(*)::int from long_video_clips lc where lc.long_video_id = lv.id) as clip_count
     from jobs j

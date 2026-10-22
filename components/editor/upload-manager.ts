@@ -10,7 +10,7 @@ import type { CaptionPresetKey, VideoFormat } from "@/lib/video/types";
  * El archivo va directo del navegador al almacenamiento (Vercel Blob con URL firmada, o disco local en desarrollo).
  * Cuando la subida terminó y la persona ya tocó "Procesar", se avisa a la app para que encole el análisis.
  */
-export type Settings = { title: string; format: VideoFormat; preset: CaptionPresetKey; scriptId: string | null; styleId?: string | null; brollMode?: "auto" | "off" };
+export type Settings = { title: string; format: VideoFormat; preset: CaptionPresetKey; scriptId: string | null; styleId?: string | null; brollMode?: "auto" | "off"; autoExport?: boolean };
 
 export type UploadState = {
   projectId: string;

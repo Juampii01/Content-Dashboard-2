@@ -414,6 +414,8 @@ export const brandProfile = pgTable("brand_profile", {
   fonts: jsonb("fonts").$type<{ heading?: string; body?: string }>(),
   characterPhotos: text("character_photos").array().notNull().default(sql`'{}'::text[]`), // rutas en el almacenamiento de archivos
   subtitlePreset: jsonb("subtitle_preset"),
+  // Valores por defecto del Editor de video ("Hazlo por mí" y proyectos nuevos). Ver lib/video/defaults.ts.
+  editorDefaults: jsonb("editor_defaults").$type<Record<string, unknown>>(),
   extraContext: text("extra_context"), // notas libres del cliente
   goals: jsonb("goals").$type<GrowthGoals>(), // meta de seguidores y ritmo de publicación (Inicio)
   version: integer("version").notNull().default(1),
@@ -742,6 +744,10 @@ export const videoProjects = pgTable(
     styleId: uuid("style_id").references(() => videoStyles.id, { onDelete: "set null" }),
     // B-roll: "auto" (Claude elige dónde y busca en Pexels y en la biblioteca) o "off".
     brollMode: text("broll_mode").notNull().default("off"),
+    // "Hazlo por mí": apenas está el plan se exporta solo, sin pasar por la revisión (ver lib/video/auto-export.ts).
+    autoExport: boolean("auto_export").notNull().default(false),
+    // De dónde vino el original: "upload" (subida), "recorder" (grabado en el navegador), "clone" o "clip".
+    origin: text("origin").notNull().default("upload"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

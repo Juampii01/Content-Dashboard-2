@@ -8,6 +8,7 @@ import { NewProjectFlow } from "@/components/editor/new-project-flow";
 import { WorkerNotice } from "@/components/editor/worker-notice";
 import { getBrand } from "@/lib/ai/brand-context";
 import { getCurrentUser } from "@/lib/auth";
+import { getEditorDefaults } from "@/lib/dal/editor-defaults";
 import { brollAvailability, readyStyles } from "@/lib/dal/editor-media";
 import { getCloneSource, listScriptOptions } from "@/lib/dal/video";
 import { workerStatus } from "@/lib/jobs";
@@ -28,7 +29,15 @@ async function Flow({ searchParams }: { searchParams: PageProps<"/editor/nuevo">
   const guion = typeof params.guion === "string" ? params.guion : null;
   const clon = typeof params.clon === "string" ? params.clon : null;
   const estilo = typeof params.estilo === "string" ? params.estilo : null;
-  const [scripts, clone, worker, styles, broll, brand] = await Promise.all([listScriptOptions(), clon ? getCloneSource(clon) : null, workerStatus(), readyStyles(), brollAvailability(), getBrand()]);
+  const [scripts, clone, worker, styles, broll, brand, editor] = await Promise.all([
+    listScriptOptions(),
+    clon ? getCloneSource(clon) : null,
+    workerStatus(),
+    readyStyles(),
+    brollAvailability(),
+    getBrand(),
+    getEditorDefaults(),
+  ]);
   // El mismo acento que usa el render de los subtítulos (lib/video/service.ts).
   const accent = [brand?.colors?.accent, brand?.colors?.primary].find((c) => c && /^#[0-9a-f]{6}$/i.test(c)) ?? "#FFD84D";
   if (me.role === "VIEWER") return <Notice tone="warning">Tu usuario es de solo lectura. Pide acceso de edición al dueño de la cuenta para subir videos.</Notice>;
@@ -52,6 +61,8 @@ async function Flow({ searchParams }: { searchParams: PageProps<"/editor/nuevo">
         initialStyleId={estilo}
         broll={broll}
         captionBrand={{ accent, font: brandGraphicLook(brand).font }}
+        defaults={{ format: editor.defaults.format, captions: editor.defaults.captions, broll: editor.defaults.broll }}
+        autoSummary={editor.summary}
       />
     </div>
   );
@@ -66,7 +77,7 @@ export default function NewVideoPage({ searchParams }: PageProps<"/editor/nuevo"
       <PageHeader
         eyebrow="Nuevo video"
         title="Sube tu video y dinos cómo lo quieres"
-        description="Cinco pasos cortos. Después revisas los cortes y el b-roll antes de renderizar."
+        description="Cinco pasos cortos. Después revisas los cortes y el b-roll antes de exportar, o eliges «Hazlo por mí» y lo exportamos solos."
         icon={<Upload className="h-5 w-5" aria-hidden />}
       />
       <Suspense fallback={<Skeleton className="h-96" />}>

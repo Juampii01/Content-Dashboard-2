@@ -16,7 +16,10 @@ export function ResultView({
   output,
   posterUrl,
   canEdit,
+  auto = false,
 }: {
+  /** Se exportó con "Hazlo por mí" (sin pasar por la revisión). */
+  auto?: boolean;
   projectId: string;
   format: "9:16" | "16:9";
   output: { url: string; downloadUrl: string; srtUrl: string | null; creditsUrl?: string | null; meta: OutputMeta };
@@ -49,7 +52,9 @@ export function ResultView({
             <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-success" aria-hidden />
             <div>
               <h2 className="text-lg font-semibold">Tu video está listo</h2>
-              <p className="text-sm text-muted">Descárgalo para publicarlo o prográmalo en el calendario.</p>
+              <p className="text-sm text-muted">
+                {auto ? "Lo editamos y exportamos solo, con tus valores por defecto. " : ""}Descárgalo para publicarlo o prográmalo en el calendario.
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -87,7 +92,7 @@ export function ResultView({
                 })
               }
             >
-              Volver a editar
+              Revisar y volver a exportar
             </Button>
           )}
         </div>

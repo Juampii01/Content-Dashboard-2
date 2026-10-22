@@ -7,6 +7,7 @@ import {
   Film,
   GalleryHorizontalEnd,
   UserRound,
+  Video,
   ArrowDown,
   ArrowUp,
   Check,
@@ -360,6 +361,9 @@ export function ScriptEditor({
             <p className="mb-1 text-sm font-semibold text-white">Usar este guion</p>
             <ButtonLink href={`/calendario?nuevo=1&guion=${scriptId}`} variant="ghost" size="sm" icon={<CalendarDays className="h-4 w-4" aria-hidden />}>
               Programar en el calendario
+            </ButtonLink>
+            <ButtonLink href={`/editor/grabar?guion=${scriptId}`} variant="ghost" size="sm" icon={<Video className="h-4 w-4" aria-hidden />}>
+              Grabar
             </ButtonLink>
             <ButtonLink href={`/editor/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<Film className="h-4 w-4" aria-hidden />}>
               Editar mi grabación

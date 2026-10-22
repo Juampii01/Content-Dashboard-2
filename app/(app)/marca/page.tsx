@@ -4,10 +4,13 @@ import { Palette } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/feedback";
 import { BrandEditor } from "@/components/marca/brand-editor";
+import { EditorDefaultsForm } from "@/components/editor/editor-defaults-form";
 import type { BrandInput } from "@/components/marca/actions";
 import { getCurrentUser } from "@/lib/auth";
 import { aiConfigured } from "@/lib/ai/client";
 import { getBrandProfile, getVoiceSuggestions } from "@/lib/dal/brand";
+import { getEditorDefaults } from "@/lib/dal/editor-defaults";
+import { brandGraphicLook } from "@/lib/video/graphics";
 
 export const metadata: Metadata = { title: "Mi marca" };
 
@@ -37,6 +40,14 @@ async function Editor() {
   return <BrandEditor initial={initial} suggestions={suggestions} aiReady={aiConfigured()} canEdit={me.role !== "VIEWER"} />;
 }
 
+/** Valores por defecto del Editor de video ("Hazlo por mí" y proyectos nuevos): viven en Mi marca. */
+async function EditorDefaults() {
+  const [brand, view] = await Promise.all([getBrandProfile(), getEditorDefaults()]);
+  // El mismo acento que usa el render de los subtítulos (lib/video/service.ts).
+  const accent = [brand?.colors?.accent, brand?.colors?.primary].find((c) => c && /^#[0-9a-f]{6}$/i.test(c)) ?? "#FFD84D";
+  return <EditorDefaultsForm initial={view.defaults} tracks={view.tracks} accent={accent} brandFont={brandGraphicLook(brand).font} canEdit={view.canEdit} />;
+}
+
 export default function MarcaPage() {
   return (
     <>
@@ -49,6 +60,11 @@ export default function MarcaPage() {
       <Suspense fallback={<Skeleton className="h-96" />}>
         <Editor />
       </Suspense>
+      <div className="mt-6">
+        <Suspense fallback={<Skeleton className="h-96" />}>
+          <EditorDefaults />
+        </Suspense>
+      </div>
     </>
   );
 }

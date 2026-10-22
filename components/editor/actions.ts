@@ -7,6 +7,7 @@ import { z } from "zod";
 import { isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
+import { setAutoExport } from "@/lib/video/auto-export";
 import { brollItemSchema } from "@/lib/video/plan";
 import { MUSIC_DB, SFX_LEVELS } from "@/lib/video/sfx";
 import { STUDIO_LEVELS } from "@/lib/video/studio-audio";
@@ -49,6 +50,8 @@ const newProject = z.object({
   scriptId: z.uuid().nullable(),
   styleId: z.uuid().nullable().optional(),
   brollMode: brollModeSchema.optional(),
+  autoExport: z.boolean().optional(),
+  origin: z.enum(["upload", "recorder"]).optional(),
 });
 
 /** Paso 1 de la subida: reserva el proyecto y la ruta del original. El archivo va directo al almacenamiento. */
@@ -72,6 +75,7 @@ const settingsSchema = z.object({
   scriptId: z.uuid().nullable(),
   styleId: z.uuid().nullable().optional(),
   brollMode: brollModeSchema.optional(),
+  autoExport: z.boolean().optional(),
 });
 
 /** Paso 2: la subida terminó y la persona tocó "Procesar". Se verifica el archivo y se encola el análisis. */
@@ -101,17 +105,17 @@ export async function createFromCloneAction(
   cloneId: string,
   format: "9:16" | "16:9",
   preset: CaptionPresetKey,
-  extra: { styleId?: string | null; brollMode?: "auto" | "off" } = {},
+  extra: { styleId?: string | null; brollMode?: "auto" | "off"; autoExport?: boolean } = {},
 ): Promise<ActionResult> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = z
-    .object({ cloneId: idSchema, format: formatSchema, preset: presetSchema, styleId: z.uuid().nullable().optional(), brollMode: brollModeSchema.optional() })
+    .object({ cloneId: idSchema, format: formatSchema, preset: presetSchema, styleId: z.uuid().nullable().optional(), brollMode: brollModeSchema.optional(), autoExport: z.boolean().optional() })
     .safeParse({ cloneId, format, preset, ...extra });
   if (!parsed.success) return { ok: false, error: "Datos no válidos." };
   let id: string;
   try {
-    id = await createFromClone(parsed.data.cloneId, parsed.data.format, parsed.data.preset, user.id, { styleId: parsed.data.styleId, brollMode: parsed.data.brollMode });
+    id = await createFromClone(parsed.data.cloneId, parsed.data.format, parsed.data.preset, user.id, { styleId: parsed.data.styleId, brollMode: parsed.data.brollMode, autoExport: parsed.data.autoExport });
   } catch (error) {
     return fail(error);
   }
@@ -151,7 +155,21 @@ export async function renderAction(projectId: string, review: Review, format: "9
   const parsed = reviewSchema.safeParse(review);
   if (!parsed.success || !idSchema.safeParse(projectId).success || !formatSchema.safeParse(format).success) return { ok: false, error: "Los cambios no son válidos." };
   try {
-    await startRender(projectId, parsed.data, format, user.id);
+    await startRender(projectId, parsed.data, format, user.id, { manual: true });
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/** "Hazlo por mí": encenderlo o apagarlo mientras el video se prepara (apagado, queda para revisar). */
+export async function setAutoExportAction(projectId: string, on: boolean): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(projectId).success || typeof on !== "boolean") return { ok: false, error: "Proyecto no válido." };
+  try {
+    await setAutoExport(projectId, on, user.id);
     refresh();
     return { ok: true };
   } catch (error) {

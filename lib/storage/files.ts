@@ -34,6 +34,21 @@ export const VIDEO_TYPES: Record<string, string> = {
   "video/x-m4v": "m4v",
 };
 export const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm", ".mkv", ".m4v"];
+/** Pistas de música (Biblioteca → Música), con su extensión. */
+export const AUDIO_TYPES: Record<string, string> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/mp4": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/aac": "aac",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/wave": "wav",
+  "audio/ogg": "ogg",
+  "audio/flac": "flac",
+  "audio/x-flac": "flac",
+};
+export const AUDIO_EXTENSIONS = [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac"];
 /** 8 GB: un video 4K de 10 minutos de un teléfono pesa unos 4 GB. */
 export const MAX_VIDEO_BYTES = 8 * 1024 ** 3;
 
@@ -88,6 +103,12 @@ const CONTENT_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
   json: "application/json",
   txt: "text/plain; charset=utf-8",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  flac: "audio/flac",
 };
 
 export function contentTypeFor(key: string): string {
@@ -148,11 +169,11 @@ async function signedToken(pathname: string, operations: ("get" | "head" | "put"
 }
 
 /** Delegación para que el navegador suba el original directo a Blob (la usa /api/editor/upload). */
-export async function uploadDelegation(pathname: string): Promise<IssuedSignedToken> {
+export async function uploadDelegation(pathname: string, kind: "video" | "audio" = "video"): Promise<IssuedSignedToken> {
   return issueSignedToken({
     pathname: assertKey(pathname),
     operations: ["put"],
-    allowedContentTypes: Object.keys(VIDEO_TYPES),
+    allowedContentTypes: Object.keys(kind === "audio" ? AUDIO_TYPES : VIDEO_TYPES),
     maximumSizeInBytes: MAX_VIDEO_BYTES,
     validUntil: Date.now() + 6 * 3600_000,
     token: blobToken(),

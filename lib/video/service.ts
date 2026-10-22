@@ -19,8 +19,10 @@ import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphic
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
 import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme } from "./motion-graphics";
 import { sceneSchema } from "./motion/schema";
+import { loadTrack } from "./music";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
 import { alignScript } from "./script-align";
+import { hookEnd, MUSIC_DB, sfxCues, sfxLevel, type SfxLevel } from "./sfx";
 import type { StyleMetrics } from "./style";
 import { stylePreset } from "./styles";
 import { buildTimeline } from "./timeline";
@@ -283,6 +285,12 @@ export type Review = {
   broll?: BrollItem[];
   /** Zooms del estilo encendidos o apagados. */
   zooms?: boolean;
+  /** Emojis sobre las palabras clave (galería de subtítulos). */
+  emoji?: boolean;
+  /** Efectos de sonido. */
+  sfx?: SfxLevel;
+  /** Música de fondo: pista de la biblioteca (o null) y su volumen respecto de la voz. */
+  music?: { trackId: string | null; db: number };
 };
 
 function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
@@ -298,7 +306,14 @@ function applyReview(plan: EditPlan, review: Review, words: Transcript["words"],
     format,
     removals: rangesFromIds(valid, [...plan.removals, ...plan.proposed_removals]),
     selected_hook: review.selectedHook != null && plan.hook_candidates[review.selectedHook] ? review.selectedHook : null,
-    captions: { ...plan.captions, preset: review.preset },
+    captions: { ...plan.captions, preset: review.preset, ...(review.emoji != null ? { emoji: review.emoji } : {}) },
+    audio: {
+      ...plan.audio,
+      ...(review.sfx ? { sfx: sfxLevel(review.sfx) } : {}),
+      ...(review.music
+        ? { music_asset_id: review.music.trackId, music_db: Math.round(Math.max(MUSIC_DB.min, Math.min(MUSIC_DB.max, review.music.db))) }
+        : {}),
+    },
     framing: { mode: review.offsetX === 0 ? "center" : "manual", offset_x: Math.max(-1, Math.min(1, review.offsetX)) },
     corrections,
     ...(review.broll ? { broll: cleanBroll(review.broll, words.length) } : {}),
@@ -338,6 +353,8 @@ export async function saveReview(projectId: string, review: Review, format: Vide
 }
 
 const DEFAULT_CAPTION_ACCENT = "#FFD84D";
+/** El worker dibuja hasta 24 emojis por video (worker/video/pipeline.py); los pop siguen a esos. */
+const MAX_EMOJIS = 24;
 
 export async function startRender(projectId: string, review: Review, format: VideoFormat, userId: string): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
@@ -364,6 +381,13 @@ export async function startRender(projectId: string, review: Review, format: Vid
   const credits = brollCredits(broll);
   const look = isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: brandGraphicLook(brand).font, emoji: next.captions.emoji === true }) : null;
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;
+  const captionPayload = look ? blocks.map((b) => captionTracks(look, b, format, accent)) : null;
+  // Efectos de sonido: whoosh al entrar cada b-roll o gráfico, riser hasta el fin del gancho y pop en los emojis.
+  const emojiTimes = (captionPayload ?? []).flatMap((b) => b.words.flatMap((w) => (w.emoji ? [w.emoji.alpha[0]?.t ?? b.start] : []))).slice(0, MAX_EMOJIS);
+  const sfx = sfxCues({ level: sfxLevel(next.audio.sfx), duration: timeline.duration, broll, hookEnd: hookEnd(timeline), emojiTimes });
+  // Música: solo una pista lista de la biblioteca (la clave sale de la base, no del navegador).
+  const track = next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
+  const music = track?.status === "READY" ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db } : null;
 
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null }).where(eq(schema.videoProjects.id, projectId));
   await enqueueJob({
@@ -381,7 +405,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
       framing: { offsetX: next.framing.offset_x, focusY: focusY ? Math.max(0.25, Math.min(0.6, focusY)) : 0.42 },
       captions: look
         ? // Galería: la app arma renglones y pistas (lib/video/caption-styles.ts); el worker solo mide y dibuja.
-          { preset, accent, look, blocks: blocks.map((b) => captionTracks(look, b, format, accent)) }
+          { preset, accent, look, blocks: captionPayload }
         : {
             preset,
             accent,
@@ -400,7 +424,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
       credits,
       creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
       srt: toSrt(timeline.words),
-      audio: { targetLufs: next.audio.target_lufs, truePeak: -1 },
+      audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music },
       outputKey: `${keyPrefix(projectId)}render-${stamp}.mp4`,
       srtKey: `${keyPrefix(projectId)}render-${stamp}.srt`,
       posterKey: `${keyPrefix(projectId)}render-${stamp}.jpg`,

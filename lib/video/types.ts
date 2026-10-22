@@ -94,7 +94,11 @@ export type EditPlan = {
   pacing?: { long_pause: number };
   /** Estilo con el que se armó el plan (id de video_styles), si hay. */
   style_id?: string | null;
-  audio: { music_asset_id: string | null; music_db: number; target_lufs: number };
+  /**
+   * `music_asset_id`: pista de Biblioteca → Música (music_tracks.id), `music_db`: su volumen respecto de la voz.
+   * `sfx`: efectos de sonido (lib/video/sfx.ts); sin el campo (planes viejos), sin efectos.
+   */
+  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong" };
   /** Recorte para 16:9 → 9:16. offset_x va de -1 (izquierda) a 1 (derecha); 0 es el centro. */
   framing: { mode: "center" | "manual"; offset_x: number };
   /** Palabras que no están en el guion (se marcan, no se cortan). */

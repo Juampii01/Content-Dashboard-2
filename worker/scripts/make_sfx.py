@@ -8,8 +8,9 @@
   con volumen que crece hasta el final (termina justo en el corte).
 
 Los archivos son WAV mono de 48 kHz y 16 bits, deterministas (semilla fija): correr el script dos veces da los mismos
-bytes. Cada uno queda con su ventana de 100 ms más fuerte a -12 dBFS RMS (pico por debajo de -1 dBFS), así las
-ganancias de la mezcla (lib/video/sfx.ts) significan lo mismo para los tres. Se usan en el render (worker) y en la
+bytes. Cada uno queda con su ventana de 100 ms más fuerte a -12 dBFS RMS y el pico por debajo de -1 dBFS (el
+whoosh, que es muy picudo, queda en -14,5 por ese tope), así las ganancias de la mezcla (lib/video/sfx.ts)
+significan casi lo mismo para los tres. Se usan en el render (worker) y en la
 vista previa del navegador (public/sfx).
 """
 

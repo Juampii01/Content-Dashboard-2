@@ -8,6 +8,7 @@ import { isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
 import { brollItemSchema } from "@/lib/video/plan";
+import { MUSIC_DB, SFX_LEVELS } from "@/lib/video/sfx";
 import { CAPTION_PRESET_KEYS, type CaptionPresetKey } from "@/lib/video/types";
 import {
   completeUpload,
@@ -124,6 +125,9 @@ const reviewSchema = z.object({
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   broll: z.array(brollItemSchema).max(20).optional(),
   zooms: z.boolean().optional(),
+  emoji: z.boolean().optional(),
+  sfx: z.enum(SFX_LEVELS).optional(),
+  music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
 });
 
 export async function saveReviewAction(projectId: string, review: Review, format: "9:16" | "16:9"): Promise<ActionResult> {

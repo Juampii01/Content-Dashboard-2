@@ -168,6 +168,28 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
 
 
 @register("VIDEO_RENDER")
+def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: Path, audio_cfg: dict[str, Any], duration: float, info: dict[str, Any]) -> Path:
+    """Efectos de sonido y música de fondo debajo de la voz. Sin ninguno de los dos, la voz queda tal cual."""
+    sfx = [c for c in audio_cfg.get("sfx") or [] if isinstance(c, dict)]
+    music_cfg = audio_cfg.get("music") if isinstance(audio_cfg.get("music"), dict) else None
+    if not sfx and not music_cfg:
+        return voice
+    music_path = None
+    if music_cfg:
+        track_id, key = str(music_cfg.get("trackId") or ""), str(music_cfg.get("key") or "")
+        if not key.startswith(f"editor/musica/{track_id}/"):
+            raise JobError("La música elegida no es válida. Elígela de nuevo en la revisión.", retry=False, detail=f"clave {key}")
+        cache = workdir / "musica"
+        cache.mkdir(exist_ok=True)
+        music_path = cache / f"{track_id}{Path(key).suffix or '.mp3'}"
+        if not music_path.exists():
+            ctx.app.download(None, key, music_path, owner={"trackId": track_id})
+    mixed = out_dir / "mix.wav"
+    result = render.mix_audio(voice, mixed, duration, sfx=sfx, music=music_path, music_db=float((music_cfg or {}).get("db", -16)), target=float(audio_cfg.get("targetLufs", -14)))
+    info.update(result)
+    return mixed
+
+
 def render_job(ctx: JobContext) -> dict[str, Any]:
     project = _project(ctx)
     pid = str(project["id"])
@@ -195,7 +217,9 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
 
     ctx.stage("Mezclando el audio", 0.35, 0.45)
     voice = out_dir / "voice.wav"
-    audio_info = render.process_audio(joined, voice, float(data.get("audio", {}).get("targetLufs", -14)), float(data.get("audio", {}).get("truePeak", -1)))
+    audio_cfg = data.get("audio") or {}
+    audio_info = render.process_audio(joined, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)))
+    voice = mix_extras(ctx, pid, workdir, out_dir, voice, audio_cfg, expected, audio_info)
 
     captions = data.get("captions") or {}
     ass_path = None

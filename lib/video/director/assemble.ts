@@ -28,8 +28,13 @@ export type DirectorInput = {
   offScript: number[];
   candidates: Candidate[];
   map: VideoMap | null;
-  /** Lo que el brief pide que no se corte (rangos de palabras). */
+  /** Lo que el brief pide que no se corte (rangos de palabras): ningún corte lo toca. */
   mustKeep: { from: number; to: number }[];
+  /**
+   * Lo que tiene que quedar a la vista (la oferta, la CTA, el producto en pantalla): se puede cortar una toma repetida
+   * o una muletilla adentro, pero no tanto que se pierda (queda al menos el 60 %).
+   */
+  protect?: { from: number; to: number; label: string }[];
   style: PlanStyle | null;
   broll: BrollLimits;
   /** Plan anterior (al corregir): se conservan sonido, encuadre, subtítulos y los b-roll que siguen en su lugar. */
@@ -99,6 +104,17 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
       continue;
     }
     cuts.push({ from_word: from, to_word: to, reason: c.reason, confidence: 0.9, source: "ai", note: clip(c.why, 300) });
+  }
+  // Lo protegido no puede quedar casi todo cortado (salvo por tomas repetidas o muletillas: esas repiten o no suman).
+  for (const p of input.protect ?? []) {
+    const hard = cuts.filter((c) => (c.reason === "bad_take" || c.reason === "off_topic") && overlaps({ from: c.from_word, to: c.to_word }, p));
+    if (!hard.length) continue;
+    const gone = new Set<number>();
+    for (const c of hard) for (let id = Math.max(c.from_word, p.from); id <= Math.min(c.to_word, p.to); id++) gone.add(id);
+    if (gone.size > (p.to - p.from + 1) * 0.4) {
+      for (const c of hard) cuts.splice(cuts.indexOf(c), 1);
+      dropped.push(`No corté ${p.label}: tiene que quedar.`);
+    }
   }
   // Las pausas largas las acorta el ritmo (pacing); los demás candidatos los decidió el director.
   const removals = normalizeRemovals(cuts, n);

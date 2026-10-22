@@ -49,7 +49,7 @@ export function tramosText(eyes: Eyes | null, words: Word[]): string {
       const flags = [
         faceText(t),
         t.blurry ? "BORROSO" : "nítido",
-        t.dark ? "MUY OSCURO" : t.bright ? "QUEMADO" : t.backlit ? "CONTRALUZ" : "luz ok",
+        t.dark ? (t.faceRatio >= 0.5 ? "MUY OSCURO" : "imagen oscura") : t.bright ? "QUEMADO" : t.backlit ? "CONTRALUZ" : "luz ok",
         t.shaky ? "CÁMARA MOVIDA" : t.motion > 0.01 ? "algo de movimiento" : "cámara fija",
         t.text ? `texto en pantalla "${t.text.slice(0, 50)}" (franja ${band(t.textBand)})` : "",
         t.energy != null ? `voz ${t.energy.toFixed(0)} dB` : "",

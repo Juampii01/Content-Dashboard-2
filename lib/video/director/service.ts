@@ -237,8 +237,15 @@ async function start(projectId: string): Promise<{ next: DirectorNext; status: s
   const ctx = await load(projectId);
   if (ctx.project.status !== "PROCESSING") return { next: null, status: ctx.project.status };
   if (ctx.director.pending) return { next: { step: "edit" }, status: "PROCESSING" };
-  // Un reintento retoma donde quedó.
-  if (ctx.project.plan && ctx.director.steps.includes("direct")) return { next: { step: "finalize" }, status: "PROCESSING" };
+  // Un reintento retoma donde quedó: corregir, volver a mirar o cerrar.
+  if (ctx.project.plan && ctx.director.steps.includes("direct")) {
+    const last = ctx.director.rounds.at(-1);
+    if (last?.fixed && ctx.director.steps.at(-1) !== "revise") return { next: { step: "revise" }, status: "PROCESSING" };
+    if (ctx.director.budget?.critic && ctx.director.rounds.length < roundLimit(ctx.director)) {
+      return { next: await previewNext(ctx.project, ctx.project.plan as EditPlan, ctx.words, ctx.duration, ctx.director.rounds.length + 1, ctx.eyes), status: "PROCESSING" };
+    }
+    return { next: { step: "finalize" }, status: "PROCESSING" };
+  }
   if (ctx.director.map && ctx.director.steps.includes("understand")) return { next: { step: "direct" }, status: "PROCESSING" };
   if (!aiConfigured()) {
     // Sin IA: el plan de siempre (cortes seguros), con el mapa de las medidas para "Lo que entendió".
@@ -335,9 +342,11 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   const stockReady = brollSourcesReady().stock || tags.length > 0;
   const look = brandGraphicLook(ctx.brand);
   const keep = [...mustKeepRanges(brief.mustKeep, words)];
+  // La CTA siempre queda; en anuncios y ventas también la oferta y lo que se muestra (producto, pantalla).
+  const protect: { from: number; to: number; label: string }[] = map.beats.filter((b) => b.role === "cta").map((b) => ({ from: b.from, to: b.to, label: "la llamada a la acción" }));
   if (brief.goal === "anuncio" || brief.goal === "vender") {
-    for (const b of map.beats) if (b.role === "oferta" || b.role === "cta") keep.push({ from: b.from, to: b.to });
-    for (const s of map.shots) if (s.important) keep.push({ from: s.from, to: s.to });
+    for (const b of map.beats) if (b.role === "oferta") protect.push({ from: b.from, to: b.to, label: "la oferta" });
+    for (const s of map.shots) if (s.important) protect.push({ from: s.from, to: s.to, label: s.shows.toLowerCase() });
   }
   const instruction = mode === "edit" ? (director.pending?.instruction ?? "") : null;
   if (instruction) keep.push(...mustKeepRanges(instruction.match(/no (?:cortes|quites|saques)[^.]*/i)?.[0] ?? "", words));
@@ -381,6 +390,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
           ...map.shots.filter((s) => s.important).map((s) => `- PROHIBIDO b-roll en [${s.from}–${s.to}]: ${s.shows}`),
           ...map.beats.filter((b) => b.role === "cta").map((b) => `- PROHIBIDO b-roll en [${b.from}–${b.to}]: llamado a la acción`),
           ...keep.map((k) => `- NO CORTAR [${k.from}–${k.to}]`),
+          ...protect.map((p) => `- TIENE QUE QUEDAR (se puede limpiar una toma repetida adentro) [${p.from}–${p.to}]: ${p.label}`),
         ].join("\n"),
         broll: { ...limits, stock: stockReady, libraryTags: tags },
         style: style?.text ?? null,
@@ -422,6 +432,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     candidates,
     map,
     mustKeep: keep,
+    protect,
     style: style?.plan ?? null,
     broll: { ...limits, stock: stockReady },
     base,
@@ -479,7 +490,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   const edits = [...director.edits];
   if (mode === "edit" && base && director.pending) {
     const changes = diffPlans(base, plan, words, duration);
-    edits.push({ at: new Date().toISOString(), instruction: director.pending.instruction, changes, note: [ai.warning, ...ai.changes.filter((c) => !changes.includes(c))].filter(Boolean).join(" ").slice(0, 400), source: director.pending.kind === "fix" ? "arreglo" : "persona" });
+    edits.push({ at: new Date().toISOString(), instruction: director.pending.instruction, changes, note: ai.warning.slice(0, 400), source: director.pending.kind === "fix" ? "arreglo" : "persona" });
   }
   const variants = mode === "revise" ? director.variants : assembled.variants;
   const next: DirectorState = {
@@ -659,6 +670,7 @@ async function finalReview(projectId: string, sheets: { key: string; width: numb
     verdict: (wire?.verdict ?? (issues.length ? "Las verificaciones automáticas encontraron detalles." : "Las verificaciones automáticas no encontraron problemas.")).slice(0, 400),
     issues: issues.slice(0, 12),
     sheets: sheets.map((s) => s.key),
+    frames: frames.map((f) => f.t),
     at: new Date().toISOString(),
     by: wire ? "ai" : "reglas",
   };
@@ -692,7 +704,7 @@ export async function requestEdit(projectId: string, instruction: string, kind: 
 }
 
 /** Cambia a una de las versiones propuestas (la actual queda como "Versión anterior"). */
-export async function useVariant(projectId: string, variantId: string): Promise<void> {
+export async function applyPlanVariant(projectId: string, variantId: string): Promise<void> {
   const project = await loadProject(projectId);
   if (!project?.plan || !project.transcript) throw new VideoError("No encontramos ese proyecto.");
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");

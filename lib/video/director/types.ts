@@ -227,6 +227,8 @@ export type FinalReview = {
   verdict: string;
   issues: CriticIssue[];
   sheets: string[];
+  /** Instantes de los cuadros de las hojas (en orden: #1, #2…). */
+  frames: number[];
   at: string;
   by: "ai" | "reglas";
 };

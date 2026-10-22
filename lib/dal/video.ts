@@ -8,6 +8,9 @@ import { fileDriver, readUrl } from "@/lib/storage";
 import { cleanupReplaced } from "@/lib/video/service";
 import type { EditPlan, MediaInfo, Transcript } from "@/lib/video/types";
 import type { AudioPreview, AudioPreviewMedia } from "@/lib/video/studio-audio";
+import { costSummary, editEstimate, readEyes, type CostSummary } from "@/lib/video/director/service";
+import { clampBudget } from "@/lib/video/director/cost";
+import { readBrief, readDirector, type Brief, type DirectorState, type Eyes } from "@/lib/video/director/types";
 
 export type ProjectStatus = (typeof schema.videoProjectStatusEnum.enumValues)[number];
 
@@ -132,7 +135,48 @@ export type ProjectView = {
   canEdit: boolean;
   createdAt: Date;
   updatedAt: Date;
+  /** Director de edición: lo que entendió, la segunda mirada, la revisión final, los pedidos y las versiones. */
+  director: DirectorView | null;
+  /** Un pedido de "Edítalo así" en curso (el proyecto vuelve a "procesando" un momento). */
+  editing: boolean;
 };
+
+export type SheetView = { url: string; frames: number[]; width: number; height: number };
+
+export type DirectorView = {
+  state: DirectorState;
+  brief: Brief | null;
+  budgetUsd: number;
+  cost: CostSummary;
+  /** Estimación de un pedido de "Edítalo así". */
+  editEstimate: number;
+  /** Hojas de contacto del original (para las miniaturas de "Lo que entendió") y su grilla. */
+  sheets: SheetView[];
+  layout: Eyes["layout"] | null;
+  stats: Eyes["stats"] | null;
+  /** Hojas de la revisión final (cuadros del MP4). */
+  finalSheets: SheetView[];
+};
+
+async function directorView(p: typeof schema.videoProjects.$inferSelect, sign: (key: string | null | undefined) => Promise<string | null>): Promise<DirectorView | null> {
+  if (!p.director && !p.eyes && !p.brief) return null;
+  const state = readDirector(p.director);
+  const eyes = readEyes(p.eyes);
+  const budgetUsd = clampBudget(p.aiBudgetUsd);
+  const sheets = await Promise.all((eyes?.sheets ?? []).map(async (s) => ({ url: (await sign(s.key)) ?? "", frames: s.frames, width: s.width, height: s.height })));
+  const finalSheets = await Promise.all((state.final?.sheets ?? []).map(async (key) => ({ url: (await sign(key)) ?? "", frames: [], width: 0, height: 0 })));
+  return {
+    state,
+    brief: readBrief(p.brief),
+    budgetUsd,
+    cost: await costSummary(p.id, budgetUsd),
+    editEstimate: editEstimate(p),
+    sheets: sheets.filter((s) => s.url),
+    layout: eyes?.layout ?? null,
+    stats: eyes?.stats ?? null,
+    finalSheets: finalSheets.filter((s) => s.url),
+  };
+}
 
 const safeName = (title: string) => title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "video";
 
@@ -194,6 +238,8 @@ export async function getProject(id: string): Promise<ProjectView | null> {
     canEdit: me.role !== "VIEWER",
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
+    director: await directorView(p, sign),
+    editing: p.status === "PROCESSING" && Boolean(p.plan) && (readDirector(p.director).pending != null || readDirector(p.director).cycle === "edit"),
   };
 }
 
@@ -217,6 +263,27 @@ export async function getProjectStatus(id: string) {
     job: job ? { type: job.type, status: job.status, progress: job.progress, stage: job.stage, attempts: job.attempts, maxAttempts: job.maxAttempts, errorMessage: job.errorMessage } : null,
     worker: { online: worker.online, autoStart: worker.autoStart },
   };
+}
+
+/**
+ * Lo que sirve para precargar el brief del director en la subida: público y CTA de Mi marca, y la CTA de cada guion.
+ */
+export async function briefHints(): Promise<{ audience: string; cta: string; scripts: Record<string, string> }> {
+  await getCurrentUser();
+  const [brand] = await getDb().select({ audience: schema.brandProfile.audience, offers: schema.brandProfile.offers }).from(schema.brandProfile).limit(1);
+  const rows = await getDb()
+    .select({ id: schema.scripts.id, content: schema.scripts.content })
+    .from(schema.scripts)
+    .where(ne(schema.scripts.status, "ARCHIVED"))
+    .orderBy(desc(schema.scripts.updatedAt))
+    .limit(100);
+  const scripts: Record<string, string> = {};
+  for (const r of rows) {
+    const cta = (r.content as { cta?: { spoken?: string } } | null)?.cta?.spoken?.trim();
+    if (cta) scripts[r.id] = cta.slice(0, 300);
+  }
+  const firstLine = (t: string | null | undefined) => (t ?? "").split(/\n|\. /)[0]!.trim().slice(0, 200);
+  return { audience: firstLine(brand?.audience), cta: (brand?.offers?.[0]?.cta ?? "").slice(0, 300), scripts };
 }
 
 /** Guiones que se pueden asociar a un video (para detectar tomas repetidas y corregir subtítulos). */

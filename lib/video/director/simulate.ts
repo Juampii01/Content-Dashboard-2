@@ -146,17 +146,26 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
   for (const f of phrases) {
     if (broll.length >= limit) break;
     if (secondHalf && f.start < half) continue;
-    const range = { from: f.from, to: f.to };
+    // El tramo más largo de la frase que queda (una toma repetida cortada adentro no impide el gráfico).
+    let best: { from: number; to: number } | null = null;
+    for (let id = f.from; id <= f.to; id++) {
+      if (removed.has(id)) continue;
+      let end = id;
+      while (end < f.to && !removed.has(end + 1)) end++;
+      if (!best || end - id > best.to - best.from) best = { from: id, to: end };
+      id = end;
+    }
+    if (!best) continue;
+    const range = best;
     if (forbidden.some((x) => overlaps(x, range))) continue;
-    if (Array.from({ length: f.to - f.from + 1 }, (_, k) => f.from + k).filter((id) => removed.has(id)).length > (f.to - f.from + 1) * 0.3) continue;
     const span = f.end - f.start;
     const figure = NUMBER_WORD.test(f.text) && spokenNumbers(f.text).length > 0;
     if (!figure && !wantsMore && !(input.duration > 45 && span >= 2.5)) continue;
-    // El gráfico cubre de 1,5 a 5 s de la frase (desde su inicio).
-    let to = f.from;
-    while (to < f.to && words[to + 1]!.end - words[f.from]!.start <= Math.min(input.broll.maxSeconds, 5)) to++;
-    if (words[to]!.end - words[f.from]!.start < 1.4) continue;
-    broll.push({ from_word: f.from, to_word: to, kind: "graphic", query_en: "business growth chart", keywords: ["negocio", "resultados"], graphic: input.broll.graphics ? sceneToWire(sceneFor(f)) : null, why: figure ? "Dices una cifra: el gráfico la fija en la cabeza." : "Refuerza la idea central de esta parte." });
+    // El gráfico cubre de 1,5 a 5 s del tramo (desde su inicio).
+    let to = range.from;
+    while (to < range.to && words[to + 1]!.end - words[range.from]!.start <= Math.min(input.broll.maxSeconds, 5)) to++;
+    if (words[to]!.end - words[range.from]!.start < 1.4) continue;
+    broll.push({ from_word: range.from, to_word: to, kind: "graphic", query_en: "business growth chart", keywords: ["negocio", "resultados"], graphic: input.broll.graphics ? sceneToWire(sceneFor(f)) : null, why: figure ? "Dices una cifra: el gráfico la fija en la cabeza." : "Refuerza la idea central de esta parte." });
   }
   if (wantsMore) changes.push(secondHalf ? "Más gráficos en la segunda mitad." : "Más gráficos.");
   if (noBroll) changes.push("Sin b-roll.");

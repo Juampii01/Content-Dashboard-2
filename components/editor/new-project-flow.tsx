@@ -19,6 +19,8 @@ import { AutoExportToggle } from "./auto-export-toggle";
 import { CaptionPicker } from "./caption-picker";
 import { MAX_VIDEO_BYTES_CLIENT, VIDEO_ACCEPT } from "./constants";
 import { cancelUpload, startUpload, submitUpload, useUpload } from "./upload-manager";
+import { BriefFields, BudgetField } from "./director/brief-form";
+import { BUDGET, EMPTY_BRIEF, type Brief } from "@/lib/video/director/types";
 
 type ScriptOption = { id: string; title: string; status: string };
 type CloneSource = { id: string; title: string; aspectRatio: string; ready: boolean } | null;
@@ -31,6 +33,7 @@ const STEPS = [
   { id: "estilo", label: "Estilo y b-roll" },
   { id: "subtitulos", label: "Subtítulos" },
   { id: "guion", label: "Guion (opcional)" },
+  { id: "brief", label: "Para qué es (opcional)" },
 ] as const;
 type StepId = (typeof STEPS)[number]["id"];
 
@@ -64,7 +67,10 @@ export function NewProjectFlow({
   captionBrand = { accent: "#FFD84D", font: "montserrat" },
   defaults = { format: "9:16", captions: "caja", broll: "auto" },
   autoSummary,
+  briefHints = { audience: "", cta: "", scripts: {} },
 }: {
+  /** Para precargar el brief del director: público y CTA de Mi marca, y la CTA de cada guion. */
+  briefHints?: { audience: string; cta: string; scripts: Record<string, string> };
   scripts: ScriptOption[];
   initialScriptId: string | null;
   clone: CloneSource;
@@ -107,6 +113,15 @@ export function NewProjectFlow({
     else if (preset === "estilo" && !next?.preset.captions) setPreset(DEFAULT_PRESET);
   }
   const [scriptId, setScriptId] = useState<string | null>(initialScriptId);
+  // Brief del director (opcional): precargado con Mi marca y, si hay guion, con su llamada a la acción.
+  const [brief, setBrief] = useState<Brief>(() => ({ ...EMPTY_BRIEF, audience: briefHints.audience, cta: (initialScriptId && briefHints.scripts[initialScriptId]) || briefHints.cta }));
+  const [budget, setBudget] = useState<number>(BUDGET.default);
+  function chooseScript(id: string | null) {
+    setScriptId(id);
+    const fromScript = id ? briefHints.scripts[id] : undefined;
+    // La CTA del guion manda sobre la de la marca (si la persona no la cambió a mano).
+    setBrief((b) => (b.cta === briefHints.cta || Object.values(briefHints.scripts).includes(b.cta) ? { ...b, cta: fromScript ?? briefHints.cta } : b));
+  }
   const [error, setError] = useState<string | null>(null);
   const [submitting, startSubmit] = useTransition();
   const upload = useUpload(project?.id ?? "");
@@ -159,12 +174,12 @@ export function NewProjectFlow({
   function process() {
     startSubmit(async () => {
       if (clone) {
-        const result = await createFromCloneAction(clone.id, format, preset, { styleId, brollMode, autoExport });
+        const result = await createFromCloneAction(clone.id, format, preset, { styleId, brollMode, autoExport, brief, budgetUsd: budget });
         if (result && !result.ok) toast.error(result.error);
         return;
       }
       if (!project) return;
-      const result = await submitUpload(project.id, { title: title.trim() || "Video sin título", format, preset, scriptId, styleId, brollMode, autoExport });
+      const result = await submitUpload(project.id, { title: title.trim() || "Video sin título", format, preset, scriptId, styleId, brollMode, autoExport, brief, budgetUsd: budget });
       if (!result.ok && result.error) {
         toast.error(result.error);
         return;
@@ -402,6 +417,19 @@ export function NewProjectFlow({
             </>
           )}
 
+          {step === "brief" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold">¿Para qué es este video?</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Opcional. Con esto el director de edición decide qué cortar, qué no tapar y cómo cerrar. Si lo dejas vacío, lo entiende mirando el video y te lo muestra para confirmar.
+                </p>
+              </div>
+              <BriefFields value={brief} onChange={setBrief} idPrefix="new-brief" />
+              <BudgetField value={budget} onChange={setBudget} id="new-budget" />
+            </>
+          )}
+
           {step === "guion" && (
             <>
               <div>
@@ -409,7 +437,7 @@ export function NewProjectFlow({
                 <p className="mt-1 text-sm text-muted">Con el guion detectamos mejor las tomas repetidas y corregimos cómo se escriben las palabras en los subtítulos.</p>
               </div>
               <Field label="Guion" htmlFor="script" hint={scripts.length ? undefined : "Todavía no tienes guiones. Puedes seguir sin guion."}>
-                <Select id="script" value={scriptId ?? ""} onChange={(e) => setScriptId(e.target.value || null)}>
+                <Select id="script" value={scriptId ?? ""} onChange={(e) => chooseScript(e.target.value || null)}>
                   <option value="">Sin guion</option>
                   {scripts.map((s) => (
                     <option key={s.id} value={s.id}>

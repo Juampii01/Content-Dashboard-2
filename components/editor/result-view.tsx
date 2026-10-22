@@ -9,6 +9,8 @@ import { formatBytes, formatDuration, formatNumber } from "@/lib/format";
 import type { OutputMeta } from "@/lib/dal/video";
 import { cn } from "@/lib/utils";
 import { reopenAction } from "./actions";
+import { FinalReviewCard } from "./director/final-review";
+import type { FinalReview } from "@/lib/video/director/types";
 
 export function ResultView({
   projectId,
@@ -17,7 +19,12 @@ export function ResultView({
   posterUrl,
   canEdit,
   auto = false,
+  finalReview = null,
+  finalSheets = [],
 }: {
+  /** Revisión final de la IA (cuadros del MP4), si se hizo. */
+  finalReview?: FinalReview | null;
+  finalSheets?: { url: string }[];
   /** Se exportó con "Hazlo por mí" (sin pasar por la revisión). */
   auto?: boolean;
   projectId: string;
@@ -96,6 +103,8 @@ export function ResultView({
             </Button>
           )}
         </div>
+
+        {finalReview && <FinalReviewCard projectId={projectId} review={finalReview} sheets={finalSheets} format={format} canEdit={canEdit} />}
 
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[

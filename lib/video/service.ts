@@ -31,7 +31,9 @@ import { stylePreset } from "./styles";
 import { readEditorDefaults } from "./defaults";
 import { buildTimeline, outputRange } from "./timeline";
 import { evenFrames, keyFrames, mergeFrames } from "./director/keyframes";
-import { FPS, type BrollItem, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type Transcript, type VideoFormat } from "./types";
+import { clampBudget, eyesMaxFrames } from "./director/cost";
+import { briefIsEmpty, type Brief } from "./director/types";
+import { FPS, type BrollItem, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type PlanMove, type Transcript, type VideoFormat } from "./types";
 
 /**
  * Ciclo de vida de un proyecto del Editor de video:
@@ -115,6 +117,9 @@ export type DraftSettings = {
   styleId?: string | null;
   brollMode?: BrollMode;
   autoExport?: boolean;
+  /** Brief del director de edición (opcional; vacío = lo infiere la IA) y tope de IA del video. */
+  brief?: Brief | null;
+  budgetUsd?: number;
 };
 
 /** Solo se guarda un estilo que existe y está listo. */
@@ -131,6 +136,8 @@ async function draftColumns(settings: DraftSettings) {
     ...(settings.styleId !== undefined ? { styleId: await readyStyleId(settings.styleId) } : {}),
     ...(settings.brollMode ? { brollMode: settings.brollMode } : {}),
     ...(settings.autoExport != null ? { autoExport: settings.autoExport } : {}),
+    ...(settings.brief !== undefined ? { brief: briefIsEmpty(settings.brief) ? null : (settings.brief as unknown as Record<string, unknown>) } : {}),
+    ...(settings.budgetUsd != null ? { aiBudgetUsd: clampBudget(settings.budgetUsd) } : {}),
   };
 }
 
@@ -149,7 +156,7 @@ export async function completeUpload(projectId: string, userId: string, settings
     .update(schema.videoProjects)
     .set({ ...next, status: "PROCESSING", sourceBytes: info.size, errorMessage: null })
     .where(and(eq(schema.videoProjects.id, projectId), eq(schema.videoProjects.status, "UPLOADING")));
-  await enqueueAnalyze(project, userId);
+  await enqueueAnalyze((await loadProject(projectId)) ?? project, userId);
   const scriptId = settings ? settings.scriptId : project.scriptId;
   if (project.origin === "recorder" && scriptId) {
     // Grabado desde el teleprompter: el guion pasa a "Grabado" (si todavía no estaba grabado o publicado).
@@ -174,7 +181,8 @@ async function enqueueAnalyze(project: Project, userId: string | null) {
     videoProjectId: project.id,
     createdBy: userId,
     stage: "En cola",
-    input: { projectId: project.id, sourceKey: project.sourceKey, language: await transcriptionLanguage() },
+    // Cuántos cuadros mira el director depende del tope de IA del video (menos cuadros = menos tokens).
+    input: { projectId: project.id, sourceKey: project.sourceKey, language: await transcriptionLanguage(), eyesMaxFrames: eyesMaxFrames(clampBudget(project.aiBudgetUsd)) },
   });
 }
 
@@ -184,7 +192,7 @@ export async function createFromClone(
   format: VideoFormat,
   preset: CaptionPresetKey,
   userId: string,
-  extra: { styleId?: string | null; brollMode?: BrollMode; autoExport?: boolean } = {},
+  extra: { styleId?: string | null; brollMode?: BrollMode; autoExport?: boolean; brief?: Brief | null; budgetUsd?: number } = {},
 ): Promise<string> {
   const [clone] = await getDb().select().from(schema.cloneVideos).where(eq(schema.cloneVideos.id, cloneVideoId)).limit(1);
   if (!clone || clone.status !== "COMPLETED" || !clone.videoUrl) throw new VideoError("Ese video con clon todavía no está listo.");
@@ -203,6 +211,8 @@ export async function createFromClone(
     brollMode: extra.brollMode ?? "off",
     autoExport: extra.autoExport ?? false,
     origin: "clone",
+    brief: extra.brief && !briefIsEmpty(extra.brief) ? (extra.brief as unknown as Record<string, unknown>) : null,
+    aiBudgetUsd: clampBudget(extra.budgetUsd),
     sourceKey,
     sourceName: `${clone.title}.mp4`,
     createdBy: userId,
@@ -348,6 +358,8 @@ export type Review = {
   studio?: StudioLevel;
   /** Música de fondo: pista de la biblioteca (o null) y su volumen respecto de la voz. */
   music?: { trackId: string | null; db: number };
+  /** Bloques movidos por el director que siguen en pie (la persona puede dejar alguno en su lugar). */
+  moves?: PlanMove[];
 };
 
 export function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
@@ -377,6 +389,12 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     ...(review.broll ? { broll: cleanBroll(review.broll, words.length) } : {}),
     ...(review.zooms != null && plan.style_id ? { zooms_enabled: review.zooms } : {}),
   };
+  if (review.moves) {
+    // Solo se pueden quitar bloques movidos (no inventar nuevos desde el navegador).
+    const kept = (plan.moves ?? []).filter((m) => review.moves!.some((r) => r.from_word === m.from_word && r.to_word === m.to_word && r.after_word === m.after_word));
+    if (kept.length) next.moves = kept;
+    else delete next.moves;
+  }
   return withDerived(next, words, duration);
 }
 

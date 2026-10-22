@@ -9,15 +9,16 @@ import { SegmentedControl } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
-import { CAPTION_PICKER_ORDER, CAPTION_PRESETS, captionBlocks } from "@/lib/video/captions";
-import { brollSegments, computeZooms } from "@/lib/video/effects";
+import { CAPTION_PICKER_ORDER, CAPTION_PRESETS, captionBlocks, hideDuring } from "@/lib/video/captions";
+import { brollSegments, computeZooms, directorZooms } from "@/lib/video/effects";
 import { rangesFromIds } from "@/lib/video/plan";
 import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
 import { studioLevel, type AudioPreview, type StudioLevel } from "@/lib/video/studio-audio";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
-import { buildTimeline } from "@/lib/video/timeline";
+import { buildTimeline, outputRange } from "@/lib/video/timeline";
+import type { DirectorView } from "@/lib/dal/video";
 import type { GraphicLook } from "@/lib/video/graphics";
-import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
+import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, PlanMove, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-edit";
 import { renderAction, saveReviewAction } from "./actions";
@@ -30,6 +31,10 @@ import { PhraseFixDialog, PhraseFixPanel, usePhraseFixes } from "./phrase-fix";
 import { captionCorrections } from "@/lib/video/phrase-fix";
 import { PreviewPlayer, type PreviewHandle } from "./preview-player";
 import { TranscriptEditor, type BrollMark } from "./transcript-editor";
+import { DecisionsPanel } from "./director/decisions-panel";
+import { EditRequestCard } from "./director/edit-request";
+import { UnderstandingPanel } from "./director/understanding-panel";
+import { VariantsPanel } from "./director/variants-panel";
 
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
@@ -56,6 +61,7 @@ export function ReviewEditor({
   graphicLook,
   tracks = [],
   audioPreview = null,
+  director = null,
 }: {
   projectId: string;
   plan: EditPlan;
@@ -77,6 +83,8 @@ export function ReviewEditor({
   tracks?: TrackItem[];
   /** Muestra de 10 s de "Audio de estudio" (antes y después), si ya está. */
   audioPreview?: AudioPreview | null;
+  /** Director de edición: lo que entendió, la segunda mirada, el brief, los pedidos y las versiones. */
+  director?: DirectorView | null;
 }) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
@@ -102,6 +110,8 @@ export function ReviewEditor({
   // Planes de antes del audio de estudio: apagado (el audio sale como antes).
   const [studio, setStudio] = useState<StudioLevel>(studioLevel(plan.audio.studio));
   const [editing, setEditing] = useState<string | null>(null);
+  // Bloques movidos por el director (la persona puede dejar alguno en su lugar).
+  const [moves, setMoves] = useState<PlanMove[]>(plan.moves ?? []);
   // Frases corregidas con la voz clonada (components/editor/phrase-fix.tsx).
   const [fixRange, setFixRange] = useState<{ from: number; to: number } | null>(null);
   const phrase = usePhraseFixes(projectId);
@@ -128,8 +138,9 @@ export function ReviewEditor({
       sfx,
       studio,
       music: { trackId: music.trackId && tracks.some((t) => t.id === music.trackId) ? music.trackId : null, db: Math.max(-30, Math.min(-8, music.db)) },
+      ...(plan.moves?.length ? { moves } : {}),
     }),
-    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks],
+    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks, moves, plan.moves],
   );
 
   const timeline = useMemo(
@@ -143,18 +154,27 @@ export function ReviewEditor({
           corrections,
           captions: { preset, emphasis_words: plan.captions.emphasis_words },
           pacing: plan.pacing,
+          moves,
         },
         duration,
       ),
-    [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, plan.pacing, selectedHook, corrections, preset, duration],
+    [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, plan.pacing, selectedHook, corrections, preset, duration, moves],
   );
-  const blocks = useMemo(() => (preset === "ninguno" ? [] : captionBlocks(timeline.words, preset, captionStyle)), [timeline.words, preset, captionStyle]);
+  // Sin subtítulos donde el director los ocultó (ya hay texto en pantalla en esa franja), igual que en el render.
+  const blocks = useMemo(() => {
+    if (preset === "ninguno") return [];
+    const hidden = (plan.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
+    return hideDuring(captionBlocks(timeline.words, preset, captionStyle), hidden);
+  }, [timeline, preset, captionStyle, plan.captions.hide]);
   // Diseño del estilo de la galería con la marca: el mismo que arma el render (lib/video/service.ts).
   const capLook = useMemo(() => (isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: graphicLook.font, emoji }) : null), [preset, format, accent, graphicLook.font, emoji]);
   const segments = useMemo(() => brollSegments(timeline, brollItems), [timeline, brollItems]);
   const zooms = useMemo(
-    () => (style && zoomsOn ? computeZooms(timeline, style.zoom, { emphasis: plan.captions.emphasis_words, avoid: segments }) : []),
-    [style, zoomsOn, timeline, plan.captions.emphasis_words, segments],
+    () =>
+      style && style.zoom.enabled && zoomsOn
+        ? computeZooms(timeline, style.zoom, { emphasis: plan.captions.emphasis_words, avoid: segments })
+        : directorZooms(timeline, plan.zoom_moments, segments),
+    [style, zoomsOn, timeline, plan.captions.emphasis_words, plan.zoom_moments, segments],
   );
   const signedOf = useCallback(
     (o: BrollItem["choice"]) => (o ? (signed[optionKey(o)] ?? { ...o, thumbUrl: o.thumb ?? null, previewUrl: o.preview ?? null }) : null),
@@ -309,6 +329,21 @@ export function ReviewEditor({
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
       <div className="order-2 flex min-w-0 flex-col gap-6 lg:order-1">
+        {director && (
+          <UnderstandingPanel
+            projectId={projectId}
+            view={director}
+            words={words}
+            corrections={corrections}
+            removed={removed}
+            coveredBy={(from, to) => brollItems.some((b) => b.choice && b.from_word <= from && b.to_word >= to)}
+            onListen={listenFrom}
+            canEdit={canEdit}
+            sourceWidth={sourceWidth}
+            sourceHeight={sourceHeight}
+            defaultOpen={!director.state.edits.length}
+          />
+        )}
         {plan.planned_by === "auto" && (
           <Notice tone="warning" title="Plan armado sin IA">
             {plan.warning || "La IA no respondió: se cortaron solo las tomas repetidas, arranques en falso y muletillas más claras. Revisa los cortes con más atención."}
@@ -376,6 +411,20 @@ export function ReviewEditor({
           </div>
           {plan.hook_candidates.length === 0 && <p className="text-sm text-muted">No encontramos frases de 3 a 8 segundos que funcionen solas como gancho.</p>}
         </section>
+
+        {director && <VariantsPanel projectId={projectId} variants={director.state.variants} current={timeline.duration} canEdit={canEdit} dirty={reviewKey !== savedKey} />}
+
+        <DecisionsPanel
+          plan={plan}
+          words={words}
+          corrections={corrections}
+          removed={removed}
+          moves={moves}
+          onMoves={setMoves}
+          onListen={listenFrom}
+          onRestore={(range) => setCut(Array.from({ length: range.to - range.from + 1 }, (_, k) => range.from + k), false)}
+          canEdit={canEdit}
+        />
 
         <BrollPanel
           items={brollItems}
@@ -619,6 +668,18 @@ export function ReviewEditor({
               </div>
             </dl>
           </div>
+
+          {canEdit && (
+            <EditRequestCard
+              projectId={projectId}
+              canEdit={canEdit}
+              estimate={director?.editEstimate ?? 0}
+              spent={director?.cost.totalUsd ?? 0}
+              cap={director?.budgetUsd ?? 5}
+              edits={director?.state.edits ?? []}
+              dirty={reviewKey !== savedKey}
+            />
+          )}
 
           <div className="card flex flex-col gap-4 p-4">
             <div className="flex flex-col gap-2">

@@ -20,6 +20,7 @@ import { ResultView } from "./result-view";
 import type { SignedOption } from "./broll-panel";
 import type { GraphicLook } from "@/lib/video/graphics";
 import { ReviewEditor } from "./review-editor";
+import { UnderstandingPanel } from "./director/understanding-panel";
 import { startUpload, submitUpload, useUpload } from "./upload-manager";
 
 type View = Omit<ProjectView, "createdAt" | "updatedAt"> & {
@@ -53,7 +54,7 @@ export function ProjectScreen({
       {working && (
         <ProcessingView
           projectId={project.id}
-          kind={status === "RENDERING" ? "render" : "analyze"}
+          kind={status === "RENDERING" ? "render" : project.editing ? "edit" : "analyze"}
           canEdit={project.canEdit}
           autoSummary={project.autoSummary}
           initial={{ status, errorMessage: project.errorMessage, autoExport: project.autoExport, job: project.job, worker: { online: project.worker.online, autoStart: project.worker.autoStart } }}
@@ -81,10 +82,32 @@ export function ProjectScreen({
           graphicLook={graphicLook}
           tracks={tracks}
           audioPreview={project.audioPreview}
+          director={project.director}
         />
       )}
       {status === "DONE" && project.output && (
-        <ResultView projectId={project.id} format={project.format} output={project.output} posterUrl={project.posterUrl} canEdit={project.canEdit} auto={project.autoExport} />
+        <ResultView
+          projectId={project.id}
+          format={project.format}
+          output={project.output}
+          posterUrl={project.posterUrl}
+          canEdit={project.canEdit}
+          auto={project.autoExport}
+          finalReview={project.director?.state.final ?? null}
+          finalSheets={project.director?.finalSheets ?? []}
+        />
+      )}
+      {status === "DONE" && project.director?.state.map && project.transcript && (
+        <UnderstandingPanel
+          projectId={project.id}
+          view={project.director}
+          words={project.transcript.words}
+          corrections={project.plan?.corrections ?? {}}
+          canEdit={project.canEdit}
+          sourceWidth={project.media?.width ?? 1080}
+          sourceHeight={project.media?.height ?? 1920}
+          defaultOpen={false}
+        />
       )}
       {status === "DONE" && !project.output && <Notice tone="warning">El video quedó listo, pero no encontramos el archivo. Vuelve a editarlo y renderízalo otra vez.</Notice>}
       {status === "FAILED" && <FailedView project={project} />}

@@ -14,7 +14,7 @@ const FIGURE_RE = /\d|(?:^|\s)(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|d
 const CTA_RE = /\b(comenta|escr[ií]beme|escribe|s[ií]gueme|link|enlace|haz clic|reserva|agenda|compra|descarga|reg[ií]strate|dm|mensaje|guarda|comp[aá]rtelo)\b/i;
 const PROBLEM_RE = /\b(error|problema|pierde|pierden|perder|nadie|nunca|dejas?|cuesta|caro|fracas|falla)\w*/i;
 const PROMISE_RE = /\b(hoy te|te muestro|te enseño|vas a|aprende|c[oó]mo|secreto|la clave|lo que funciona|cambia todo)\b/i;
-const OFFER_RE = /\b(gratis|precio|oferta|descuento|acceso|programa|curso|servicio|plan|d[oó]lares|\$)\b/i;
+const OFFER_RE = /\b(gratis|precio|oferta|descuento|acceso|programa|curso|servicio|cup[oó]n|inscr[ií]bete)\b/i;
 
 /** Mapa a partir de la respuesta de Claude: segundos → palabras, ids válidos, textos acotados. */
 export function mapFromWire(w: MapWire, words: Word[], eyes: Eyes | null): VideoMap {
@@ -74,8 +74,8 @@ function beatRole(f: Sentence, i: number, all: Sentence[]): BeatRole {
   if (i === 0) return "gancho";
   if (i === all.length - 1 && CTA_RE.test(f.text)) return "cta";
   if (CTA_RE.test(f.text) && i >= all.length - 2) return "cta";
-  if (OFFER_RE.test(f.text) && i >= all.length / 2) return "oferta";
   if (FIGURE_RE.test(f.text)) return "cifra";
+  if (OFFER_RE.test(f.text) && i >= all.length / 2) return "oferta";
   if (PROBLEM_RE.test(f.text)) return "problema";
   if (PROMISE_RE.test(f.text)) return "promesa";
   return "punto";
@@ -101,7 +101,21 @@ export function mapFromMeasures(eyes: Eyes | null, words: Word[]): VideoMap {
       else onScreenText.push({ start: round(t.start), end: round(t.end), text: t.text.slice(0, 120), band: band(t.textBand) });
     }
     if (!span) continue;
-    const bad = t.blurry ? "borroso" : t.dark ? "oscuro" : t.backlit ? "contraluz" : t.shaky ? "movido" : faceVideo && t.faceRatio < 0.15 && !t.text ? "fuera_de_cuadro" : faceVideo && t.faceRatio >= 0.5 && t.frontalRatio < 0.3 ? "mira_a_otro_lado" : null;
+    // La luz solo cuenta con una persona en cuadro: una pantalla en modo oscuro no es una toma mala.
+    const person = t.faceRatio >= 0.5;
+    const bad = t.blurry
+      ? "borroso"
+      : person && t.dark
+        ? "oscuro"
+        : person && t.backlit
+          ? "contraluz"
+          : t.shaky
+            ? "movido"
+            : faceVideo && t.faceRatio < 0.15 && !t.text
+              ? "fuera_de_cuadro"
+              : person && t.frontalRatio < 0.3
+                ? "mira_a_otro_lado"
+                : null;
     if (bad) {
       const note = {
         borroso: "La imagen está desenfocada.",
@@ -145,7 +159,10 @@ export function mapFromMeasures(eyes: Eyes | null, words: Word[]): VideoMap {
   }
   const phrases = sentences(words);
   const beats: MapBeat[] = phrases.map((f, i) => ({ from: f.from, to: f.to, role: beatRole(f, i, phrases), summary: "" }));
-  const figures = phrases.filter((f) => FIGURE_RE.test(f.text)).map((f) => f.text.slice(0, 60)).slice(0, 8);
+  // Cifras: la cifra con las palabras de alrededor ("ochenta por ciento", "de cuarenta a doce dólares"), sin repetir.
+  const NUM = "(?<![a-záéíóúñ0-9])(?:\\d[\\d.,%]*|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|mil|doble|triple|mitad)(?![a-záéíóúñ])";
+  const figureRe = new RegExp(`(?:\\bde\\s+)?${NUM}(?:\\s+por\\s+ciento|\\s+(?:a|por|de|mil|millones)\\s+${NUM})?(?:\\s+[a-záéíóúñ$%]+){0,2}`, "gi");
+  const figures = [...new Set(phrases.flatMap((f) => f.text.match(figureRe) ?? []).map((m) => m.replace(/[.,?¿!¡]+$/, "").trim()).filter((m) => m.split(/\s+/).length >= 2))].slice(0, 6);
   const ctaPhrase = [...phrases].reverse().find((f) => CTA_RE.test(f.text));
   const anyScreen = shots.some((s) => s.important);
   const offer = phrases.some((f) => OFFER_RE.test(f.text));

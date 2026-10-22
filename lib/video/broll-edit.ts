@@ -159,8 +159,14 @@ export function brollGeometry(edit: BrollEdit, format: VideoFormat, clipAspect: 
     const maxH = bottom - top;
     let w = W * edit.card_size;
     let h = w / aspect;
-    if (w > maxW) (w = maxW), (h = w / aspect);
-    if (h > maxH) (h = maxH), (w = h * aspect);
+    if (w > maxW) {
+      w = maxW;
+      h = w / aspect;
+    }
+    if (h > maxH) {
+      h = maxH;
+      w = h * aspect;
+    }
     w = even(w);
     h = even(h);
     const pos = edit.card_position;
@@ -425,3 +431,19 @@ export function brollRenderEdit(input: {
 
 /** Ancho/alto de un clip (16:9 si no se sabe). */
 export const clipAspectOf = (w: number | null | undefined, h: number | null | undefined) => (w && h && w > 0 && h > 0 ? w / h : 16 / 9);
+
+/** Resumen corto de la edición para la lista de b-roll ("Tarjeta · Tu marca"). null si es la de siempre. */
+export function editSummary(edit: BrollEdit, format: VideoFormat): string | null {
+  if (isDefaultEdit(edit)) return null;
+  const parts: string[] = [];
+  const layout = format === "9:16" && edit.layout === "side" ? "split" : edit.layout;
+  if (layout !== "full") parts.push(LAYOUT_LABELS[layout].label);
+  const preset = matchingPreset(edit.look);
+  if (preset && preset !== "natural") parts.push(LOOK_PRESETS.find((p) => p.id === preset)!.label);
+  else if (!preset) parts.push("Look propio");
+  if (edit.look.opacity < 1) parts.push(`${Math.round(edit.look.opacity * 100)} %`);
+  if (edit.frame.zoom > 1 || edit.frame.x !== 0 || edit.frame.y !== 0) parts.push("Encuadre");
+  if (edit.transition !== "fade") parts.push(TRANSITION_LABELS[edit.transition]);
+  if (edit.start_delta !== 0 || edit.end_delta !== 0 || edit.clip_start !== 0) parts.push("Tiempo");
+  return parts.length ? parts.join(" · ") : null;
+}

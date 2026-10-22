@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref } from "react";
+import { useId, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref } from "react";
 import { brollAlpha, brollGeometry, clipAspectOf, entranceScale, frameCrop, lookMatrix, OUTPUT_SIZE, svgMatrixValues, type BrollEdit, type BrollFrame, type BrollGeometry, type PxBox } from "@/lib/video/broll-edit";
 import type { VideoFormat } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
@@ -89,6 +89,9 @@ export function BrollLayer({
   const hasFilter = Boolean(lookMatrix(edit.look, accent));
   const card = geo.card;
   const drag = useRef<{ x: number; y: number; frame: BrollFrame } | null>(null);
+  // Si el navegador no puede reproducir el clip, queda su miniatura (con el mismo encuadre y look).
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const playable = media.previewUrl && failedSrc !== media.previewUrl ? media.previewUrl : null;
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (!onFrameDrag) return;
@@ -134,11 +137,23 @@ export function BrollLayer({
     >
       <LookFilter id={filterId} edit={edit} accent={accent} />
       <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, filter: hasFilter ? `url(#${filterId})` : undefined }}>
-        {media.previewUrl ? (
-          <video ref={videoRef} src={media.previewUrl} muted playsInline loop={loop} autoPlay={loop} preload="auto" style={mediaStyle} draggable={false} />
+        {playable ? (
+          <video
+            ref={videoRef}
+            src={playable}
+            poster={media.thumbUrl ?? undefined}
+            muted
+            playsInline
+            loop={loop}
+            autoPlay={loop}
+            preload="auto"
+            style={{ ...mediaStyle, objectFit: "cover" }}
+            draggable={false}
+            onError={() => setFailedSrc(playable)}
+          />
         ) : media.thumbUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={media.thumbUrl} alt="" style={mediaStyle} draggable={false} />
+          <img src={media.thumbUrl} alt="" style={{ ...mediaStyle, objectFit: "cover" }} draggable={false} />
         ) : null}
       </div>
       {card && card.border > 0 && (

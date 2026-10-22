@@ -16,7 +16,9 @@ import { buildTimeline } from "@/lib/video/timeline";
 import type { GraphicLook } from "@/lib/video/graphics";
 import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
+import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-edit";
 import { renderAction, saveReviewAction } from "./actions";
+import { BrollEditPanel } from "./broll-edit-panel";
 import { BrollPanel, BrollPicker, optionKey, type PickerTab, type SignedOption } from "./broll-panel";
 import { PreviewPlayer, type PreviewHandle } from "./preview-player";
 import { TranscriptEditor, type BrollMark } from "./transcript-editor";
@@ -79,6 +81,7 @@ export function ReviewEditor({
   const [picking, setPicking] = useState<string | null>(null);
   const [pickTab, setPickTab] = useState<PickerTab | undefined>(undefined);
   const [askFocus, setAskFocus] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const captionStyle = style?.captions ?? null;
 
   const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
@@ -129,6 +132,9 @@ export function ReviewEditor({
         previewUrl: signedOf(sg.option)?.previewUrl ?? null,
         thumbUrl: signedOf(sg.option)?.thumbUrl ?? null,
         graphic: sg.option.graphic ?? null,
+        edit: sg.edit,
+        width: sg.option.width,
+        height: sg.option.height,
       })),
     [segments, signedOf],
   );
@@ -156,6 +162,38 @@ export function ReviewEditor({
     setPickTab(ask ? "grafico" : undefined);
     setAskFocus(ask);
     setPicking(item.id);
+  }
+
+  /** Guarda la edición de un b-roll (sin el campo si quedó como la de siempre, así el plan no crece de más). */
+  function setBrollEdit(id: string, edit: BrollEdit) {
+    setBrollItems((prev) =>
+      prev.map((b) => {
+        if (b.id !== id) return b;
+        const next = { ...b };
+        if (isDefaultEdit(edit)) delete next.edit;
+        else next.edit = edit;
+        return next;
+      }),
+    );
+  }
+
+  /** "Aplicar este look a todos": copia filtro, intensidad, opacidad y ajustes a los demás b-roll de video. */
+  function applyLookToAll(id: string) {
+    const source = brollItems.find((b) => b.id === id);
+    if (!source) return;
+    const look = resolveEdit(source.edit).look;
+    const count = brollItems.filter((b) => b.id !== id && b.choice && b.choice.source !== "graphic").length;
+    setBrollItems((prev) =>
+      prev.map((b) => {
+        if (b.id === id || !b.choice || b.choice.source === "graphic") return b;
+        const edit = { ...resolveEdit(b.edit), look };
+        const next = { ...b };
+        if (isDefaultEdit(edit)) delete next.edit;
+        else next.edit = edit;
+        return next;
+      }),
+    );
+    toast.success(count === 1 ? "Look aplicado al otro b-roll." : `Look aplicado a los otros ${formatNumber(count)} b-roll.`);
   }
 
   function moveBroll(id: string, range: { from: number; to: number }) {
@@ -317,8 +355,41 @@ export function ReviewEditor({
             setAskFocus(false);
             setPicking(id);
           }}
+          onEdit={(id) => {
+            showBroll(id);
+            setEditing(id);
+          }}
           format={format}
         />
+        {(() => {
+          const item = brollItems.find((b) => b.id === editing);
+          const choice = item ? signedOf(item.choice) : null;
+          if (!item || !choice) return null;
+          const seg = segments.find((sg) => sg.id === item.id) ?? null;
+          const others = brollItems.filter((b) => b.id !== item.id && b.choice && b.choice.source !== "graphic").length;
+          const text = words.slice(item.from_word, item.to_word + 1).map((w) => corrections[String(w.id)] ?? w.text).join(" ");
+          return (
+            <BrollEditPanel
+              key={item.id}
+              open
+              onClose={() => setEditing(null)}
+              edit={resolveEdit(item.edit)}
+              onChange={(edit) => setBrollEdit(item.id, edit)}
+              onApplyLookToAll={() => applyLookToAll(item.id)}
+              otherVideos={others}
+              format={format}
+              media={{ previewUrl: choice.previewUrl, thumbUrl: choice.thumbUrl, width: choice.width, height: choice.height }}
+              poster={posterUrl}
+              accent={graphicLook.theme.accent}
+              ground={graphicLook.theme.bg}
+              focusY={style?.focusY ?? 0.42}
+              span={seg ? { start: seg.start, end: seg.end } : null}
+              clipDuration={choice.duration}
+              isGraphic={choice.source === "graphic"}
+              title={text.length > 70 ? `${text.slice(0, 70).trimEnd()}…` : text}
+            />
+          );
+        })()}
         <BrollPicker
           key={picking ?? "none"}
           item={brollItems.find((b) => b.id === picking) ?? null}
@@ -446,6 +517,8 @@ export function ReviewEditor({
               broll={previewBroll}
               zooms={zooms}
               focusY={style?.focusY ?? 0.42}
+              brandAccent={graphicLook.theme.accent}
+              brandGround={graphicLook.theme.bg}
             />
             <dl className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-xl bg-white/[0.04] px-2 py-2">

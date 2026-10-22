@@ -140,10 +140,11 @@ export function BrollEditPanel({
       }
     >
       <div className="grid gap-5 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-2 md:sticky md:top-0 md:self-start">
+        {/* En el teléfono la vista previa queda fija arriba mientras se mueven los controles. */}
+        <div className="sticky -top-5 z-10 -mx-6 -mt-5 flex flex-col gap-2 border-b border-white/10 bg-[#06143a] px-6 pt-4 pb-3 md:top-0 md:m-0 md:self-start md:border-0 md:bg-transparent md:p-0">
           <div
             ref={frame}
-            className={cn("relative mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-black", format === "9:16" ? "aspect-[9/16] max-w-[190px] md:max-w-none" : "aspect-video")}
+            className={cn("relative mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-black", format === "9:16" ? "aspect-[9/16] max-w-[130px] md:max-w-none" : "aspect-video max-w-[300px] md:max-w-none")}
           >
             {person && <div aria-hidden className="absolute inset-0" style={{ background: ground }} />}
             {poster && (

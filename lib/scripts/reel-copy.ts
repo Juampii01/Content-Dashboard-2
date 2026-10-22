@@ -8,7 +8,7 @@
  * Se guarda la estructura, nunca la transcripción. Este archivo no importa nada de servidor.
  */
 import { z } from "zod";
-import { HOOK_TYPES } from "@/lib/ai/prompts/guiones";
+import { HOOK_TYPES, type GeneratedScript } from "@/lib/ai/prompts/guiones";
 import { formatNumber } from "@/lib/format";
 import type { StyleMetrics } from "@/lib/video/style";
 import { redactShared } from "./overlap";
@@ -210,6 +210,12 @@ export function buildAnalysis(ai: StructureAi, sentences: Sentence[], metrics: S
     whyItWorks: ai.whyItWorks.map((w) => safe(w, 240)).filter(Boolean).slice(0, 5),
     fixes,
   };
+}
+
+/** Todos los textos de un guion que se comparan con el original (cada campo por separado y lo hablado entero). */
+export function scriptTexts(g: GeneratedScript): string[] {
+  const spoken = [g.hooks[0]?.text ?? "", ...g.beats.map((b) => b.spoken), g.cta.spoken].join(" ");
+  return [g.title, g.angle, ...g.hooks.map((h) => h.text), ...g.beats.flatMap((b) => [b.spoken, b.onScreenText]), g.cta.spoken, g.cta.onScreenText, g.caption, spoken];
 }
 
 /** La estructura como brief para escribir la versión nueva: sin una sola frase del original. */

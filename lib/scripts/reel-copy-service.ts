@@ -11,7 +11,7 @@ import { fileInfo } from "@/lib/storage";
 import { createStyleUpload, deleteStyle, loadStyle, parseReferenceLink, saveStyleResult } from "@/lib/video/styles";
 import { styleMetricsSchema } from "@/lib/video/style";
 import { sharedRunsIn } from "./overlap";
-import { analysisBrief, buildAnalysis, metricsSummary, sentencesFromWords, structureSchema, targetWords, timedWordsSchema, transcriptLines } from "./reel-copy";
+import { analysisBrief, buildAnalysis, metricsSummary, sentencesFromWords, scriptTexts, structureSchema, targetWords, timedWordsSchema, transcriptLines } from "./reel-copy";
 import { insertGeneratedScript } from "./service";
 
 /**
@@ -99,12 +99,6 @@ export async function completeCopyUpload(id: string, userId: string): Promise<vo
   await db.update(schema.videoStyles).set({ status: "ANALYZING", errorMessage: null }).where(eq(schema.videoStyles.id, style.id));
   await db.update(schema.reelCopies).set({ status: "ANALYZING", errorMessage: null }).where(and(eq(schema.reelCopies.id, id), eq(schema.reelCopies.status, "UPLOADING")));
   await enqueueCopy({ id, styleId: style.id }, { sourceKind: "upload", sourceKey: style.sourceKey }, userId);
-}
-
-/** Todos los textos del guion que se comparan con el original (cada campo por separado y lo hablado entero). */
-export function scriptTexts(g: GeneratedScript): string[] {
-  const spoken = [g.hooks[0]?.text ?? "", ...g.beats.map((b) => b.spoken), g.cta.spoken].join(" ");
-  return [g.title, g.angle, ...g.hooks.map((h) => h.text), ...g.beats.flatMap((b) => [b.spoken, b.onScreenText]), g.cta.spoken, g.cta.onScreenText, g.caption, spoken];
 }
 
 const NO_SPEECH = "No encontramos suficiente voz en ese video. «Copia este reel» funciona con videos hablados: prueba con otro.";

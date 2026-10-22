@@ -73,8 +73,8 @@ async function FromSource({ params }: { params: Params }) {
   const Icon = kindIcon[source.kind];
   const canEdit = me.role !== "VIEWER";
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <section className="section-shell flex flex-col gap-5">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <section className="section-shell flex min-w-0 flex-col gap-5">
         <div className="flex items-start gap-3">
           <span className="tile-icon h-10 w-10 flex-none">
             <Icon className="h-5 w-5" aria-hidden />
@@ -107,7 +107,7 @@ async function FromSource({ params }: { params: Params }) {
         <p className="text-xs text-muted">Tarda alrededor de un minuto. Puedes salir y volver: sigue solo.</p>
       </section>
 
-      <aside className="flex flex-col gap-4">
+      <aside className="flex min-w-0 flex-col gap-4">
         <div className="card p-5">
           <p className="eyebrow mb-3">Qué vas a recibir</p>
           <ul className="flex flex-col gap-3">

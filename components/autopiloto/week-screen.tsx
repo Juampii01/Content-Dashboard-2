@@ -35,7 +35,7 @@ export function WeekScreen({ view }: { view: AutopilotView }) {
   }, [generating, router]);
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
       <div className="flex min-w-0 flex-col gap-6">
         {!view.brandReady && (
           <Notice tone="warning" title="Primero completa Mi marca">
@@ -409,7 +409,7 @@ function SettingsCard({ view }: { view: AutopilotView }) {
 
   const goalLabel = view.weeklyGoal ? `Tu meta semanal (${view.weeklyGoal})` : "Automático (3)";
   return (
-    <aside className="flex flex-col gap-4">
+    <aside className="flex min-w-0 flex-col gap-4">
       <div className="card flex flex-col gap-4 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>

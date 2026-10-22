@@ -24,7 +24,8 @@ async function latestJobs(type: "VIDEO_STYLE" | "VIDEO_CLIP", field: "styleId" |
   const rows = await getDb()
     .select({ ref: sql<string>`${schema.jobs.input}->>${field}`, progress: schema.jobs.progress, stage: schema.jobs.stage, status: schema.jobs.status })
     .from(schema.jobs)
-    .where(and(eq(schema.jobs.type, type), inArray(sql<string>`${schema.jobs.input}->>${field}`, ids)))
+    // Un estilo también se mide desde "Copia este reel" (REEL_COPY lleva el styleId en su entrada).
+    .where(and(type === "VIDEO_STYLE" ? inArray(schema.jobs.type, ["VIDEO_STYLE", "REEL_COPY"]) : eq(schema.jobs.type, type), inArray(sql<string>`${schema.jobs.input}->>${field}`, ids)))
     .orderBy(desc(schema.jobs.createdAt));
   for (const r of rows) if (!map.has(r.ref)) map.set(r.ref, { progress: r.progress, stage: r.stage, status: r.status });
   return map;

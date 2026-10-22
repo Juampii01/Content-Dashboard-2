@@ -83,6 +83,10 @@ class AppClient:
         """Entrega lo medido en la referencia; la app arma y valida el preset y borra la referencia subida."""
         return self._post(f"/api/worker/styles/{style_id}/result", payload, timeout=120)
 
+    def reel_copy_result(self, copy_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """"Copia este reel": entrega lo medido y la transcripción; la app escribe la versión propia (Claude, hasta 2 llamadas)."""
+        return self._post(f"/api/worker/copias/{copy_id}/result", payload, timeout=330)
+
     def download(self, project_id: str | None, key: str, dest: Path, on_progress: Callable[[float], None] | None = None, owner: dict[str, str] | None = None) -> Path:
         """Baja un archivo a `dest` (escribe en un temporal y renombra: nunca queda un archivo a medias)."""
         access = self.transfer(project_id, key, "get", owner=owner)

@@ -141,6 +141,13 @@
       "when": 1792687923796,
       "tag": "0019_primer-uso",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792688580873,
+      "tag": "0024_copia-este-reel",
+      "breakpoints": true
     }
   ]
 }

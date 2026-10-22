@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Video } from "lucide-react";
+import { ArrowLeft, Languages, Video } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/feedback";
@@ -20,7 +20,11 @@ async function Detail({ params }: { params: PageProps<"/clon/[id]">["params"] })
 
   return (
     <>
-      <PageHeader eyebrow="Video con clon" title={row.title} icon={<Video className="h-5 w-5" aria-hidden />} />
+      <PageHeader
+        eyebrow={row.kind === "translation" ? "Traducción con tu voz" : row.language ? "Video con clon en otro idioma" : "Video con clon"}
+        title={row.title}
+        icon={row.kind === "translation" ? <Languages className="h-5 w-5" aria-hidden /> : <Video className="h-5 w-5" aria-hidden />}
+      />
       <CloneVideoDetail
         initial={toCloneVideoItem(row)}
         scriptText={row.scriptText}

@@ -184,7 +184,7 @@ export async function translateScriptAction(input: { source: { type: "editor" | 
     const result = await generateStructured({
       feature: "clon.traducir",
       context: `${TRANSLATE_RULES}\n\n${await brandContext(brand)}`,
-      task: translateTask({ title: origin.title, text: origin.text.slice(0, 12_000), languageName: lang.label.toLowerCase(), market: lang.market }),
+      task: translateTask({ title: origin.title, text: origin.text.slice(0, 12_000), languageName: lang.label.charAt(0).toLowerCase() + lang.label.slice(1), market: lang.market }),
       schema: translateSchema,
       maxTokens: 6000,
       userId: user.id,

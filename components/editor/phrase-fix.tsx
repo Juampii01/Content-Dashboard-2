@@ -111,7 +111,7 @@ function CoverOption({ selected, onClick, title, hint, price, disabled }: { sele
     >
       <span className="flex items-baseline justify-between gap-2 text-sm font-semibold text-white">
         {title}
-        {price && <span className="font-mono text-xs font-normal text-accent-glow">{price}</span>}
+        {price && <span className="flex-none font-mono text-xs font-normal whitespace-nowrap text-accent-glow">{price}</span>}
       </span>
       <span className="text-xs text-muted">{hint}</span>
     </button>

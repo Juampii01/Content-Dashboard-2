@@ -684,7 +684,7 @@ export function TranslateWizard({
                 <div className="flex items-start gap-3">
                   <Mic className="mt-0.5 h-5 w-5 flex-none text-accent-hi" aria-hidden />
                   <div>
-                    <p className="text-sm font-semibold text-white">Escucha tu voz en {lang.label.toLowerCase()}</p>
+                    <p className="text-sm font-semibold text-white">Escucha tu voz en {lang.label.charAt(0).toLowerCase() + lang.label.slice(1)}</p>
                     <p className="text-xs text-muted">
                       {voiceId
                         ? voicePreview

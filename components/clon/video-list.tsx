@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Clapperboard, Loader2 } from "lucide-react";
+import { Clapperboard, Languages, Loader2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
 import type { CloneVideoItem } from "@/lib/dal/clone";
 import { formatDuration, formatRelative } from "@/lib/format";
@@ -33,6 +33,8 @@ export function CloneThumb({ item, className = "" }: { item: CloneVideoItem; cla
               ? "Esperando turno en HeyGen"
               : "HeyGen está grabando a tu clon"}
         </div>
+      ) : item.kind === "translation" ? (
+        <Languages className="h-6 w-6 text-placeholder" aria-hidden />
       ) : (
         <Clapperboard className="h-6 w-6 text-placeholder" aria-hidden />
       )}
@@ -61,7 +63,7 @@ export function CloneVideoList({ initial }: { initial: CloneVideoItem[] }) {
                     {cloneStatusLabel[item.status]}
                   </StatusBadge>
                   {item.language && (
-                    <span className="pill !bg-black/60 !text-[11px] backdrop-blur">
+                    <span className="pill !gap-1 !bg-black/60 !px-2 !py-0.5 !text-[11px] backdrop-blur">
                       {item.kind === "translation" ? "Traducción · " : ""}
                       {languageLabel(item.language)}
                     </span>

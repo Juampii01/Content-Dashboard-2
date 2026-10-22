@@ -22,9 +22,14 @@ export type OpenedFile = { body: ReadableStream<Uint8Array>; size: number; conte
 
 const blobToken = () => env().VIDEO_BLOB_READ_WRITE_TOKEN;
 
+/** Error al mover un archivo: `message` (= `userMessage`) se muestra tal cual; `detail` es para logs. */
 export class TransferError extends Error {
-  constructor(readonly userMessage: string, detail: string) {
-    super(detail);
+  constructor(
+    readonly userMessage: string,
+    readonly detail: string,
+  ) {
+    super(userMessage);
+    this.name = "TransferError";
   }
 }
 

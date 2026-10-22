@@ -254,7 +254,7 @@ export function fakeResponse(feature: string, task = ""): unknown {
       const few = task.includes("pocos datos");
       const sameType = best && best[1]!.toLowerCase() === type.toLowerCase();
       return {
-        summary: `${few ? "Con los pocos datos que hay, " : ""}tu gancho es de ${type.toLowerCase()}${own ? `, un tipo que te rinde ${own[1]} tu mediana` : ""}.${best && !sameType ? ` Tu mejor tipo es ${best[1]!.toLowerCase()} (${best[2]}).` : " Es el tipo que mejor te funciona."}`,
+        summary: `${few ? "Con los pocos datos que hay, tu" : "Tu"} gancho es de ${type.toLowerCase()}${own ? `, un tipo que te rinde ${own[1]} tu mediana` : ""}.${best && !sameType ? ` Tu mejor tipo es ${best[1]!.toLowerCase()} (${best[2]}).` : " Es el tipo que mejor te funciona."}`,
         tips: [
           best && !sameType ? `Reescribe la primera frase como un gancho de ${best[1]!.toLowerCase()}.` : "Mantén el gancho y cuida que se diga en menos de 3 segundos.",
           ...(/Sugerencias calculadas: .*Recorta/.test(task) ? ["Recorta el cuerpo hasta la duración de tus mejores piezas."] : []),

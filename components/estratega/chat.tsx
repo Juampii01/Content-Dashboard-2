@@ -405,7 +405,7 @@ export function StrategistChat({
               Tus conversaciones
             </label>
             <Select id="conversacion" value={conversationId ?? ""} onChange={(e) => router.push(e.target.value ? `/estratega?c=${e.target.value}` : "/estratega")} className="min-w-0 flex-1 !py-2 text-sm">
-              <option value="">Nueva conversación</option>
+              <option value="">{conversationId ? "Nueva conversación" : `Tus conversaciones (${conversations.length})`}</option>
               {conversations.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title}
@@ -473,7 +473,7 @@ export function StrategistChat({
               rows={question.split("\n").length > 1 || question.length > 70 ? 3 : 1}
               maxLength={1000}
               disabled={blocked}
-              placeholder={empty ? "Pregunta lo que quieras: ¿qué publico esta semana?" : "Pregunta algo más…"}
+              placeholder={empty ? "Pregunta lo que quieras…" : "Pregunta algo más…"}
               className="field max-h-40 min-h-11 flex-1 resize-none !py-2.5 text-[15px]"
             />
             {busy ? (
@@ -487,7 +487,7 @@ export function StrategistChat({
             )}
           </div>
           <p className="flex flex-wrap justify-between gap-x-3 gap-y-1 px-1 text-[11px] text-placeholder">
-            <span>Enter para enviar · Shift + Enter para otra línea</span>
+            <span className="hidden sm:inline">Enter para enviar · Shift + Enter para otra línea</span>
             <span aria-live="polite">
               {remaining} de {limit} preguntas disponibles hoy
             </span>

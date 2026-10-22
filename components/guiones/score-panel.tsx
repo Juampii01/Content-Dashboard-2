@@ -12,6 +12,8 @@ import { computeScore, hookKindLabel, verdictLabel, type HistoryPiece, type Hook
 import { cn } from "@/lib/utils";
 import { classifyHookAction, explainScoreAction, loadScoreHistoryAction } from "./score-actions";
 
+/** Debajo de este parecido no se muestra la pieza: no se parece de verdad. */
+const MIN_SHOWN = 0.25;
 const platformShort: Record<HistoryPiece["platform"], string> = { INSTAGRAM: "Instagram", YOUTUBE: "YouTube", TIKTOK: "TikTok" };
 
 function poolLabel(format: ScoreFormat): string {
@@ -208,7 +210,7 @@ export function ScorePanel({
         </div>
       ) : (
         <>
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="grid grid-cols-2 gap-3">
             <ScoreMeter label="Gancho" score={result.hook.score} hint={hookHint(result)} />
             <ScoreMeter label="Guion" score={result.script.score} hint={scriptHint(result)} />
           </div>
@@ -288,10 +290,13 @@ export function ScorePanel({
             {result.hook.similar.length > 0 && (
               <div className="flex flex-col gap-2">
                 <p className="text-sm font-semibold text-white">
-                  {result.hook.closeMatches > 0 ? `Se parece a ${result.hook.closeMatches === 1 ? "1 de tus mejores piezas" : `${result.hook.closeMatches} de tus mejores piezas`}` : "Tus mejores piezas más parecidas"}
+                  {result.hook.closeMatches > 0 ? `Se parece a ${result.hook.closeMatches === 1 ? "1 de tus mejores piezas" : `${result.hook.closeMatches} de tus mejores piezas`}` : "Parecido con tus mejores piezas"}
                 </p>
+                {result.hook.similar.every((x) => x.similarity < MIN_SHOWN) && (
+                  <p className="text-sm text-muted">No se parece a ninguna de ellas: ni en el tipo de gancho, ni en las palabras, ni en la forma.</p>
+                )}
                 <ul className="flex flex-col gap-1.5">
-                  {result.hook.similar.map(({ piece, similarity }) => (
+                  {result.hook.similar.filter((x) => x.similarity >= MIN_SHOWN).map(({ piece, similarity }) => (
                     <li key={piece.id}>
                       <Link href={`/metricas/${piece.id}`} className="flex items-center gap-3 rounded-xl border border-white/10 px-3 py-2 text-sm transition hover:border-white/25">
                         <span className="min-w-0 flex-1">

@@ -208,6 +208,7 @@ def framing_graph(
     zooms: list[dict[str, Any]] | None = None,
     focus_y: float = 0.42,
     broll: list[dict[str, Any]] | None = None,
+    stickers: list[dict[str, Any]] | None = None,
 ) -> tuple[str, int, int]:
     """Grafo del video final. `broll`: [{"input": índice de la entrada de ffmpeg, "start", "end"}] en segundos del final."""
     out_w, out_h = OUTPUT_SIZE[fmt]
@@ -253,15 +254,40 @@ def framing_graph(
     graph += f";[{label}]"
     if ass:
         graph += f"ass=filename={ass}:fontsdir={fonts_dir},"
+    if stickers:
+        # Emojis de los subtítulos (PNG con alfa, entradas con -loop 1): encima del texto, con su fundido de entrada.
+        graph += "format=yuv420p[subs]"
+        label = "subs"
+        for i, st in enumerate(stickers):
+            size = max(8, int(round(float(st["size"]) / 2)) * 2)
+            start, end = float(st["start"]), float(st["end"])
+            fade = max(0.0, float(st.get("fadeIn") or 0))
+            graph += (
+                f";[{int(st['input'])}:v]trim=duration={max(0.05, end - start):.3f},setpts=PTS-STARTPTS+{start:.3f}/TB,"
+                f"scale={size}:{size}:flags=lanczos,format=rgba" + (f",fade=t=in:st={start:.3f}:d={fade:.3f}:alpha=1" if fade > 0 else "") + f"[em{i}]"
+            )
+            graph += f";[{label}][em{i}]overlay=x={float(st['x']):.1f}:y={float(st['y']):.1f}:eof_action=pass:enable='between(t,{start:.3f},{end:.3f})'[eo{i}]"
+            label = f"eo{i}"
+        graph += f";[{label}]"
     graph += "format=yuv420p[v]"
     return graph, out_w, out_h
 
 
 def final_encode(
-    video: Path, audio: Path, graph: str, duration: float, out: Path, preset: str, on_progress: Callable[[float], None], extra_inputs: list[Path] | None = None
+    video: Path,
+    audio: Path,
+    graph: str,
+    duration: float,
+    out: Path,
+    preset: str,
+    on_progress: Callable[[float], None],
+    extra_inputs: list[Path] | None = None,
+    image_inputs: list[Path] | None = None,
 ) -> None:
+    """`extra_inputs` (b-roll) van como entradas 2…; `image_inputs` (emojis, en bucle) a continuación."""
     tmp = _atomic(out)
     extra = [arg for p in extra_inputs or [] for arg in ("-i", str(p))]
+    extra += [arg for p in image_inputs or [] for arg in ("-loop", "1", "-framerate", str(FPS), "-i", str(p))]
     ffmpeg.run(
         [
             "-i", str(video), "-i", str(audio), *extra,

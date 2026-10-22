@@ -50,6 +50,8 @@ ENV HF_HUB_OFFLINE=1
 COPY main.py .
 COPY comunes comunes
 COPY video video
+# Efectos de sonido (generados con scripts/make_sfx.py) y emojis de los subtítulos (Noto Emoji, OFL).
+COPY assets assets
 COPY carruseles carruseles
 COPY motion motion
 COPY --from=motion /motion/node_modules motion/node_modules

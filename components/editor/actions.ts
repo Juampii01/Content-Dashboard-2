@@ -8,7 +8,7 @@ import { isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
 import { brollItemSchema } from "@/lib/video/plan";
-import type { CaptionPresetKey } from "@/lib/video/types";
+import { CAPTION_PRESET_KEYS, type CaptionPresetKey } from "@/lib/video/types";
 import {
   completeUpload,
   createFromClone,
@@ -33,7 +33,7 @@ function fail(error: unknown): { ok: false; error: string } {
 }
 
 const formatSchema = z.enum(["9:16", "16:9"]);
-const presetSchema = z.enum(["clasico", "pop", "estilo", "ninguno"]);
+const presetSchema = z.enum(CAPTION_PRESET_KEYS);
 const idSchema = z.uuid();
 const brollModeSchema = z.enum(["auto", "off"]);
 

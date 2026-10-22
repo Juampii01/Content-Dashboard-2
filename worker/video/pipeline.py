@@ -24,6 +24,9 @@ from . import ass, energy, ingest, library, motion, render, style_job, transcrib
 
 log = logging.getLogger("worker.video")
 
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+EMOJI_DIR = ASSETS_DIR / "emoji"
+
 
 def _project(ctx: JobContext) -> dict[str, Any]:
     project = db.get_project(ctx.conn, ctx.input["projectId"])
@@ -204,9 +207,19 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         broll_inputs = prepare_broll(ctx, pid, workdir, broll_items, (out_w, out_h), expected)
 
     ctx.stage("Renderizando", 0.55 if broll_items else 0.45, 0.9)
-    if (captions.get("preset") in ass.PRESETS or (captions.get("preset") == "estilo" and captions.get("style"))) and captions.get("blocks"):
+    stickers: list[dict[str, Any]] = []
+    if ass.is_look(captions):
+        # Galería de estilos animados: el ASS y los emojis (imágenes) que van encima.
+        ass_path = out_dir / "captions.ass"
+        text, stickers = ass.build_look_ass(captions, out_w, out_h, ctx.config.fonts_dir)
+        ass_path.write_text(text, encoding="utf-8")
+        stickers = [s for s in stickers if (EMOJI_DIR / f"{s['name']}.png").exists()][:24]
+    elif (captions.get("preset") in ass.PRESETS or (captions.get("preset") == "estilo" and captions.get("style"))) and captions.get("blocks"):
         ass_path = out_dir / "captions.ass"
         ass_path.write_text(ass.build_ass(captions, out_w, out_h, fmt), encoding="utf-8")
+    # Una entrada por emoji en pantalla (en ffmpeg cada entrada se usa una sola vez; son pocos: solo palabras clave).
+    emoji_files = [s["name"] for s in stickers]
+    emoji_base = 2 + len(broll_items)
     graph, _, _ = render.framing_graph(
         media["width"],
         media["height"],
@@ -217,11 +230,12 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         zooms=data.get("zooms") or [],
         focus_y=float((data.get("framing") or {}).get("focusY", 0.42)),
         broll=[{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected)} for i, b in enumerate(broll_items)],
+        stickers=[{**s, "input": emoji_base + i} for i, s in enumerate(stickers)],
     )
     final = out_dir / "final.mp4"
     if final.exists():
         final.unlink()
-    render.final_encode(joined, voice, graph, expected, final, ctx.config.x264_preset, ctx.progress, extra_inputs=broll_inputs)
+    render.final_encode(joined, voice, graph, expected, final, ctx.config.x264_preset, ctx.progress, extra_inputs=broll_inputs, image_inputs=[EMOJI_DIR / f"{n}.png" for n in emoji_files])
 
     ctx.stage("Revisando la calidad", 0.9, 0.95)
     qc = render.quality_check(final, expected, fmt, float(data.get("audio", {}).get("targetLufs", -14)))

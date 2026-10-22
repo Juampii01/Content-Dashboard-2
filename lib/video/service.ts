@@ -12,6 +12,7 @@ import { deleteKeys, deletePrefix, fileDriver, fileInfo, MAX_VIDEO_BYTES, VIDEO_
 import { storedKey } from "@/lib/storage/copy";
 import { planBroll } from "./broll";
 import { detectCandidates } from "./candidates";
+import { captionLook, captionTracks, isCaptionStyle } from "./caption-styles";
 import { captionBlocks, hideDuring, toSrt } from "./captions";
 import { brollCredits, brollSegments, computeZooms } from "./effects";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
@@ -361,6 +362,7 @@ export async function startRender(projectId: string, review: Review, format: Vid
   const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), graphicSpans);
   const zooms = style && next.zooms_enabled !== false ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: broll }) : [];
   const credits = brollCredits(broll);
+  const look = isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: brandGraphicLook(brand).font, emoji: next.captions.emoji === true }) : null;
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;
 
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null }).where(eq(schema.videoProjects.id, projectId));
@@ -377,13 +379,16 @@ export async function startRender(projectId: string, review: Review, format: Vid
       clips: timeline.clips.map((c) => ({ start: c.startFrame, end: c.endFrame, role: c.role })),
       expectedDuration: timeline.duration,
       framing: { offsetX: next.framing.offset_x, focusY: focusY ? Math.max(0.25, Math.min(0.6, focusY)) : 0.42 },
-      captions: {
-        preset,
-        accent,
-        font: "Montserrat",
-        ...(preset === "estilo" && captionStyle ? { style: captionStyle } : {}),
-        blocks: blocks.map((b) => ({ start: b.start, end: b.end, words: b.words.map((w) => ({ text: w.text, start: w.start, end: w.end, emphasis: w.emphasis })) })),
-      },
+      captions: look
+        ? // Galería: la app arma renglones y pistas (lib/video/caption-styles.ts); el worker solo mide y dibuja.
+          { preset, accent, look, blocks: blocks.map((b) => captionTracks(look, b, format, accent)) }
+        : {
+            preset,
+            accent,
+            font: "Montserrat",
+            ...(preset === "estilo" && captionStyle ? { style: captionStyle } : {}),
+            blocks: blocks.map((b) => ({ start: b.start, end: b.end, words: b.words.map((w) => ({ text: w.text, start: w.start, end: w.end, emphasis: w.emphasis })) })),
+          },
       zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
       broll: broll.map((b) =>
         b.option.source === "graphic"

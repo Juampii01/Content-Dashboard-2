@@ -45,8 +45,12 @@ export type MediaInfo = {
 };
 
 export type VideoFormat = "9:16" | "16:9";
-/** "estilo": los subtítulos copian los de un video de referencia (ver lib/video/style.ts). */
-export type CaptionPresetKey = "clasico" | "pop" | "estilo" | "ninguno";
+/**
+ * Subtítulos: "clasico" y "pop" (los primeros), la galería animada (lib/video/caption-styles.ts), "estilo" (copia los
+ * de un video de referencia, ver lib/video/style.ts) y "ninguno".
+ */
+export const CAPTION_PRESET_KEYS = ["clasico", "pop", "caja", "hormozi", "karaoke", "palabra", "minimal", "resaltador", "estilo", "ninguno"] as const;
+export type CaptionPresetKey = (typeof CAPTION_PRESET_KEYS)[number];
 
 export const REMOVAL_REASONS = ["retake", "false_start", "filler", "silence", "off_topic", "manual"] as const;
 export type RemovalReason = (typeof REMOVAL_REASONS)[number];
@@ -77,7 +81,8 @@ export type EditPlan = {
   hook_candidates: HookCandidate[];
   /** Índice del gancho elegido en hook_candidates, o null si va sin gancho. */
   selected_hook: number | null;
-  captions: { preset: CaptionPresetKey; emphasis_words: number[] };
+  /** `emoji`: emojis encima de las palabras clave (solo en los estilos de la galería). */
+  captions: { preset: CaptionPresetKey; emphasis_words: number[]; emoji?: boolean };
   /** Texto corregido de palabras puntuales para los subtítulos (por guion o a mano). */
   corrections: Record<string, string>;
   overlays: { text: string; from_word: number; to_word: number; position: "top" | "center" }[];

@@ -354,6 +354,22 @@ export function fakeResponse(feature: string, task = ""): unknown {
           { name: "El error", idea: "Un botón rojo gigante de alerta, sin la persona.", text: "El error caro", highlight: "caro", scene: "Botón rojo de alarma gigante sobre fondo azul oscuro con humo y luz dramática, sin letras ni símbolos", layout: "texto-centro", withPhoto: false },
         ],
       };
+    case "clon.traducir": {
+      // Simulación: no traduce de verdad; devuelve una adaptación fija al inglés con tantos párrafos como el original.
+      const original = task.split("TEXTO ORIGINAL (lo que dice el video)\n")[1] ?? "";
+      const count = Math.max(1, Math.min(4, original.split(/\n\s*\n/).filter((p) => p.trim()).length));
+      const english = [
+        "Most people answer the first call by talking about price. Big mistake. At that point, the patient doesn't even know if they trust you yet.",
+        "Here's what works instead: ask what's going on and since when. Listen, repeat it back in their own words, and only then talk about the solution.",
+        "One clinic in Houston changed just that, and went from booking 3 out of 10 calls to 6 out of 10 in a single month.",
+        "Want the exact script we use? Comment SCRIPT and I'll send it to you.",
+      ];
+      return {
+        title: "Why your first call is losing you patients",
+        text: english.slice(0, count).join("\n\n"),
+        notes: ["Simulación: este texto es fijo, no sale de tu video. Con la clave de IA se adapta tu texto real."],
+      };
+    }
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

@@ -5,10 +5,19 @@ import { getDb, schema } from "@/lib/db";
 import { blobConfigured } from "@/lib/storage/copy";
 import { fetchBalance, getCredentialRow, type CloneVideoRow } from "@/lib/heygen/service";
 import { spokenTextFromScript } from "@/lib/heygen/text";
+import { readUrl } from "@/lib/storage/files";
+import { buildTimeline } from "@/lib/video/timeline";
+import type { EditPlan, MediaInfo, Transcript } from "@/lib/video/types";
 
 /** Lo que la interfaz necesita de un video con clon (sin URLs: los archivos se sirven por /api/clon/[id]/archivo). */
 export type CloneVideoItem = {
   id: string;
+  /** "avatar": video nuevo con el clon · "translation": traducción de un video. */
+  kind: "avatar" | "translation";
+  /** Idioma de salida (nombre de HeyGen, como "English"), si es una traducción o un video en otro idioma. */
+  language: string | null;
+  /** De qué video salió (traducciones y videos traducidos con el clon). */
+  source: { type: "editor" | "clone" | "upload"; id: string | null; title: string; mode?: "speed" | "precision" | "audio_only" } | null;
   title: string;
   status: CloneVideoRow["status"];
   errorMessage: string | null;
@@ -34,6 +43,9 @@ export type CloneVideoItem = {
 export function toCloneVideoItem(row: CloneVideoRow): CloneVideoItem {
   return {
     id: row.id,
+    kind: row.kind === "translation" ? "translation" : "avatar",
+    language: row.language ?? null,
+    source: row.source ? { type: row.source.type, id: row.source.id, title: row.source.title, ...(row.source.mode ? { mode: row.source.mode } : {}) } : null,
     title: row.title,
     status: row.status,
     errorMessage: row.errorMessage,
@@ -119,4 +131,112 @@ export async function listScriptsForClone(): Promise<{ id: string; title: string
   return rows
     .filter((r) => r.content)
     .map((r) => ({ id: r.id, title: r.title, text: spokenTextFromScript(r.content!), updatedAt: r.updatedAt.toISOString() }));
+}
+
+// ─── Traducir con tu clon ─────────────────────────────────────────────────
+
+/** Un video que se puede traducir: un render del Editor o un video con clon (o una traducción) listo. */
+export type TranslationSource = {
+  type: "editor" | "clone";
+  id: string;
+  title: string;
+  /** Segundos del video (las traducciones se cobran por la duración del original). */
+  seconds: number | null;
+  aspectRatio: string;
+  /** Miniatura lista para el navegador (firmada o por nuestra ruta protegida). */
+  thumbUrl: string | null;
+  createdAt: string;
+  /** Lo que se dice en el video (guion del clon o transcripción final del Editor), para "Video nuevo con tu clon". */
+  text: string | null;
+  /** Avatar y voz con los que se grabó (solo videos con clon), para volver a grabarlo en otro idioma. */
+  avatarId: string | null;
+  avatarName: string | null;
+  voiceId: string | null;
+  engine: string | null;
+  language: string | null;
+};
+
+/** Texto que queda en el video final del Editor: las palabras no cortadas, corregidas y en el orden del timeline. */
+function editedText(transcript: Transcript | null, plan: EditPlan | null, media: MediaInfo | null): string | null {
+  if (!transcript?.words?.length) return null;
+  if (!plan) return transcript.words.map((w) => w.text).join(" ");
+  try {
+    const timeline = buildTimeline(transcript.words, plan, media?.duration || transcript.duration);
+    return timeline.words.map((w) => w.text).join(" ").replace(/\s+([.,;:!?])/g, "$1").trim() || null;
+  } catch {
+    return transcript.words.map((w) => w.text).join(" ");
+  }
+}
+
+async function signedPoster(key: string | null | undefined): Promise<string | null> {
+  if (!key) return null;
+  try {
+    return await readUrl(key);
+  } catch {
+    return null;
+  }
+}
+
+function editorSource(r: typeof schema.videoProjects.$inferSelect, thumbUrl: string | null, withText: boolean): TranslationSource {
+  const meta = (r.outputMeta ?? {}) as { duration?: number; posterKey?: string };
+  return {
+    type: "editor",
+    id: r.id,
+    title: r.title,
+    seconds: typeof meta.duration === "number" ? meta.duration : null,
+    aspectRatio: r.format,
+    thumbUrl,
+    createdAt: r.updatedAt.toISOString(),
+    text: withText ? editedText(r.transcript as Transcript | null, r.plan as EditPlan | null, r.media as MediaInfo | null) : null,
+    avatarId: null,
+    avatarName: null,
+    voiceId: null,
+    engine: null,
+    language: null,
+  };
+}
+
+function cloneSource(r: CloneVideoRow): TranslationSource {
+  return {
+    type: "clone",
+    id: r.id,
+    title: r.title,
+    seconds: r.durationSeconds ?? r.estimatedSeconds ?? null,
+    aspectRatio: r.aspectRatio,
+    thumbUrl: r.thumbnailUrl ? `/api/clon/${r.id}/archivo?tipo=miniatura` : null,
+    createdAt: r.createdAt.toISOString(),
+    text: r.kind === "translation" ? null : r.scriptText,
+    avatarId: r.avatarId,
+    avatarName: r.avatarName,
+    voiceId: r.voiceId,
+    engine: r.kind === "translation" ? null : r.engine,
+    language: r.language ?? null,
+  };
+}
+
+/** Videos listos para traducir: renders del Editor y videos con clon (los más recientes primero). */
+export async function listTranslationSources(): Promise<{ editor: TranslationSource[]; clone: TranslationSource[] }> {
+  await getCurrentUser();
+  const db = getDb();
+  const [projects, clones] = await Promise.all([
+    db.select().from(schema.videoProjects).where(and(eq(schema.videoProjects.status, "DONE"), isNotNull(schema.videoProjects.outputKey))).orderBy(desc(schema.videoProjects.updatedAt)).limit(30),
+    db.select().from(schema.cloneVideos).where(and(eq(schema.cloneVideos.status, "COMPLETED"), isNotNull(schema.cloneVideos.videoUrl))).orderBy(desc(schema.cloneVideos.createdAt)).limit(30),
+  ]);
+  const editor = await Promise.all(projects.map(async (p) => editorSource(p, await signedPoster((p.outputMeta as { posterKey?: string } | null)?.posterKey), true)));
+  return { editor, clone: clones.map(cloneSource) };
+}
+
+/** Un video para traducir, leído de nuevo en el servidor (nunca se confía en lo que manda el navegador). */
+export async function getTranslationSource(type: "editor" | "clone", id: string): Promise<(TranslationSource & { key: string | null }) | null> {
+  await getCurrentUser();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const db = getDb();
+  if (type === "editor") {
+    const [p] = await db.select().from(schema.videoProjects).where(eq(schema.videoProjects.id, id)).limit(1);
+    if (!p || p.status !== "DONE" || !p.outputKey) return null;
+    return { ...editorSource(p, null, true), key: p.outputKey };
+  }
+  const [c] = await db.select().from(schema.cloneVideos).where(eq(schema.cloneVideos.id, id)).limit(1);
+  if (!c || c.status !== "COMPLETED" || !c.videoUrl) return null;
+  return { ...cloneSource(c), key: null };
 }

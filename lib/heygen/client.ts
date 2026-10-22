@@ -11,6 +11,13 @@ import { env } from "@/lib/env";
  * - videos: /reference/create-video.md y /reference/get-video.md
  * - webhooks: /docs/webhooks.md y /docs/webhook-events.md
  *
+ * Agregado el 22-oct-2026 (traducción con el clon y frases corregidas):
+ * - traducción de video: /reference/create-video-translation, /docs/video-translate,
+ *   /reference/list-supported-translation-languages
+ * - subida de archivos: /docs/upload-assets.md y /reference/create-asset-upload.md (subida directa hasta 200 MB)
+ * - voz: /reference/generate-speech (POST /v3/voices/speech) y /docs/voices/heygen-voice-speech (POST /v3/models/audio/tts)
+ * - sincronía de labios: /reference/create-lipsync y /lipsync-speed (POST /v3/lipsyncs, GET /v3/lipsyncs/{id})
+ *
  * Todas las respuestas vienen en `{ data: ... }` y los errores en `{ error: { code, message, ... } }`.
  * Las listas paginan por cursor: `?limit=&token=` → `{ data, has_more, next_token }`.
  * La API key es del cliente: se recibe ya descifrada y nunca se registra en logs.
@@ -83,7 +90,8 @@ export type CreateAvatarVideoInput = {
   voice_id: string;
   engine: { type: HeyGenEngine };
   title?: string;
-  voice_settings?: { speed?: number };
+  /** `locale`: acento para voces multilingües ("en-US"). HeyGen lo describe como una pista, no como garantía. */
+  voice_settings?: { speed?: number; locale?: string };
   background?: { type: "color"; value: string };
   caption?: { file_format: "srt"; style?: "default" | null };
   resolution?: HeyGenResolution;
@@ -118,6 +126,76 @@ export type HeyGenWebhookEndpoint = {
   created_at?: string | number;
   secret?: string | null;
 };
+
+/** Origen de un archivo para HeyGen: URL pública https (hasta 32 MB) o un asset subido antes. */
+export type HeyGenFileRef = { type: "url"; url: string } | { type: "asset_id"; asset_id: string };
+
+export type TranslationMode = "speed" | "precision";
+
+export type CreateTranslationInput = {
+  video: HeyGenFileRef;
+  output_languages: string[];
+  title?: string | null;
+  translate_audio_only?: boolean;
+  mode?: TranslationMode;
+  speaker_num?: number | null;
+  callback_id?: string | null;
+  keep_the_same_format?: boolean | null;
+};
+
+/** Estados documentados: pending | running | completed | failed. Los campos sin URL todavía no vienen. */
+export type HeyGenTranslation = {
+  id: string;
+  title?: string | null;
+  status: "pending" | "running" | "completed" | "failed" | string;
+  video_url?: string | null;
+  srt_caption_url?: string | null;
+  vtt_caption_url?: string | null;
+  duration?: number | null;
+  output_language?: string | null;
+  failure_message?: string | null;
+  callback_id?: string | null;
+};
+
+export type HeyGenSpeech = {
+  audio_url: string;
+  duration: number;
+  engine?: string | null;
+  request_id?: string | null;
+  word_timestamps?: { word: string; start: number; end: number }[] | null;
+};
+
+export type CreateLipsyncInput = {
+  video: HeyGenFileRef;
+  audio: HeyGenFileRef;
+  title?: string | null;
+  mode?: "speed" | "precision";
+  callback_id?: string | null;
+  keep_the_same_format?: boolean | null;
+  enable_dynamic_duration?: boolean;
+  start_time?: number | null;
+  end_time?: number | null;
+};
+
+export type HeyGenLipsync = {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed" | string;
+  video_url?: string | null;
+  duration?: number | null;
+  failure_message?: string | null;
+  callback_id?: string | null;
+};
+
+export type HeyGenDirectUpload = {
+  asset_id: string;
+  upload_url: string;
+  upload_headers: Record<string, string> | null;
+  expires_in_seconds?: number;
+  max_bytes?: number;
+};
+
+/** Subida directa: hasta 200 MB para video (la de un solo pedido y la de una URL llegan a 32 MB). */
+export const MAX_DIRECT_UPLOAD_BYTES = 209_715_200;
 
 // ─── Errores ──────────────────────────────────────────────────────────────
 
@@ -333,6 +411,76 @@ export function createHeyGenClient(apiKey: string, options?: { baseUrl?: string 
         idempotencyKey,
         timeoutMs: 30_000,
       });
+      return res.data;
+    },
+
+    /** Idiomas de destino de la traducción (nombres como "English" o "Spanish (Spain)"). */
+    async listTranslationLanguages(): Promise<string[]> {
+      const res = await request<{ data: { languages?: string[] } }>("/v3/video-translations/languages");
+      return (res.data?.languages ?? []).filter((l) => typeof l === "string" && l.trim()).map((l) => l.trim());
+    },
+
+    /** Traduce un video (clona la voz del original y, salvo `translate_audio_only`, sincroniza los labios). Un id por idioma. */
+    async createVideoTranslation(input: CreateTranslationInput, idempotencyKey: string): Promise<string[]> {
+      const res = await request<{ data: { video_translation_ids?: string[] } }>("/v3/video-translations", {
+        method: "POST",
+        body: input,
+        idempotencyKey,
+        timeoutMs: 45_000,
+      });
+      return res.data?.video_translation_ids ?? [];
+    },
+
+    async getVideoTranslation(id: string): Promise<HeyGenTranslation> {
+      const res = await request<{ data: HeyGenTranslation }>(`/v3/video-translations/${encodeURIComponent(id)}`);
+      return res.data;
+    },
+
+    /** Paso 1 de la subida directa: HeyGen devuelve una URL firmada de S3 y las cabeceras que hay que mandar tal cual. */
+    async createDirectUpload(input: { filename: string; content_type: string; size_bytes: number }, idempotencyKey: string): Promise<HeyGenDirectUpload> {
+      const res = await request<{ data: HeyGenDirectUpload }>("/v3/assets/direct-uploads", { method: "POST", body: input, idempotencyKey });
+      return res.data;
+    },
+
+    /** Paso 3 de la subida directa: el asset queda usable. */
+    async completeAssetUpload(assetId: string, idempotencyKey: string): Promise<void> {
+      await request(`/v3/assets/${encodeURIComponent(assetId)}/complete`, { method: "POST", body: {}, idempotencyKey });
+    },
+
+    /**
+     * Texto a voz con una voz del catálogo de la cuenta (incluye las voces privadas que lista GET /v3/voices).
+     * HeyGen dice que los clones de "HeyGen Voice" (instantáneos o profesionales) hablan por POST /v3/models/audio/tts:
+     * si esta ruta rechaza la voz (400), se prueba esa.
+     */
+    async generateSpeech(input: { text: string; voice_id: string; language?: string | null; locale?: string | null; speed?: number }): Promise<HeyGenSpeech> {
+      const body = {
+        text: input.text,
+        voice_id: input.voice_id,
+        ...(input.language ? { language: input.language } : {}),
+        ...(input.locale ? { locale: input.locale } : {}),
+        ...(input.speed && input.speed !== 1 ? { speed: input.speed } : {}),
+      };
+      try {
+        const res = await request<{ data: HeyGenSpeech }>("/v3/voices/speech", { method: "POST", body, timeoutMs: 60_000 });
+        return res.data;
+      } catch (error) {
+        if (!(error instanceof HeyGenError) || error.kind !== "INVALID") throw error;
+        const res = await request<{ data: { audio_url: string; duration: number } }>("/v3/models/audio/tts", {
+          method: "POST",
+          body: { voice_id: input.voice_id, text: input.text, ...(input.language ? { language: input.language } : {}) },
+          timeoutMs: 60_000,
+        });
+        return { audio_url: res.data.audio_url, duration: res.data.duration, engine: "heygen_voice" };
+      }
+    },
+
+    async createLipsync(input: CreateLipsyncInput, idempotencyKey: string): Promise<string> {
+      const res = await request<{ data: { lipsync_id: string } }>("/v3/lipsyncs", { method: "POST", body: input, idempotencyKey, timeoutMs: 45_000 });
+      return res.data.lipsync_id;
+    },
+
+    async getLipsync(id: string): Promise<HeyGenLipsync> {
+      const res = await request<{ data: HeyGenLipsync }>(`/v3/lipsyncs/${encodeURIComponent(id)}`);
       return res.data;
     },
 

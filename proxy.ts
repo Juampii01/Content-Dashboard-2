@@ -38,10 +38,10 @@ export function proxy(request: NextRequest) {
 }
 
 /**
- * Fuera del filtro: archivos estáticos y las dos rutas que reciben videos grandes en desarrollo
+ * Fuera del filtro: archivos estáticos y las rutas que reciben videos grandes en desarrollo
  * (almacenamiento local). Con el filtro activo, Next copia el cuerpo en memoria y lo corta en 10 MB.
- * Esas rutas validan la sesión (`/api/editor/files`) o el WORKER_SECRET (`/api/worker/files`) ellas mismas.
+ * Esas rutas validan la sesión (`/api/editor/files`, `/api/clon/archivos`) o el WORKER_SECRET (`/api/worker/files`) ellas mismas.
  */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|fonts/|demo/|emoji/|sfx/|icon.svg|favicon.ico|robots.txt|api/editor/files/|api/worker/files/).*)"],
+  matcher: ["/((?!_next/static|_next/image|fonts/|demo/|emoji/|sfx/|icon.svg|favicon.ico|robots.txt|api/editor/files/|api/worker/files/|api/clon/archivos/).*)"],
 };

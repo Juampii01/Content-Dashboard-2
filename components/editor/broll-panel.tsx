@@ -81,7 +81,7 @@ export function BrollPanel({
           Este video no tiene b-roll. Selecciona unas palabras en la transcripción y toca <span className="font-semibold text-white">Poner b-roll aquí</span>.
         </p>
       ) : (
-        <ul className={cn("grid gap-2", format === "9:16" ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3")}>
+        <ul className={cn("grid grid-cols-1 gap-2", format === "9:16" ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3")}>
           {items.map((item) => {
             const choice = item.choice ? (signed[optionKey(item.choice)] ?? { ...item.choice, thumbUrl: item.choice.thumb ?? null, previewUrl: item.choice.preview ?? null }) : null;
             const seg = segments.find((s) => s.id === item.id);

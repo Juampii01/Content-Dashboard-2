@@ -25,7 +25,9 @@ import {
 import type { VideoFormat } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { BrollLayer, personStyle, type BrollMedia } from "./broll-layer";
-import { brollGeometry, clipAspectOf } from "@/lib/video/broll-edit";
+import { brollAlpha, brollGeometry, clipAspectOf, graphicSideGeometry } from "@/lib/video/broll-edit";
+import type { BrollGraphic } from "@/lib/video/motion-graphics";
+import { GraphicCanvas } from "./graphic-canvas";
 
 type Group = "ubicacion" | "encuadre" | "look" | "tiempo";
 
@@ -50,6 +52,9 @@ export function BrollEditPanel({
   span,
   clipDuration,
   isGraphic,
+  graphic = null,
+  posterFit = "cover",
+  posterX = 0,
   title,
 }: {
   open: boolean;
@@ -71,10 +76,17 @@ export function BrollEditPanel({
   span: { start: number; end: number } | null;
   clipDuration: number;
   isGraphic: boolean;
+  /** El gráfico del tramo (se dibuja en la vista previa del panel). */
+  graphic?: BrollGraphic | null;
+  /** Cómo entra tu video en el cuadro: recortado (con el encuadre horizontal de la revisión) o entero con fondo desenfocado. */
+  posterFit?: "cover" | "contain";
+  posterX?: number;
   title: string;
 }) {
   const [group, setGroup] = useState<Group>(isGraphic ? "tiempo" : "ubicacion");
   const [replay, setReplay] = useState<number | null>(null);
+  // "Ver la entrada": 1,2 s de un clip; un gráfico se ve entero (con su salida).
+  const replayLength = isGraphic ? Math.min(8, span ? span.end - span.start : 3) : 1.2;
   const frame = useRef<HTMLDivElement>(null);
   const [frameH, setFrameH] = useState(0);
   const H = format === "9:16" ? 1920 : 1080;
@@ -87,14 +99,14 @@ export function BrollEditPanel({
     return () => ro.disconnect();
   }, [open]);
 
-  // "Ver la entrada": 1,2 s de la transición, cuadro a cuadro.
+  // Reproduce la entrada cuadro a cuadro.
   useEffect(() => {
     if (replay == null) return;
     let raf = 0;
     const t0 = performance.now();
     const step = () => {
       const t = (performance.now() - t0) / 1000;
-      if (t > 1.2) return setReplay(null);
+      if (t > replayLength) return setReplay(null);
       setReplay(t);
       raf = requestAnimationFrame(step);
     };
@@ -106,7 +118,9 @@ export function BrollEditPanel({
   const set = (patch: Partial<BrollEdit>) => onChange({ ...edit, ...patch });
   const setLook = (patch: Partial<BrollEdit["look"]>) => onChange({ ...edit, look: { ...edit.look, ...patch } });
   const setFrame = (patch: Partial<BrollEdit["frame"]>) => onChange({ ...edit, frame: { ...edit.frame, ...patch } });
-  const person = brollGeometry(edit, format, clipAspectOf(media.width, media.height), focusY).person;
+  const person = isGraphic
+    ? graphicSideGeometry(format, graphic?.mode, (graphic as { position?: string } | null)?.position)
+    : brollGeometry(edit, format, clipAspectOf(media.width, media.height), focusY).person;
   const preset = matchingPreset(edit.look);
   const duration = span ? span.end - span.start : 3;
   const layouts = layoutsFor(format);
@@ -148,9 +162,27 @@ export function BrollEditPanel({
           >
             {person && <div aria-hidden className="absolute inset-0" style={{ background: ground }} />}
             {poster && (
-              <div className="absolute inset-0" style={personStyle(person, format)}>
+              <div className="absolute inset-0 overflow-hidden" style={personStyle(person, format)}>
+                {posterFit === "contain" && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={poster} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" draggable={false} />
+                )}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={poster} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+                <img
+                  src={poster}
+                  alt=""
+                  className={cn("absolute inset-0 h-full w-full", posterFit === "contain" ? "object-contain" : "object-cover")}
+                  style={posterFit === "cover" ? { objectPosition: `${50 + posterX * 50}% 50%` } : undefined}
+                  draggable={false}
+                />
+              </div>
+            )}
+            {isGraphic && graphic && (
+              <div
+                className="pointer-events-none absolute inset-0"
+                style={{ opacity: replay != null ? brollAlpha({ transition: edit.transition === "cut" ? "cut" : "fade" }, replay, duration) : 1 }}
+              >
+                <GraphicCanvas spec={graphic} format={format} duration={duration} time={replay != null ? Math.min(replay, duration) : Math.min(duration * 0.75, duration - 0.3)} scale={0.35} />
               </div>
             )}
             {!isGraphic && (
@@ -361,16 +393,14 @@ export function BrollEditPanel({
                   value={isGraphic && edit.transition === "zoom" ? "fade" : edit.transition}
                   onValueChange={(v) => {
                     set({ transition: v });
-                    if (!isGraphic) setReplay(0);
+                    setReplay(0);
                   }}
                   options={TRANSITIONS.filter((t) => !isGraphic || t !== "zoom").map((t) => ({ value: t, label: TRANSITION_LABELS[t] }))}
                 />
               </Row>
-              {!isGraphic && (
-                <Button size="sm" variant="ghost" className="self-start" icon={<Play className="h-3.5 w-3.5" aria-hidden />} onClick={() => setReplay(0)}>
-                  Ver la entrada
-                </Button>
-              )}
+              <Button size="sm" variant="ghost" className="self-start" icon={<Play className="h-3.5 w-3.5" aria-hidden />} onClick={() => setReplay(0)}>
+                {isGraphic ? "Ver el gráfico" : "Ver la entrada"}
+              </Button>
             </div>
           )}
         </div>

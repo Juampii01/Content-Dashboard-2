@@ -386,6 +386,9 @@ export function ReviewEditor({
               span={seg ? { start: seg.start, end: seg.end } : null}
               clipDuration={choice.duration}
               isGraphic={choice.source === "graphic"}
+              graphic={choice.graphic ?? null}
+              posterFit={format === "16:9" && sourceHeight > sourceWidth * 1.02 ? "contain" : "cover"}
+              posterX={showFraming ? offsetX : 0}
               title={text.length > 70 ? `${text.slice(0, 70).trimEnd()}…` : text}
             />
           );

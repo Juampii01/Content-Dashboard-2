@@ -2,8 +2,9 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { notify } from "@/lib/notifications";
-import { loadProject, startRender, VideoError, type Review } from "./service";
-import type { CaptionPresetKey, EditPlan, VideoFormat } from "./types";
+import { reviewFromPlan } from "./auto-review";
+import { loadProject, startRender, VideoError } from "./service";
+import type { EditPlan, VideoFormat } from "./types";
 
 /**
  * "Hazlo por mí" (y "Exportar directo" de los clips): el proyecto se exporta solo apenas está el plan, sin pasar por la
@@ -13,26 +14,6 @@ import type { CaptionPresetKey, EditPlan, VideoFormat } from "./types";
  * Una sola regla para todos: `video_projects.auto_export`. La ruta del plan del worker llama a `maybeAutoExport`.
  * El proyecto queda igual de editable después: "Revisar y volver a exportar" lo devuelve a la revisión.
  */
-
-/** La revisión que haría la persona si aceptara la propuesta tal cual. */
-export function reviewFromPlan(plan: EditPlan, opts: { keepHook: boolean }): Review {
-  const removed: number[] = [];
-  for (const r of plan.removals) for (let w = r.from_word; w <= r.to_word; w++) removed.push(w);
-  return {
-    removed,
-    // Un clip ya empieza en su gancho (lo eligió el análisis del video largo): no se mueve otra frase al inicio.
-    selectedHook: opts.keepHook ? plan.selected_hook : null,
-    preset: plan.captions.preset as CaptionPresetKey,
-    offsetX: plan.framing.offset_x,
-    corrections: plan.corrections ?? {},
-    broll: plan.broll,
-    ...(plan.zooms_enabled != null ? { zooms: plan.zooms_enabled } : {}),
-    ...(plan.captions.emoji != null ? { emoji: plan.captions.emoji } : {}),
-    ...(plan.audio.sfx ? { sfx: plan.audio.sfx } : {}),
-    ...(plan.audio.studio ? { studio: plan.audio.studio } : {}),
-    music: { trackId: plan.audio.music_asset_id, db: plan.audio.music_db },
-  };
-}
 
 /**
  * Exporta ya un proyecto que está en revisión. Si no se puede (por ejemplo, el plan cortó todo), queda en revisión y se

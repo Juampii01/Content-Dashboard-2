@@ -68,17 +68,17 @@ export function ScriptPicker({ week, scripts }: { week: { weekStart: string; scr
         />
       </div>
 
-      <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
-        <div className="card flex flex-col gap-4 p-5">
+      <aside className="sticky bottom-3 z-10 flex flex-col gap-4 lg:top-6 lg:bottom-auto lg:self-start">
+        <div className="card flex flex-col gap-4 p-5 shadow-[0_-12px_40px_rgba(2,6,26,0.8)] lg:shadow-none">
           <div>
             <p className="eyebrow mb-1.5">Día de grabación</p>
-            <p className="text-2xl font-bold text-white tabular-nums">{picked.length === 1 ? "1 guion" : `${picked.length} guiones`}</p>
-            <p className="mt-1 text-sm text-muted">
+            <p className="text-2xl font-bold text-white tabular-nums">{picked.length === 0 ? "Elige tus guiones" : picked.length === 1 ? "1 guion" : `${picked.length} guiones`}</p>
+            <p className="mt-1 hidden text-sm text-muted sm:block">
               {picked.length ? `Unos ${formatDuration(seconds)} de grabación, sin contar repeticiones.` : "Elige uno o más guiones para grabarlos seguidos."}
             </p>
           </div>
           {picked.length > 0 && (
-            <ol className="flex flex-col gap-1.5 text-sm">
+            <ol className="hidden flex-col gap-1.5 text-sm lg:flex">
               {picked.map((id, i) => (
                 <li key={id} className="flex items-center gap-2">
                   <span className="grid h-6 w-6 flex-none place-items-center rounded-full border border-accent-hi/60 font-mono text-[11px] font-bold text-accent-glow">{i + 1}</span>
@@ -91,7 +91,7 @@ export function ScriptPicker({ week, scripts }: { week: { weekStart: string; scr
             Empezar a grabar
           </Button>
           <p className="text-xs text-muted">
-            Cada toma se vuelve su propio video del Editor.{" "}
+            <span className="hidden sm:inline">Cada toma se vuelve su propio video del Editor. </span>
             <Link href="/editor/grabar?libre=1" className="font-semibold text-accent-hi hover:underline">
               Grabar sin guion
             </Link>

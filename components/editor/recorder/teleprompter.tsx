@@ -88,7 +88,7 @@ export function Teleprompter({
         <div aria-hidden className="h-[70%]" />
       </div>
       {/* Línea de lectura: lo que está a esta altura es lo que estás diciendo. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[30%] h-[1.4em] -translate-y-[0.15em] border-y border-accent-hi/40 bg-accent/10" style={{ fontSize: size }} />
+      <div aria-hidden className="pointer-events-none absolute left-1.5 top-[30%] w-1 rounded-full bg-accent-hi sm:left-3" style={{ height: size * 1.3 }} />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/70 to-transparent" />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/70 to-transparent" />
       {waiting && (

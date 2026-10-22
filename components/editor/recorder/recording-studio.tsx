@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -57,6 +57,19 @@ function loadPrefs(): Prefs {
 }
 
 type LocalTake = { takeId: string; scriptId: string | null; title: string };
+
+/** Pantalla de al menos 768 px (en el servidor, se asume ancha). */
+function useWide(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia("(min-width: 768px)");
+      mq.addEventListener("change", cb);
+      return () => mq.removeEventListener("change", cb);
+    },
+    () => window.matchMedia("(min-width: 768px)").matches,
+    () => true,
+  );
+}
 
 /**
  * Grabar en el navegador con teleprompter, y el "Día de grabación": varios guiones seguidos, cada toma su propio video
@@ -272,6 +285,26 @@ export function RecordingStudio({
   const target = format === "9:16" ? 9 / 16 : 16 / 9;
   // Recorte que hará el Editor (al centro), si la cámara entrega otra forma.
   const crop = Math.abs(aspect - target) < 0.02 ? null : aspect > target ? { w: target / aspect, h: 1 } : { w: 1, h: aspect / target };
+  const wide = useWide();
+  // En una pantalla angosta con la cámara horizontal, el escenario queda bajito: el teleprompter va arriba, aparte.
+  const prompterOutside = !wide && aspect > 1;
+  const showPrompter = !freeMode && current != null && phase !== "review" && camera.state.status === "ready";
+  const prompter = showPrompter ? (
+    <Teleprompter
+      paragraphs={current.paragraphs.length ? current.paragraphs : ["Este guion todavía no tiene texto. Escríbelo en Guiones o graba sin guion."]}
+      running={phase === "recording"}
+      wpm={prefs.wpm}
+      size={prompterOutside ? Math.min(prefs.size, 28) : prefs.size}
+      followVoice={prefs.followVoice}
+      speaking={voice.speaking}
+      resetKey={`${current.id}-${phase === "countdown" ? "c" : ""}`}
+      className={
+        prompterOutside
+          ? "h-56 rounded-2xl border border-white/10 bg-black"
+          : "absolute inset-x-0 top-0 h-[44%] bg-gradient-to-b from-black/80 via-black/65 to-black/30"
+      }
+    />
+  ) : null;
   const sessionDone = !freeMode && session.length > 0 && session.every((s) => local.some((l) => l.scriptId === s.id) || s.lastTake);
 
   return (
@@ -306,6 +339,8 @@ export function RecordingStudio({
             />
           </header>
 
+          {prompterOutside && prompter}
+
           {/* Escenario: la cámara tal cual llega, con el recorte del formato marcado y el teleprompter arriba (cerca del lente). */}
           <div className="relative mx-auto w-full overflow-hidden rounded-2xl border border-white/10 bg-black" style={{ aspectRatio: `${camW} / ${camH}`, maxWidth: `calc(72vh * ${aspect})` }}>
             {camera.state.status === "ready" && phase !== "review" && (
@@ -322,18 +357,7 @@ export function RecordingStudio({
 
             {camera.state.status !== "ready" && phase !== "review" && <CameraGate state={camera.state} onStart={() => void camera.start()} />}
 
-            {!freeMode && current && phase !== "review" && camera.state.status === "ready" && (
-              <Teleprompter
-                paragraphs={current.paragraphs.length ? current.paragraphs : ["Este guion todavía no tiene texto. Escríbelo en Guiones o graba sin guion."]}
-                running={phase === "recording"}
-                wpm={prefs.wpm}
-                size={prefs.size}
-                followVoice={prefs.followVoice}
-                speaking={voice.speaking}
-                resetKey={`${current.id}-${phase === "countdown" ? "c" : ""}`}
-                className="absolute inset-x-0 top-0 h-[44%] bg-gradient-to-b from-black/80 via-black/65 to-black/30"
-              />
-            )}
+            {!prompterOutside && prompter}
 
             {phase === "countdown" && (
               <div className="absolute inset-0 grid place-items-center bg-black/40" aria-live="assertive">

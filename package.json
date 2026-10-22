@@ -14,7 +14,7 @@
     "crear-dueno": "tsx --conditions=react-server --env-file=.env.local scripts/crear-dueno.ts",
     "test:sync": "node --conditions=react-server --import tsx --test tests/sync.test.mts",
     "test:calendar": "node --conditions=react-server --import tsx --test tests/calendar.test.mts",
-    "test:video": "node --import tsx --test tests/video.test.mts tests/video-style.test.mts tests/video-graphics.test.mts tests/video-broll-edit.test.mts tests/video-captions.test.mts",
+    "test:video": "node --import tsx --test tests/video.test.mts tests/video-style.test.mts tests/video-graphics.test.mts tests/video-broll-edit.test.mts tests/video-captions.test.mts tests/video-defaults.test.mts",
     "test:motion": "node --conditions=react-server --import tsx --test tests/motion.test.mts tests/motion-ai.test.mts",
     "test:report": "node --import tsx --test tests/report.test.mts",
     "test:clips": "node --import tsx --test tests/clips.test.mts",

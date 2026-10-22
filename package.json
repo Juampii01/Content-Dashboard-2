@@ -21,6 +21,7 @@
     "test:youtube": "node --import tsx --test tests/youtube.test.mts",
     "test:youtube-db": "node --conditions=react-server --experimental-test-module-mocks --import tsx --test tests/youtube-retention.test.mts",
     "test:score": "node --import tsx --test tests/score.test.mts",
+    "test:sistema": "node --import tsx --test tests/onboarding.test.mts tests/system-status.test.mts",
     "test:estratega": "node --conditions=react-server --import tsx --test tests/estratega.test.mts",
     "test:jugo": "node --conditions=react-server --experimental-test-module-mocks --import tsx --test tests/jugo-autopiloto.test.mts",
     "motion:icons": "node scripts/motion-icons.mjs",

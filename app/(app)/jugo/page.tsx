@@ -139,7 +139,7 @@ async function FromSource({ params }: { params: Params }) {
 
 function SuggestionList({ title, items, empty }: { title: string; items: SourceSuggestion[]; empty: { text: string; href: string; label: string } }) {
   return (
-    <div className="card flex flex-col gap-3 p-5">
+    <div className="card flex min-w-0 flex-col gap-3 p-5">
       <h3 className="font-semibold text-white">{title}</h3>
       {items.length ? (
         <ul className="flex flex-col gap-1">
@@ -172,7 +172,8 @@ async function Overview() {
   return (
     <div className="flex flex-col gap-8">
       <Section title="¿De qué contenido sacamos más?" description="Elige un video terminado, un guion o una de tus piezas que mejor rindieron. También puedes empezar desde el botón “Sacarle todo el jugo” en cada una.">
-        <div className="grid gap-4 lg:grid-cols-3">
+        {/* items-start: una columna vacía no se estira hasta el alto de la que tiene lista. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
           <SuggestionList title="Videos editados" items={suggestions.videos} empty={{ text: "Todavía no tienes videos editados.", href: "/editor/nuevo", label: "Editar un video" }} />
           <SuggestionList title="Guiones" items={suggestions.scripts} empty={{ text: "Todavía no tienes guiones.", href: "/guiones/nuevo", label: "Escribir un guion" }} />
           <SuggestionList title="Lo que mejor te funcionó" items={suggestions.pieces} empty={{ text: "Conecta tus redes para ver qué piezas rindieron más.", href: "/ajustes", label: "Conectar redes" }} />
@@ -180,7 +181,7 @@ async function Overview() {
       </Section>
       {packs.length > 0 && (
         <Section title="Tus paquetes" description="Todo lo que ya le sacaste a tus contenidos.">
-          <ul className="grid gap-3 md:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {packs.map((p) => (
               <PackRow key={p.id} pack={p} />
             ))}

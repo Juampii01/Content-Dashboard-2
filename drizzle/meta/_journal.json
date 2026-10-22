@@ -134,6 +134,13 @@
       "when": 1792686707578,
       "tag": "0018_youtube-retencion-miniaturas",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792687923796,
+      "tag": "0019_primer-uso",
+      "breakpoints": true
     }
   ]
 }

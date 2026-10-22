@@ -73,15 +73,16 @@ async function MetricsContent({ searchParams }: { searchParams: PageProps<"/metr
         </p>
       )}
       <Kpis current={overview.current} previous={overview.previous} />
-      <div className="grid gap-6 xl:grid-cols-5">
-        <div className="xl:col-span-3">
+      {/* grid-cols-1 + min-w-0: sin columnas fijas, el gráfico ensanchaba la columna y la página desbordaba en el teléfono. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+        <div className="min-w-0 xl:col-span-3">
           {Object.keys(daily.byPlatform).length > 0 ? (
             <ViewsChart data={daily} />
           ) : (
             <EmptyState title="Todavía no hay datos diarios" description="Los totales por día aparecen después de la primera sincronización completa." />
           )}
         </div>
-        <div className="xl:col-span-2">
+        <div className="min-w-0 xl:col-span-2">
           {heatmap.pieces >= 8 ? (
             <PostingHeatmap values={heatmap.values} pieces={heatmap.pieces} />
           ) : (

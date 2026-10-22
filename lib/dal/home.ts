@@ -1,19 +1,44 @@
 import "server-only";
+import { cache } from "react";
 import { sql } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import type { Platform } from "@/lib/social/types";
+import type { SetupProgress } from "@/lib/home/onboarding";
 
-/** Qué pasos del arranque faltan (para mostrar solo lo pendiente en Inicio). */
-export async function getSetupProgress(): Promise<{ connected: boolean; brand: boolean; planned: boolean }> {
-  await getCurrentUser();
-  const result = await getDb().execute<{ connected: boolean; brand: boolean; planned: boolean }>(sql`
+/**
+ * Qué hizo ya la instalación (guía de primer uso y bloques de Inicio). Las cuentas de demostración no cuentan
+ * como redes conectadas; "dismissed" es por persona (cada miembro del equipo cierra su guía). Memorizado por request.
+ */
+export const getSetupProgress = cache(async (): Promise<SetupProgress> => {
+  const user = await getCurrentUser();
+  const result = await getDb().execute<Omit<SetupProgress, "dismissed"> & { dismissed: boolean }>(sql`
     select
-      exists(select 1 from social_accounts where current) as connected,
-      exists(select 1 from brand_profile where coalesce(niche, '') <> '' or coalesce(audience, '') <> '') as brand,
-      exists(select 1 from calendar_entries) as planned
+      exists(select 1 from social_accounts where current and status <> 'DISCONNECTED' and coalesce(meta->>'demo', 'false') <> 'true') as connected,
+      exists(select 1 from brand_profile where coalesce(trim(niche), '') <> '' and coalesce(trim(audience), '') <> '' and coalesce(trim(tone), '') <> '') as brand,
+      (exists(select 1 from video_projects where status <> 'UPLOADING') or exists(select 1 from long_videos where status <> 'UPLOADING')) as video,
+      exists(select 1 from scripts) as script,
+      exists(select 1 from strategist_messages where role = 'user') as strategist,
+      exists(select 1 from calendar_entries) as planned,
+      exists(select 1 from team_members where user_id = ${user.id} and onboarding_dismissed_at is not null) as dismissed
   `);
-  return result.rows[0] ?? { connected: false, brand: false, planned: false };
+  const row = result.rows[0];
+  return {
+    connected: Boolean(row?.connected),
+    brand: Boolean(row?.brand),
+    video: Boolean(row?.video),
+    script: Boolean(row?.script),
+    strategist: Boolean(row?.strategist),
+    planned: Boolean(row?.planned),
+    dismissed: Boolean(row?.dismissed),
+  };
+});
+
+/** Hay alguna red con datos (reales o de demostración): decide si Inicio muestra el resumen de la semana. */
+export async function hasAnyConnection(): Promise<boolean> {
+  await getCurrentUser();
+  const result = await getDb().execute<{ any: boolean }>(sql`select exists(select 1 from social_accounts where current) as any`);
+  return Boolean(result.rows[0]?.any);
 }
 
 /** Seguidores actuales y variación en 7 días por red conectada. */

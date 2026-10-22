@@ -35,7 +35,7 @@ export async function createTrackUpload(input: { fileName: string; fileType: str
   if (input.fileSize > MAX_TRACK_BYTES) throw new MusicError("La pista pesa más de 200 MB. Sube una versión MP3 o M4A.");
   const id = randomUUID();
   const key = `${prefix(id)}pista.${ext}`;
-  const title = input.fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 120) || "Pista sin nombre";
+  const title = input.fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "Pista sin nombre";
   await getDb().insert(schema.musicTracks).values({ id, title, status: "UPLOADING", fileKey: key, fileName: input.fileName.slice(0, 200), fileBytes: input.fileSize, createdBy: input.userId });
   return { id, key };
 }

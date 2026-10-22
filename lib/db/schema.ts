@@ -1005,3 +1005,97 @@ export const strategistMessages = pgTable(
   },
   (t) => [index("strategist_messages_conversation_idx").on(t.conversationId, t.createdAt), index("strategist_messages_user_idx").on(t.userId, t.createdAt)],
 );
+
+// ─── Sacarle todo el jugo ──────────────────────────────────────────────────
+
+/** Textos para publicar el contenido de origen en cada red (editables). */
+export type RepurposeCopy = {
+  instagram: { caption: string; hashtags: string[] };
+  tiktok: { caption: string; hashtags: string[] };
+  youtube: { title: string; description: string; hashtags: string[] };
+};
+export type RepurposePartStatus = "pending" | "ready" | "failed";
+/** Estado de cada parte del paquete: se generan en paralelo y cada una avisa por separado. */
+export type RepurposeParts = {
+  carousel: { status: RepurposePartStatus; error?: string | null; carouselId?: string | null };
+  copy: { status: RepurposePartStatus; error?: string | null; data?: RepurposeCopy | null };
+  shorts: { status: RepurposePartStatus; error?: string | null; scriptIds?: string[] };
+};
+
+/**
+ * Un video, todo el contenido: a partir de un video editado, un guion o una pieza publicada se arma un carrusel
+ * (borrador en Carruseles), los textos para cada red y 2 o 3 guiones de shorts (en Guiones). Aquí se guarda el
+ * origen y qué se creó; el carrusel y los guiones viven en sus tablas.
+ */
+export const repurposePacks = pgTable(
+  "repurpose_packs",
+  {
+    id: id(),
+    sourceKind: text("source_kind").notNull().$type<"video" | "guion" | "pieza">(),
+    videoProjectId: uuid("video_project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    contentItemId: uuid("content_item_id").references(() => contentItems.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    sourceText: text("source_text").notNull(), // la transcripción o el texto que se usó
+    parts: jsonb("parts").$type<RepurposeParts>().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("repurpose_packs_created_at_idx").on(t.createdAt)],
+);
+
+// ─── Autopiloto semanal ────────────────────────────────────────────────────
+
+/** Ajustes del autopiloto (una sola fila). piecesPerWeek null = la meta semanal de Inicio. */
+export const autopilotSettings = pgTable("autopilot_settings", {
+  id: text("id").primaryKey().default("autopilot"),
+  enabled: boolean("enabled").notNull().default(false),
+  piecesPerWeek: integer("pieces_per_week"),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});
+
+/** Paquete semanal para aprobar: uno por semana (lunes local). GENERATING sirve también de candado. */
+export const weeklyPacks = pgTable("weekly_packs", {
+  weekStart: date("week_start", { mode: "string" }).primaryKey(),
+  status: text("status").notNull().$type<"GENERATING" | "READY" | "FAILED">(),
+  trigger: text("trigger").notNull().default("cron").$type<"cron" | "manual">(),
+  errorMessage: text("error_message"),
+  /** Tokens estimados antes de generar y los que se registraron en ai_usage (autopiloto.*). */
+  estimatedTokens: integer("estimated_tokens"),
+  usedTokens: integer("used_tokens"),
+  notifiedAt: timestamp("notified_at", { withTimezone: true }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Una pieza del paquete semanal, con su guion o su carrusel ya escrito y la decisión de la persona. */
+export const weeklyPackItems = pgTable(
+  "weekly_pack_items",
+  {
+    id: id(),
+    weekStart: date("week_start", { mode: "string" })
+      .notNull()
+      .references(() => weeklyPacks.weekStart, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    title: text("title").notNull(),
+    hook: text("hook"),
+    pillar: text("pillar"),
+    why: text("why"),
+    format: plannedFormatEnum("format").notNull(),
+    platforms: text("platforms").array().notNull().$type<("INSTAGRAM" | "YOUTUBE" | "TIKTOK")[]>(),
+    scheduledDate: date("scheduled_date", { mode: "string" }),
+    scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
+    carouselId: uuid("carousel_id").references(() => carousels.id, { onDelete: "set null" }),
+    genStatus: text("gen_status").notNull().default("pending").$type<"pending" | "ready" | "failed">(),
+    genError: text("gen_error"),
+    decision: text("decision").notNull().default("pending").$type<"pending" | "approved" | "discarded">(),
+    calendarEntryId: uuid("calendar_entry_id").references(() => calendarEntries.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("weekly_pack_items_week_idx").on(t.weekStart, t.position)],
+);

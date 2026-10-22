@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Carpetas de trabajo temporales de agentes
     ".claude/**",
+    // Motor empaquetado para el worker (generado por scripts/motion-bundle.mjs)
+    "worker/motion/engine.mjs",
+    "worker/motion/node_modules/**",
   ]),
 ]);
 

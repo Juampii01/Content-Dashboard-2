@@ -1,0 +1,9 @@
+{
+  "name": "content2-worker-motion",
+  "private": true,
+  "type": "module",
+  "description": "Render de los gráficos animados del editor con el motor de lib/video/motion (empaquetado en engine.mjs) y skia-canvas.",
+  "dependencies": {
+    "skia-canvas": "3.0.8"
+  }
+}

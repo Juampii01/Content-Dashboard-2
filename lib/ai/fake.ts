@@ -144,6 +144,24 @@ export function fakeResponse(feature: string, task = ""): unknown {
           { title: "El mito del descuento", hook: "Bajar el precio no llena tu agenda. Esto sí.", why: "Contraste con una creencia de tu audiencia." },
         ],
       };
+    case "informes.resumen":
+      return {
+        wins: [
+          "Tu mejor reel del mes rindió ×3.4 tu mediana y fue el que más seguidores trajo.",
+          "Publicaste 36 piezas: cumpliste tu meta semanal en 3 de 4 semanas.",
+          "La tasa de interacción subió de 4.1 % a 4.9 % en Instagram.",
+        ],
+        watch: [
+          "YouTube bajó 12 % en visualizaciones: los videos largos salieron sin un gancho claro en los primeros 10 segundos.",
+          "La última semana publicaste 5 piezas, por debajo de tu meta de 8: deja dos piezas listas antes del lunes.",
+        ],
+        ideas: [
+          { title: "El error de la primera llamada", hook: "Esta recepcionista perdió a un paciente en 20 segundos. Escucha por qué.", why: "Tus ganchos de historia fueron los que más rindieron este mes." },
+          { title: "3 preguntas antes del precio", hook: "Antes de decir el precio, haz estas 3 preguntas.", why: "El formato lista te dio el doble de guardados." },
+          { title: "El mito del descuento", hook: "Bajar el precio no llena tu agenda. Esto sí.", why: "Los contrastes con una creencia de tu audiencia llevaron más comentarios." },
+        ],
+        worstLesson: "El gancho tardó 6 segundos en llegar al punto y la mitad se fue antes. La próxima vez abre con el resultado y deja el contexto para después.",
+      };
     case "metricas.analisis":
       return {
         verdict: "Funcionó por un gancho de contraste muy claro y porque se guardó casi el triple que tus otros reels: la gente lo tomó como referencia.",

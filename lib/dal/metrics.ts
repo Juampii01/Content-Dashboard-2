@@ -195,6 +195,15 @@ export type DailySeries = { days: string[]; byPlatform: Partial<Record<Platform,
  */
 export async function getDailyViews(f: MetricsFilters): Promise<DailySeries> {
   await getCurrentUser();
+  return dailyViews(f);
+}
+
+/** Visualizaciones por día sin pedir sesión: solo para servicios internos (informe mensual del cron). */
+export async function dailyViewsUnchecked(f: Pick<MetricsFilters, "from" | "to" | "platforms">): Promise<DailySeries> {
+  return dailyViews(f);
+}
+
+async function dailyViews(f: Pick<MetricsFilters, "from" | "to" | "platforms">): Promise<DailySeries> {
   const db = getDb();
   const days: string[] = [];
   for (let d = f.from; d <= f.to; d = addDays(d, 1)) days.push(d);

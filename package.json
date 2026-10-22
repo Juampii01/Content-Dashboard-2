@@ -16,6 +16,7 @@
     "test:calendar": "node --conditions=react-server --import tsx --test tests/calendar.test.mts",
     "test:video": "node --import tsx --test tests/video.test.mts tests/video-style.test.mts tests/video-graphics.test.mts tests/video-broll-edit.test.mts",
     "test:motion": "node --conditions=react-server --import tsx --test tests/motion.test.mts tests/motion-ai.test.mts",
+    "test:report": "node --import tsx --test tests/report.test.mts",
     "motion:icons": "node scripts/motion-icons.mjs",
     "motion:bundle": "node scripts/motion-bundle.mjs",
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",
@@ -25,6 +26,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "@dnd-kit/core": "^6.3.1",
+    "@react-pdf/renderer": "4.9.0",
     "@vercel/blob": "^2.8.2",
     "@vercel/functions": "^3.10.1",
     "better-auth": "^1.7.10",
@@ -39,6 +41,7 @@
     "react-dom": "19.3.0",
     "resend": "^6.34.1",
     "server-only": "^0.0.1",
+    "sharp": "0.35.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {

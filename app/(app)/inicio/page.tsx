@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarDays, Flame, House, Palette, Plug, Trophy } from "lucide-react";
+import { ArrowRight, CalendarDays, FileText, Flame, House, Palette, Plug, Trophy } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Section } from "@/components/ui/card";
+import { ButtonLink } from "@/components/ui/button";
 import { OutlierBadge } from "@/components/ui/badges";
 import { PlatformBadge } from "@/components/ui/platform";
 import { Skeleton } from "@/components/ui/feedback";
@@ -175,6 +176,11 @@ export default function InicioPage() {
         title="Tu contenido, en un solo lugar"
         description="Cómo rinden tus redes esta semana, qué está funcionando y qué te falta para dejar todo listo."
         icon={<House className="h-5 w-5" aria-hidden />}
+        actions={
+          <ButtonLink href="/inicio/informes" variant="ghost" icon={<FileText className="h-4 w-4" aria-hidden />}>
+            Informe mensual
+          </ButtonLink>
+        }
       />
       <div className="flex flex-col gap-6">
         <Suspense fallback={null}>

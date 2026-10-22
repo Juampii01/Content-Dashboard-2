@@ -92,6 +92,13 @@
       "when": 1792648509163,
       "tag": "0012_avisos",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792674270908,
+      "tag": "0013_informe-mensual",
+      "breakpoints": true
     }
   ]
 }

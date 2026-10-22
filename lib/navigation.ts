@@ -2,6 +2,7 @@ import {
   BarChart3,
   CalendarDays,
   Clapperboard,
+  Compass,
   GalleryHorizontalEnd,
   House,
   type LucideIcon,
@@ -21,6 +22,7 @@ export const navigation: NavGroup[] = [
     items: [
       { href: "/inicio", label: "Inicio", icon: House, description: "Resumen de tu semana" },
       { href: "/metricas", label: "Métricas", icon: BarChart3, description: "Rendimiento de tu contenido" },
+      { href: "/estratega", label: "Estratega", icon: Compass, description: "Pregúntale a tus datos" },
     ],
   },
   {

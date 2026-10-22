@@ -262,6 +262,59 @@ export function fakeResponse(feature: string, task = ""): unknown {
         hookRewrite: best && !sameType ? "Así pasé de 3 a 9 pacientes por día cambiando una sola frase." : null,
       };
     }
+    case "jugo.carrusel":
+      return fakeResponse("carruseles.ficha", task);
+    case "jugo.textos":
+      return {
+        instagram: {
+          caption: "Tu agenda no se llena con más anuncios: se llena en la primera llamada. 📞\n\nCasi todas las clínicas hablan del precio antes de escuchar. Pregunta primero qué le pasa al paciente, repite lo que dijo con sus palabras y recién ahí explica la solución.\n\nComenta AGENDA y te mando el guion de llamada.",
+          hashtags: ["#clinicadental", "#fyp", "#recepcion", "#pacientesnuevos", "#viral", "#marketingdental"],
+        },
+        tiktok: { caption: "El error de la primera llamada que te cuesta pacientes. Comenta AGENDA y te mando el guion.", hashtags: ["#dentistas", "#clinicadental", "#parati", "#recepcion"] },
+        youtube: {
+          title: "El error de la primera llamada que te hace perder pacientes",
+          description: "La mayoría de las clínicas contesta la primera llamada hablando del precio. En este video te muestro por qué eso espanta pacientes y qué decir en su lugar.\n\nVas a ver el orden exacto: preguntar, escuchar y repetir con sus palabras antes de hablar de la solución.\n\nSi quieres el guion completo para tu recepción, comenta AGENDA.",
+          hashtags: ["#clinicadental", "#shorts", "#recepcion", "#marketingdental"],
+        },
+      };
+    case "jugo.shorts": {
+      const base = fakeResponse("guiones.generar", task) as { hooks: typeof hooks; beats: typeof beats; cta: unknown; caption: string };
+      const count = Number(task.match(/saca (\d) guiones/)?.[1] ?? 3);
+      const ideas = [
+        { title: "No des el precio en la primera llamada", angle: "Un solo error, explicado en 30 segundos.", from: "El error de hablar del precio antes de escuchar.", format: "REEL" },
+        { title: "Las 3 preguntas antes del precio", angle: "Lista práctica para guardar.", from: "La alternativa: preguntar qué le pasa y desde cuándo.", format: "SHORT" },
+        { title: "Repite con sus palabras", angle: "La técnica de espejo aplicada a la recepción.", from: "Repetir lo que dijo el paciente antes de proponer.", format: "REEL" },
+      ];
+      return {
+        shorts: ideas.slice(0, count).map((idea, i) => ({
+          ...base,
+          ...idea,
+          hooks: base.hooks.map((h, k) => ({ ...h, text: k === 0 ? `${idea.title}.` : h.text })),
+          beats: base.beats.slice(0, 2 + (i % 2)),
+        })),
+      };
+    }
+    case "autopiloto.plan": {
+      const plan = fakeResponse("calendario.plan", task) as { ideas: { title: string; day: number }[] };
+      const count = Number(task.match(/exactamente (\d+) pieza/)?.[1] ?? plan.ideas.length);
+      const extra = [
+        { title: "Lo que nadie te dice de las reseñas", hook: "Tus reseñas de Google están espantando pacientes y no lo sabes.", pillar: "Casos de clientes", format: "REEL", platforms: ["INSTAGRAM", "TIKTOK"], day: 5, why: "Gancho de contraste, tu tipo que mejor rinde." },
+        { title: "Checklist de recepción en 5 pasos", hook: "Si tu recepción no hace estos 5 pasos, estás regalando pacientes.", pillar: "Teléfono y recepción", format: "CAROUSEL", platforms: ["INSTAGRAM"], day: 6, why: "Las listas son lo que más te guardan." },
+        { title: "Una pregunta para cerrar la cita", hook: "Esta pregunta agenda más que cualquier descuento.", pillar: "Teléfono y recepción", format: "SHORT", platforms: ["YOUTUBE"], day: 0, why: "Idea del informe mensual que todavía no hiciste." },
+      ];
+      return { ideas: [...plan.ideas, ...extra].slice(0, Math.max(1, count)) };
+    }
+    case "autopiloto.guion": {
+      const base = fakeResponse("guiones.generar", task) as { title: string; hooks: typeof hooks };
+      const title = task.match(/IDEA\n(.+)/)?.[1]?.trim().slice(0, 80) || base.title;
+      const hook = task.match(/Gancho propuesto: (.+)/)?.[1]?.trim();
+      return { ...base, title, hooks: hook ? [{ ...base.hooks[0]!, text: hook }, ...base.hooks.slice(1)] : base.hooks };
+    }
+    case "autopiloto.carrusel": {
+      const base = fakeResponse("carruseles.ficha", task) as { title: string };
+      const title = task.match(/TEMA\n(.+)/)?.[1]?.split(".")[0]?.trim().slice(0, 80) || base.title;
+      return { ...base, title };
+    }
     default:
       throw new Error(`Sin respuesta simulada para ${feature}`);
   }

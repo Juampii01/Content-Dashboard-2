@@ -21,14 +21,14 @@ export const planSchema = z.object({
         why: z.string().describe("Por qué esta pieza esta semana, en una frase (qué patrón ganador o qué pilar atrasado cubre)."),
       }),
     )
-    .describe("Entre 3 y 5 piezas, una por día como máximo."),
+    .describe("Entre 3 y 5 piezas (o la cantidad que pida la tarea), una por día como máximo."),
 });
 export type WeekPlan = z.infer<typeof planSchema>;
 
 export const PLANNING_RULES = `Eres el estratega de contenido de este creador. Planeas su semana: pocas piezas, cada una con un motivo claro.
 
 REGLAS DE PLANEACIÓN
-- Propón entre 3 y 5 piezas para la semana indicada, como máximo una por día. Repártelas en la semana (no todas seguidas).
+- Propón entre 3 y 5 piezas para la semana indicada (o la cantidad exacta que pida la tarea), como máximo una por día. Repártelas en la semana (no todas seguidas).
 - Prioriza los pilares atrasados frente a su porcentaje objetivo. Usa el nombre exacto del pilar.
 - Toma los patrones de gancho, ángulo y formato de "lo que ya funcionó", nunca el mismo tema.
 - No repitas ni parafrasees lo que ya está programado o se publicó hace poco: cada idea tiene que ser nueva.
@@ -45,13 +45,17 @@ export function planTask(input: {
   pillarBalance: { name: string; target: number; recent: number }[];
   scheduled: { day: string; title: string; pillar: string | null }[];
   recent: string[];
+  /** Cantidad exacta de piezas (autopiloto). Sin esto, entre 3 y 5. */
+  count?: number;
+  /** Indicaciones extra al final de la tarea (autopiloto: días disponibles, formatos, ideas de los informes). */
+  extra?: string;
 }): string {
   const balance = input.pillarBalance.length
     ? input.pillarBalance.map((p) => `- ${p.name}: objetivo ${p.target} %, últimas 4 semanas ${p.recent} pieza${p.recent === 1 ? "" : "s"}`).join("\n")
     : "- (sin pilares definidos: elige temas variados del nicho)";
   const scheduled = input.scheduled.length ? input.scheduled.map((s) => `- ${s.day}: ${s.title}${s.pillar ? ` [${s.pillar}]` : ""}`).join("\n") : "- (nada todavía)";
   const recent = input.recent.length ? input.recent.map((t) => `- ${t}`).join("\n") : "- (nada)";
-  return `TAREA: planea la semana del ${input.weekLabel}.
+  return `TAREA: planea la semana del ${input.weekLabel}.${input.count ? `\nCantidad: exactamente ${input.count} pieza${input.count === 1 ? "" : "s"}.` : ""}
 Redes conectadas: ${input.platforms.join(", ") || "Instagram"}.
 
 BALANCE DE PILARES
@@ -61,5 +65,5 @@ YA PROGRAMADO ESA SEMANA (no lo repitas; elige otros días si puedes)
 ${scheduled}
 
 PUBLICADO O PLANEADO HACE POCO (no lo repitas)
-${recent}`;
+${recent}${input.extra ? `\n\n${input.extra}` : ""}`;
 }

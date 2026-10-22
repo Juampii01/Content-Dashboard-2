@@ -75,4 +75,6 @@ export const sourceLabel: Record<string, string> = {
   editor: "Desde el Editor de video",
   plan: "Plan semanal con IA",
   estratega: "Desde el Estratega",
+  jugo: "Desde Sacarle todo el jugo",
+  autopiloto: "Autopiloto semanal",
 };

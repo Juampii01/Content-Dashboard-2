@@ -113,6 +113,13 @@
       "when": 1792679291643,
       "tag": "0015_estratega",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792682634875,
+      "tag": "0016_jugo-y-autopiloto",
+      "breakpoints": true
     }
   ]
 }

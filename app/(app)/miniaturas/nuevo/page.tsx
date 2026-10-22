@@ -27,7 +27,6 @@ async function Flow({ searchParams }: { searchParams: PageProps<"/miniaturas/nue
     if (id) preset = { kind, id };
   }
   const data = JSON.parse(JSON.stringify(lists));
-  // Si el origen pedido no está entre los recientes, se agrega igual a la lista para poder elegirlo.
   return <NewPackageFlow lists={data} preset={preset} aiReady={aiConfigured()} canEdit={user.role !== "VIEWER"} />;
 }
 

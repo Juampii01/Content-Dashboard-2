@@ -11,6 +11,7 @@ import {
   brollGeometry,
   brollRenderEdit,
   DEFAULT_EDIT,
+  editSummary,
   entranceScale,
   frameCrop,
   graphicSideGeometry,
@@ -155,6 +156,14 @@ describe("color", () => {
     assert.equal(svgMatrixValues(gray).split(" ").length, 20);
   });
 
+  test("resumen para la lista: nada si es lo de siempre; ubicación, look y tiempo si cambiaron", () => {
+    assert.equal(editSummary(DEFAULT_EDIT, "9:16"), null);
+    const e = resolveEdit({ layout: "card", look: presetLook("marca"), transition: "cut", start_delta: -0.5 });
+    assert.equal(editSummary(e, "9:16"), "Tarjeta · Tu marca · Corte · Tiempo");
+    // "A un lado" en vertical se ve (y se nombra) como pantalla dividida.
+    assert.equal(editSummary(resolveEdit({ layout: "side" }), "9:16"), "Pantalla dividida");
+    assert.equal(editSummary(resolveEdit({ look: { opacity: 0.6, contrast: 0.2 } }), "16:9"), "Look propio · 60 %");
+  });
   test("presets: aplicar uno y reconocerlo", () => {
     assert.equal(matchingPreset(presetLook("bn")), "bn");
     assert.equal(matchingPreset(presetLook("marca")), "marca");

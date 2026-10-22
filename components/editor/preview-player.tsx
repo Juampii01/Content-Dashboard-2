@@ -248,12 +248,13 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
         style={{ aspectRatio: format === "9:16" ? "9 / 16" : "16 / 9", maxWidth: format === "9:16" ? 360 : undefined }}
       >
         {person && <div aria-hidden className="absolute inset-0" style={{ background: brandGround }} />}
-        {blurBackground && poster && !person && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={poster} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
-        )}
         {src ? (
-          <div className="absolute inset-0" style={personStyle(person, format)}>
+          <div className="absolute inset-0 overflow-hidden" style={personStyle(person, format)}>
+          {/* El fondo desenfocado va con la persona: en pantalla dividida o a un lado se recorta y se mueve con ella (como en el render). */}
+          {blurBackground && poster && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={poster} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
+          )}
           <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: `50% ${focusY * 100}%` }}>
           <video
             ref={video}

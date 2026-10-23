@@ -37,6 +37,11 @@ export type Kit = {
   families: { display: string; body: string };
   /** Color de fondo detrás del contenido (para contraste). */
   ground: string;
+  /**
+   * Sincronía con la voz: segundo (desde el inicio del componente) en que se dice cada elemento, en el orden de
+   * `cueTexts` del componente. Sin esto, cada componente usa su reloj de siempre.
+   */
+  cues?: number[] | null;
 };
 
 // ─── Color y tipografía ───────────────────────────────────────────────────

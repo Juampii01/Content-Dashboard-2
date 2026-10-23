@@ -6,7 +6,7 @@ import { z } from "zod";
 import { draw, fadeUp, pop, strike } from "../animate";
 import { card, cardGround, checkPath, col, crossPath, display, ellipse, eyebrowFont, fit, icon, inkOn, rgba, textNode } from "../kit";
 import type { Node } from "../nodes";
-import { defineComponent, fitToRegion, req, stack, type Block } from "./shared";
+import { cueAt, cued, defineComponent, fitToRegion, req, stack, type Block } from "./shared";
 
 const side = z.object({ label: req(18), text: req(64) });
 
@@ -16,6 +16,7 @@ export const comparison = defineComponent({
   props: z.object({ left: side, right: side }),
   example: { left: { label: "Mito", text: "Necesitas más seguidores para vender" }, right: { label: "Realidad", text: "Necesitas un sistema que convierta" } },
   texts: (p) => [p.left.label, p.left.text, p.right.label, p.right.text],
+  cueTexts: (p) => [p.left.text, p.right.text],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const horizontal = !k.vertical;
@@ -31,7 +32,9 @@ export const comparison = defineComponent({
       const head = chip;
       const textGap = 26 * k.s;
       const cardH = pad + head + textGap + Math.max(lf.height, rf.height) + pad;
-      const second = Math.max(0.55, Math.min(1.1, k.duration * 0.3));
+      // Con la voz: lo de antes entra cuando se dice, se tacha justo antes de lo nuevo y lo nuevo entra al decirlo.
+      const first = cueAt(k, 0, 0.05);
+      const second = cued(k) ? Math.max(first + 0.5, cueAt(k, 1, 0.55)) : Math.max(0.55, Math.min(1.1, k.duration * 0.3));
       const x0 = horizontal ? k.region.x : k.region.x + (k.region.w - cardW) / 2;
       const make = (y: number): Node[] => {
         const out: Node[] = [];
@@ -39,7 +42,7 @@ export const comparison = defineComponent({
           ? [{ x: x0, y }, { x: x0 + cardW + gap, y }]
           : [{ x: x0, y }, { x: x0, y: y + cardH + gap }];
         const parts = [
-          { s: p.left, f: lf, variant: "muted" as const, at: 0.05, good: false },
+          { s: p.left, f: lf, variant: "muted" as const, at: first, good: false },
           { s: p.right, f: rf, variant: "accent" as const, at: second, good: true },
         ];
         parts.forEach(({ s, f, variant, at, good }, i) => {
@@ -61,7 +64,7 @@ export const comparison = defineComponent({
             ...(good ? {} : { strikeAll: { color: rgba(k.theme.negative, 0.9) } }),
           });
           out.push(fadeUp(c, { at, dist: 40 * k.s, dur: 0.65 }), fadeUp(chipBg, { at: at + 0.08, dist: 30 * k.s }), draw(mark, { at: at + 0.25, dur: 0.35 }), fadeUp(lblN, { at: at + 0.1, dist: 30 * k.s }), fadeUp(text, { at: at + 0.14, dist: 30 * k.s }));
-          if (!good) strike(text, { at: second + 0.45, dur: 0.5 });
+          if (!good) strike(text, cued(k) ? { at: Math.max(first + 0.4, second - 0.3), dur: 0.4 } : { at: second + 0.45, dur: 0.5 });
         });
         // Conector entre las dos tarjetas.
         const d = 84 * k.s;

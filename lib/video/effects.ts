@@ -6,6 +6,7 @@
  */
 import { resolveEdit, type BrollEdit } from "./broll-edit";
 import type { StylePreset } from "./style";
+import { isV2Scene, lastCueWord, resolveSceneCues, sceneCueTimes } from "./motion-cues";
 import { outputRange, type Timeline } from "./timeline";
 import { FPS, type BrollItem, type BrollOption, type ZoomMoment } from "./types";
 
@@ -88,15 +89,20 @@ export function directorZooms(timeline: Timeline, moments: ZoomMoment[] | undefi
   for (const m of [...(moments ?? [])].sort((a, b) => a.from_word - b.from_word)) {
     const range = outputRange(timeline, m.from_word, m.to_word);
     if (!range) continue;
-    const start = Math.max(0.5, range.start - 0.1);
+    // El punch-in cae en la palabra (dos cuadros antes, para que el corte de encuadre se sienta en la sílaba).
+    let start = Math.max(0.5, range.start - 0.06);
     let end = Math.min(timeline.duration, range.end + 0.3, start + 3.5);
     const nextBroll = avoid.filter((r) => r.end > start).sort((a, b) => a.start - b.start)[0];
     if (nextBroll && nextBroll.start <= start + 0.2) continue;
     if (nextBroll) end = Math.min(end, nextBroll.start - 0.05);
+    const scale = Math.max(1.04, Math.min(1.32, m.scale));
     const prev = out[out.length - 1];
-    if (prev && start < prev.end + 0.4) continue;
+    // Dos zooms seguidos con distinta escala son un cambio de encuadre (1,15 → 1,3): pueden ir pegados. Con la misma
+    // escala, tiene que volver al plano normal un momento entre los dos.
+    if (prev && Math.abs(prev.scale - scale) > 0.02 && start < prev.end && start > prev.start + 0.6) prev.end = round3(start);
+    else if (prev && start < prev.end + (Math.abs(prev.scale - scale) > 0.02 ? 0 : 0.4)) continue;
     if (end - start < 0.6) continue;
-    const scale = Math.max(1.04, Math.min(1.25, m.scale));
+    start = Math.max(start, prev?.end ?? 0);
     const kind: OutputZoom["kind"] = scale >= 1.12 ? "punch" : "smooth";
     out.push({ start: round3(start), end: round3(end), scale, ramp: kind === "smooth" ? 0.35 : 0, kind });
   }
@@ -110,19 +116,38 @@ export function directorZooms(timeline: Timeline, moments: ZoomMoment[] | undefi
 export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBroll[] {
   const out: OutputBroll[] = [];
   const sorted = [...items].filter((b) => b.choice).sort((a, b) => a.from_word - b.from_word);
-  for (const item of sorted) {
-    const range = outputRange(timeline, item.from_word, item.to_word);
+  const ranges = sorted.map((item) => outputRange(timeline, item.from_word, item.to_word));
+  for (const [i, item] of sorted.entries()) {
+    const range = ranges[i];
     if (!range) continue;
     const edit = resolveEdit(item.edit);
     let start = Math.max(0, range.start + edit.start_delta);
     let end = Math.min(timeline.duration, range.end + edit.end_delta);
     const prev = out[out.length - 1];
     if (prev && start < prev.end) start = prev.end;
+    let option = item.choice!;
+    if (option.source === "graphic" && isV2Scene(option.graphic)) {
+      // Un gráfico dura lo que dura lo que se dice: si su último elemento suena casi al final, se estira para que se
+      // lea (sin pisar el b-roll siguiente).
+      const last = lastCueWord(option.graphic);
+      const lastAt = last >= 0 ? timeline.words.find((w) => w.id === last) : undefined;
+      const next = ranges.slice(i + 1).find(Boolean);
+      const hold = lastAt ? Math.max(lastAt.end + 0.9, lastAt.start + 1.4) : 0;
+      if (lastAt && hold > end) end = Math.min(timeline.duration, hold, next ? next.start - 0.05 : Infinity);
+      option = { ...option, graphic: resolveSceneCues(option.graphic, timeline.words, start, end) };
+    }
     // Un b-roll de menos de 0,8 s parpadea: se estira un poco (sin pasarse del final).
     if (end - start < 0.8) end = Math.min(start + 1.2, timeline.duration);
     if (end - start < 0.5) continue;
-    out.push({ id: item.id, start: round3(start), end: round3(end), option: item.choice!, edit });
+    out.push({ id: item.id, start: round3(start), end: round3(end), option, edit });
   }
+  return out;
+}
+
+/** Instantes del video final en que entra cada elemento sincronizado de los gráficos (ítems, cifras, palabras). */
+export function graphicEntries(segments: OutputBroll[]): number[] {
+  const out: number[] = [];
+  for (const s of segments) if (s.option.source === "graphic" && isV2Scene(s.option.graphic)) for (const c of sceneCueTimes(s.option.graphic)) out.push(round3(s.start + c));
   return out;
 }
 

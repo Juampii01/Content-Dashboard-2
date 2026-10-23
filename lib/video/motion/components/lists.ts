@@ -6,7 +6,7 @@ import { draw, fadeIn, fadeUp, pop, pulse, slide } from "../animate";
 import { iconNameSchema, type IconName } from "../icons";
 import { arrow, body, card, cardGround, checkPath, col, display, ellipse, fit, iconTile, inkOn, mix, numberBadge, path, rect, rgba, textNode, type Kit } from "../kit";
 import type { Node } from "../nodes";
-import { cx, defineComponent, fitToRegion, req, stack, str, textShadow, type Block } from "./shared";
+import { cueAt, cued, cx, defineComponent, fitToRegion, req, stack, str, textShadow, type Block } from "./shared";
 
 /** Título de los componentes de secuencia: display, alineado a la izquierda. */
 function titleBlock(k: Kit, title: string, x: number, w: number, align: "left" | "center" = "left"): Block | null {
@@ -30,6 +30,7 @@ export const list = defineComponent({
   }),
   example: { title: "Lo que revisa un buen anuncio", items: ["Un gancho en 3 segundos", "Una oferta clara y concreta", "Una sola llamada a la acción", "Seguimiento el mismo día"], marker: "number", icons: [] },
   texts: (p) => [p.title, ...p.items],
+  cueTexts: (p) => p.items,
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const w = contentW(k);
@@ -54,7 +55,7 @@ export const list = defineComponent({
           h,
           gap: i === 0 ? (tb ? 44 * k.s : 0) : rowGap,
           make: (y) => {
-            const at = 0.2 + i * each;
+            const at = cueAt(k, i, 0.2 + i * each);
             const c = card(k, { x: x0, y, w, h }, { r: 30 * k.s, label: `el punto ${i + 1}` });
             const iconName = (p.icons[i] ?? null) as IconName | null;
             const bx = x0 + pad + badge / 2;
@@ -77,6 +78,7 @@ export const checklist = defineComponent({
   props: z.object({ title: str(56).default(""), items: z.array(req(56)).min(2).max(5) }),
   example: { title: "Antes de publicar", items: ["Gancho en el primer segundo", "Subtítulos grandes", "Una sola idea", "Llamada a la acción"] },
   texts: (p) => [p.title, ...p.items],
+  cueTexts: (p) => p.items,
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const w = contentW(k);
@@ -101,8 +103,9 @@ export const checklist = defineComponent({
           h,
           gap: i === 0 && tb ? 30 * k.s : 0,
           make: (y) => {
-            const appear = enter + i * 0.08;
-            const checkAt = checkStart + i * each;
+            // Con la voz: cada fila entra cuando se dice y se tilda enseguida; sin voz, todas entran y se tildan en orden.
+            const appear = cued(k) ? cueAt(k, i, 0, 0.18) : enter + i * 0.08;
+            const checkAt = cued(k) ? cueAt(k, i, 0, -0.12) : checkStart + i * each;
             const by = y + h / 2;
             const bx = x0 + box / 2;
             const out: Node[] = [];
@@ -135,6 +138,7 @@ export const steps = defineComponent({
   props: z.object({ title: str(48).default(""), steps: z.array(req(30)).min(2).max(4), icons: z.array(iconNameSchema).max(4).default([]) }),
   example: { title: "El sistema", steps: ["Anuncio", "Conversación", "Llamada", "Cliente"], icons: ["megaphone", "message-circle", "phone", "handshake"] },
   texts: (p) => [p.title, ...p.steps],
+  cueTexts: (p) => p.steps,
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const n = p.steps.length;
@@ -167,7 +171,7 @@ export const steps = defineComponent({
             const last = i === n - 1;
             const bx = horizontal ? k.region.x + i * (nodeW + conn) : x - nodeW / 2;
             const by = horizontal ? y : y + i * (nodeH + conn);
-            const at = 0.15 + i * each;
+            const at = cueAt(k, i, 0.15 + i * each);
             const variant = last ? "accent" : "surface";
             const ground = cardGround(k, variant);
             const ink = inkOn(k, ground);
@@ -195,7 +199,10 @@ export const steps = defineComponent({
               const a = horizontal
                 ? arrow(k, bx + nodeW + g, by + nodeH / 2, bx + nodeW + conn - g, by + nodeH / 2, { width: 6 * k.s })
                 : arrow(k, x, by + nodeH + g, x, by + nodeH + conn - g, { width: 6 * k.s });
-              out.push(draw(a, { at: at + each * 0.55, dur: each * 0.6, ease: "easeInOut" }));
+              // La flecha llega al paso siguiente justo cuando se dice.
+              const nextAt = cueAt(k, i + 1, at + each);
+              const arrowDur = cued(k) ? Math.max(0.2, Math.min(0.5, (nextAt - at) * 0.6)) : each * 0.6;
+              out.push(draw(a, { at: cued(k) ? Math.max(at + 0.1, nextAt - arrowDur) : at + each * 0.55, dur: arrowDur, ease: "easeInOut" }));
             }
           }
           return out;
@@ -216,6 +223,7 @@ export const timeline = defineComponent({
   }),
   example: { title: "Mi primer año", items: [{ label: "Mes 1", caption: "500 seguidores" }, { label: "Mes 4", caption: "Primer cliente" }, { label: "Mes 8", caption: "Equipo de 3" }, { label: "Hoy", caption: "Agenda llena" }] },
   texts: (p) => [p.title, ...p.items.flatMap((i) => [i.label, i.caption])],
+  cueTexts: (p) => p.items.map((i) => `${i.label} ${i.caption}`.trim()),
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const n = p.items.length;
@@ -229,8 +237,10 @@ export const timeline = defineComponent({
       const blocks: Block[] = [];
       const tb = titleBlock(k, p.title, horizontal ? k.region.x : x0, horizontal ? k.region.w : w, horizontal ? "center" : "left");
       if (tb) blocks.push(tb);
-      const lineDur = Math.max(0.8, Math.min(1.8, k.duration * 0.5));
-      const lineAt = 0.2;
+      // Con la voz, la línea va de un hito al otro al ritmo en que se dicen.
+      const lineAt = cued(k) ? cueAt(k, 0, 0.2, 0.25) : 0.2;
+      const lineDur = cued(k) ? Math.max(0.4, cueAt(k, n - 1, 1) - lineAt) : Math.max(0.8, Math.min(1.8, k.duration * 0.5));
+      const reachAt = (i: number) => (cued(k) ? cueAt(k, i, 0) : lineAt + lineDur * (n === 1 ? 0 : i / (n - 1)) * 0.92);
       if (!horizontal) {
         const textX = x0 + dot + 44 * k.s;
         const textW = w - (textX - x0);
@@ -249,11 +259,11 @@ export const timeline = defineComponent({
             const yLast = y + (n - 1) * (rowH + gapY) + lbls[n - 1]!.height / 2;
             out.push(fadeIn(path(`M${lx} ${yFirst}L${lx} ${yLast}`, { stroke: { color: rgba(k.theme.text, 0.14), width: lw, cap: "round" }, overlap: true }), { at: 0.05 }));
             const line = path(`M${lx} ${yFirst}L${lx} ${yLast}`, { stroke: { color: { kind: "linear", x0: 0, y0: yFirst, x1: 0, y1: yLast, stops: [[0, k.theme.accent2], [1, k.theme.accent]] }, width: lw, cap: "round" }, overlap: true });
-            out.push(draw(line, { at: lineAt, dur: lineDur, ease: "easeInOut" }));
+            out.push(draw(line, { at: lineAt, dur: lineDur, ease: cued(k) ? "linear" : "easeInOut" }));
             p.items.forEach((it, i) => {
               const ry = y + i * (rowH + gapY);
               const cy = ry + lbls[i]!.height / 2;
-              const reach = lineAt + lineDur * (n === 1 ? 0 : i / (n - 1)) * 0.92;
+              const reach = reachAt(i);
               out.push(...timelineDot(k, lx, cy, dot, i === n - 1, reach));
               out.push(fadeUp(textNode(k, lbls[i]!, textX, ry, textW, { color: i === n - 1 ? col(k, "accent") : col(k, "text"), on: k.ground, label: `el hito ${i + 1}`, ...(textShadow(k) ? { shadow: textShadow(k)! } : {}) }), { at: reach + 0.05, dist: 20 * k.s }));
               if (caps[i]) out.push(fadeUp(textNode(k, caps[i]!, textX, ry + lbls[i]!.height + 6 * k.s, textW, { color: col(k, k.mode === "overlay" ? "text" : "muted"), on: k.ground }), { at: reach + 0.12, dist: 20 * k.s }));
@@ -275,9 +285,9 @@ export const timeline = defineComponent({
             const cy = y + dot / 2;
             const xs = p.items.map((_, i) => k.region.x + colW * (i + 0.5));
             out.push(fadeIn(path(`M${xs[0]} ${cy}L${xs[n - 1]} ${cy}`, { stroke: { color: rgba(k.theme.text, 0.14), width: lw, cap: "round" }, overlap: true }), { at: 0.05 }));
-            out.push(draw(path(`M${xs[0]} ${cy}L${xs[n - 1]} ${cy}`, { stroke: { color: { kind: "linear", x0: xs[0]!, y0: 0, x1: xs[n - 1]!, y1: 0, stops: [[0, k.theme.accent2], [1, k.theme.accent]] }, width: lw, cap: "round" }, overlap: true }), { at: lineAt, dur: lineDur, ease: "easeInOut" }));
+            out.push(draw(path(`M${xs[0]} ${cy}L${xs[n - 1]} ${cy}`, { stroke: { color: { kind: "linear", x0: xs[0]!, y0: 0, x1: xs[n - 1]!, y1: 0, stops: [[0, k.theme.accent2], [1, k.theme.accent]] }, width: lw, cap: "round" }, overlap: true }), { at: lineAt, dur: lineDur, ease: cued(k) ? "linear" : "easeInOut" }));
             p.items.forEach((_, i) => {
-              const reach = lineAt + lineDur * (i / Math.max(1, n - 1)) * 0.92;
+              const reach = reachAt(i);
               out.push(...timelineDot(k, xs[i]!, cy, dot, i === n - 1, reach));
               const ty = y + dot + 36 * k.s;
               out.push(fadeUp(textNode(k, lbls[i]!, xs[i]! - textW / 2, ty, textW, { align: "center", color: i === n - 1 ? col(k, "accent") : col(k, "text"), on: k.ground, label: `el hito ${i + 1}` }), { at: reach + 0.05, dist: 18 * k.s }));

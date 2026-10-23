@@ -184,21 +184,32 @@ function primitive(l: PrimitiveLayer, k: Kit): Node {
       const children = l.children.map((ch) => primitive(ch, k));
       n = groupNode(children, l.clip ? { clip: { x: l.clip.x * W, y: l.clip.y * H, w: l.clip.w * W, h: l.clip.h * H, r: l.clip.radius * u } } : {});
       // Cascada entre hijos (each) para los comportamientos del grupo.
+      const gShift = l.cue != null && l.animate.length ? Math.max(0, l.cue - 0.1) - Math.min(...l.animate.map((b) => b.at)) : 0;
       for (const b of l.animate) {
         if (b.each != null) {
-          children.forEach((ch, i) => applyBehavior(ch, b, u, b.at + i * b.each!));
-        } else applyBehavior(n, b, u);
+          children.forEach((ch, i) => applyBehavior(ch, b, u, b.at + gShift + i * b.each!));
+        } else applyBehavior(n, b, u, b.at + gShift);
       }
       if (l.tracks) for (const [prop, keys] of Object.entries(l.tracks)) if (keys) n.tracks[prop as Prop] = [...keys].sort((a, b) => a.t - b.t);
       if (l.opacity != null) n.alpha = l.opacity;
       return n;
     }
   }
-  for (const b of l.animate) applyBehavior(n, b, u);
+  // Con la voz: las animaciones de la capa se corren para que la primera arranque un poco antes de su palabra.
+  const shift = l.cue != null && l.animate.length ? Math.max(0, l.cue - 0.1) - Math.min(...l.animate.map((b) => b.at)) : 0;
+  for (const b of l.animate) applyBehavior(n, b, u, b.at + shift);
   if (l.tracks) for (const [prop, keys] of Object.entries(l.tracks)) if (keys) n.tracks[prop as Prop] = [...keys].sort((a, b) => a.t - b.t);
   if (l.opacity != null) n.alpha = l.opacity;
   if (l.rotation) n.tracks.rotation = [{ t: 0, v: l.rotation }, ...(n.tracks.rotation ?? [])];
   return n;
+}
+
+/** Componentes que siguen la voz como un solo bloque (no animan elemento por elemento). */
+const GENERIC_CUE = new Set<string>(["dmNotification", "iconBurst"]);
+
+/** true si la escena tiene capas sincronizadas con la voz (sus tiempos no se comprimen). */
+export function sceneHasCues(scene: Pick<MotionScene, "layers">): boolean {
+  return (scene.layers as Layer[]).some((l) => (l.type === "component" ? Boolean(l.cues?.length) : l.cue != null));
 }
 
 function buildComponent(l: ComponentLayer, k: Kit, notes: string[]): Node[] {
@@ -208,9 +219,15 @@ function buildComponent(l: ComponentLayer, k: Kit, notes: string[]): Node[] {
     notes.push(`El componente "${def.label}" tiene datos que no sirven: ${parsed.error.issues[0]?.message ?? "revisa los textos"}.`);
     return [];
   }
-  const kk: Kit = { ...k, s: k.s * (l.scale ?? 1), ...(l.region ? { region: { x: l.region.x * k.W, y: l.region.y * k.H, w: l.region.w * k.W, h: l.region.h * k.H } } : {}) };
+  const at = l.at ?? 0;
+  // Los segundos de la voz (desde el inicio de la escena) pasan a ser desde el inicio del componente.
+  const cues = l.cues?.length ? l.cues.map((c) => Math.max(0, c - at)) : null;
+  const generic = Boolean(cues) && GENERIC_CUE.has(l.component);
+  const kk: Kit = { ...k, s: k.s * (l.scale ?? 1), cues: generic ? null : cues, ...(l.region ? { region: { x: l.region.x * k.W, y: l.region.y * k.H, w: l.region.w * k.W, h: l.region.h * k.H } } : {}) };
   const nodes = (def.build as (p: unknown, k: Kit) => Node[])(parsed.data, kk);
-  if (l.at) retime(nodes, 1, l.at);
+  // Componentes de un solo momento (notificación, ícono): entero se corre para que llegue cuando se dice.
+  const lead = generic ? Math.max(0, cues![0]! - 0.45) : 0;
+  if (at || lead) retime(nodes, 1, at + lead);
   if (l.id) nodes.forEach((n, i) => (n.id ??= `${l.id}.${i}`));
   return nodes;
 }
@@ -255,7 +272,8 @@ export function compileScene(scene: MotionScene, opts: CompileOptions): Compiled
   const hold = Math.min(0.6, scene.duration * 0.2);
   const available = scene.duration - exitDur - hold;
   const last = lastKeyTime(nodes);
-  const timeScale = last > 0 && last > available ? Math.max(0.35, available / last) : 1;
+  // Lo sincronizado con la voz no se comprime: cada cosa tiene que entrar en su palabra.
+  const timeScale = !sceneHasCues(scene) && last > 0 && last > available ? Math.max(0.35, available / last) : 1;
   if (timeScale < 1) retime(nodes, timeScale);
   return {
     width: k.W,

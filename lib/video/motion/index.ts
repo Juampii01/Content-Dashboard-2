@@ -9,7 +9,7 @@
  */
 export { MOTION_VERSION, sceneSchema, layerSchema, componentLayer, primitiveLayer } from "./schema";
 export type { MotionScene, MotionSceneInput, Layer, ComponentLayer, PrimitiveLayer } from "./schema";
-export { compile, compileScene, contentRegion, effectivePosition, safeZone, reelsButtons, veilStops, makeKit, countNodes, DEFAULT_FAMILIES } from "./compile";
+export { compile, compileScene, sceneHasCues, contentRegion, effectivePosition, safeZone, reelsButtons, veilStops, makeKit, countNodes, DEFAULT_FAMILIES } from "./compile";
 export type { CompiledScene, CompileOptions, FontFamilies } from "./compile";
 export { renderFrame, measureWith, roundRectPath } from "./render";
 export type { MotionCanvas, RenderOptions, ImageLike } from "./render";

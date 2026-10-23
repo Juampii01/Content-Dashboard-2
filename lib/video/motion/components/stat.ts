@@ -6,7 +6,7 @@ import { countUp, draw, fadeIn, fadeUp, fill, pop, wipe } from "../animate";
 import { iconNameSchema } from "../icons";
 import { arrow, body, col, counter, counterWidth, display, ellipse, eyebrow, fit, iconTile, rect, rgba, textNode } from "../kit";
 import type { Node } from "../nodes";
-import { cx, defineComponent, fitToRegion, stack, str, textShadow, type Block } from "./shared";
+import { cueAt, cued, cx, defineComponent, fitToRegion, stack, str, textShadow, type Block } from "./shared";
 
 const value = z.string().trim().min(1).max(12).regex(/\d/, "La cifra tiene que tener un número.");
 
@@ -23,9 +23,13 @@ export const statCard = defineComponent({
   }),
   example: { value: "+40%", label: "más citas agendadas en un mes", eyebrow: "Resultado" },
   texts: (p) => [p.value, p.label, p.eyebrow],
+  cueTexts: (p) => [p.value],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const big = display(k, 900, -0.045);
+      // Con la voz: la cifra empieza a contar un poco antes de que se diga y llega a su valor justo al decirla.
+      const countAt = cued(k) ? cueAt(k, 0, 0.1, 0.55) : 0.1;
+      const countDur = cued(k) ? Math.max(0.5, cueAt(k, 0, 0, -0.2) - countAt) : Math.min(1.3, Math.max(0.7, k.duration * 0.4));
       const maxSize = (k.vertical ? 340 : 300) * k.s;
       let size = maxSize;
       while (size > 90 * k.s && counterWidth(k, p.value, size, big) > k.region.w * 0.94) size *= 0.95;
@@ -54,18 +58,18 @@ export const statCard = defineComponent({
             );
           }
           const n = counter(k, p.value, { x, top: y, size, font: big, color: col(k, "text"), affixColor: col(k, "accent"), on: k.ground, label: "la cifra", ...(textShadow(k) ? { shadow: textShadow(k)! } : {}) });
-          out.push(countUp(pop(n, { at: 0.06, dur: 0.75, from: 0.72, bounce: 0.25 }), { at: 0.1, dur: Math.min(1.3, Math.max(0.7, k.duration * 0.4)) }));
+          out.push(countUp(pop(n, { at: Math.max(0, countAt - 0.04), dur: 0.75, from: 0.72, bounce: 0.25 }), { at: countAt, dur: countDur }));
           return out;
         },
       });
       const barW = Math.min(220 * k.s, k.region.w * 0.3);
       const barH = Math.max(4, 10 * k.s);
-      blocks.push({ h: barH, gap: 30 * k.s, make: (y: number) => [wipe(rect({ x: x - barW / 2, y, w: barW, h: barH, r: barH / 2, fill: { kind: "linear", x0: x - barW / 2, y0: 0, x1: x + barW / 2, y1: 0, stops: [[0, k.theme.accent], [1, k.theme.accent2]] }, role: "decor" }), { at: 0.55, dur: 0.6, dir: "center" })] });
+      blocks.push({ h: barH, gap: 30 * k.s, make: (y: number) => [wipe(rect({ x: x - barW / 2, y, w: barW, h: barH, r: barH / 2, fill: { kind: "linear", x0: x - barW / 2, y0: 0, x1: x + barW / 2, y1: 0, stops: [[0, k.theme.accent], [1, k.theme.accent2]] }, role: "decor" }), { at: countAt + 0.45, dur: 0.6, dir: "center" })] });
       if (label)
         blocks.push({
           h: label.height,
           gap: 40 * k.s,
-          make: (y: number) => [fadeUp(textNode(k, label, k.region.x, y, k.region.w, { align: "center", color: col(k, k.mode === "overlay" ? "text" : "muted"), on: k.ground, label: "la frase de la cifra", ...(textShadow(k) ? { shadow: textShadow(k)! } : {}) }), { at: 0.42, dist: 28 * k.s })],
+          make: (y: number) => [fadeUp(textNode(k, label, k.region.x, y, k.region.w, { align: "center", color: col(k, k.mode === "overlay" ? "text" : "muted"), on: k.ground, label: "la frase de la cifra", ...(textShadow(k) ? { shadow: textShadow(k)! } : {}) }), { at: countAt + 0.32, dist: 28 * k.s })],
         });
       return stack(k, blocks);
     }),
@@ -85,9 +89,14 @@ export const beforeAfter = defineComponent({
   }),
   example: { from: "2", to: "10", fromLabel: "Antes", toLabel: "Ahora", label: "clientes nuevos por mes" },
   texts: (p) => [p.from, p.to, p.fromLabel, p.toLabel, p.label],
+  cueTexts: (p) => [p.from, p.to],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const x = cx(k);
+      // Con la voz: la cifra de antes aparece al decirla y la de después cuenta hasta su valor cuando se dice.
+      const fromAt = cueAt(k, 0, 0.05);
+      const toAt = cued(k) ? Math.max(fromAt + 0.35, cueAt(k, 1, 0.45, 0.5)) : 0.45;
+      const toDur = cued(k) ? Math.max(0.45, cueAt(k, 1, 0, -0.2) - toAt) : 0.9;
       const big = display(k, 900, -0.045);
       const label = p.label ? fit(k, p.label, body(k, 600), { max: 52 * k.s, min: 32 * k.s, maxW: Math.min(k.region.w, 860 * k.s), maxLines: 2, leading: 1.22 }) : null;
       const gap = (k.vertical ? 64 : 90) * k.s;
@@ -115,19 +124,19 @@ export const beforeAfter = defineComponent({
             const toCx = left + fromW + 2 * gap + arrowW + toW / 2;
             const fromTop = base + (rowH - fromSize) * 0.62;
             const out: Node[] = [];
-            out.push(fadeUp(textNode(k, tagF, fromCx - 300 * k.s, fromTop - tagF.height - 14 * k.s, 600 * k.s, { align: "center", color: col(k, "muted"), on: k.ground }), { at: 0, dist: 16 * k.s }));
-            out.push(fadeUp(counter(k, p.from, { x: fromCx, top: fromTop, size: fromSize, font: big, color: col(k, "muted"), on: k.ground, label: "la cifra de antes" }), { at: 0.05, dist: 30 * k.s }));
+            out.push(fadeUp(textNode(k, tagF, fromCx - 300 * k.s, fromTop - tagF.height - 14 * k.s, 600 * k.s, { align: "center", color: col(k, "muted"), on: k.ground }), { at: Math.max(0, fromAt - 0.05), dist: 16 * k.s }));
+            out.push(fadeUp(counter(k, p.from, { x: fromCx, top: fromTop, size: fromSize, font: big, color: col(k, "muted"), on: k.ground, label: "la cifra de antes" }), { at: fromAt, dist: 30 * k.s }));
             const ay = base + rowH * 0.52;
-            out.push(draw(arrow(k, left + fromW + gap, ay, left + fromW + gap + arrowW, ay, { width: 8 * k.s, bend: -0.12 }), { at: 0.22, dur: 0.5 }));
+            out.push(draw(arrow(k, left + fromW + gap, ay, left + fromW + gap + arrowW, ay, { width: 8 * k.s, bend: -0.12 }), { at: Math.max(fromAt + 0.17, toAt - 0.25), dur: 0.5 }));
             if (k.mode === "full")
-              out.push(fadeIn(ellipse({ cx: toCx, cy: base + rowH * 0.5, rx: toW * 0.9 + 80 * k.s, ry: toSize * 0.9, fill: { kind: "radial", cx: toCx, cy: base + rowH * 0.5, r: toW * 0.9 + 80 * k.s, sy: (toSize * 0.9) / (toW * 0.9 + 80 * k.s), stops: [[0, rgba(k.theme.accent, 0.3)], [1, rgba(k.theme.accent, 0)]] }, role: "decor", overlap: true }), { at: 0.4, dur: 0.8 }));
-            out.push(fadeUp(textNode(k, tagT, toCx - 300 * k.s, y, 600 * k.s, { align: "center", color: col(k, "accent"), on: k.ground }), { at: 0.45, dist: 16 * k.s }));
-            out.push(countUp(pop(counter(k, p.to, { x: toCx, top: base, size: toSize, font: big, color: col(k, "text"), affixColor: col(k, "accent"), on: k.ground, label: "la cifra de después", from: Number(p.from.replace(/[^\d.]/g, "")) || 0, ...(textShadow(k) ? { shadow: textShadow(k)! } : {}) }), { at: 0.42, from: 0.7, dur: 0.7 }), { at: 0.45, dur: 0.9 }));
+              out.push(fadeIn(ellipse({ cx: toCx, cy: base + rowH * 0.5, rx: toW * 0.9 + 80 * k.s, ry: toSize * 0.9, fill: { kind: "radial", cx: toCx, cy: base + rowH * 0.5, r: toW * 0.9 + 80 * k.s, sy: (toSize * 0.9) / (toW * 0.9 + 80 * k.s), stops: [[0, rgba(k.theme.accent, 0.3)], [1, rgba(k.theme.accent, 0)]] }, role: "decor", overlap: true }), { at: toAt - 0.05, dur: 0.8 }));
+            out.push(fadeUp(textNode(k, tagT, toCx - 300 * k.s, y, 600 * k.s, { align: "center", color: col(k, "accent"), on: k.ground }), { at: toAt, dist: 16 * k.s }));
+            out.push(countUp(pop(counter(k, p.to, { x: toCx, top: base, size: toSize, font: big, color: col(k, "text"), affixColor: col(k, "accent"), on: k.ground, label: "la cifra de después", from: Number(p.from.replace(/[^\d.]/g, "")) || 0, ...(textShadow(k) ? { shadow: textShadow(k)! } : {}) }), { at: toAt - 0.03, from: 0.7, dur: 0.7 }), { at: toAt, dur: toDur }));
             return out;
           },
         },
       ];
-      if (label) blocks.push({ h: label.height, gap: 48 * k.s, make: (y: number) => [fadeUp(textNode(k, label, k.region.x, y, k.region.w, { align: "center", color: col(k, k.mode === "overlay" ? "text" : "muted"), on: k.ground }), { at: 0.7, dist: 24 * k.s })] });
+      if (label) blocks.push({ h: label.height, gap: 48 * k.s, make: (y: number) => [fadeUp(textNode(k, label, k.region.x, y, k.region.w, { align: "center", color: col(k, k.mode === "overlay" ? "text" : "muted"), on: k.ground }), { at: toAt + 0.25, dist: 24 * k.s })] });
       const out = stack(k, blocks);
       return { ...out, width: total };
     }),
@@ -146,9 +155,13 @@ export const progress = defineComponent({
   }),
   example: { value: 80, style: "ring", label: "de las ventas llegan por mensaje directo", eyebrow: "Dato" },
   texts: (p) => [`${p.value}%`, p.label, p.eyebrow],
+  cueTexts: (p) => [`${p.value}%`],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const x = cx(k);
+      // Con la voz: se llena y cuenta hasta llegar al porcentaje justo cuando se dice.
+      const fillAt = cued(k) ? cueAt(k, 0, 0.25, 0.7) : 0.25;
+      const fillDur = cued(k) ? Math.max(0.5, cueAt(k, 0, 0, -0.2) - fillAt) : 1.2;
       const pct = Math.round(p.value * 10) / 10;
       const text = `${String(pct).replace(".", ",")}%`;
       const label = p.label ? fit(k, p.label, body(k, 600), { max: 52 * k.s, min: 32 * k.s, maxW: Math.min(k.region.w, 820 * k.s), maxLines: 2, leading: 1.22 }) : null;
@@ -172,7 +185,7 @@ export const progress = defineComponent({
             const arc = ellipse({ cx: x, cy, rx: ringR, stroke: { color: { kind: "linear", x0: x - r, y0: cy - r, x1: x + r, y1: cy + r, stops: [[0, k.theme.accent2], [1, k.theme.accent]] }, width: lw, cap: "round" }, arc: { start: 0, sweep: (360 * Math.max(0.5, pct)) / 100 }, role: "decor", overlap: true });
             const numSize = d * 0.3;
             const num = counter(k, text, { x, top: cy - numSize * 0.52, size: numSize, font: display(k, 900, -0.04), color: col(k, "text"), affixColor: col(k, "accent"), on: k.ground, overlap: true, label: "el porcentaje" });
-            return [fadeIn(glow, { at: 0.2, dur: 0.9 }), pop(track, { at: 0, from: 0.85, bounce: 0.2 }), fill(arc, { at: 0.25, dur: 1.2, ease: "easeInOutExpo" }), countUp(fadeIn(num, { at: 0.2 }), { at: 0.25, dur: 1.2, ease: "easeInOutExpo" })];
+            return [fadeIn(glow, { at: 0.2, dur: 0.9 }), pop(track, { at: 0, from: 0.85, bounce: 0.2 }), fill(arc, { at: fillAt, dur: fillDur, ease: "easeInOutExpo" }), countUp(fadeIn(num, { at: Math.max(0, fillAt - 0.05) }), { at: fillAt, dur: fillDur, ease: "easeInOutExpo" })];
           },
         });
       } else {
@@ -188,7 +201,7 @@ export const progress = defineComponent({
             const by = y + numSize + 30 * k.s;
             const trackN = rect({ x: left, y: by, w, h, r: h / 2, fill: rgba(k.theme.text, k.theme.dark ? 0.1 : 0.1), role: "decor" });
             const bar = rect({ x: left, y: by, w: (w * pct) / 100, h, r: h / 2, fill: { kind: "linear", x0: left, y0: 0, x1: left + w, y1: 0, stops: [[0, k.theme.accent2], [1, k.theme.accent]] }, grow: "right", shadow: { color: rgba(k.theme.accent, 0.5), blur: 30 * k.u }, role: "decor", overlap: true });
-            return [countUp(fadeUp(num, { at: 0, dist: 24 * k.s }), { at: 0.2, dur: 1.1, ease: "easeInOutExpo" }), fadeIn(trackN, { at: 0.05 }), fill(bar, { at: 0.2, dur: 1.1, ease: "easeInOutExpo" })];
+            return [countUp(fadeUp(num, { at: Math.max(0, fillAt - 0.2), dist: 24 * k.s }), { at: fillAt, dur: fillDur, ease: "easeInOutExpo" }), fadeIn(trackN, { at: Math.max(0, fillAt - 0.15) }), fill(bar, { at: fillAt, dur: fillDur, ease: "easeInOutExpo" })];
           },
         });
       }

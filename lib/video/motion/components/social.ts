@@ -25,6 +25,7 @@ export const dmNotification = defineComponent({
   }),
   example: { name: "Laura Gómez", message: "¡Hola! Quiero info del programa", app: "Mensajes", time: "ahora", typing: true, stack: 1 },
   texts: (p) => [p.name, p.message, p.app, p.time],
+  cueTexts: (p) => [p.message],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const th = k.theme;
@@ -120,6 +121,7 @@ export const iconBurst = defineComponent({
   props: z.object({ icon: iconNameSchema, title: req(40), caption: str(70).default("") }),
   example: { icon: "rocket", title: "Lanza en 7 días", caption: "Sin esperar a tenerlo perfecto" },
   texts: (p) => [p.title, p.caption],
+  cueTexts: (p) => [p.title],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const x = cx(k);

@@ -114,6 +114,12 @@ export type EditPlan = {
   moves?: PlanMove[];
   /** Zooms que decidió el director (énfasis o ritmo), si no hay un estilo con sus propios zooms. */
   zoom_moments?: ZoomMoment[];
+  /**
+   * Ritmo (lib/video/rhythm.ts): la densidad elegida para este video y lo que agregó el relleno de ritmo después del
+   * director (punch-ins, gráficos simples, efecto de apertura, resaltados y muletillas), cada cosa con su "por qué".
+   * Sin el campo (planes de antes), la densidad sale del formato.
+   */
+  rhythm?: { density: "sobria" | "normal" | "reels"; added: { kind: "zoom" | "grafico" | "efecto" | "resaltado" | "corte" | "pausas"; from_word: number; to_word: number; why: string }[] };
   /** Lo armó el director de edición (con ojos): ritmo elegido y versión del director. */
   director?: { version: 1; pace: "calm" | "normal" | "fast" };
   /** Pausa máxima que queda entre palabras (la tolerancia de silencios del estilo). Sin estilo, la de TIMING. */

@@ -85,6 +85,12 @@ export const planSchema = z.object({
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
   zoom_moments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300) })).max(60).optional(),
   director: z.object({ version: z.literal(1), pace: z.enum(["calm", "normal", "fast"]) }).optional(),
+  rhythm: z
+    .object({
+      density: z.enum(["sobria", "normal", "reels"]),
+      added: z.array(z.object({ kind: z.enum(["zoom", "grafico", "efecto", "resaltado", "corte", "pausas"]), from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(120),
+    })
+    .optional(),
   pacing: z.object({ long_pause: z.number().min(0.2).max(1.2) }).optional(),
   style_id: z.uuid().nullable().optional(),
   audio: z.object({

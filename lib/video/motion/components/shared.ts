@@ -16,6 +16,11 @@ export type ComponentDef<S extends z.ZodType = z.ZodType> = {
   build: (p: z.output<S>, k: Kit) => Node[];
   /** Textos visibles (para revisar cifras y palabras prohibidas). */
   texts: (p: z.output<S>) => string[];
+  /**
+   * Los elementos que entran con la voz, en orden: el texto de cada uno (para encontrar en qué palabra se dice). Sin
+   * esto, el componente es un solo elemento (su texto principal) y entero se corre a la palabra.
+   */
+  cueTexts?: (p: z.output<S>) => string[];
 };
 
 export function defineComponent<S extends z.ZodType>(def: ComponentDef<S>): ComponentDef<S> {
@@ -61,3 +66,18 @@ export function textShadow(k: Kit): Shadow | undefined {
 }
 
 export const cx = (k: Kit) => k.region.x + k.region.w / 2;
+
+/** Anticipación: el elemento empieza a entrar un poco antes de la palabra, así está a la vista cuando suena. */
+export const CUE_LEAD = 0.12;
+
+/**
+ * Segundo en que entra el elemento `i`: el de su palabra (menos la anticipación) si el componente está sincronizado
+ * con la voz, o el de su reloj fijo (`fallback`).
+ */
+export function cueAt(k: Kit, i: number, fallback: number, lead = CUE_LEAD): number {
+  const c = k.cues?.[i];
+  return c != null && Number.isFinite(c) ? Math.max(0, c - lead) : fallback;
+}
+
+/** true si el componente sigue la voz. */
+export const cued = (k: Kit) => Boolean(k.cues?.length);

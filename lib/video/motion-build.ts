@@ -133,7 +133,8 @@ function layerFromAi(l: MotionLayerAi, i: number, ctx: SceneContext, mode: "full
   if (l.kind === "component") {
     if (!COMPONENT_NAMES.includes(l.component)) return null;
     const region = mode === "full" ? placeRegion(l.place, ctx.format) : undefined;
-    return { type: "component", component: l.component, props: cleanProps(l.component, (l.props ?? {}) as Record<string, unknown>), at: clamp(l.at, 0, 3, 0), scale: clamp(l.scale || 1, 0.6, 1.5, 1), ...(region ? { region } : {}) };
+    const cues = (l.cues ?? []).filter((id) => Number.isInteger(id)).slice(0, 40);
+    return { type: "component", component: l.component, props: cleanProps(l.component, (l.props ?? {}) as Record<string, unknown>), at: clamp(l.at, 0, 3, 0), scale: clamp(l.scale || 1, 0.6, 1.5, 1), ...(region ? { region } : {}), ...(cues.some((id) => id >= 0) ? { cue_words: cues.map((id) => Math.max(-1, id)) } : {}) };
   }
   return primitiveFromAi(l, i);
 }
@@ -159,7 +160,7 @@ export function sceneToAi(scene: MotionScene, title = ""): MotionSceneAi {
     switch (l.type) {
       case "component": {
         const cy = l.region ? l.region.y + l.region.h / 2 : 0.5;
-        layers.push({ kind: "component", component: l.component, at: l.at, scale: l.scale ?? 1, place: !l.region ? "auto" : cy < 0.4 ? "top" : cy > 0.5 ? "bottom" : "auto", props: l.props as Record<string, unknown> });
+        layers.push({ kind: "component", component: l.component, at: l.at, scale: l.scale ?? 1, place: !l.region ? "auto" : cy < 0.4 ? "top" : cy > 0.5 ? "bottom" : "auto", props: l.props as Record<string, unknown>, ...(l.cue_words?.length ? { cues: l.cue_words } : {}) });
         break;
       }
       case "text":

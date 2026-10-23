@@ -15,7 +15,9 @@ import { detectCandidates } from "./candidates";
 import { captionLook, captionTracks, isCaptionStyle } from "./caption-styles";
 import { captionBlocks, hideDuring, toSrt } from "./captions";
 import { brollRenderEdit } from "./broll-edit";
-import { brollCredits, brollSegments, computeZooms, directorZooms } from "./effects";
+import { brollCredits, brollSegments, computeZooms, directorZooms, graphicEntries, graphicHidesCaptions } from "./effects";
+import { fxSegments } from "./fx/compile";
+import { planDensity } from "./rhythm";
 import { cleanFx } from "./fx/schema";
 import { ensureFxMasks, fxForRender } from "./fx-service";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
@@ -28,6 +30,7 @@ import { phraseFixesForRender } from "./phrase-fix-service";
 import { alignScript } from "./script-align";
 import { hookEnd, MUSIC_DB, sfxCues, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
+import type { ZoomMoment } from "./types";
 import type { StyleMetrics } from "./style";
 import { stylePreset } from "./styles";
 import { readEditorDefaults } from "./defaults";
@@ -364,6 +367,11 @@ export type Review = {
   moves?: PlanMove[];
   /** Efectos de la biblioteca tal como quedaron en la revisión. */
   effects?: unknown[];
+  /**
+   * Ritmo elegido en la revisión (lib/video/rhythm.ts): la densidad y lo que el relleno de ritmo dejó en la vista
+   * previa (punch-ins, pausa máxima y palabras resaltadas); los gráficos y efectos que agregó van en broll y effects.
+   */
+  rhythm?: { density: "sobria" | "normal" | "reels"; added: NonNullable<EditPlan["rhythm"]>["added"]; zoomMoments: ZoomMoment[]; longPause: number; emphasis: number[] };
 };
 
 export function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
@@ -397,6 +405,16 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const fx = cleanFx(review.effects, words.length, next.broll.filter((b) => b.choice));
     if (fx.length) next.effects = fx;
     else delete next.effects;
+  }
+  if (review.rhythm) {
+    // Densidad elegida en la revisión: los punch-ins, la pausa máxima y los resaltados que ya se veían en la vista previa.
+    const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < words.length;
+    const zooms = review.rhythm.zoomMoments.filter((z) => valid(z.from_word) && valid(z.to_word) && z.from_word <= z.to_word).slice(0, 60).map((z) => ({ from_word: z.from_word, to_word: z.to_word, scale: Math.max(1, Math.min(1.4, z.scale)), why: String(z.why ?? "").slice(0, 300) }));
+    if (zooms.length) next.zoom_moments = zooms;
+    else delete next.zoom_moments;
+    next.pacing = { long_pause: Math.max(0.2, Math.min(1.2, review.rhythm.longPause)) };
+    next.captions = { ...next.captions, emphasis_words: [...new Set(review.rhythm.emphasis.filter(valid))].slice(0, 40) };
+    next.rhythm = { density: review.rhythm.density, added: review.rhythm.added.filter((a) => valid(a.from_word) && valid(a.to_word)).slice(-120).map((a) => ({ ...a, why: a.why.slice(0, 300) })) };
   }
   if (review.moves) {
     // Solo se pueden quitar bloques movidos (no inventar nuevos desde el navegador).
@@ -489,7 +507,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   const look = brandGraphicLook(brand);
   const broll = await verifiedBroll(brollSegments(timeline, next.broll), look);
   // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea. Tampoco donde el director los ocultó (texto quemado).
-  const graphicSpans = broll.filter((b) => b.option.source === "graphic");
+  const graphicSpans = broll.filter((b) => b.option.source === "graphic" && graphicHidesCaptions(b.option.graphic));
   const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
   // Efectos de la biblioteca: lo que dibuja el worker (el mismo spec que la vista previa); algunos llevan sus propios
   // subtítulos y ninguno lleva zooms del estilo encima (traen su propia cámara).
@@ -522,7 +540,17 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   const captionPayload = capLook ? blocks.map((b) => captionTracks(capLook, b, format, accent)) : null;
   // Efectos de sonido: whoosh al entrar cada b-roll o gráfico, riser hasta el fin del gancho y pop en los emojis.
   const emojiTimes = (captionPayload ?? []).flatMap((b) => b.words.flatMap((w) => (w.emoji ? [w.emoji.alpha[0]?.t ?? b.start] : []))).slice(0, MAX_EMOJIS);
-  const sfx = sfxCues({ level: sfxLevel(next.audio.sfx), duration: timeline.duration, broll, hookEnd: hookEnd(timeline), emojiTimes });
+  // Con la voz: un toque en cada ítem que entra en un gráfico, al empezar cada efecto y en cada punch-in.
+  const sfx = sfxCues({
+    level: sfxLevel(next.audio.sfx),
+    duration: timeline.duration,
+    broll,
+    hookEnd: hookEnd(timeline),
+    emojiTimes,
+    entries: [...graphicEntries(broll), ...fxSegments(timeline, next.effects ?? []).map((f) => f.start)],
+    punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
+    dense: planDensity(next) === "reels",
+  });
   // Música: solo una pista lista de la biblioteca (la clave sale de la base, no del navegador).
   const track = next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
   const music = track?.status === "READY" ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db } : null;

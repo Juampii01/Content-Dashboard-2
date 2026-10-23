@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Clapperboard, Ban, Monitor, Save, Smartphone, Wand2 } from "lucide-react";
+import { Activity, Clapperboard, Ban, Feather, Gauge, Monitor, Save, Smartphone, Wand2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,14 @@ import { saveEditorDefaultsAction } from "./defaults-actions";
 import type { TrackItem } from "./music-manager";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { FX_FREQUENCIES, FX_FREQUENCY_LABELS, FX_GALLERY_ORDER, FX_INFO, type FxFrequency } from "@/lib/video/fx/catalog";
+import { DENSITY_AUTO_LABEL, DENSITY_LABELS, type DensitySetting } from "@/lib/video/rhythm";
+
+const DENSITY_CHOICES: { value: DensitySetting; icon: typeof Gauge; label: string; hint: string }[] = [
+  { value: "auto", icon: Gauge, label: DENSITY_AUTO_LABEL.label, hint: DENSITY_AUTO_LABEL.description },
+  { value: "sobria", icon: Feather, label: DENSITY_LABELS.sobria.label, hint: DENSITY_LABELS.sobria.description },
+  { value: "normal", icon: Activity, label: DENSITY_LABELS.normal.label, hint: DENSITY_LABELS.normal.description },
+  { value: "reels", icon: Zap, label: DENSITY_LABELS.reels.label, hint: DENSITY_LABELS.reels.description },
+];
 
 const CAPTION_OPTIONS = CAPTION_PICKER_ORDER.filter((k): k is DefaultCaptionKey => (DEFAULT_CAPTION_OPTIONS as readonly string[]).includes(k));
 
@@ -92,6 +100,16 @@ export function EditorDefaultsForm({
             </div>
           </fieldset>
         </div>
+
+        <fieldset className="flex flex-col gap-2" disabled={!canEdit}>
+          <legend className="text-sm font-semibold text-white">Ritmo de la edición</legend>
+          <p className="-mt-0.5 mb-1 text-xs text-muted">Cuántas cosas pasan en pantalla: zooms, gráficos, b-roll y efectos, siempre en la palabra que dices.</p>
+          <div role="radiogroup" aria-label="Ritmo de la edición" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {DENSITY_CHOICES.map((c) => (
+              <Choice key={c.value} checked={d.density === c.value} onClick={() => set({ density: c.value })} icon={<c.icon className="h-5 w-5" aria-hidden />} label={c.label} hint={c.hint} />
+            ))}
+          </div>
+        </fieldset>
 
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -212,7 +230,7 @@ function Choice({ checked, onClick, icon, label, hint }: { checked: boolean; onC
       role="radio"
       aria-checked={checked}
       onClick={onClick}
-      className={cn("flex items-center gap-3 rounded-2xl border p-3.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60", checked ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
+      className={cn("flex items-start gap-3 rounded-2xl border p-3.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60", checked ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
     >
       <span className="tile-icon h-10 w-10 flex-none">{icon}</span>
       <span className="min-w-0">

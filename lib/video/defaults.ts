@@ -17,6 +17,7 @@ import { STUDIO_LEVEL_LABELS, STUDIO_LEVELS, type StudioLevel } from "./studio-a
 import type { CaptionPresetKey, VideoFormat } from "./types";
 import { FX_FREQUENCY_LABELS } from "./fx/catalog";
 import { FX_FACTORY, fxSettingsSchema, readFxSettings, type FxSettings } from "./fx/schema";
+import { DENSITY_AUTO_LABEL, DENSITY_LABELS, DENSITY_SETTINGS, type DensitySetting } from "./rhythm";
 
 /** Estilos que sirven de valor por defecto: "Del estilo" necesita un video de referencia. */
 export const DEFAULT_CAPTION_OPTIONS = [...CAPTION_STYLE_KEYS, "clasico", "pop", "ninguno"] as const satisfies readonly CaptionPresetKey[];
@@ -34,6 +35,8 @@ export const editorDefaultsSchema = z.object({
   format: z.enum(["9:16", "16:9"]),
   /** Efectos de la biblioteca: cuáles puede elegir el director y con qué frecuencia. */
   effects: fxSettingsSchema,
+  /** Ritmo de la edición (lib/video/rhythm.ts): "auto" = Editor de reels en vertical y Normal en horizontal. */
+  density: z.enum(DENSITY_SETTINGS),
 });
 
 export type EditorDefaults = {
@@ -45,6 +48,7 @@ export type EditorDefaults = {
   broll: "auto" | "off";
   format: VideoFormat;
   effects: FxSettings;
+  density: DensitySetting;
 };
 
 /** Lo que sale si la persona nunca tocó nada: lo mismo que ya proponía el editor (Caja, Sutil, Suave, con b-roll). */
@@ -57,6 +61,7 @@ export const FACTORY_DEFAULTS: EditorDefaults = {
   broll: "auto",
   format: "9:16",
   effects: FX_FACTORY,
+  density: "auto",
 };
 
 const isCaption = (v: unknown): v is DefaultCaptionKey => typeof v === "string" && (DEFAULT_CAPTION_OPTIONS as readonly string[]).includes(v);
@@ -87,6 +92,7 @@ export function readEditorDefaults(brand: { editorDefaults?: unknown; subtitlePr
     broll: pick("broll"),
     format: pick("format"),
     effects: raw.effects ? readFxSettings(raw.effects) : { ...FX_FACTORY, allowed: [...FX_FACTORY.allowed] },
+    density: pick("density"),
   };
 }
 
@@ -104,6 +110,7 @@ export function summarizeDefaults(d: EditorDefaults, musicTitle: string | null):
     d.sfx === "off" ? "sin efectos" : `efectos ${SFX_LEVEL_LABELS[d.sfx].label}`,
     d.music.trackId && musicTitle ? `música «${musicTitle}»` : "sin música",
     d.effects.frequency === "ninguno" || !d.effects.allowed.length ? "sin efectos de firma" : `efectos de firma: ${FX_FREQUENCY_LABELS[d.effects.frequency].label.toLowerCase()}`,
+    `ritmo ${d.density === "auto" ? DENSITY_AUTO_LABEL.label.toLowerCase() : DENSITY_LABELS[d.density].label}`,
   ];
   return `Con tus valores por defecto: ${parts.join(", ")}.`;
 }

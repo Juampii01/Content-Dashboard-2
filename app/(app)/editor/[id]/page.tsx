@@ -12,6 +12,7 @@ import { getProject } from "@/lib/dal/video";
 import { getFxContext } from "@/lib/dal/video-fx";
 import { fileDriver } from "@/lib/storage";
 import { brandGraphicLook } from "@/lib/video/graphics";
+import { readEditorDefaults } from "@/lib/video/defaults";
 
 export const metadata: Metadata = { title: "Video" };
 
@@ -46,6 +47,10 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
       }}
       signedBroll={signed}
       fxContext={fxContext}
+      rhythmFx={(() => {
+        const fx = readEditorDefaults(brand).effects;
+        return fx.frequency === "ninguno" ? [] : fx.allowed;
+      })()}
       graphicLook={brandGraphicLook(brand)}
       tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url }))}
       style={

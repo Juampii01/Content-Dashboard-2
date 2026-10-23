@@ -6,7 +6,7 @@ import { draw, fadeIn, fadeUp, pop, wipe, zoomIn } from "../animate";
 import { body, brushUnderline, col, display, eyebrow, fit, rect, rgba, textNode, type Fit, type Kit } from "../kit";
 import type { Node, TextNode } from "../nodes";
 import { matchWords, placeLines, placeWords } from "../text";
-import { cx, defineComponent, fitToRegion, req, stack, str, textShadow, type Block } from "./shared";
+import { cueAt, cued, cx, defineComponent, fitToRegion, req, stack, str, textShadow, type Block } from "./shared";
 
 /** Una palabra suelta como nodo de texto (para animar palabra por palabra). */
 function wordNode(f: Fit, text: string, x: number, baseline: number, w: number, top: number, color: string, on: string, k: Kit): TextNode {
@@ -50,6 +50,8 @@ export const quote = defineComponent({
   props: z.object({ text: req(120), highlight: str(48).default(""), author: str(40).default("") }),
   example: { text: "El problema no es el anuncio, es lo que pasa después del clic", highlight: "después del clic", author: "" },
   texts: (p) => [p.text, p.highlight, p.author],
+  /** Palabra por palabra: cada una aparece cuando se dice. */
+  cueTexts: (p) => p.text.split(/\s+/).filter(Boolean),
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const x0 = k.region.x;
@@ -79,7 +81,8 @@ export const quote = defineComponent({
               p.highlight,
             );
             const step = Math.max(0.045, Math.min(0.13, (k.duration * 0.38) / Math.max(1, words.length)));
-            const out: Node[] = words.map((wd, i) => fadeUp(wordNode(f, wd.text, wd.x, wd.baseline, wd.w, wd.top, col(k, "text"), k.ground, k), { at: 0.15 + i * step, dur: 0.5, dist: 26 * k.s }));
+            const wordAt = (i: number) => cueAt(k, i, 0.15 + i * step, 0.08);
+            const out: Node[] = words.map((wd, i) => fadeUp(wordNode(f, wd.text, wd.x, wd.baseline, wd.w, wd.top, col(k, "text"), k.ground, k), { at: wordAt(i), dur: cued(k) ? 0.35 : 0.5, dist: 26 * k.s }));
             // Tramos resaltados: el marcador barre cuando terminó de entrar su última palabra.
             const runs: { x0: number; x1: number; baseline: number; text: string; last: number }[] = [];
             for (const wd of words) {
@@ -91,8 +94,9 @@ export const quote = defineComponent({
                 prev.last = wd.index;
               } else runs.push({ x0: wd.x, x1: wd.x + wd.w, baseline: wd.baseline, text: wd.text, last: wd.index });
             }
+            // Con la voz, cada tramo resaltado se marca cuando se dice su última palabra.
             const markAt = 0.15 + (words.length - 1) * step + 0.3;
-            runs.forEach((r, i) => out.push(...markerRun(k, f, r, markAt + i * 0.22)));
+            runs.forEach((r, i) => out.push(...markerRun(k, f, r, cued(k) ? wordAt(r.last) + 0.2 : markAt + i * 0.22)));
             return out;
           },
         },
@@ -108,6 +112,7 @@ export const keyword = defineComponent({
   props: z.object({ text: req(28), label: str(48).default(""), emphasis: z.enum(["marker", "underline"]).default("marker") }),
   example: { text: "Seguimiento", label: "La clave", emphasis: "marker" },
   texts: (p) => [p.text, p.label],
+  cueTexts: (p) => [p.text],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const font = display(k, 900, -0.035);
@@ -125,9 +130,10 @@ export const keyword = defineComponent({
           const lines = placeLines(f, k.region.x, y, k.region.w, "center");
           const out: Node[] = [];
           const main = textNode(k, f, k.region.x, y, k.region.w, { align: "center", color: col(k, "text"), on: k.ground, label: "la palabra clave", ...(textShadow(k) ? { shadow: textShadow(k)! } : {}) });
-          out.push(zoomIn(main, { at: 0.05, dur: 0.75, from: 1.16 }));
+          // Con la voz: la palabra entra un poco antes de decirla y el marcador la barre cuando suena.
+          out.push(zoomIn(main, { at: cued(k) ? cueAt(k, 0, 0.05, 0.4) : 0.05, dur: 0.75, from: 1.16 }));
           lines.forEach((l, i) => {
-            const at = 0.5 + i * 0.16;
+            const at = cued(k) ? cueAt(k, 0, 0, 0) + i * 0.16 : 0.5 + i * 0.16;
             if (p.emphasis === "underline") {
               out.push(draw(brushUnderline(k, l.x - f.size * 0.04, l.x + l.w + f.size * 0.04, l.baseline + f.size * 0.17, { width: Math.max(6, f.size * 0.085) }), { at, dur: 0.55 }));
             } else out.push(...markerRun(k, f, { x0: l.x, x1: l.x + l.w, baseline: l.baseline, text: l.text }, at));

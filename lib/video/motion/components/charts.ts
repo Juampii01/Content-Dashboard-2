@@ -7,7 +7,7 @@ import { countUp, draw, fadeIn, fadeUp, fill, pop, pulse, wipe } from "../animat
 import { body, col, counter, counterWidth, display, ellipse, fit, inkOn, mix, path, rect, rgba, textNode, type Kit } from "../kit";
 import type { Node } from "../nodes";
 import { smoothThrough } from "../path";
-import { cx, defineComponent, fitToRegion, req, stack, str, textShadow, type Block } from "./shared";
+import { cueAt, cued, cx, defineComponent, fitToRegion, req, stack, str, textShadow, type Block } from "./shared";
 
 const titleOf = (k: Kit, title: string, w: number): Block | null => {
   if (!title) return null;
@@ -53,6 +53,7 @@ export const funnel = defineComponent({
   }),
   example: { title: "", levels: [{ label: "Seguidores", value: "10K" }, { label: "Conversaciones", value: "300" }, { label: "Llamadas", value: "40" }, { label: "Clientes", value: "12" }] },
   texts: (p) => [p.title, ...p.levels.flatMap((l) => [l.label, l.value])],
+  cueTexts: (p) => p.levels.map((l) => `${l.label} ${l.value}`.trim()),
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const n = p.levels.length;
@@ -89,7 +90,7 @@ export const funnel = defineComponent({
             const color = mix(mix(k.theme.surface, k.theme.accent, 0.45), k.theme.accent, t);
             const shell = path(d, { fill: rgba(k.theme.text, k.theme.dark ? 0.06 : 0.05), stroke: { color: rgba(k.theme.text, k.theme.dark ? 0.14 : 0.12), width: Math.max(1, 1.5 * k.u) }, role: "card", label: `el nivel ${i + 1}` });
             const liquid = path(d, { fill: { kind: "linear", x0: 0, y0: top, x1: 0, y1: bot, stops: [[0, mix(color, "#ffffff", 0.12)], [1, color]] }, role: "card", overlap: true, ...(i === n - 1 ? { shadow: { color: rgba(k.theme.accent, 0.5), blur: 50 * k.u, y: 14 * k.u } } : {}) });
-            const at = flowAt + i * each;
+            const at = cueAt(k, i, flowAt + i * each, each * 0.5);
             out.push(fadeUp(shell, { at: 0.05 + i * 0.07, dist: 24 * k.s }), wipe(liquid, { at, dur: each * 1.05, dir: "down", ease: "easeInOut" }));
             const ink = inkOn(k, color);
             const inner = Math.min(wt, wb) - 60 * k.s;
@@ -129,6 +130,7 @@ export const barChart = defineComponent({
   }),
   example: { title: "Clientes por mes", bars: [{ label: "Ene", value: 2 }, { label: "Feb", value: 3 }, { label: "Mar", value: 5 }, { label: "Abr", value: 10 }], prefix: "", suffix: "", highlight: -1 },
   texts: (p) => [p.title, ...p.bars.flatMap((b) => [b.label, `${p.prefix}${fmtNum(b.value)}${p.suffix}`])],
+  cueTexts: (p) => p.bars.map((b) => `${b.label} ${fmtNum(b.value)}`.trim()),
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const n = p.bars.length;
@@ -163,7 +165,7 @@ export const barChart = defineComponent({
             const bx = x0 + i * (barW + gap);
             const h = Math.max(6 * k.s, (chartH * b.value) / max);
             const strong = i === hi;
-            const at = 0.3 + i * each;
+            const at = cueAt(k, i, 0.3 + i * each, 0.35);
             const bar = rect({
               x: bx,
               y: base - h,
@@ -213,6 +215,7 @@ export const lineChart = defineComponent({
   }),
   example: { title: "Seguidores", points: [1, 1.2, 1.1, 1.8, 2.4, 2.2, 3.6, 5, 7.5, 10], value: "10K", startLabel: "Enero", endLabel: "Hoy" },
   texts: (p) => [p.title, p.value, p.startLabel, p.endLabel],
+  cueTexts: (p) => [p.value || p.endLabel || p.title],
   build: (p, k0) =>
     fitToRegion(k0, (k) => {
       const w = Math.min(k.region.w * (k.vertical ? 0.86 : 1), (k.vertical ? 900 : 1300) * k.s);
@@ -223,7 +226,8 @@ export const lineChart = defineComponent({
       const blocks: Block[] = [];
       const tb = titleOf(k, p.title, w);
       if (tb) blocks.push(tb);
-      const lineDur = Math.max(0.9, Math.min(1.8, k.duration * 0.45));
+      // Con la voz, la línea llega a su punto final cuando se dice la cifra.
+      const lineDur = cued(k) ? Math.max(0.6, cueAt(k, 0, 0, 0.1) - 0.25) : Math.max(0.9, Math.min(1.8, k.duration * 0.45));
       blocks.push({
         h: tagH + 30 * k.s + chartH + labelsH,
         gap: 40 * k.s,

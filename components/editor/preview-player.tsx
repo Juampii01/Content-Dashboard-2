@@ -16,6 +16,7 @@ import { usePrefersReducedMotion } from "@/components/ui/hooks";
 import { FX_INFO, type FxSpec } from "@/lib/video/fx";
 import { CaptionOverlay } from "./caption-overlay";
 import { GraphicCanvas } from "./graphic-canvas";
+import { graphicHidesCaptions } from "@/lib/video/effects";
 
 export type PreviewHandle = {
   /** Salta a un instante del video final y, si se pide, reproduce. */
@@ -39,7 +40,7 @@ export type PreviewBroll = {
 
 /** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
 export function zoomAt(zooms: OutputZoom[], t: number): number {
-  const z = zooms.find((x) => t >= x.start && t <= x.end);
+  const z = zooms.find((x) => t >= x.start && t < x.end);
   if (!z) return 1;
   return 1 + (z.scale - 1) * (z.ramp > 0 ? Math.min(1, (t - z.start) / z.ramp) : 1);
 }
@@ -63,6 +64,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   offsetX: number;
   /** Se llama ~10 veces por segundo con el instante del original (para resaltar la palabra en el texto). */
   onSourceTime?: (t: number | null) => void;
+  /** Segundo del video final (también en pausa, al saltar): lo usa la línea de tiempo del ritmo. */
+  onOutputTime?: (t: number) => void;
   captionStyle?: CaptionStyle | null;
   /** Diseño de un estilo de la galería de subtítulos (lib/video/caption-styles.ts). */
   captionLook?: CaptionLook | null;
@@ -92,6 +95,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     sourceHeight,
     offsetX,
     onSourceTime,
+    onOutputTime,
     captionStyle = null,
     captionLook = null,
     broll = [],
@@ -142,6 +146,10 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     return () => observer.disconnect();
   }, []);
 
+  const outputCb = useRef(onOutputTime);
+  useEffect(() => {
+    outputCb.current = onOutputTime;
+  }, [onOutputTime]);
   const seekOutput = useCallback((target: number, play = false) => {
     const v = video.current;
     const list = clipsRef.current;
@@ -150,6 +158,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     clipIndex.current = i;
     v.currentTime = source;
     setOut(Math.max(0, target));
+    outputCb.current?.(Math.max(0, target));
     if (play) void v.play().catch(() => undefined);
   }, []);
 
@@ -191,6 +200,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
       if (onSourceTime && now - lastReport.current > 100) {
         lastReport.current = now;
         onSourceTime(t);
+        outputCb.current?.(o);
       }
     }
     raf.current = requestAnimationFrame(tick);
@@ -250,8 +260,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
 
   const activeBroll = broll.find((b) => out >= b.start && out < b.end) ?? null;
   const activeFx = activeBroll ? null : (effects.find((e) => out >= e.start && out < e.end) ?? null);
-  // Igual que el render: durante un gráfico no se muestran subtítulos.
-  const block = useMemo(() => (activeBroll?.graphic ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, activeBroll]);
+  // Igual que el render: durante un gráfico no se muestran subtítulos (salvo una palabra clave arriba).
+  const block = useMemo(() => (activeBroll?.graphic && graphicHidesCaptions(activeBroll.graphic) ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, activeBroll]);
   const pct = duration ? (out / duration) * 100 : 0;
   const zoom = zoomAt(zooms, out);
   const brollVideo = useRef<HTMLVideoElement>(null);

@@ -20,7 +20,7 @@ export type SfxName = "whoosh" | "pop" | "riser";
 
 export const SFX_LEVEL_LABELS: Record<SfxLevel, { label: string; description: string }> = {
   off: { label: "Sin efectos", description: "Solo tu voz (y la música, si eliges una)." },
-  subtle: { label: "Sutil", description: "Un whoosh suave cuando entra un b-roll o un gráfico." },
+  subtle: { label: "Sutil", description: "Un whoosh suave cuando entra un b-roll o un gráfico (y, con ritmo Editor de reels, un toque suave en cada cosa que entra)." },
   strong: { label: "Marcado", description: "Whoosh más presente, un pop en cada emoji y un riser antes de que termine el gancho." },
 };
 
@@ -68,6 +68,12 @@ export function sfxCues(input: {
   broll: Pick<OutputBroll, "start" | "end">[];
   hookEnd?: number | null;
   emojiTimes?: number[];
+  /** Entradas sincronizadas con la voz: cada ítem de un gráfico, cada efecto y cada punch-in (pop en su palabra). */
+  entries?: number[];
+  /** Punch-ins (whoosh corto). */
+  punches?: number[];
+  /** Ritmo "Editor de reels": las entradas suenan también en "Sutil". */
+  dense?: boolean;
 }): SfxCue[] {
   if (input.level === "off" || input.duration <= 0) return [];
   const gains = GAINS[input.level];
@@ -75,6 +81,12 @@ export function sfxCues(input: {
   for (const b of input.broll) wanted.push({ name: "whoosh", hitAt: b.start });
   if (input.hookEnd != null && input.hookEnd > SFX_FILES.riser.duration * 0.6) wanted.push({ name: "riser", hitAt: input.hookEnd });
   for (const t of input.emojiTimes ?? []) wanted.push({ name: "pop", hitAt: t });
+  const entryGain = input.level === "strong" ? -14 : input.dense ? -20 : null;
+  const extra: { name: SfxName; hitAt: number; gain: number }[] = [];
+  if (entryGain != null) {
+    for (const t of input.entries ?? []) extra.push({ name: "pop", hitAt: t, gain: entryGain });
+    for (const t of input.punches ?? []) extra.push({ name: "whoosh", hitAt: t, gain: entryGain - 4 });
+  }
 
   const cues: SfxCue[] = [];
   // Primero los más importantes (whoosh y riser) y en orden de tiempo; los pop solo si no chocan con nada.
@@ -89,6 +101,16 @@ export function sfxCues(input: {
     if (cues.some((c) => Math.abs(c.at + SFX_FILES[c.name].hit - hit) < MIN_GAP)) continue;
     cues.push({ name: w.name, at, gain });
     if (cues.length >= MAX_CUES) break;
+  }
+  // Las entradas sincronizadas, en la palabra exacta, mientras no choquen con otro sonido.
+  for (const w of extra.sort((a, b) => a.hitAt - b.hitAt)) {
+    if (cues.length >= MAX_CUES) break;
+    const file = SFX_FILES[w.name];
+    const at = Math.round(Math.max(0, w.hitAt - file.hit) * 1000) / 1000;
+    if (at + Math.min(file.duration, 0.2) > input.duration) continue;
+    const hit = at + file.hit;
+    if (cues.some((c) => Math.abs(c.at + SFX_FILES[c.name].hit - hit) < MIN_GAP)) continue;
+    cues.push({ name: w.name, at, gain: w.gain });
   }
   return cues.sort((a, b) => a.at - b.at);
 }

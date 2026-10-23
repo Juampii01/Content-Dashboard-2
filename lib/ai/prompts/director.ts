@@ -30,8 +30,9 @@ QUÉ ENTREGAS: un mapa del video que va a usar el editor.
 4. bad_takes: tomas malas que conviene cortar o tapar: fuera de cuadro, mirando a otro lado, borroso, a contraluz, muy oscuro, cámara movida, toma repetida. Solo si se ve en los cuadros o en las medidas. No inventes problemas: un video bien grabado puede no tener ninguno.
 5. on_screen_text: texto que ya está quemado en el video (rótulos, precios, subtítulos propios) con su franja (arriba, centro, abajo). Sirve para no poner subtítulos encima.
 6. beats: la historia en partes, con rangos de palabras (from_word, to_word): gancho, problema, promesa, punto clave, prueba, cifra, objeción, oferta, CTA, historia. Cubre el video de punta a punta en orden, sin superponer.
-7. figures: las cifras que se dicen (tal cual). promise, objection, cta: en una frase cada uno, o vacío si no hay.
-8. brief: lo que infieres del objetivo (goal: anuncio, educar, vender, historia, otro), para quién es (audience), la llamada a la acción (cta) y algo que no se puede cortar (must_keep). Si la persona ya escribió su brief, igual infiere el tuyo: se muestra al lado.
+7. figures: las cifras que se dicen (tal cual). promise, objection, cta: en una frase cada uno, o vacío si no hay. La cta es la que DICE la persona en el video (con sus palabras), no la de la marca.
+8. brief: lo que infieres del objetivo (goal: anuncio, educar, vender, historia, otro), para quién es (audience), la llamada a la acción que se dice en el video (cta, nunca la de la marca) y algo que no se puede cortar (must_keep).
+9. En shots, un gesto importante es un instante: márcalo con su segundo exacto (from_s y to_s a menos de 1,5 s), no un tramo largo. Un plano a cámara no es important. Si la persona ya escribió su brief, igual infiere el tuyo: se muestra al lado.
 
 REGLAS
 - Los segundos salen de las marcas de tiempo de los cuadros y de la tabla; los rangos de palabras, de la transcripción. Usa solo ids que existan.
@@ -116,12 +117,20 @@ QUÉ DECIDES
 2. hooks: 1 a 3 ganchos (3 a 8 s, frases completas que se entienden solas, sin contexto previo), el mejor primero. El primero se usa. Si el video ya abre bien, ese va primero.
 3. moves: solo si mejora la retención sin cambiar el sentido (por ejemplo, la prueba fuerte antes de la explicación). Bloques de frases completas; after_word es la última palabra después de la que va el bloque (-1 = al principio, después del gancho). Máximo 2. Casi siempre vacío.
 4. emphasis_words: hasta 8 palabras para resaltar en los subtítulos (cifras, resultados, la idea central).
-5. zooms: énfasis de cámara en momentos clave (una cifra, la frase central, un remate). strength "suave" o "marcado". Nunca durante un b-roll. Uno cada 5 a 10 s como mucho.
-6. broll: dónde se tapa al creador por unos segundos mientras su voz sigue. "graphic" para lo conceptual (cifras dichas, listas, contrastes, procesos, ideas clave) y "stock" para lo concreto que se puede mostrar. Donde sume al sentido, NUNCA encima de un shot important del mapa (producto, pantalla, gesto), del gancho ni de la CTA. Cada tramo empieza y termina en palabras de la misma frase y dura lo pedido.
+5. zooms: punch-ins y cambios de encuadre en la palabra fuerte de la frase (una cifra, una negación, el verbo, la palabra clave, un remate). strength "suave" o "marcado" (ver RITMO: alterna). Nunca durante un b-roll. La cantidad y la separación las fija la DENSIDAD.
+6. broll: dónde se tapa al creador por unos segundos mientras su voz sigue. "graphic" para lo conceptual (cifras dichas, listas, contrastes, procesos, ideas clave) y "stock" para lo concreto que se puede mostrar. Nunca encima de lo que se muestra (producto, pantalla). Lo que tapa a la persona (stock y gráficos "full") no va en el gancho ni en la última frase de la CTA; los gráficos "overlay" (palabra clave, frase, notificación) sí pueden ir en el gancho y en la CTA: la refuerzan. Un gráfico empieza cuando se empieza a decir lo que muestra y dura hasta que se dijo su último elemento (una lista de tres errores dura lo que tardas en decir los tres).
 7. caption_hide: tramos donde los subtítulos irían encima de un texto ya quemado en la misma franja (ver TEXTO EN PANTALLA): ahí se ocultan.
 8. pace: "calm" (pausas de hasta 0,7 s), "normal" (0,5 s) o "fast" (0,3 s).
-9. effects: efectos de firma de la biblioteca (ver EFECTOS DE FIRMA) donde suman: la apertura, una lista, un dato, un giro. Respeta EFECTOS PERMITIDOS.
+9. effects: efectos de firma de la biblioteca (ver EFECTOS DE FIRMA) donde suman: la apertura (el gancho admite efectos sobre la persona: cover_story, digital_zoom, glass_type), una lista, un dato, un giro, la CTA. Respeta EFECTOS PERMITIDOS.
 10. variants: 0 a 2 versiones para probar (otro gancho u otra duración: 15, 30 o 60 s), con los cortes extra que hacen falta. Solo si el material lo permite y tiene sentido para el objetivo.
+
+RITMO: PIENSA COMO UN EDITOR DE REELS
+- Cada beat de la historia tiene su recurso visual: el gancho, el problema, cada punto, la cifra, el contraste, la CTA. Ningún tramo largo se queda solo con la cara sin que pase nada.
+- La DENSIDAD de la tarea fija cada cuánto tiene que cambiar algo en pantalla y cada cuánto va un b-roll, gráfico o efecto. Cúmplela: si el video es de una persona a cámara, tu trabajo es justamente que no se sienta plano.
+- Alterna recursos: nunca el mismo componente ni el mismo efecto dos veces seguidas; alterna pantalla completa y sobre el video; alterna la fuerza de los zooms (suave, marcado, suave…) para que el encuadre cambie de frase en frase.
+- La apertura y el cierre van con más intensidad (efecto de firma o gráfico en el gancho, algo que refuerce la CTA).
+- Todo sincronizado con la voz: cada cosa empieza en la palabra en que se dice (el zoom en la palabra fuerte, el ítem de la lista cuando lo dices, la cifra cuando la dices). En los gráficos, marca "cues" (ver motion graphics).
+- La CTA es la que se DICE en el video. Si el brief o la marca traen otra, manda la que se dice: no lo marques como problema ni lo repitas en warning.
 
 REGLAS DURAS
 - Nunca cortes lo que el brief dice que no se puede cortar (DEBE QUEDAR) ni la oferta o la CTA de un anuncio.
@@ -315,6 +324,10 @@ export type DirectorTaskInput = {
   lessons: string;
   /** Efectos permitidos en este video (Mi marca) y cuántos. */
   effects: string;
+  /** Densidad de ritmo y sus objetivos. */
+  rhythm: string;
+  /** Lo que pidió la persona y no se puede deshacer (al corregir). */
+  locks?: string;
   /** Al corregir: el plan actual y lo que hay que cambiar. */
   revise?: { plan: string; issues: string; instruction: string | null } | null;
 };
@@ -329,7 +342,8 @@ DATOS
 - Clips propios del creador (etiquetas): ${b.libraryTags.length ? b.libraryTags.slice(0, 60).join(", ") : "(no tiene)"}
 ${input.forbidden}
 - ${input.effects}
-
+- ${input.rhythm}
+${input.locks ? `\n${input.locks}\n` : ""}
 BRIEF
 ${input.brief}
 
@@ -384,6 +398,9 @@ CÓMO RESPONDES
 - Cada problema con su cuadro (frame, el #n de las hojas de revisión), su gravedad (alta: se nota y molesta; media: se nota; baja: detalle), una nota corta y "fix": qué tiene que hacer el editor, dicho como un pedido concreto ("Quita el gráfico 2: tapa el panel del producto").
 - Las VERIFICACIONES AUTOMÁTICAS ya encontraron algunos problemas medibles: confírmalos si los ves en los cuadros (repítelos en issues) o descártalos si no son un problema real. No repitas dos veces el mismo.
 - Sé exigente pero justo: no inventes problemas para llenar la lista. Un buen video puede tener 0 problemas.
+- Lo que pidió la persona (PEDIDO DE LA PERSONA) y la densidad elegida son obligatorios: nunca pidas quitar un efecto o gráfico pedido, bajar el ritmo, alargar las pausas ni "calmar" la edición. Sobre eso solo marcas problemas técnicos (una frase cortada, algo que tapa el producto o la pantalla, texto encima de texto).
+- Tapar por momentos a la persona que habla a cámara (con un efecto, un gráfico o un b-roll) no es un problema: es edición. Solo es "tapa_importante" si tapa algo que se muestra (producto, pantalla, una cifra escrita).
+- ritmo: con la densidad "Editor de reels", lo malo es lo lento (un tramo largo sin cambios), no lo rápido. Usa el RITMO MEDIDO.
 ${IDIOMA}`;
 
 export const criticWireSchema = z.object({
@@ -393,14 +410,14 @@ export const criticWireSchema = z.object({
 });
 export type CriticWire = z.infer<typeof criticWireSchema>;
 
-export function criticTask(input: { round: number; brief: string; map: string; plan: string; frames: string; checks: string; duration: number; final?: boolean }): string {
+export function criticTask(input: { round: number; brief: string; map: string; plan: string; frames: string; checks: string; duration: number; final?: boolean; rhythm?: string; locks?: string }): string {
   return `${input.final ? "Revisa el video final ya exportado." : `Revisa esta edición antes de exportar (vuelta ${input.round}).`}
 
 - Duración final: ${input.duration.toFixed(1)} s
 
 BRIEF
 ${input.brief}
-
+${input.locks ? `\n${input.locks}\n` : ""}${input.rhythm ? `\nRITMO MEDIDO\n${input.rhythm}\n` : ""}
 MAPA DEL VIDEO ORIGINAL
 ${input.map}
 

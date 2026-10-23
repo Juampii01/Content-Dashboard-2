@@ -32,6 +32,13 @@ const layerBase = {
   rotation: z.number().min(-360).max(360).optional(),
   animate: z.array(behaviorSchema).max(12).default([]),
   tracks: tracksSchema.optional(),
+  /**
+   * Sincronía con la voz: la palabra (id de la transcripción) en la que entra la capa y, ya resuelto para el tramo, el
+   * segundo de la escena en que se dice. Con `cue`, las animaciones de la capa se corren para que la primera arranque
+   * ahí (manteniendo su orden).
+   */
+  cue_word: z.number().int().min(-1).optional(),
+  cue: z.number().min(0).max(30).optional(),
 };
 
 export const rectLayer = z.object({
@@ -152,6 +159,14 @@ export const componentLayer = z.object({
   region: z.object({ x: frac, y: frac, w: frac, h: frac }).optional(),
   /** Tamaño respecto del normal (1). Si no entra en su caja, el componente igual se achica. */
   scale: z.number().min(0.5).max(1.6).default(1),
+  /**
+   * Sincronía con la voz, por elemento (ítem de una lista, paso, barra, cifra, palabra de una frase; ver `cueTexts` de
+   * cada componente): `cue_words` son los ids de palabra en que se dice cada uno (-1 = no se sabe) y `cues`, ya
+   * resueltos para el tramo, los segundos de la escena. Con `cues`, el componente anima cada elemento en su segundo
+   * en lugar de su reloj fijo.
+   */
+  cue_words: z.array(z.number().int().min(-1)).max(40).optional(),
+  cues: z.array(z.number().min(0).max(30)).max(40).optional(),
 });
 
 export type PrimitiveLayer =
@@ -174,6 +189,8 @@ export type GroupLayer = {
   rotation?: number;
   animate: z.infer<typeof behaviorSchema>[];
   tracks?: z.infer<typeof tracksSchema>;
+  cue_word?: number;
+  cue?: number;
   children: PrimitiveLayer[];
   clip?: { x: number; y: number; w: number; h: number; radius: number };
 };

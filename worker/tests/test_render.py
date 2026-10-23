@@ -105,7 +105,7 @@ def test_vertical_to_horizontal_uses_blurred_background() -> None:
 def test_zoom_expression_is_piecewise_and_capped() -> None:
     expr = render.zoom_expr([{"start": 1, "end": 2, "scale": 1.1}, {"start": 3, "end": 4, "scale": 2.0, "ramp": 0.25}, {"start": 3.5, "end": 5, "scale": 1.2}])
     assert expr is not None and expr.startswith("1+")
-    assert "between(it,1.000,2.000)*0.1000" in expr
+    assert "gte(it,1.000)*lt(it,2.000)*0.1000" in expr
     assert f"*{render.MAX_ZOOM - 1:.4f}*min(1,(it-3.000)/0.250)" in expr  # escala con tope y rampa
     assert "3.500" not in expr  # el tramo que se superpone se descarta
     assert render.zoom_expr([]) is None

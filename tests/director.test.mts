@@ -21,6 +21,9 @@ import { diffPlans } from "../lib/video/director/diff";
 import { keyFrames } from "../lib/video/director/keyframes";
 import { mapFromMeasures, mapFromWire, mustKeepRanges } from "../lib/video/director/map";
 import { mapToWire, simulateCritic, simulateDirector } from "../lib/video/director/simulate";
+import { planText } from "../lib/video/director/context";
+import { FX_KINDS } from "../lib/video/fx/catalog";
+import { fxLimits } from "../lib/video/fx/director";
 import { effectiveBrief, EMPTY_BRIEF, type Eyes, type EyesSample, type EyesTramo } from "../lib/video/director/types";
 
 /** Palabras con duración fija; "|" agrega una pausa de 0.6 s. */
@@ -359,5 +362,52 @@ describe("Edítalo así (simulador) y qué cambió", () => {
   test("qué cambió: nada → lo dice", () => {
     const p = planFromDirector(sim(null), input()).plan;
     assert.deepEqual(diffPlans(p, p, words, duration), ["No hizo falta cambiar nada."]);
+  });
+});
+
+describe("efectos de firma en el director", () => {
+  const brief = { ...EMPTY_BRIEF, goal: "educar" as const };
+  const limits = fxLimits({ allowed: [...FX_KINDS], frequency: "muchos" }, duration);
+  const sim = (instruction: string | null, base: EditPlan | null = null) =>
+    simulateDirector({ words, duration, format: "9:16", candidates: detectCandidates(words), map, brief, broll: { count: 4, minSeconds: 1.5, maxSeconds: 5, graphics: true, stock: true }, mustKeep: [], preset: "caja", base, instruction, fx: limits });
+  const faceWords = new Set(words.filter((w) => eyes.tramos.some((t) => t.faceRatio >= 0.6 && (w.start + w.end) / 2 >= t.start && (w.start + w.end) / 2 <= t.end)).map((w) => w.id));
+
+  test("el plan lleva efectos válidos, sin pisar b-roll, lo importante ni las tomas malas", () => {
+    const out = planFromDirector(sim(null), input({ fx: { limits, faceWords } }));
+    const fx = out.plan.effects ?? [];
+    assert.ok(fx.length >= 1, "al menos uno");
+    assert.ok(planSchemaFor(words.length).safeParse(out.plan).success);
+    for (const e of fx) {
+      assert.ok(!out.plan.broll.some((b) => b.from_word <= e.to_word && e.from_word <= b.to_word), "no pisa b-roll");
+      assert.ok(!map.shots.some((s) => s.important && s.from <= e.to_word && e.from_word <= s.to), "no tapa el panel");
+      assert.ok(!map.badTakes.some((b) => b.from <= e.to_word && e.from_word <= b.to), "no va sobre la toma mala");
+    }
+  });
+
+  test("sin efectos permitidos en Mi marca, el plan no lleva ninguno", () => {
+    const none = fxLimits({ allowed: [...FX_KINDS], frequency: "ninguno" }, duration);
+    const w = simulateDirector({ words, duration, format: "9:16", candidates: detectCandidates(words), map, brief, broll: { count: 4, minSeconds: 1.5, maxSeconds: 5, graphics: true, stock: true }, mustKeep: [], preset: "caja", base: null, instruction: null, fx: none });
+    const out = planFromDirector({ ...w, effects: [{ from_word: 0, to_word: 6, kind: "cover_story", text: "", items: [], why: "" }] }, input({ fx: { limits: none, faceWords } }));
+    assert.equal(out.plan.effects, undefined);
+  });
+
+  test("«Edítalo así»: «ponle el efecto revista al principio» y qué cambió", () => {
+    const first = planFromDirector(emptyWire({ hooks: [] }), input({ fx: { limits, faceWords } })).plan;
+    const w = sim("ponle el efecto revista al principio", first);
+    const next = planFromDirector(w, input({ base: first, fx: { limits, faceWords } })).plan;
+    const cover = (next.effects ?? []).find((e) => e.kind === "cover_story");
+    assert.ok(cover, "hay portada");
+    assert.ok(words[cover.from_word]!.start < 3, "al principio");
+    assert.ok(diffPlans(first, next, words, duration).some((c) => c.includes("Portada de revista")));
+    assert.ok(planText(next, words).includes("cover_story"));
+  });
+
+  test("un efecto que tapa algo importante: la verificación lo ve y el arreglo seguro lo quita", () => {
+    const panel = map.shots.find((s) => s.important)!;
+    const plan = { ...planFromDirector(emptyWire(), input()).plan, effects: [{ id: "x", kind: "checklist" as const, from_word: panel.from, to_word: panel.to }] };
+    const issues = checkPlan({ plan, words, duration, map, eyes });
+    assert.ok(issues.some((i) => i.kind === "tapa_importante" && i.note.includes("Checklist")));
+    const fixed = safeFixes({ plan, words, duration, map, eyes, issues });
+    assert.equal(fixed.plan.effects, undefined);
   });
 });

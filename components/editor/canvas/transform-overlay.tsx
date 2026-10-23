@@ -102,6 +102,19 @@ export function TransformOverlay({
   }, []);
 
   const k = size.w ? size.w / out.w : 0;
+  // Esc suelta lo elegido aunque el foco esté en otro lado (por ejemplo, después de "Listo" en el editor de textos).
+  useEffect(() => {
+    if (!selectedId || editing) return;
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      onSelect(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedId, editing, onSelect]);
+
   // Si el elemento deja de verse (el video siguió), su editor de textos no se muestra.
   const editingEl = editing ? elements.find((e) => e.id === editing) : null;
 

@@ -12,6 +12,7 @@ Trabajos del worker (tabla `jobs`):
 | `VIDEO_RENDER` | Tramos, audio, zooms del estilo, b-roll, subtítulos, control de calidad y subida. |
 | `VIDEO_STYLE` | "Edita como este": baja la referencia (subida o link) y mide su estilo (`worker/video/style.py`). |
 | `VIDEO_CLIP` | Biblioteca de b-roll: datos (duración, tamaño) y miniatura de un clip del cliente. |
+| `VIDEO_FX` | Recorte de la persona para la vista previa de los efectos (tiras de máscaras por segundo del original). |
 | `LONG_VIDEO_CLIPS` | Clips desde un video largo: baja (o recibe) el video, transcribe, pide los momentos a la app y sigue las caras de cada uno (ver abajo). |
 
 ## Cómo funciona
@@ -320,6 +321,71 @@ Más unos centavos por reintentos de gráficos (Sonnet). Cada "Edítalo así" o 
 ```
 
 Pruebas: `pnpm test:director` (plan del director, reglas duras, verificaciones, cuadros clave, tope y "Edítalo así") y `pytest tests/test_eyes.py` (medidas, tramos, hojas y un análisis real con ffmpeg).
+
+## Efectos de firma (17)
+
+Una biblioteca de efectos con nombre para reels (`lib/video/fx`): portada de revista, zoom digital, checklist, letras de vidrio, teléfono con tareas, gráfico que crece, muro de titulares, giro 3D, pared de capturas, ventana de tu app, sales del cuadro, corte con zoom, zoom out, pantalla verde, recorte de papel, garabatos y vértigo. Siete siguen una especificación de referencia (tamaños, tiempos y colores); los otros diez son diseño propio a partir de una descripción. Nada de HyperFrames ni GSAP: todo con nuestro motor.
+
+- **En el plan**: `plan.effects` (Zod en `lib/video/fx/schema.ts`): tipo, rango de palabras (como el b-roll), textos (`text`, `items`, `kicker`), palabras fuertes del zoom digital (`words`) y su "por qué". Un tramo lleva b-roll **o** efecto, no los dos (validación del plan). Sin el campo (planes de antes), sin efectos.
+- **Una sola fuente de verdad**: `compileFx` (`lib/video/fx/compile.ts`) arma el *spec* de cada efecto en píxeles y segundos del efecto: textos, colores y fuente de Mi marca, la cara (mediana de las caras que midieron los ojos en esos segundos, pasada al encuadre final), las palabras con sus tiempos (las tareas del checklist se tildan cuando se dicen; el zoom digital salta en las palabras fuertes) y el corte del video dentro del tramo (corte con zoom). El motor (`lib/video/fx/engine`, Canvas 2D) lo dibuja igual en la vista previa (`<canvas>`) y en el worker (skia-canvas, empaquetado en `worker/motion/fx-engine.mjs` con `pnpm motion:bundle`).
+- **Capas**: cada cuadro se arma con el video (encuadrado como en el render), lo que va detrás de la persona, la persona recortada (el cuadro × la máscara) y lo que va adelante. Fuentes: Inter y Montserrat (las de siempre), **Instrument Serif** (portada y titulares), **Caveat** (garabatos), **Anton** (letras recortadas) y **JetBrains Mono** (rótulos); todas OFL, en `scripts/fetch_fonts.sh` y, en el navegador, las autoalojadas de `public/fonts`.
+- **Render** (`worker/video/fx.py`): por efecto, el tramo del video unido con el encuadre final y sin zooms → (si va detrás) la máscara de esos cuadros → `worker/motion/fx.mjs` dibuja cada cuadro y lo manda a ffmpeg (H.264). Entra al grafo final como una capa a pantalla completa sin fundido (`FX_EDIT`); los subtítulos van encima, salvo en los efectos que llevan los suyos (zoom digital, portada). Los zooms del estilo o del director no caen sobre un efecto. Caché por hash del spec, de los cuadros y de la versión del motor; `outputMeta.effects` anota cuánto tardó cada uno.
+- **"Tus reels"** (giro 3D, pared de capturas, ventana de tu app): las miniaturas más recientes de Métricas (`content_items.thumbnail_url`); el worker las baja solo de la app o del Blob público. Si no hay, o una no se puede leer, el motor dibuja tarjetas con la marca y el título del reel, y la revisión lo dice. Ningún logo ni interfaz de terceros: la "ventana" y el "teléfono" son genéricos, con la marca.
+
+### Recorte de la persona
+
+Diez efectos ponen cosas **detrás** de la persona. La máscara se calcula en el worker, en CPU, solo para los segundos que la necesitan (`worker/video/fx_mask.py`).
+
+**Elección del modelo, con datos.** Video sintético con personas reales recortadas (la foto de la astronauta de la NASA, dominio público, y dos retratos de prueba) sobre un fondo con textura que se mueve, con balanceo, giro y "respiración" de la persona, cambios de luz, ruido de sensor y compresión H.264 (`scripts/make_fx_video.py`; la máscara exacta de cada cuadro es la verdad). Medido a 1080×1920 sobre 60 cuadros por persona, en la máquina de desarrollo (2 vCPU compartidas), con el mismo refinado para todos (suavizado temporal + guided filter):
+
+| Modelo | Licencia | Peso | IoU | Error medio | Error en el borde | Parpadeo | ms por cuadro |
+|---|---|---|---|---|---|---|---|
+| **MediaPipe Selfie (mosaico 2×256)** | Apache-2.0 | 0,44 MB | **0,96** | 16,5 | 164 | **19,7** | **98** |
+| MediaPipe Selfie (un cuadrado) | Apache-2.0 | 0,44 MB | 0,95 | 24,1 | 168 | 18,9 | 83 |
+| PP-HumanSeg (OpenCV Zoo) | Apache-2.0 | 6 MB | 0,94 | 22,0 | 173 | 17,9 | 89 |
+| U²-Net p | Apache-2.0 | 4,6 MB | 0,96 | 14,2 | 158 | 30,8 | 332 |
+| U²-Net human_seg (ya estaba, miniaturas) | Apache-2.0 | 168 MB | 0,96 | 11,4 | 147 | 27,8 | 659 |
+| BiRefNet lite (1024) | MIT | 224 MB | — | — | — | — | se quedó sin memoria (>7 GB) |
+
+(Error ×1000; "borde" = error medio en una franja de 12 px alrededor del contorno; "parpadeo" = cuánto cambia la máscara entre cuadros descontando lo que se movió de verdad. La verdad de las fotos salió de U²-Net human_seg refinado: favorece un poco a U²-Net en el borde.) **MODNet** (Apache-2.0, código y pesos) no se pudo evaluar: sus pesos están en Google Drive, que no se alcanza desde esta máquina. **RobustVideoMatting** es GPL-3.0: descartado. **RMBG** de BRIA, no comercial: descartado.
+
+Se eligió **MediaPipe Selfie Segmentation**: el más estable en el tiempo (lo que más se nota en un video), casi tan preciso como U²-Net y 7 veces más rápido, hecho para video de selfies (talking heads). El `.tflite` (paquete npm `@mediapipe/selfie_segmentation`) usa una operación propia de MediaPipe; `scripts/tflite_selfie_to_onnx.py` lo convierte a ONNX y el resultado (440 KB) va en `assets/fx/` con su licencia, así corre con el onnxruntime que ya está en la imagen. `FX_MASK_MODEL` permite probar otro modelo ONNX.
+
+**Cómo se calcula**: el cuadro vertical se mira en dos cuadrados (arriba y abajo) que se mezclan en la zona común (el doble de resolución útil que aplastar el 9:16), un filtro bilateral en el tiempo (±2 cuadros: apaga el parpadeo sin dejar estela en un movimiento real), guided filter con el cuadro en gris a 540×960 (el borde se pega al de la imagen) y un leve "choke" (el borde de afuera traía color del fondo viejo, que se nota sobre un fondo nuevo). La máscara depende solo del original y del encuadre: se guarda por **segundo del original** en `/data/work/<proyecto>/fx-mask/<encuadre>/` y la usan la vista previa y el render.
+
+**Vista previa**: al guardar la revisión con un efecto que te recorta, la app pide al worker los segundos que faltan (trabajo `VIDEO_FX`, migración 0026). El worker sube una tira PNG por segundo (10 máscaras de 180×320, blancas con la máscara en el alfa) a `editor/<id>/fx/<encuadre>/` y la anota en `media.fxMasks`; la revisión las consulta cada 5 s y compone **en vivo** con el mismo motor y la misma máscara que el render. Mientras no está, el efecto se ve más tenue y lo dice. Si el trabajo falla, no se vuelve a pedir durante 10 minutos (no hay bucles) y el render lo calcula igual.
+
+### En la revisión, en Mi marca y en el director
+
+- **Revisión**: panel **Efectos** (muestra del efecto, texto, tiempo, "por qué", Editar y Quitar), galería animada de los 17 con una persona de muestra recortada (`public/efectos/`, en bucle; quieta con "reducir movimiento"), "Poner un efecto aquí" y "Mover el efecto elegido aquí" sobre un tramo de la transcripción, y una hoja para cambiar sus textos, las palabras fuertes del zoom digital o cambiar de efecto.
+- **Mi marca → Cómo salen tus videos**: qué efectos puede elegir el director y con qué frecuencia (ninguno, pocos: 1–2 por video; normal: ~3 por minuto; muchos: hasta 5 por minuto), con una separación mínima entre efectos.
+- **Director**: la biblioteca va en sus reglas (cuándo usar cada uno, campos y duración), los permitidos y la cantidad en la tarea, y la salida en el formato de cable chico (`effects: [{from_word, to_word, kind, text, items, why}]`). Reglas duras (`lib/video/fx/director.ts`): solo los permitidos, cantidad y separación, nunca sobre b-roll, lo importante que se ve o una toma mala, los que te recortan solo donde se te ve a cámara, y los que puso la persona se quedan. "Edítalo así" pide efectos con palabras ("ponle el efecto revista al principio"): el pedido entra aunque se llegue al tope. La segunda mirada marca un efecto que tapa algo importante y el arreglo seguro lo quita. Con `AI_FAKE=1`, el simulador pone la portada al abrir, un checklist si enumeras pasos, el gráfico si hablas de crecer y lo que pidas.
+
+### Tiempos (render extra por efecto)
+
+Medidos en la máquina de desarrollo (2 vCPU compartidas, con la app corriendo al lado) con `scripts/fx_contact.py` sobre efectos de ~3 s a 1080×1920 (dibujo; la máscara se calcula una vez por segundo del original y queda en caché):
+
+| | s de dibujo por s de efecto | máscara (s por s) |
+|---|---|---|
+| Zoom digital, checklist, gráfico que crece, teléfono, zoom out | 2,7–3,3 | — |
+| Portada, titulares, giro 3D, pared, ventana, pantalla verde | 3,5–4,7 | ~4 |
+| Sales del cuadro | 6,2 | ~4 |
+| Letras de vidrio, recorte de papel, garabatos | 8–10 | ~4 |
+| Vértigo | 13,6 | ~4 |
+| Corte con zoom (0,9 s) | ~8 s fijos | — |
+
+En una performance-4x (4 vCPU dedicadas) se estima entre 2,5 y 3 veces menos. Un reel de 60 s con 3 efectos de 3 s suma unos 30–90 s de render en Fly. Lo que más cuesta en skia-canvas es leer el cuadro terminado y los desenfoques grandes; las siluetas (bordes, contornos, huecos) se dibujan a media resolución.
+
+### Probar
+
+```bash
+.venv/bin/python scripts/make_fx_video.py /tmp/fx --no-alpha     # persona real sobre un fondo con textura, 27 s, con transcripción
+.venv/bin/python scripts/fx_contact.py /tmp/fx/fx-1080x1920.mp4 /tmp/fx/transcript.json /tmp/fx/hojas   # los 17, hojas de contacto y tiempos
+.venv/bin/python -m pytest -q tests/test_fx.py                     # máscara (precisión, parpadeo, caché, tiras) y composición
+pnpm test:video && pnpm test:director                              # plan, dibujo (los 17 en skia-canvas), director y "Edítalo así"
+```
+
+Límites conocidos: el recorte de MediaPipe es de selfie: con varias personas, cuerpo entero lejos de la cámara u objetos en la mano puede dejar partes afuera o adentro; el pelo suelto queda más suave que con un modelo de matting. El "vértigo" rellena el hueco que deja la persona con el fondo de los costados (sin inpainting): con fondos muy cargados puede verse una zona borrosa alrededor tuyo cuando el fondo se agranda.
 
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 

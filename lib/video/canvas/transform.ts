@@ -14,7 +14,26 @@
 import { z } from "zod";
 import { ANIM_KINDS, DEFAULT_ANIM, isIdentity, sameAnim, type Anim, type AnimKind, type Place, type Transform } from "./place-math";
 
-export * from "./place-math";
+// Reexportaciones con nombre (sin `export *`, así también se importa desde CommonJS en las pruebas).
+export {
+  ANIM_KINDS,
+  ANIM_MOTION,
+  DEFAULT_ANIM,
+  IDENTITY_TRANSFORM,
+  NEUTRAL_STATE,
+  animDurations,
+  animFades,
+  animState,
+  applyAnimGeometry,
+  applyTransform,
+  isIdentity,
+  rampAlpha,
+  safeMargins,
+  sameAnim,
+  snapBox,
+  transformedBox,
+} from "./place-math";
+export type { Anim, AnimCtx, AnimKind, AnimState, Box, Place, PlacedBox, SnapGuide, Transform, TransformCtx } from "./place-math";
 
 // ─── Forma ────────────────────────────────────────────────────────────────
 

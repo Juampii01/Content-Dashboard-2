@@ -169,3 +169,32 @@ def test_invalid_items_are_refused() -> None:
     with pytest.raises(JobError):
         fx.validate({"spec": {"v": 1, "kind": "cover_story", "duration": 2, "mask": True}})
     assert math.isclose(fx.validate({"spec": {"v": 1, "kind": "checklist", "duration": 2}})["spec"]["duration"], 2)
+
+
+def test_moved_checklist_card_is_drawn_moved(tmp_path: Path) -> None:
+    """Lienzo de la revisión: la tarjeta del checklist con `place` (lo arma compileFx en la app) sale corrida en el render."""
+    for mark in needs_engine:
+        if mark.args[0]:
+            pytest.skip(mark.kwargs["reason"])
+    video, _ = _video(tmp_path, 1.0, (1080, 1920))
+    spec = json.loads((FIXTURES / "fx-specs.json").read_text(encoding="utf-8"))["checklist"]
+    moved = {**spec, "place": {"transform": {"x": 0.0, "y": 0.2, "scale": 1}}}
+
+    def drawn(s: dict) -> np.ndarray:
+        out = fx.render_effects(_Ctx(), [{"spec": s, "sourceFrames": list(range(18))}], joined=video, mezz=video, src_size=(1080, 1920), total_frames=30, fmt="9:16", offset_x=0.0, workdir=tmp_path, fonts_dir=FONTS)
+        cap = cv2.VideoCapture(str(out[0]["path"]))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 15)
+        ok, img = cap.read()
+        assert ok
+        return img.astype(int)
+
+    base = cv2.VideoCapture(str(video))
+    base.set(cv2.CAP_PROP_POS_FRAMES, 15)
+    _, orig = base.read()
+    a = np.abs(drawn(spec) - orig.astype(int)).sum(axis=2) > 60
+    b = np.abs(drawn(moved) - orig.astype(int)).sum(axis=2) > 60
+    ya, yb = np.nonzero(a)[0], np.nonzero(b)[0]
+    assert ya.size > 1000 and yb.size > 1000
+    # La tarjeta baja el 20 % del alto (384 px) y no cambia de tamaño.
+    assert np.median(yb) - np.median(ya) == pytest.approx(384, abs=12)
+    assert yb.size == pytest.approx(ya.size, rel=0.15)

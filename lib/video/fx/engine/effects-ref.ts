@@ -106,19 +106,26 @@ export function coverStory(f: FxFrame): void {
   ctx.textBaseline = "alphabetic";
   ctx.font = f.font(500, 30 * u, f.fonts.mono);
   ctx.fillText((spec.kicker || "").toLocaleUpperCase("es"), 64 * u, (f.vertical ? 190 : 90) * u);
-  // Abajo a la izquierda, serif itálica en dos líneas.
-  const lines = spec.items.slice(0, 2);
-  const lp = easeOut((t - 0.45) / 0.45);
-  ctx.globalAlpha = lp;
-  const lsize = 74 * u;
-  ctx.font = f.font(400, lsize, f.fonts.serif, "italic");
-  const by = H * (f.vertical ? 0.765 : 0.82);
-  lines.forEach((line, i) => {
-    const fit = fitSize(ctx, line, (sz) => f.font(400, sz, f.fonts.serif, "italic"), W * 0.8, lsize);
-    ctx.font = f.font(400, fit, f.fonts.serif, "italic");
-    ctx.fillText(line, 64 * u, by + i * lsize * 1.02 + (1 - lp) * 20 * u);
-  });
   ctx.restore();
+  // Abajo a la izquierda, serif itálica en dos líneas (el titular se puede mover desde el lienzo de la revisión).
+  const lines = spec.items.slice(0, 2);
+  const lsize = 74 * u;
+  const by = H * (f.vertical ? 0.765 : 0.82);
+  const box = { x: 64 * u, y: by - lsize * 0.82, w: W * 0.8, h: lsize * 0.82 + Math.max(0, lines.length - 1) * lsize * 1.02 + lsize * 0.3 };
+  f.movable(box, () => {
+    const lp = easeOut((t - 0.45) / 0.45);
+    ctx.save();
+    ctx.globalAlpha *= lp;
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    lines.forEach((line, i) => {
+      const fit = fitSize(ctx, line, (sz) => f.font(400, sz, f.fonts.serif, "italic"), W * 0.8, lsize);
+      ctx.font = f.font(400, fit, f.fonts.serif, "italic");
+      ctx.fillText(line, 64 * u, by + i * lsize * 1.02 + (1 - lp) * 20 * u);
+    });
+    ctx.restore();
+  });
 }
 
 // ─── 07 Checklist ─────────────────────────────────────────────────────────
@@ -198,6 +205,12 @@ export function checklist(f: FxFrame): void {
   const h = pad * 2 + 54 * u + rowH * items.length;
   const x = f.vertical ? (W - w) / 2 : W * 0.06;
   const y0 = placeAvoidingFace(f, h, f.vertical ? H * 0.1 : H * 0.12, H * 0.6);
+  // La tarjeta se puede mover desde el lienzo de la revisión.
+  f.movable({ x, y: y0, w, h }, () => checklistCard(f, items, x, y0, w, h, rowH, pad));
+}
+
+function checklistCard(f: FxFrame, items: string[], x: number, y0: number, w: number, h: number, rowH: number, pad: number): void {
+  const { ctx, spec, t, u } = f;
   const enter = easeOut(t / 0.3);
   const alpha = enter * exitAlpha(f);
   if (alpha <= 0) return;
@@ -375,6 +388,12 @@ export function phoneMockup(f: FxFrame): void {
   const hOverlap = cx - pw * 0.62 < safe.x + safe.w && cx + pw * 0.62 > safe.x;
   let cy = hOverlap ? safe.y + safe.h + 30 * u + ph / 2 : Math.max(f.faceCy + ph * 0.1, H * 0.3);
   cy = clamp(cy, ph / 2 + H * 0.05, H * (f.vertical ? 0.62 : 0.72) - ph / 2 + ph * 0.1);
+  // El teléfono se puede mover desde el lienzo de la revisión (caja sin girar, centrada donde queda quieto).
+  f.movable({ x: cx - pw / 2, y: cy - ph / 2, w: pw, h: ph }, () => phoneBody(f, cx, cy, pw, ph, right, margin));
+}
+
+function phoneBody(f: FxFrame, cx: number, cy: number, pw: number, ph: number, right: boolean, margin: number): void {
+  const { ctx, spec, t, u } = f;
   const enter = easeOut(t / 0.4);
   const exit = easeIn01(clamp01((t - (spec.duration - 0.3)) / 0.3));
   const off = (1 - enter + exit) * (pw + margin * 2) * (right ? 1 : -1);
@@ -505,9 +524,15 @@ export function chartGrow(f: FxFrame): void {
     top = belowTop;
     bottom = belowBottom;
   }
+  // El gráfico (días, línea y pastilla) se puede mover desde el lienzo de la revisión; el velo oscuro queda quieto.
+  f.movable({ x: left - 40 * u, y: top - 40 * u, w: right - left + 80 * u, h: bottom - top + 140 * u }, () => chartBody(f, fade, left, right, top, bottom));
+}
+
+function chartBody(f: FxFrame, fade: number, left: number, right: number, top: number, bottom: number): void {
+  const { ctx, spec, t, u } = f;
   const days = ["L", "M", "M", "J", "V", "S", "D"];
   ctx.save();
-  ctx.globalAlpha = fade;
+  ctx.globalAlpha *= fade;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.font = f.font(500, 30 * u, f.fonts.mono);

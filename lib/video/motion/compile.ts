@@ -11,6 +11,7 @@ import { sceneSchema, type ComponentLayer, type Layer, type MotionScene, type Mo
 import type { Measurer } from "./text";
 import { smoothThrough } from "./path";
 import { resolveColor, resolveTheme, type MotionFont, type ResolvedTheme } from "./theme";
+import type { Place } from "../canvas/transform";
 
 export type CompiledScene = {
   width: number;
@@ -34,6 +35,10 @@ export type CompiledScene = {
   nodes: Node[];
   /** Problemas que aparecieron al armar (componente con props inválidas, etc.). */
   notes: string[];
+  /** Caja que ocupa el contenido ya asentado (unión de las capas): centro de la transformación y de la animación. */
+  content: Box;
+  /** Dónde va y cómo entra y sale (revisión). Sin esto, como siempre. */
+  place?: Place;
 };
 
 export type FontFamilies = Partial<Record<MotionFont, string>> & { body?: string };
@@ -293,7 +298,27 @@ export function compileScene(scene: MotionScene, opts: CompileOptions): Compiled
     drift: true,
     nodes,
     notes,
+    content: contentBox(nodes, k.region),
+    ...(scene.place && (scene.place.transform || scene.place.anim) ? { place: scene.place } : {}),
   };
+}
+
+/** Unión de las cajas de las capas de arriba (sin el fondo). Si no hay ninguna, la región del contenido. */
+export function contentBox(nodes: Node[], fallback: Box): Box {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const n of nodes) {
+    if (n.role === "backdrop" || !n.box || !(n.box.w > 0) || !(n.box.h > 0)) continue;
+    x0 = Math.min(x0, n.box.x);
+    y0 = Math.min(y0, n.box.y);
+    x1 = Math.max(x1, n.box.x + n.box.w);
+    y1 = Math.max(y1, n.box.y + n.box.h);
+  }
+  if (!Number.isFinite(x0)) return { ...fallback };
+  const r = (v: number) => Math.round(v * 10) / 10;
+  return { x: r(x0), y: r(y0), w: r(x1 - x0), h: r(y1 - y0) };
 }
 
 /** Valida (Zod) y compila. Lanza si la escena no cumple el esquema. */

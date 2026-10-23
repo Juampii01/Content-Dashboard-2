@@ -460,7 +460,7 @@ def framing_graph(
         start, end = float(b["start"]), float(b["end"])
         dur = end - start
         edit = b.get("edit")
-        fade = broll_edit.fade_of(edit, dur, BROLL_FADE)
+        fade_in, fade_out = broll_edit.fades_of(edit, dur, BROLL_FADE)
         opacity = broll_edit.opacity_of(edit)
         on = f"enable='between(t,{start:.3f},{end:.3f})'"
         person = (edit or {}).get("person")
@@ -477,8 +477,10 @@ def framing_graph(
         steps = ["format=yuva420p"]
         if opacity < 0.999:
             steps.append(f"lutyuv=a='val*{opacity:.3f}'")
-        if fade > 0:
-            steps.append(f"fade=t=in:st=0:d={fade:.3f}:alpha=1,fade=t=out:st={max(0.0, dur - fade):.3f}:d={fade:.3f}:alpha=1")
+        if fade_in > 0:
+            steps.append(f"fade=t=in:st=0:d={fade_in:.3f}:alpha=1")
+        if fade_out > 0:
+            steps.append(f"fade=t=out:st={max(0.0, dur - fade_out):.3f}:d={fade_out:.3f}:alpha=1")
         steps.append(f"setpts=PTS-STARTPTS+{start:.3f}/TB")
         graph += f";[{int(b['input'])}:v]{','.join(steps)}[{clip}]"
         x, y = broll_edit.placement(edit)

@@ -97,7 +97,15 @@ export type EditPlan = {
   /** Índice del gancho elegido en hook_candidates, o null si va sin gancho. */
   selected_hook: number | null;
   /** `emoji`: emojis encima de las palabras clave (solo en los estilos de la galería). */
-  captions: { preset: CaptionPresetKey; emphasis_words: number[]; emoji?: boolean; hide?: { from_word: number; to_word: number; why: string }[] };
+  /** `transform` y `lines`: lugar y tamaño desde el lienzo de la revisión (lib/video/canvas/captions.ts). */
+  captions: {
+    preset: CaptionPresetKey;
+    emphasis_words: number[];
+    emoji?: boolean;
+    hide?: { from_word: number; to_word: number; why: string }[];
+    transform?: { x: number; y: number; scale: number; rotation?: number };
+    lines?: Record<string, { x: number; y: number; scale: number; rotation?: number }>;
+  };
   /** Texto corregido de palabras puntuales para los subtítulos (por guion o a mano). */
   corrections: Record<string, string>;
   overlays: { text: string; from_word: number; to_word: number; position: "top" | "center" }[];
@@ -193,6 +201,12 @@ export type Clip = { startFrame: number; endFrame: number; role: "hook" | "body"
 /** Palabra en el video final. `stop` = cierra una frase (para cortar los bloques de subtítulos). */
 export type TimedWord = { id: number; text: string; start: number; end: number; emphasis: boolean; stop: boolean };
 
-export type CaptionBlock = { start: number; end: number; words: TimedWord[] };
+export type CaptionBlock = {
+  start: number;
+  end: number;
+  words: TimedWord[];
+  /** Lugar desde el lienzo de la revisión (lib/video/canvas/captions.ts). Sin esto, el del estilo. */
+  place?: { x: number; y: number; scale: number };
+};
 
 export const FPS = 30;

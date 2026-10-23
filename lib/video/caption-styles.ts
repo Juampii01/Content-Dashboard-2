@@ -70,7 +70,7 @@ export type WordTrack = {
   emoji: { name: string; alpha: Key[] } | null;
 };
 
-export type LaidBlock = { start: number; end: number; lines: number; words: WordTrack[] };
+export type LaidBlock = { start: number; end: number; lines: number; words: WordTrack[]; place?: { x: number; y: number; scale: number } };
 
 type StyleDef = {
   label: string;
@@ -414,5 +414,7 @@ export function captionTracks(look: CaptionLook, block: CaptionBlock, format: Vi
     if (t.emoji && seen) t.emoji = null;
     if (t.emoji) seen = true;
   }
-  return { start: r3(start), end: r3(end), lines: Math.max(...lines) + 1, words: tracks };
+  // El lugar del lienzo de la revisión viaja con el bloque (el worker lo aplica con `caption_anchor`).
+  const place = block.place ? { place: { x: block.place.x, y: block.place.y, scale: block.place.scale } } : {};
+  return { start: r3(start), end: r3(end), lines: Math.max(...lines) + 1, words: tracks, ...place };
 }

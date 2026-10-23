@@ -22,7 +22,9 @@ import { cleanFx } from "./fx/schema";
 import { ensureFxMasks, fxForRender } from "./fx-service";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
-import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme } from "./motion-graphics";
+import { cleanCaptionPlacement, placeCaptionBlocks } from "./canvas/captions";
+import { cleanPlace } from "./canvas/transform";
+import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme, graphicWithPlace } from "./motion-graphics";
 import { sceneSchema } from "./motion/schema";
 import { loadTrack } from "./music";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
@@ -373,6 +375,11 @@ export type Review = {
    * previa (punch-ins, pausa máxima y palabras resaltadas); los gráficos y efectos que agregó van en broll y effects.
    */
   rhythm?: { density: "sobria" | "normal" | "reels"; added: NonNullable<EditPlan["rhythm"]>["added"]; zoomMoments: ZoomMoment[]; longPause: number; emphasis: number[] };
+  /**
+   * Lugar y tamaño de los subtítulos desde el lienzo (lib/video/canvas/captions.ts): de todos y, opcional, por línea
+   * (id de la primera palabra del bloque). Sin el campo, se deja lo que ya tenía el plan.
+   */
+  captionPlace?: { transform?: unknown; lines?: unknown };
 };
 
 export function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
@@ -402,6 +409,14 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     ...(review.broll ? { broll: cleanBroll(review.broll, words.length) } : {}),
     ...(review.zooms != null && plan.style_id ? { zooms_enabled: review.zooms } : {}),
   };
+  if (review.captionPlace) {
+    // Lienzo: lugar de los subtítulos, limpio (sin rotación, ids válidos, dentro de los límites).
+    const place = cleanCaptionPlacement(review.captionPlace, words.length);
+    const { transform: _t, lines: _l, ...rest } = next.captions;
+    void _t;
+    void _l;
+    next.captions = { ...rest, ...place };
+  }
   if (review.effects) {
     const fx = cleanFx(review.effects, words.length, next.broll.filter((b) => b.choice));
     if (fx.length) next.effects = fx;
@@ -435,9 +450,19 @@ function cleanBroll(items: BrollItem[], wordCount: number): BrollItem[] {
     const b = parsed.data as BrollItem;
     if (b.from_word > b.to_word || b.to_word >= wordCount) continue;
     if (out.some((o) => b.from_word <= o.to_word && o.from_word <= b.to_word)) continue;
-    out.push(b);
+    out.push(cleanBrollPlace(b));
   }
   return out;
+}
+
+/** El lugar y la animación del lienzo solo valen para gráficos, dentro de sus límites y si cambian algo. */
+function cleanBrollPlace(b: BrollItem): BrollItem {
+  if (!b.edit || (!b.edit.transform && !b.edit.anim)) return b;
+  const { transform: _t, anim: _a, ...rest } = b.edit;
+  void _t;
+  void _a;
+  const place = b.choice?.source === "graphic" ? cleanPlace(b.edit) : undefined;
+  return { ...b, edit: { ...rest, ...(place?.transform ? { transform: place.transform } : {}), ...(place?.anim ? { anim: place.anim } : {}) } };
 }
 
 async function projectForEdit(projectId: string) {
@@ -538,7 +563,8 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
       graphic: b.option.source === "graphic" ? { mode: g?.mode ?? (b.option.graphic as { mode?: string } | null)?.mode, position: g?.position } : null,
     });
   };
-  const captionPayload = capLook ? blocks.map((b) => captionTracks(capLook, b, format, accent)) : null;
+  // Lugar de los subtítulos del lienzo (solo galería): cada bloque lleva el suyo, como en la vista previa.
+  const captionPayload = capLook ? placeCaptionBlocks(blocks, next.captions).map((b) => captionTracks(capLook, b, format, accent)) : null;
   // Efectos de sonido: whoosh al entrar cada b-roll o gráfico, riser hasta el fin del gancho y pop en los emojis.
   const emojiTimes = (captionPayload ?? []).flatMap((b) => b.words.flatMap((w) => (w.emoji ? [w.emoji.alpha[0]?.t ?? b.start] : []))).slice(0, MAX_EMOJIS);
   // Con la voz: un toque en cada ítem que entra en un gráfico, al empezar cada efecto y en cada punch-in.
@@ -622,11 +648,12 @@ async function verifiedBroll(segments: ReturnType<typeof brollSegments>, look: G
       // Escena v2: siempre con los colores y la fuente actuales de Mi marca. Spec v1 (planes viejos): tal cual.
       if (isMotionScene(seg.option.graphic)) {
         const scene = sceneSchema.safeParse(seg.option.graphic);
-        if (scene.success) out.push({ ...seg, option: { ...seg.option, graphic: withBrandTheme(scene.data, look) } });
+        if (scene.success) out.push({ ...seg, option: { ...seg.option, graphic: graphicWithPlace(withBrandTheme(scene.data, look), seg.edit) } });
         continue;
       }
       const spec = graphicSpecSchema.safeParse(seg.option.graphic);
-      if (spec.success) out.push({ ...seg, option: { ...seg.option, graphic: spec.data } });
+      // El lugar del lienzo (si lo movieron) se vuelve a armar desde la edición del tramo: no se confía en el navegador.
+      if (spec.success) out.push({ ...seg, option: { ...seg.option, graphic: graphicWithPlace(spec.data, seg.edit) } });
     } else if (seg.option.source === "library") {
       const clip = library.get(seg.option.id);
       if (clip?.key) out.push({ ...seg, option: clip });

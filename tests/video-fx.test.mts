@@ -194,6 +194,18 @@ describe("director", () => {
     assert.equal(items[0]!.text, "MI TEXTO");
   });
 
+  test("los efectos que puso la persona se quedan (salvo que pida quitarlos)", () => {
+    const mine: FxItem = { id: "mio", kind: "checklist", from_word: 10, to_word: 25, source: "user" };
+    assert.deepEqual(effectsFromWire([wire({})], { ...base, base: [mine] }).items.map((e) => e.kind), ["cover_story", "checklist"]);
+    assert.deepEqual(effectsFromWire([], { ...base, base: [mine], keepUser: false }).items, []);
+    assert.deepEqual(effectsFromWire([wire({ kind: "chart_grow", from_word: 12, to_word: 16 })], { ...base, base: [mine] }).items.map((e) => e.id), ["mio"], "no lo pisa otro");
+  });
+
+  test("lo pedido va primero si hay que recortar", () => {
+    const fx = simulateEffects({ words, limits: { ...limits, max: 1, minGap: 0 }, removed: new Set(), taken: [], instruction: "ponle el efecto de pantalla verde al final" });
+    assert.deepEqual(fx.map((e) => e.kind), ["green_screen"]);
+  });
+
   test("«Edítalo así»: «ponle el efecto revista al principio»", () => {
     assert.deepEqual(parseFxRequest("ponle el efecto revista al principio"), { kind: "cover_story", where: "start" });
     assert.deepEqual(parseFxRequest("quita los efectos"), { none: true });

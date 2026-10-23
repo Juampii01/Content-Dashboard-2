@@ -57,6 +57,8 @@ export function effectsFromWire(
     faceWords?: Set<number> | null;
     removed: Set<number>;
     base?: FxItem[] | null;
+    /** false: la persona pidió quitar los efectos (también los suyos). */
+    keepUser?: boolean;
   },
 ): { items: FxItem[]; dropped: string[] } {
   const { words, limits } = input;
@@ -64,10 +66,13 @@ export function effectsFromWire(
   const dropped: string[] = [];
   const out: FxItem[] = [];
   const lastEnd: number[] = [];
+  // Los efectos que puso la persona se quedan (salvo que choquen con algo nuevo): el director no los quita solo.
+  const keptUser = input.keepUser === false ? [] : (input.base ?? []).filter((b) => b.source === "user" && !input.broll.some((x) => overlaps({ from: x.from_word, to: x.to_word }, { from: b.from_word, to: b.to_word })));
   for (const e of [...wire].sort((a, b) => a.from_word - b.from_word)) {
     if (out.length >= limits.max) break;
     const from = Math.min(e.from_word, e.to_word);
     const to = Math.max(e.from_word, e.to_word);
+    if (keptUser.some((u) => overlaps({ from: u.from_word, to: u.to_word }, { from, to }) && !(u.kind === e.kind && u.from_word === from && u.to_word === to))) continue;
     if (!(from >= 0 && to < n) || !limits.allowed.includes(e.kind)) continue;
     const info = FX_INFO[e.kind];
     const range = { from, to };
@@ -111,6 +116,8 @@ export function effectsFromWire(
     out.push(clampFx(item));
     lastEnd.push(words[to]!.end);
   }
+  for (const u of keptUser) if (!out.some((o) => o.id === u.id)) out.push(u);
+  out.sort((a, b) => a.from_word - b.from_word);
   return { items: out, dropped };
 }
 
@@ -197,7 +204,10 @@ export function simulateEffects(input: { words: Word[]; limits: FxLimits; remove
     if (prev && overlaps({ from: prev.from_word, to: prev.to_word }, { from: e.from_word, to: e.to_word })) continue;
     spaced.push(e);
   }
-  return spaced.slice(0, limits.max);
+  // Lo que pidió la persona va primero al recortar a la cantidad máxima.
+  const asked = request && "kind" in request ? spaced.find((e) => e.kind === request.kind) : undefined;
+  const rest = spaced.filter((e) => e !== asked);
+  return (asked ? [asked, ...rest.slice(0, limits.max - 1)] : spaced.slice(0, limits.max)).sort((a, b) => a.from_word - b.from_word);
 }
 
 /** Una línea por efecto para el plan que lee el director al corregir. */

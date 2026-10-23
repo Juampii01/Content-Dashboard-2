@@ -43,7 +43,7 @@ export type DirectorInput = {
   /** Clips de un video largo: el gancho ya está al principio. */
   keepOpening?: boolean;
   /** Efectos de la biblioteca: los que permite Mi marca y cuántos, y dónde se ve la cara (para los que te recortan). */
-  fx?: { limits: FxLimits; faceWords?: Set<number> | null };
+  fx?: { limits: FxLimits; faceWords?: Set<number> | null; keepUser?: boolean };
 };
 
 export type PendingGraphic = { item: BrollItem; scene: MotionSceneAi | null; spoken: string };
@@ -223,7 +223,7 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     ...(map?.badTakes ?? []).map((b) => ({ from: b.from, to: b.to, label: "una toma mala" })),
   ];
   const fx = input.fx
-    ? effectsFromWire(ai.effects ?? [], { words, limits: input.fx.limits, broll, forbidden: fxForbidden, faceWords: input.fx.faceWords ?? null, removed: removedSet, base: base?.effects ?? null })
+    ? effectsFromWire(ai.effects ?? [], { words, limits: input.fx.limits, broll, forbidden: fxForbidden, faceWords: input.fx.faceWords ?? null, removed: removedSet, base: base?.effects ?? null, keepUser: input.fx.keepUser })
     : { items: base?.effects ?? [], dropped: [] };
   dropped.push(...fx.dropped);
 

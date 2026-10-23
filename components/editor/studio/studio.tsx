@@ -529,6 +529,21 @@ export function Studio(props: StudioProps) {
     }
   }
 
+  /** Corre lo elegido (b-roll, efecto o zoom) una palabra hacia un lado. */
+  function nudge(dir: 1 | -1) {
+    const sel = selection;
+    if (!canEdit || !sel) return;
+    const item = sel.kind === "broll" ? s.broll.find((b) => b.id === sel.id) : sel.kind === "fx" ? s.effects.find((e) => e.id === sel.id) : sel.kind === "zoom" && sel.index >= 0 ? s.zoomMoments[sel.index] : undefined;
+    if (!item) return;
+    const list = timeline.words;
+    const i = list.findIndex((w) => w.id >= item.from_word && w.id <= item.to_word);
+    let j = i;
+    while (j + 1 < list.length && list[j + 1]!.id <= item.to_word && list[j + 1]!.id > list[j]!.id) j++;
+    if (i < 0 || i + dir < 0 || j + dir >= list.length) return;
+    const span = snapToWords(timeline, list[i + dir]!.start, list[j + dir]!.end);
+    if (span && moveTo(sel, { from: span.from, to: span.to }, "move")) seek(span.start);
+  }
+
   // ─── Línea de tiempo ───
   const blocks = useMemo<TimelineBlock[]>(() => {
     const out: TimelineBlock[] = [];
@@ -561,7 +576,7 @@ export function Studio(props: StudioProps) {
         track: "broll",
         start: r.start,
         end: r.end,
-        label: graphic ? graphicKindLabel(graphic) : choice ? (choice.source === "library" ? (choice.title ?? "Tu clip") : "B-roll") : "Sin clip",
+        label: graphic ? (choice?.title ?? graphicKindLabel(graphic)) : choice ? (choice.source === "library" ? (choice.title ?? "Tu clip") : "B-roll") : "Sin clip",
         detail: textOf(item.from_word, item.to_word, 40),
         tone: graphic ? "border-accent/70 bg-accent/50" : "border-[#199e70]/70 bg-[#199e70]/50",
         ai: !item.id.startsWith("u"),
@@ -802,7 +817,14 @@ export function Studio(props: StudioProps) {
         redo();
         return;
       }
-      if (mod || e.altKey || typing(e.target)) return;
+      if (mod || typing(e.target)) return;
+      // Alt + flechas: mueve lo elegido una palabra (sin mouse).
+      if (e.altKey && (key === "ArrowLeft" || key === "ArrowRight")) {
+        e.preventDefault();
+        nudge(key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if (e.altKey) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
       const inTranscript = Boolean(el?.closest('[aria-label="Transcripción editable"]'));
       const inRoving = Boolean(el?.closest('[role="radiogroup"],[role="tablist"],[role="listbox"]')) || (el?.getAttribute("role") === "slider" && el.dataset.testid !== "studio-ruler");
@@ -1369,6 +1391,7 @@ const SHORTCUTS: [string, string][] = [
   ["← →", "Un cuadro atrás o adelante"],
   ["Mayús + ← →", "Palabra anterior o siguiente"],
   ["S", "Dividir lo elegido en el cabezal"],
+  ["Alt + ← →", "Mover lo elegido una palabra"],
   ["Supr", "Quitar lo elegido (en un tramo de video: cortarlo)"],
   ["Esc", "Soltar la selección"],
   ["+ −", "Acercar o alejar la línea de tiempo (también Ctrl + rueda)"],

@@ -531,3 +531,59 @@ export function themeOfPlan(plan: Pick<EditPlan, "broll">): MotionThemeInput | n
 }
 
 export type ZoomMomentWithWhy = ZoomMoment;
+
+/** Lo que va en la tarea del director: la densidad y sus objetivos para este largo. */
+export function rhythmTaskText(density: Density, seconds: number): string {
+  const t = DENSITY_TARGETS[density];
+  const rich = Number.isFinite(t.richEvery) ? Math.max(1, Math.round(seconds / t.brollEvery)) : 0;
+  const zooms = Math.max(1, Math.round(seconds / (t.changeEvery * 1.3)));
+  const label = DENSITY_LABELS[density].label;
+  if (density === "reels")
+    return `DENSIDAD "${label}": algo cambia en pantalla cada 2 a 4 s (punch-in o cambio de encuadre casi en cada frase, alternando suave y marcado: unos ${zooms} zooms en este video), un b-roll, gráfico o efecto cada 6 a 8 s (unos ${rich}), efecto de firma en la apertura, pausas de 0,3 s como mucho (pace "fast") y muletillas fuera, palabras clave resaltadas en cada frase, nunca dos cosas iguales seguidas.`;
+  if (density === "normal") return `DENSIDAD "${label}": un cambio en pantalla cada 4 o 5 s (unos ${zooms} zooms), un b-roll, gráfico o efecto cada 10 a 14 s (unos ${rich}), pausas de hasta 0,5 s.`;
+  return `DENSIDAD "${label}": pocos cambios (zooms suaves, uno cada 8 s o más) y solo los gráficos que suman de verdad; pausas naturales.`;
+}
+
+/** Ritmo medido, en texto para el crítico. */
+export function rhythmText(s: RhythmScore): string {
+  const f = (n: number) => n.toFixed(1).replace(".", ",");
+  return `Densidad ${DENSITY_LABELS[s.density].label}: puntaje ${s.score}/100 · ${f(s.changesPer10)} cambios cada 10 s (objetivo ${DENSITY_TARGETS[s.density].changesPer10}) · hueco más largo ${f(s.longestGap.seconds)} s (del ${f(s.longestGap.start)} al ${f(s.longestGap.end)}) · ${Math.round(s.coverage * 100)} % del video con algo en pantalla. ${s.verdict}`;
+}
+
+/**
+ * Gráficos del plan sincronizados con la voz: cada elemento con su palabra (lo que marcó Claude o, si no, lo que se
+ * empareja con lo dicho) y el tramo estirado hasta que se dice el último (sin pisar lo que sigue ni pasar de 12 s).
+ */
+export function syncGraphics(plan: EditPlan, words: Word[], forbidden: { from: number; to: number }[] = []): EditPlan {
+  const sorted = [...plan.broll].sort((a, b) => a.from_word - b.from_word);
+  const out: BrollItem[] = [];
+  for (const [i, item] of sorted.entries()) {
+    const g = item.choice?.graphic as MotionScene | null | undefined;
+    if (item.choice?.source !== "graphic" || !g || g.v !== 2) {
+      out.push(item);
+      continue;
+    }
+    const nextFrom = sorted[i + 1]?.from_word ?? words.length;
+    // Lo que se dice desde el inicio del tramo hasta unos segundos después (el último ítem puede decirse más adelante).
+    const limit = words.findIndex((w, k) => k > item.to_word && w.start - words[item.from_word]!.start > 12);
+    const end = Math.min(nextFrom - 1, limit < 0 ? words.length - 1 : limit - 1);
+    const spoken = words.slice(item.from_word, end + 1).map((w) => ({ id: w.id, text: w.text }));
+    const scene = withCueWords(g, spoken);
+    let to = item.to_word;
+    let last = -1;
+    for (const l of scene.layers as Layer[]) {
+      if (l.type === "component") last = Math.max(last, ...(l.cue_words ?? [-1]));
+      else if ((l.type === "text" || l.type === "counter") && l.cue_word != null) last = Math.max(last, l.cue_word);
+    }
+    if (last > to) {
+      // Hasta el final de lo que se dice en ese elemento (la coma o el punto), sin pisar lo prohibido.
+      let k = last;
+      while (k < end && k - last < 6 && !/[.,;:?!]$/.test(words[k]!.text)) k++;
+      while (k > to && forbidden.some((f) => k >= f.from && k <= f.to)) k--;
+      to = Math.max(to, k);
+    }
+    const option = brollGraphicOption(scene);
+    out.push({ ...item, to_word: to, choice: option, options: [option, ...item.options.filter((o) => o.source !== "graphic")].slice(0, 12) });
+  }
+  return { ...plan, broll: out };
+}

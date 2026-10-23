@@ -8,6 +8,7 @@ import type { MapWire } from "@/lib/ai/prompts/director";
 import { band, wordsInSpan } from "./context";
 import { BRIEF_GOALS, EMPTY_BRIEF, type BeatRole, type Brief, type Eyes, type MapBadTake, type MapBeat, type MapShot, type MapText, type VideoMap } from "./types";
 import type { Word } from "../types";
+import { norm } from "../text";
 
 const clip = (s: string, n: number) => s.trim().slice(0, n);
 const FIGURE_RE = /\d|(?:^|\s)(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|veinte|treinta|cuarenta|cincuenta|cien|mil|millón|millones|doble|triple|mitad)(?=\s|[.,!?]|$)/i;
@@ -45,6 +46,12 @@ export function mapFromWire(w: MapWire, words: Word[], eyes: Eyes | null): Video
     .slice(0, 40)
     .map((b) => ({ from: b.from_word, to: b.to_word, role: b.role, summary: clip(b.summary, 160) }));
   const goal = (BRIEF_GOALS as readonly string[]).includes(w.brief.goal) ? (w.brief.goal as Brief["goal"]) : null;
+  // La CTA que se infiere es la que se DICE en el video (el modelo a veces trae la de Mi marca, que puede no coincidir).
+  const ctaBeat = beats.filter((b) => b.role === "cta").at(-1);
+  const saidCta = ctaBeat ? words.slice(ctaBeat.from, ctaBeat.to + 1).map((x) => x.text).join(" ") : "";
+  // Se compara con lo que se dice en la parte de la CTA (si el mapa la marcó) o en todo el video.
+  const scope = ctaBeat ? words.slice(ctaBeat.from, ctaBeat.to + 1) : words;
+  const inferredCta = spokenCta(scope, [w.brief.cta, w.cta]) ?? (saidCta ? clip(saidCta, 300) : clip(w.brief.cta, 300));
   return {
     kind: w.kind,
     summary: clip(w.summary, 300),
@@ -57,7 +64,7 @@ export function mapFromWire(w: MapWire, words: Word[], eyes: Eyes | null): Video
     promise: clip(w.promise, 200),
     objection: clip(w.objection, 200),
     cta: clip(w.cta, 200),
-    inferredBrief: { goal, audience: clip(w.brief.audience, 300), cta: clip(w.brief.cta, 300), mustKeep: clip(w.brief.must_keep, 400), notes: "" },
+    inferredBrief: { goal, audience: clip(w.brief.audience, 300), cta: inferredCta, mustKeep: clip(w.brief.must_keep, 400), notes: "" },
     by: "ai",
     frames: eyes?.samples.length ?? 0,
   };
@@ -206,4 +213,16 @@ export function mustKeepRanges(mustKeep: string, words: Word[]): { from: number;
   return sentences(words)
     .filter((f) => terms.some((t) => plain(f.text).includes(t)))
     .map((f) => ({ from: f.from, to: f.to }));
+}
+
+/** La primera CTA candidata que se dice en el video (al menos la mitad de sus palabras con contenido aparecen dichas). */
+export function spokenCta(words: Word[], candidates: string[]): string | null {
+  const said = new Set(words.map((w) => norm(w.text)).filter(Boolean));
+  for (const c of candidates) {
+    const toks = c.split(/\s+/).map(norm).filter((t) => t.length > 3);
+    if (!toks.length) continue;
+    const hits = toks.filter((t) => said.has(t) || [...said].some((s) => s.length > 4 && (s.startsWith(t.slice(0, 5)) || t.startsWith(s.slice(0, 5))))).length;
+    if (hits / toks.length >= 0.6) return c.trim().slice(0, 300);
+  }
+  return null;
 }

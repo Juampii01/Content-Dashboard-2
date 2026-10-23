@@ -248,3 +248,156 @@ describe("relleno de ritmo", () => {
     assert.ok(zooms[1]!.start - zooms[0]!.end < 0.01);
   });
 });
+
+// ─── Lo que encontró la corrida real de "FM ADS 2" ────────────────────────
+
+import { sceneToWire } from "../lib/ai/prompts/motion";
+import type { DirectorWire } from "../lib/ai/prompts/director";
+import { planFromDirector } from "../lib/video/director/assemble";
+import { enforceLocks, guardIssues, parseLocks } from "../lib/video/director/locks";
+import { mapFromWire } from "../lib/video/director/map";
+import { coverForbidden, FORBIDDEN_CAP, protectedZones } from "../lib/video/director/protect";
+import { simulateCritic } from "../lib/video/director/simulate";
+import { EMPTY_BRIEF, type CriticIssue, type VideoMap } from "../lib/video/director/types";
+
+const PEDIDO =
+  "Edítalo como un editor de reels: mucho más dinámico. Abre con el efecto Portada de revista en el gancho, punch-ins de zoom en casi cada frase, un gráfico o efecto cada 6 a 8 segundos sincronizado con lo que digo (checklist en los tres errores, comparación en la promesa), y corta las pausas al mínimo.";
+
+function emptyWire(extra: Partial<DirectorWire> = {}): DirectorWire {
+  return { summary: "", warning: "", pace: "normal", cuts: [], hooks: [], moves: [], emphasis_words: [], zooms: [], broll: [], caption_hide: [], effects: [], variants: [], changes: [], ...extra };
+}
+
+/** Mapa como el de la corrida real: la CTA abarca todo el cierre y un gesto "importante" de muchos segundos. */
+function bigMap(words: Word[]): VideoMap {
+  const ctaFrom = idOf("nosotros");
+  return {
+    kind: "talking_head",
+    summary: "",
+    setting: "",
+    shots: [
+      { from: 0, to: words.length - 1, start: 0, end: 30, kind: "a_camara", shows: "a cámara", important: true, why: "", frame: null },
+      { from: 2, to: idOf("compra."), start: 1, end: 12, kind: "gesto", shows: "gesto de pinza", important: true, why: "", frame: null },
+    ],
+    badTakes: [],
+    onScreenText: [],
+    beats: [
+      { from: 0, to: idOf("compra."), role: "problema", summary: "" },
+      { from: ctaFrom, to: words.length - 1, role: "cta", summary: "" },
+    ],
+    figures: [],
+    promise: "",
+    objection: "",
+    cta: "entra a mi perfil",
+    inferredBrief: EMPTY_BRIEF,
+    by: "ai",
+    frames: 0,
+  };
+}
+
+describe("pedidos de la persona y zonas prohibidas (corrida real)", () => {
+  test("del pedido salen los candados: portada, checklist, ritmo rápido y Editor de reels", () => {
+    const l = parseLocks(PEDIDO);
+    assert.ok(l.fx.includes("cover_story"));
+    assert.ok(l.fx.includes("checklist"));
+    assert.ok(!l.fx.includes("digital_zoom"), "los punch-ins de cámara no son el efecto Zoom digital");
+    assert.equal(l.pace, "fast");
+    assert.equal(l.density, "reels");
+  });
+
+  test("el crítico no puede quitar la portada pedida ni bajar el ritmo (sí arreglar lo técnico)", () => {
+    const issues: CriticIssue[] = [
+      { kind: "tapa_importante", severity: "alta", at: 0.5, note: "La portada de revista tapa el plano de apertura.", fix: "Quita el efecto cover_story (palabras 0–6): tapa el plano a cámara.", by: "ai" },
+      { kind: "ritmo", severity: "media", at: 10, note: "El video educa: el ritmo es demasiado rápido.", fix: "Pasa el ritmo a normal y deja pausas más largas.", by: "ai" },
+      { kind: "frase_cortada", severity: "media", at: 12, note: "La frase queda a la mitad.", fix: "Restaura las palabras 20–22.", by: "ai" },
+    ];
+    // El crítico simulado repite lo que encontró; el filtro descarta lo que deshace el pedido.
+    const wire = simulateCritic(issues, [{ t: 0.5, label: "" }, { t: 10, label: "" }, { t: 12, label: "" }] as never);
+    const asIssues = wire.issues.map((i, k) => ({ ...issues[k]!, note: i.note, fix: i.fix }));
+    const { kept, dropped } = guardIssues(asIssues, parseLocks(PEDIDO));
+    assert.equal(dropped.length, 2);
+    assert.deepEqual(kept.map((i) => i.kind), ["frase_cortada"]);
+  });
+
+  test("si una corrección pierde lo pedido, vuelve (efecto, pausas al mínimo y densidad)", () => {
+    const words = FM;
+    const cover = { id: "fx1", kind: "cover_story" as const, from_word: 0, to_word: 6, text: "COACH", source: "director" as const };
+    const before = basePlan(words, { effects: [cover], pacing: { long_pause: 0.3 }, director: { version: 1, pace: "fast" } });
+    const revised = basePlan(words, { pacing: { long_pause: 0.5 }, director: { version: 1, pace: "normal" } });
+    const { plan, restored } = enforceLocks(revised, before, parseLocks(PEDIDO));
+    assert.equal(plan.effects?.[0]?.kind, "cover_story");
+    assert.equal(plan.pacing?.long_pause, 0.3);
+    assert.equal(plan.director?.pace, "fast");
+    assert.equal(plan.rhythm?.density, "reels");
+    assert.ok(restored.length >= 2);
+    // Lo que tapa el producto no vuelve.
+    const blocked = enforceLocks(revised, before, parseLocks(PEDIDO), [{ from: 2, to: 3 }]).plan;
+    assert.equal(blocked.effects, undefined);
+  });
+
+  test("un gesto protege su segundo, la CTA solo su última frase, y lo prohibido no pasa del 25 %", () => {
+    const words = FM;
+    const map = bigMap(words);
+    const { zones } = protectedZones(map, words);
+    // El plano a cámara no se protege; el gesto de 12 s queda en su instante (3 palabras).
+    assert.equal(zones.length, 1);
+    assert.ok(zones[0]!.to - zones[0]!.from <= 2);
+    const total = words.at(-1)!.end - words[0]!.start;
+    const secs = zones.reduce((a, z) => a + words[z.to]!.end - words[z.from]!.start, 0);
+    assert.ok(secs <= total * FORBIDDEN_CAP);
+    const cover = coverForbidden(words, new Set(), null, map);
+    const cta = cover.find((z) => z.label === "llamado a la acción")!;
+    assert.equal(cta.from, idOf("entra"), "solo la última frase de la CTA");
+    // Sobre el video: ni el gancho ni la CTA están prohibidos.
+    const overlay = coverForbidden(words, new Set(), { from_word: 0, to_word: 6, score: 1, why: "" }, map, true);
+    assert.ok(!overlay.some((z) => z.label === "gancho" || z.label === "llamado a la acción" || z.label === "apertura"));
+  });
+
+  test("el armado acepta un gráfico sobre el video en la CTA y un efecto en el gancho", () => {
+    const words = FM;
+    const map = bigMap(words);
+    const keywordScene = { title: "Sígueme", mode: "overlay" as const, position: "top" as const, layers: [{ kind: "component" as const, component: "keyword" as const, at: 0, scale: 1, place: "auto" as const, props: { text: "Sígueme", label: "", emphasis: "marker" } }] };
+    const out = planFromDirector(
+      emptyWire({
+        hooks: [{ from_word: 0, to_word: idOf("calificados,"), score: 0.9, why: "" }],
+        broll: [{ from_word: idOf("entra"), to_word: words.length - 1, kind: "graphic", query_en: "", keywords: [], graphic: sceneToWire(keywordScene), why: "Refuerza la CTA" }],
+        effects: [{ from_word: 0, to_word: idOf("calificados,"), kind: "cover_story", text: "COACH", items: [], why: "Apertura" }],
+      }),
+      {
+        words,
+        duration: words.at(-1)!.end + 0.5,
+        format: "9:16",
+        preset: "caja",
+        corrections: {},
+        offScript: [],
+        candidates: [],
+        map,
+        mustKeep: [],
+        style: null,
+        broll: { count: 4, minSeconds: 1.5, maxSeconds: 6, graphics: true, stock: false },
+        base: null,
+        fx: { limits: { allowed: ["cover_story"], max: 3, minGap: 2, frequency: "muchos" } },
+        density: "reels",
+      },
+    );
+    assert.equal(out.plan.broll.length, 1, out.dropped.join(" | "));
+    assert.equal(out.plan.effects?.[0]?.kind, "cover_story", out.dropped.join(" | "));
+  });
+
+  test("la CTA inferida es la que se dice en el video, no la de la marca", () => {
+    const words = FM;
+    const wire = { kind: "talking_head", summary: "", setting: "", shots: [], bad_takes: [], on_screen_text: [], beats: [{ from_word: idOf("entra"), to_word: words.length - 1, role: "cta", summary: "" }], figures: [], promise: "", objection: "", cta: "", brief: { goal: "educar", audience: "", cta: "Comenta SISTEMA", must_keep: "" } } as never;
+    const map = mapFromWire(wire, words, null);
+    assert.match(map.inferredBrief.cta, /perfil/);
+  });
+
+  test("con Editor de reels las pausas quedan en 0,3 s y aparecen los cortes", () => {
+    const words = FM;
+    const duration = words.at(-1)!.end + 0.5;
+    const before = buildTimeline(words, basePlan(words, { pacing: { long_pause: 0.7 } }), duration);
+    const { plan } = fillRhythm(basePlan(words, { pacing: { long_pause: 0.7 } }), { words, duration, density: "reels", format: "9:16", forbidden: [], theme: THEME });
+    const after = buildTimeline(words, plan, duration);
+    assert.equal(plan.pacing?.long_pause, 0.3);
+    assert.ok(after.clips.length > before.clips.length);
+    assert.ok(after.duration < before.duration - 2);
+  });
+});

@@ -96,6 +96,7 @@ const componentLayers = COMPONENT_NAMES.map((name) =>
     scale: num("1 = tamaño normal; 0.7 a 1.4 si piden más chico o más grande.", 1),
     place: pick(["auto", "top", "bottom"], "Solo en modo full: dónde va en la pantalla. auto = centro."),
     props: COMPONENT_PROPS[name],
+    cues: z.array(z.number().int()).catch([]).optional().describe("Ids de la palabra en que se dice cada elemento (ítem, paso, barra, cifra), en orden; -1 si no se dice."),
   }),
 );
 
@@ -179,7 +180,7 @@ export const motionRequestAiSchema = motionSceneAiSchema.extend({
 });
 
 
-export type MotionLayerAi = { kind: "component"; component: ComponentName; at: number; scale: number; place: "auto" | "top" | "bottom"; props: Record<string, unknown> } | MotionPrimitiveAi;
+export type MotionLayerAi = { kind: "component"; component: ComponentName; at: number; scale: number; place: "auto" | "top" | "bottom"; props: Record<string, unknown>; cues?: number[] } | MotionPrimitiveAi;
 type BehaviorAi = { type: string; at: number; dur: number; dir: string };
 export type MotionPrimitiveAi =
   | { kind: "text"; text: string; x: number; y: number; w: number; size: number; weight: number; font: "display" | "body"; color: string; align: "center" | "left" | "right"; uppercase: boolean; emphasis_words: string; emphasis_style: "none" | "marker" | "underline" | "strike" | "accent"; animate: BehaviorAi[] }
@@ -202,7 +203,7 @@ const LAYER_KINDS = ["component", "text", "icon", "counter", "line", "shape"] as
 const layerWireSchema = z.object({
   kind: z.enum(LAYER_KINDS),
   component: z.string().describe("Si kind es component: nombre exacto del CATÁLOGO. Si no, vacío."),
-  spec: z.string().describe('JSON en una línea con el resto de la capa. Componente: {"at":0,"scale":1,"place":"auto","props":{…}}. Primitiva: todos sus campos menos kind.'),
+  spec: z.string().describe('JSON en una línea con el resto de la capa. Componente: {"at":0,"scale":1,"place":"auto","props":{…},"cues":[ids de palabra]}. Primitiva: todos sus campos menos kind.'),
 });
 export const sceneWireSchema = z.object({
   title: z.string().describe("Nombre corto del gráfico para la persona (por ejemplo 'Embudo de ventas')."),
@@ -235,9 +236,9 @@ export function layerFromWire(l: MotionLayerWire): MotionLayerAi | null {
   if (!spec) return null;
   let raw: Record<string, unknown>;
   if (l.kind === "component") {
-    const { at, scale, place, props, component, kind: _kind, ...rest } = spec;
+    const { at, scale, place, props, component, cues, kind: _kind, ...rest } = spec;
     void _kind;
-    raw = { kind: "component", component: l.component || component, at, scale, place, props: asRecord(props) ?? rest };
+    raw = { kind: "component", component: l.component || component, at, scale, place, props: asRecord(props) ?? rest, ...(Array.isArray(cues) ? { cues } : {}) };
   } else {
     raw = { ...spec, kind: l.kind };
   }
@@ -260,7 +261,7 @@ export function sceneToWire(s: MotionSceneAi): MotionSceneWire {
     mode: s.mode,
     position: s.position,
     layers: s.layers.map((l) => {
-      if (l.kind === "component") return { kind: "component" as const, component: l.component, spec: JSON.stringify({ at: l.at, scale: l.scale, place: l.place, props: l.props }) };
+      if (l.kind === "component") return { kind: "component" as const, component: l.component, spec: JSON.stringify({ at: l.at, scale: l.scale, place: l.place, props: l.props, ...(l.cues?.length ? { cues: l.cues } : {}) }) };
       const { kind, ...rest } = l;
       return { kind, component: "", spec: JSON.stringify(rest) };
     }),
@@ -320,6 +321,7 @@ DIRECCIÓN
 - Textos cortísimos: se leen en 2 segundos. Títulos de 2 a 5 palabras, ítems de 1 a 4 palabras, frases de hasta 12 palabras. Sin punto final. Título vacío si no suma.
 - Jerarquía clara: una cosa grande (la cifra, la palabra clave) y el resto chico.
 - Ritmo variado: en un mismo video no repitas el mismo componente seguido y alterna pantalla completa con sobre el video.
+- SINCRONÍA CON LA VOZ: cada elemento entra cuando la persona lo dice. En un componente, "cues" lleva el id de la palabra en que empieza a decirse cada elemento, en el orden del componente (ítems de list y checklist, pasos de steps, niveles de funnel, hitos de timeline, barras de barChart, la cifra de statCard y progress, las dos cifras de beforeAfter, los dos lados de comparison, cada palabra de quote, la palabra de keyword). Los ítems se escriben como se dicen (cortos, con sus palabras), así se reconocen. Si no sabes el id, deja cues vacío: se empareja solo con lo que se dice.
 - Con primitivas, cada elemento entra con su animación y en cascada ("at": 0, 0.3, 0.6…): textos con fadeUp, cifras con countUp, íconos con pop, líneas y flechas con draw, tachados con strike, resaltados con highlight.
 - Cifras: solo las que la persona dice en ese tramo (con números o con palabras: "el doble" = x2, "tres de cada diez" = 3/10) o las que escribe en su pedido. Nunca inventes, redondees hacia arriba ni completes datos: en barras, líneas y embudos no inventes valores intermedios (si dice "de 2 a 10", son dos barras: 2 y 10). Si no hay cifra, usa un componente sin números.
 - Íconos: elige por significado con la lista ÍCONOS y escribe el nombre exacto.
@@ -347,7 +349,7 @@ CAMPOS DE CADA PRIMITIVA (todos van en spec)
 - animate: lista de {type, at, dur, dir}. type: ${BEHAVIORS.join(", ")}. at = segundo en que empieza; dur = 0 para la duración de siempre; dir (left | right | up | down) solo en slide y wipe, en los demás none.
 
 FORMATO DE RESPUESTA
-Cada capa va como {"kind", "component", "spec"}. kind es component, text, icon, counter, line o shape. component es el nombre del CATÁLOGO (vacío en las primitivas). spec es un texto con el JSON del resto de la capa, en una línea: para un componente {"at":0,"scale":1,"place":"auto","props":{…}} con las props de su forma; para una primitiva, todos sus campos menos kind. Los gráficos que te muestran en las tareas (GRÁFICO ACTUAL, Escena) vienen en la forma legible, con los campos sueltos: respóndelos siempre en este formato.
+Cada capa va como {"kind", "component", "spec"}. kind es component, text, icon, counter, line o shape. component es el nombre del CATÁLOGO (vacío en las primitivas). spec es un texto con el JSON del resto de la capa, en una línea: para un componente {"at":0,"scale":1,"place":"auto","props":{…},"cues":[ids]} con las props de su forma (cues opcional, ver SINCRONÍA); para una primitiva, todos sus campos menos kind. Los gráficos que te muestran en las tareas (GRÁFICO ACTUAL, Escena) vienen en la forma legible, con los campos sueltos: respóndelos siempre en este formato.
 
 LÍMITES (no se pueden hacer)
 - Personas, caras, cuerpos o personajes dibujados.

@@ -40,6 +40,11 @@ import { applyVariant, planFromDirector, type BrollLimits } from "./assemble";
 import { fxLimits, fxTaskText, parseFxRequest } from "../fx/director";
 import { readEditorDefaults } from "../defaults";
 import { checkPlan, safeFixes } from "./checks";
+import { enforceLocks, guardIssues, hasLocks, locksText, parseLocks, type RequestLocks } from "./locks";
+import { coverForbidden, protectedZones } from "./protect";
+import { densityFor, DENSITY_TARGETS, fillRhythm, planRhythm, rhythmTaskText, rhythmText, syncGraphics, type Density } from "../rhythm";
+import { motionTheme } from "../motion-graphics";
+import { removedIds } from "../timeline";
 import { briefText, mapText, planText, sentencesText, transcriptText, tramosText } from "./context";
 import { clampBudget, estimateRevise, estimateStage, planBudget, type BudgetPlan, type CostInput, type StagePlan } from "./cost";
 import { diffPlans } from "./diff";
@@ -178,11 +183,19 @@ function costInput(ctx: Ctx, broll: number): CostInput {
   return { words: ctx.words.length, sheets: ctx.eyes?.sheets.length ?? 0, sheet: { width: sheet.width, height: sheet.height }, broll };
 }
 
-function brollLimits(ctx: Ctx, styleEvery: number | null): BrollLimits & { count: number } {
+/** Densidad de ritmo de este video: la que pidió en "Edítalo así", la del plan, o la de Mi marca (según el formato). */
+function densityOf(ctx: Ctx, base: EditPlan | null, locks: RequestLocks | null | undefined): Density {
+  if (locks?.density) return locks.density;
+  if (base?.rhythm?.density) return base.rhythm.density;
+  return densityFor(readEditorDefaults(ctx.brand).density, ctx.format);
+}
+
+function brollLimits(ctx: Ctx, styleEvery: number | null, density: Density = "normal"): BrollLimits & { count: number } {
   if (ctx.project.brollMode !== "auto") return { count: 0, minSeconds: 1.5, maxSeconds: 4, graphics: false, stock: false };
-  const every = styleEvery ?? (ctx.format === "9:16" ? 9 : 18);
-  const max = ctx.format === "9:16" ? 8 : 12;
-  return { count: Math.max(1, Math.min(max, Math.floor((ctx.duration * 0.85) / Math.max(6, every)))), minSeconds: 1.5, maxSeconds: Math.min(6, GRAPHIC_MAX_SECONDS), graphics: true, stock: true };
+  const target = DENSITY_TARGETS[density];
+  const every = styleEvery ?? (ctx.format === "9:16" ? target.brollEvery : Math.max(target.brollEvery, 14));
+  const max = density === "reels" ? 14 : ctx.format === "9:16" ? 8 : 12;
+  return { count: Math.max(1, Math.min(max, Math.floor((ctx.duration * 0.85) / Math.max(5, every)))), minSeconds: 1.5, maxSeconds: Math.min(6, GRAPHIC_MAX_SECONDS), graphics: true, stock: true };
 }
 
 async function sheetImages(keys: { key: string }[]): Promise<{ mediaType: "image/jpeg"; data: string }[]> {
@@ -353,7 +366,10 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   const alignment = script ? alignScript(words, script) : null;
   const candidates = detectCandidates(words, { script });
   const style = await styleFor(ctx.project);
-  const limits = brollLimits(ctx, style?.every ?? null);
+  // Lo que pidió la persona en "Edítalo así" (o en el pedido anterior, al corregir) no se deshace.
+  const locks: RequestLocks | null = mode === "edit" && director.pending ? parseLocks(director.pending.instruction) : (director.request ?? null);
+  const density = densityOf(ctx, base, locks);
+  const limits = brollLimits(ctx, style?.every ?? null, density);
   const tags = limits.count ? await libraryTags() : [];
   const stockReady = brollSourcesReady().stock || tags.length > 0;
   const look = brandGraphicLook(ctx.brand);
@@ -367,7 +383,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   const instruction = mode === "edit" ? (director.pending?.instruction ?? "") : null;
   if (instruction) keep.push(...mustKeepRanges(instruction.match(/no (?:cortes|quites|saques)[^.]*/i)?.[0] ?? "", words));
   const lastRound = director.rounds.at(-1);
-  const issues = mode === "revise" ? (lastRound?.issues ?? []) : [];
+  const issues = mode === "revise" ? guardIssues(lastRound?.issues ?? [], locks).kept : [];
   const budget = budgetOf(director);
   const stage: StagePlan = budget?.director ?? { model: "deep", effort: "high" };
   const remaining = ctx.cap - (await spentUsd(projectId));
@@ -388,7 +404,10 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   // Efectos de la biblioteca: los que permite Mi marca, cuántos para este largo, y dónde se ve la cara (los que te
   // recortan necesitan verte a cámara).
   const fxAsk = instruction ? parseFxRequest(instruction) : null;
-  const baseFx = fxLimits(readEditorDefaults(ctx.brand).effects, duration * 0.85);
+  const fxSettings = fxLimits(readEditorDefaults(ctx.brand).effects, duration * 0.85);
+  // La densidad multiplica la cantidad de efectos de Mi marca (Editor de reels: más, y más seguidos).
+  const factor = DENSITY_TARGETS[density].fxFactor;
+  const baseFx = fxSettings.max > 0 ? { ...fxSettings, max: Math.max(1, Math.round(fxSettings.max * factor)), minGap: Math.max(2, fxSettings.minGap / factor) } : fxSettings;
   // Un efecto pedido en "Edítalo así" entra aunque se llegue al tope (uno más), siempre que Mi marca lo permita.
   const fx = fxAsk && "kind" in fxAsk && baseFx.allowed.includes(fxAsk.kind) ? { ...baseFx, max: baseFx.max + 1 } : baseFx;
   const faceWords = faceWordsOf(ctx.eyes, words);
@@ -410,8 +429,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
         candidates: candidates.filter((c) => c.kind !== "silence").map((c) => `${c.id} ${c.kind} [${c.from_word}–${c.to_word}] conf ${c.confidence.toFixed(2)}: ${c.note}`).join("\n") || "(ninguno)",
         transcript: transcriptText(words),
         forbidden: [
-          ...map.shots.filter((s) => s.important).map((s) => `- PROHIBIDO b-roll en [${s.from}–${s.to}]: ${s.shows}`),
-          ...map.beats.filter((b) => b.role === "cta").map((b) => `- PROHIBIDO b-roll en [${b.from}–${b.to}]: llamado a la acción`),
+          ...forbiddenText(words, map, base),
           ...keep.map((k) => `- NO CORTAR [${k.from}–${k.to}]`),
           ...protect.map((p) => `- TIENE QUE QUEDAR (se puede limpiar una toma repetida adentro) [${p.from}–${p.to}]: ${p.label}`),
         ].join("\n"),
@@ -419,6 +437,8 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
         style: style?.text ?? null,
         lessons: (await retentionLessons()) || "(ver TIPOS DE GANCHO y LO QUE YA FUNCIONÓ en la marca)",
         effects: fxTaskText(fx),
+        rhythm: rhythmTaskText(density, duration * 0.85),
+        locks: locksText(locks),
         revise:
           mode && base
             ? {
@@ -463,6 +483,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     base,
     keepOpening: ctx.project.origin === "clip",
     fx: { limits: fx, faceWords, keepUser: !(fxAsk && "none" in fxAsk) },
+    density,
   });
   let plan = base ? assembled.plan : await withEditorDefaults(assembled.plan, ctx.brand);
   if (assembled.dropped.length) console.info("[director] descartado:", assembled.dropped.slice(0, 4).join(" | "));
@@ -501,6 +522,28 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   plan = { ...plan, broll: plan.broll.filter((b) => b.choice) };
   if (warning) plan = { ...plan, warning: [plan.warning, warning].filter(Boolean).join(" ").slice(0, 1000) };
 
+  // Sincronía con la voz y ritmo: cada elemento de los gráficos en su palabra, y el relleno de ritmo donde el director
+  // dejó huecos (aunque el modelo haya sido tímido). Después, lo que pidió la persona vuelve si se perdió.
+  const zones = protectedZones(map, words);
+  plan = syncGraphics(plan, words, zones.zones);
+  const filled = fillRhythm(plan, {
+    words,
+    duration,
+    density,
+    format,
+    forbidden: zones.zones,
+    theme: motionTheme(look),
+    fxAllowed: fx.max > 0 ? fx.allowed : [],
+    faceWords,
+    candidates,
+    mustKeep: [...keep, ...protect],
+  });
+  plan = filled.plan;
+  if (filled.added.length) console.info(`[director] ritmo (${density}): ${filled.added.length} agregados`);
+  const locked = enforceLocks(plan, base, locks, zones.zones);
+  plan = locked.plan;
+  if (zones.trimmed.length) plan = { ...plan, warning: [plan.warning, "Había demasiado marcado como intocable: protegí solo lo que se muestra más importante."].filter(Boolean).join(" ").slice(0, 1000) };
+
   const parsed = planSchemaFor(words.length).safeParse(plan);
   if (!parsed.success) {
     console.error("[director] plan inválido:", parsed.error.issues[0]?.message);
@@ -515,7 +558,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
 
   const edits = [...director.edits];
   if (mode === "edit" && base && director.pending) {
-    const changes = diffPlans(base, plan, words, duration);
+    const changes = [...diffPlans(base, plan, words, duration), ...locked.restored];
     edits.push({ at: new Date().toISOString(), instruction: director.pending.instruction, changes, note: ai.warning.slice(0, 400), source: director.pending.kind === "fix" ? "arreglo" : "persona" });
   }
   const variants = mode === "revise" ? director.variants : assembled.variants;
@@ -526,6 +569,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     variants,
     degraded,
     pending: null,
+    ...(mode === "edit" ? { request: hasLocks(locks) ? locks : null } : {}),
     steps: [...director.steps, mode ?? "direct"],
     // Un pedido empieza un ciclo nuevo de segunda mirada.
     ...(mode === "edit" ? { cycle: "edit" as const, rounds: [] } : {}),
@@ -537,6 +581,18 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     return { next: await previewNext(ctx.project, plan, words, duration, next.rounds.length + 1, ctx.eyes), status: "PROCESSING" };
   }
   return { next: { step: "finalize" }, status: "PROCESSING" };
+}
+
+/** Lo prohibido para el director, en texto (con medida: ver protect.ts). */
+function forbiddenText(words: Word[], map: VideoMap, base: EditPlan | null): string[] {
+  const hook = base && base.selected_hook != null ? (base.hook_candidates[base.selected_hook] ?? null) : null;
+  const removed = base ? removedIds(base, words.length) : new Set<number>();
+  const zones = protectedZones(map, words).zones;
+  const cover = coverForbidden(words, removed, hook, map).filter((z) => !zones.some((p) => p.from === z.from && p.to === z.to));
+  return [
+    ...zones.map((z) => `- PROHIBIDO b-roll, gráficos y efectos en [${z.from}–${z.to}]: ${z.label}`),
+    ...cover.map((z) => `- PROHIBIDO b-roll de video y gráficos "full" en [${z.from}–${z.to}]: ${z.label} (ahí sí van gráficos "overlay" y efectos)`),
+  ];
 }
 
 async function previewNext(project: Project, plan: EditPlan, words: Word[], duration: number, round: number, eyes: Eyes | null): Promise<DirectorNext> {
@@ -576,6 +632,8 @@ async function critique(projectId: string, round: number, sheets: { key: string;
           frames: frames.map((f, i) => `#${i + 1} ${f.t.toFixed(1)} s: ${f.label}`).join("\n"),
           checks: rules.map((i) => `- [${i.kind}, ${i.severity}, segundo ${i.at.toFixed(1)}] ${i.note}`).join("\n"),
           duration: timeline.duration,
+          rhythm: rhythmText(planRhythm(plan, words, duration)),
+          locks: locksText(director.request),
         }),
         images: await sheetImages(sheets),
         imageSizes: sheets.map((s) => ({ width: s.width, height: s.height })),
@@ -589,9 +647,13 @@ async function critique(projectId: string, round: number, sheets: { key: string;
     }
   } else degraded.push("La segunda mirada usó solo las verificaciones automáticas para no pasar el tope.");
 
-  const issues: CriticIssue[] = wire
+  const raw: CriticIssue[] = wire
     ? wire.issues.map((i) => ({ kind: i.kind, severity: i.severity, at: frames[i.frame - 1]?.t ?? 0, note: i.note.slice(0, 300), fix: i.fix.slice(0, 300), by: "ai" as const }))
     : rules;
+  // El crítico no puede deshacer lo que pidió la persona (un efecto pedido, el ritmo rápido): eso se descarta.
+  const guarded = guardIssues(raw, director.request);
+  if (guarded.dropped.length) console.info(`[director] crítica: ${guarded.dropped.length} pedidos descartados porque deshacían lo que pidió la persona`);
+  const issues = guarded.kept;
   // Lo que las reglas encontraron y el crítico no mencionó queda igual (es medible), salvo los saltos (los juzga mejor la vista).
   for (const r of rules) if (r.kind !== "salto" && !issues.some((i) => i.kind === r.kind && Math.abs(i.at - r.at) < 1.5)) issues.push(r);
   const score = wire ? Math.max(0, Math.min(100, wire.score)) : Math.max(35, 96 - issues.reduce((a, i) => a + (i.severity === "alta" ? 18 : i.severity === "media" ? 9 : 4), 0));
@@ -628,7 +690,10 @@ async function finalize(projectId: string): Promise<{ next: DirectorNext; status
   const transcript = project.transcript as Transcript;
   const duration = ((project.media ?? {}) as MediaInfo).duration || transcript.duration;
   const fixed = safeFixes({ plan: project.plan as EditPlan, words: transcript.words, duration, map: director.map, eyes: readEyes(project.eyes) });
-  const plan = fixed.changes.length && planSchemaFor(transcript.words.length).safeParse(fixed.plan).success ? fixed.plan : (project.plan as EditPlan);
+  let plan = fixed.changes.length && planSchemaFor(transcript.words.length).safeParse(fixed.plan).success ? fixed.plan : (project.plan as EditPlan);
+  // Lo que pidió la persona vuelve si un arreglo lo quitó (salvo que tape el producto o la pantalla).
+  const locked = enforceLocks(plan, project.plan as EditPlan, director.request, protectedZones(director.map, transcript.words).zones);
+  if (locked.restored.length && planSchemaFor(transcript.words.length).safeParse(locked.plan).success) plan = locked.plan;
   const rounds = [...director.rounds];
   const last = rounds.at(-1);
   if (last && fixed.changes.length) rounds[rounds.length - 1] = { ...last, fixed: true, verdict: `${last.verdict} ${fixed.changes.join(" ")}`.slice(0, 600) };

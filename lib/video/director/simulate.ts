@@ -45,8 +45,36 @@ function figureLabel(n: number): string {
   return String(n);
 }
 
-/** Gráfico simulado para una frase: una cifra (o "de X a Y") o una palabra clave. */
+const SIM_STOP = new Set("el la los las un una de del al a en y o que con por para tu tus mi su lo le se no es son".split(" "));
+
+/** Partes de una enumeración ("creando contenido que no vende, invirtiendo en anuncios… y llenando tu agenda…"). */
+export function enumeration(text: string): string[] | null {
+  const parts = text
+    .replace(/[¿?¡!.]/g, "")
+    .split(/,\s*(?:y\s+)?|\s+y\s+(?=\p{L}+(?:ando|endo|iendo)\b)/u)
+    .map((p) => p.trim())
+    .filter((p) => p.split(/\s+/).length >= 2);
+  if (parts.length < 3) return null;
+  const items = parts.slice(-4).map((p) => {
+    const words = p.split(/\s+/).filter((w) => !SIM_STOP.has(w.toLowerCase()) || /^no$/i.test(w));
+    const short = words.slice(0, 4).join(" ");
+    return short.charAt(0).toUpperCase() + short.slice(1);
+  });
+  return items.every((i) => i.length >= 3) ? items : null;
+}
+
+/** "No es X, es Y": contraste para una comparación. */
+export function contrast(text: string): { left: string; right: string } | null {
+  const m = text.replace(/[¿?¡!.]/g, "").match(/no es\s+(.{3,40}?),\s*es\s+(.{3,40})/i);
+  return m ? { left: m[1]!.trim(), right: m[2]!.trim() } : null;
+}
+
+/** Gráfico simulado para una frase: una lista, un contraste, una cifra (o "de X a Y") o una palabra clave. */
 function sceneFor(f: Sentence): MotionSceneAi {
+  const items = enumeration(f.text);
+  if (items) return { title: "Los errores", mode: "full", position: "top", layers: [{ kind: "component", component: "list", at: 0, scale: 1, place: "auto", props: { title: "", items, marker: "number", icons: [] } }] };
+  const vs = contrast(f.text);
+  if (vs) return { title: "No es esto, es esto", mode: "full", position: "top", layers: [{ kind: "component", component: "comparison", at: 0, scale: 1, place: "auto", props: { left: { label: "No es", text: vs.left.charAt(0).toUpperCase() + vs.left.slice(1) }, right: { label: "Es", text: vs.right.charAt(0).toUpperCase() + vs.right.slice(1) } } }] };
   const nums = spokenNumbers(f.text);
   const pct = /por ciento|%/i.test(f.text);
   const money = /d[oó]lares|\$/i.test(f.text);
@@ -163,12 +191,14 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
     if (forbidden.some((x) => overlaps(x, range))) continue;
     const span = f.end - f.start;
     const figure = NUMBER_WORD.test(f.text) && spokenNumbers(f.text).length > 0;
-    if (!figure && !wantsMore && !(input.duration > 45 && span >= 2.5)) continue;
-    // El gráfico cubre de 1,5 a 5 s del tramo (desde su inicio).
+    const structured = Boolean(enumeration(f.text) || contrast(f.text));
+    if (!figure && !structured && !wantsMore && !(input.duration > 45 && span >= 2.5)) continue;
+    // El gráfico cubre de 1,5 a 5 s del tramo (desde su inicio); una lista o un contraste, todo lo que se dice.
     let to = range.from;
-    while (to < range.to && words[to + 1]!.end - words[range.from]!.start <= Math.min(input.broll.maxSeconds, 5)) to++;
+    const cap = structured ? 11 : Math.min(input.broll.maxSeconds, 5);
+    while (to < range.to && words[to + 1]!.end - words[range.from]!.start <= cap) to++;
     if (words[to]!.end - words[range.from]!.start < 1.4) continue;
-    broll.push({ from_word: range.from, to_word: to, kind: "graphic", query_en: "business growth chart", keywords: ["negocio", "resultados"], graphic: input.broll.graphics ? sceneToWire(sceneFor(f)) : null, why: figure ? "Dices una cifra: el gráfico la fija en la cabeza." : "Refuerza la idea central de esta parte." });
+    broll.push({ from_word: range.from, to_word: to, kind: "graphic", query_en: "business growth chart", keywords: ["negocio", "resultados"], graphic: input.broll.graphics ? sceneToWire(sceneFor(f)) : null, why: figure ? "Dices una cifra: el gráfico la fija en la cabeza." : enumeration(f.text) ? "Enumeras: cada punto entra cuando lo dices." : contrast(f.text) ? "Contraste: lo de antes se tacha y entra lo nuevo cuando lo dices." : "Refuerza la idea central de esta parte." });
   }
   if (wantsMore) changes.push(secondHalf ? "Más gráficos en la segunda mitad." : "Más gráficos.");
   if (noBroll) changes.push("Sin b-roll.");

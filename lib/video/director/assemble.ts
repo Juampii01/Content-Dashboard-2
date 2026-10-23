@@ -15,6 +15,8 @@ import { buildTimeline, removedIds } from "../timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, HookCandidate, PlanMove, Removal, VideoFormat, Word, ZoomMoment } from "../types";
 import type { PlanVariant, VideoMap } from "./types";
 import { effectsFromWire, type FxLimits } from "../fx/director";
+import { DENSITY_TARGETS, type Density } from "../rhythm";
+import { coverForbidden, effectsForbidden } from "./protect";
 
 export const PACE_PAUSE: Record<"calm" | "normal" | "fast", number> = { calm: 0.7, normal: 0.5, fast: 0.3 };
 
@@ -44,6 +46,8 @@ export type DirectorInput = {
   keepOpening?: boolean;
   /** Efectos de la biblioteca: los que permite Mi marca y cuántos, y dónde se ve la cara (para los que te recortan). */
   fx?: { limits: FxLimits; faceWords?: Set<number> | null; keepUser?: boolean };
+  /** Densidad de ritmo (lib/video/rhythm.ts): fuerza y separación de los zooms. Sin el campo, Normal. */
+  density?: Density;
 };
 
 export type PendingGraphic = { item: BrollItem; scene: MotionSceneAi | null; spoken: string };
@@ -62,23 +66,12 @@ const clip = (s: string, n: number) => s.trim().slice(0, n);
 let counter = 0;
 const newId = () => `d${Date.now().toString(36)}${(counter++).toString(36)}`;
 
-/** Rangos donde no puede ir b-roll: el gancho, la apertura, la CTA (la última frase o el beat de CTA) y lo importante del mapa. */
-export function brollForbidden(words: Word[], removed: Set<number>, hook: HookCandidate | null, map: VideoMap | null): { from: number; to: number; label: string }[] {
-  const out: { from: number; to: number; label: string }[] = [];
-  if (hook) out.push({ from: hook.from_word, to: hook.to_word, label: "gancho" });
-  const kept = words.filter((w) => !removed.has(w.id));
-  const first = kept[0];
-  if (first) {
-    const opening = kept.filter((w) => w.start - first.start < 2.5).at(-1);
-    out.push({ from: first.id, to: opening?.id ?? first.id, label: "apertura" });
-  }
-  const phrases = sentences(kept);
-  const last = phrases.at(-1);
-  if (last) out.push({ from: last.from, to: last.to, label: "llamado a la acción" });
-  for (const b of map?.beats ?? []) if (b.role === "cta") out.push({ from: b.from, to: b.to, label: "llamado a la acción" });
-  // "A cámara" no se protege: tapar por momentos al creador que habla es justamente para qué sirve el b-roll.
-  for (const s of map?.shots ?? []) if (s.important && s.kind !== "a_camara") out.push({ from: s.from, to: s.to, label: `lo que se ve (${s.shows.slice(0, 40)})` });
-  return out;
+/**
+ * Rangos donde no puede ir lo que tapa a la persona: el gancho, la apertura, la última frase de la CTA y lo que se
+ * muestra (con tope, ver protect.ts). Con `overlay` (gráfico sobre el video), solo lo que se muestra.
+ */
+export function brollForbidden(words: Word[], removed: Set<number>, hook: HookCandidate | null, map: VideoMap | null, overlay = false): { from: number; to: number; label: string }[] {
+  return coverForbidden(words, removed, hook, map, overlay);
 }
 
 export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assembled {
@@ -156,6 +149,7 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
 
   // 5. B-roll y gráficos.
   const forbidden = brollForbidden(words, removedSet, hook, map);
+  const forbiddenOverlay = brollForbidden(words, removedSet, hook, map, true);
   const base = input.base;
   const pending: PendingGraphic[] = [];
   const broll: BrollItem[] = [];
@@ -165,7 +159,9 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     const from = Math.min(b.from_word, b.to_word);
     const to = Math.max(b.from_word, b.to_word);
     if (!valid(from, to)) continue;
-    const hit = forbidden.find((f) => overlaps(f, { from, to }));
+    // Un gráfico sobre el video deja ver a la persona: puede ir en el gancho y en la CTA (las refuerza).
+    const overlay = b.kind === "graphic" && b.graphic?.mode === "overlay";
+    const hit = (overlay ? forbiddenOverlay : forbidden).find((f) => overlaps(f, { from, to }));
     if (hit) {
       dropped.push(`Quité un b-roll que iba a tapar ${hit.label}.`);
       continue;
@@ -173,7 +169,8 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     const ids = Array.from({ length: to - from + 1 }, (_, k) => from + k);
     if (ids.filter((id) => removedSet.has(id)).length > ids.length * 0.4) continue;
     const span = words[to]!.end - words[from]!.start;
-    if (span < 0.8 || span > 8) continue;
+    // Un gráfico dura lo que dura lo que se dice (una lista de tres errores puede llevar 10 s); un video, hasta 8 s.
+    if (span < 0.8 || span > (b.kind === "graphic" ? 12 : 8)) continue;
     if (broll.some((c) => overlaps({ from: c.from_word, to: c.to_word }, { from, to }))) continue;
     const wantsGraphic = b.kind === "graphic" && Boolean(b.graphic) && limits.graphics && span >= 1.2;
     if (!wantsGraphic && !limits.stock) continue;
@@ -203,15 +200,21 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
   broll.sort((a, b) => a.from_word - b.from_word);
 
   // 6. Zooms (fuera de los b-roll) y subtítulos ocultos.
+  // Fuerza y separación según la densidad: con Editor de reels, punch-ins de 1,15 y 1,3 que pueden ir seguidos.
+  const target = DENSITY_TARGETS[input.density ?? "normal"];
+  const [soft, strong] = [target.zoomScales[0]!, target.zoomScales[target.zoomScales.length - 1]!];
   const zooms: ZoomMoment[] = [];
-  for (const z of ai.zooms) {
+  for (const z of [...ai.zooms].sort((a, b) => Math.min(a.from_word, a.to_word) - Math.min(b.from_word, b.to_word))) {
     const from = Math.min(z.from_word, z.to_word);
     const to = Math.max(z.from_word, z.to_word);
     if (!valid(from, to) || broll.some((b) => overlaps({ from: b.from_word, to: b.to_word }, { from, to }))) continue;
     if ((ai.effects ?? []).some((e) => overlaps({ from: Math.min(e.from_word, e.to_word), to: Math.max(e.from_word, e.to_word) }, { from, to }))) continue;
     const last = zooms[zooms.length - 1];
-    if (last && words[from]!.start - words[last.to_word]!.end < 2.5) continue;
-    zooms.push({ from_word: from, to_word: to, scale: z.strength === "marcado" ? 1.15 : 1.08, why: clip(z.why, 300) });
+    if (last && (from <= last.to_word || words[from]!.start - words[last.to_word]!.end < target.zoomGap)) continue;
+    let scale = z.strength === "marcado" ? strong : soft;
+    // Nunca dos iguales seguidos: si el anterior está pegado y tiene la misma escala, se alterna.
+    if (last && Math.abs(last.scale - scale) < 0.02 && words[from]!.start - words[last.to_word]!.end < 1) scale = scale === strong ? soft : strong;
+    zooms.push({ from_word: from, to_word: to, scale, why: clip(z.why, 300) });
   }
   const hide = ai.caption_hide
     .filter((h) => valid(Math.min(h.from_word, h.to_word), Math.max(h.from_word, h.to_word)))
@@ -219,11 +222,9 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     .map((h) => ({ from_word: Math.min(h.from_word, h.to_word), to_word: Math.max(h.from_word, h.to_word), why: clip(h.why, 300) }));
 
   // 6 bis. Efectos de la biblioteca (nunca sobre un b-roll, lo importante que se muestra ni una toma mala).
-  const fxForbidden = [
-    // Los efectos se dibujan sobre la persona que habla: solo se protege lo que no es "a cámara" (producto, pantalla, gesto).
-    ...(map?.shots ?? []).filter((s) => s.important && s.kind !== "a_camara").map((s) => ({ from: s.from, to: s.to, label: `lo que se ve (${s.shows.slice(0, 40)})` })),
-    ...(map?.badTakes ?? []).map((b) => ({ from: b.from, to: b.to, label: "una toma mala" })),
-  ];
+  // Los efectos se dibujan sobre la persona que habla: el gancho y la CTA los admiten; solo se protege lo que se muestra
+  // (con tope) y las tomas malas.
+  const fxForbidden = effectsForbidden(words, map);
   const fx = input.fx
     ? effectsFromWire(ai.effects ?? [], { words, limits: input.fx.limits, broll, forbidden: fxForbidden, faceWords: input.fx.faceWords ?? null, removed: removedSet, base: base?.effects ?? null, keepUser: input.fx.keepUser })
     : { items: base?.effects ?? [], dropped: [] };

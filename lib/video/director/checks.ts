@@ -15,6 +15,8 @@ import { FPS, type EditPlan, type VideoFormat, type Word } from "../types";
 import { textOf, wordsInSpan } from "./context";
 import { FX_INFO } from "../fx/catalog";
 import type { CriticIssue, Eyes, VideoMap } from "./types";
+import { protectedZones } from "./protect";
+import { DENSITY_LABELS, DENSITY_TARGETS, planRhythm } from "../rhythm";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -41,20 +43,22 @@ export function checkPlan(input: { plan: EditPlan; words: Word[]; duration: numb
   const ordered = [...plan.broll].sort((a, b) => a.from_word - b.from_word);
   const label = (id: string) => `B${ordered.findIndex((b) => b.id === id) + 1}`;
 
-  // B-roll o gráfico encima de algo que se tiene que ver.
+  // B-roll o gráfico encima de algo que se tiene que ver (lo que se muestra; "a cámara" no cuenta, ver protect.ts).
+  const zones = protectedZones(map, words).zones;
+  const shows = (z: { label: string }) => z.label.replace(/^lo que se ve \((.*)\)$/, "$1").toLowerCase();
   for (const seg of segments) {
     const item = plan.broll.find((b) => b.id === seg.id)!;
-    const shot = map?.shots.find((s) => s.important && s.from <= item.to_word && item.from_word <= s.to);
+    const shot = zones.find((s) => s.from <= item.to_word && item.from_word <= s.to);
     if (shot) {
-      add({ kind: "tapa_importante", severity: "alta", at: seg.start, note: `El ${seg.option.source === "graphic" ? "gráfico" : "b-roll"} ${label(item.id)} tapa ${shot.shows.toLowerCase()}.`, fix: `Quita el ${seg.option.source === "graphic" ? "gráfico" : "b-roll"} ${label(item.id)} (palabras ${item.from_word}–${item.to_word}): tapa ${shot.shows.toLowerCase()}.` });
+      add({ kind: "tapa_importante", severity: "alta", at: seg.start, note: `El ${seg.option.source === "graphic" ? "gráfico" : "b-roll"} ${label(item.id)} tapa ${shows(shot)}.`, fix: `Quita el ${seg.option.source === "graphic" ? "gráfico" : "b-roll"} ${label(item.id)} (palabras ${item.from_word}–${item.to_word}): tapa ${shows(shot)}.` });
     }
   }
 
-  // Efectos sobre algo que se tiene que ver o sin la cara a cámara (los que te recortan).
+  // Efectos sobre algo que se tiene que ver.
   for (const e of plan.effects ?? []) {
-    const shot = map?.shots.find((s) => s.important && s.from <= e.to_word && e.from_word <= s.to);
+    const shot = zones.find((s) => s.from <= e.to_word && e.from_word <= s.to);
     const r = outputRange(timeline, e.from_word, e.to_word);
-    if (shot && r) add({ kind: "tapa_importante", severity: "alta", at: r.start, note: `El efecto «${FX_INFO[e.kind].label}» tapa ${shot.shows.toLowerCase()}.`, fix: `Quita el efecto ${e.kind} (palabras ${e.from_word}–${e.to_word}): tapa ${shot.shows.toLowerCase()}.` });
+    if (shot && r) add({ kind: "tapa_importante", severity: "alta", at: r.start, note: `El efecto «${FX_INFO[e.kind].label}» tapa ${shows(shot)}.`, fix: `Quita el efecto ${e.kind} (palabras ${e.from_word}–${e.to_word}): tapa ${shows(shot)}.` });
   }
 
   // Frases cortadas por un corte (se cortó el final de una frase que sigue después).
@@ -144,6 +148,15 @@ export function checkPlan(input: { plan: EditPlan; words: Word[]; duration: numb
     }
   }
 
+  // Ritmo medido contra la densidad elegida: un tramo largo sin que nada cambie en pantalla.
+  const rhythm = planRhythm(plan, words, input.duration);
+  const target = DENSITY_TARGETS[rhythm.density];
+  const gap = rhythm.longestGap;
+  if (gap.seconds > target.changeEvery * 1.8) {
+    const sec = (n: number) => n.toFixed(1).replace(".", ",");
+    add({ kind: "ritmo", severity: gap.seconds > target.changeEvery * 3 ? "media" : "baja", at: gap.start, note: `${sec(gap.seconds)} s sin que cambie nada en pantalla (densidad ${DENSITY_LABELS[rhythm.density].label}).`, fix: `Agrega un punch-in o un gráfico sincronizado entre el segundo ${sec(gap.start)} y el ${sec(gap.end)}.` });
+  }
+
   // Sin repetidos (mismo tipo en el mismo segundo).
   const seen = new Set<string>();
   return issues
@@ -173,12 +186,13 @@ export function safeFixes(input: { plan: EditPlan; words: Word[]; duration: numb
   const kinds = new Set(issues.map((i) => i.kind));
 
   if (kinds.has("tapa_importante") && map) {
+    const zones = protectedZones(map, words).zones;
     const before = plan.broll.length;
-    plan = { ...plan, broll: plan.broll.filter((b) => !map.shots.some((s) => s.important && s.from <= b.to_word && b.from_word <= s.to)) };
+    plan = { ...plan, broll: plan.broll.filter((b) => !zones.some((s) => s.from <= b.to_word && b.from_word <= s.to)) };
     const n = before - plan.broll.length;
     if (n) changes.push(n === 1 ? "Quité un b-roll que tapaba lo que muestras." : `Quité ${n} b-roll que tapaban lo que muestras.`);
     const fxBefore = plan.effects?.length ?? 0;
-    const effects = (plan.effects ?? []).filter((e) => !map.shots.some((s) => s.important && s.from <= e.to_word && e.from_word <= s.to));
+    const effects = (plan.effects ?? []).filter((e) => !zones.some((s) => s.from <= e.to_word && e.from_word <= s.to));
     if (effects.length !== fxBefore) {
       plan = { ...plan, ...(effects.length ? { effects } : { effects: undefined }) };
       if (!effects.length) delete plan.effects;

@@ -9,6 +9,7 @@
 import { z } from "zod";
 import type { BrollItem } from "../types";
 import type { BudgetPlan } from "./cost";
+import type { RequestLocks } from "./locks";
 
 // ─── Ojos (lo que mide el worker, worker/video/eyes.py) ──────────────────
 
@@ -267,6 +268,11 @@ export type DirectorState = {
   cycle: "analysis" | "edit";
   /** Plan de costo del análisis (modelos, vueltas y estimación) dentro del tope. */
   budget: BudgetPlan | null;
+  /**
+   * El último pedido de "Edítalo así" y lo que no se puede deshacer (lib/video/director/locks.ts): el crítico y las
+   * correcciones lo respetan.
+   */
+  request?: RequestLocks | null;
   updatedAt: string;
 };
 

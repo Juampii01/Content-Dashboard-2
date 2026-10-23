@@ -150,7 +150,7 @@ export function FxGallery({ open, onClose, brand, onPick, rangeText, current }: 
   );
 }
 
-export type FxMaskStatus = { pending: boolean; missing: Set<string> };
+export type FxMaskStatus = { pending: boolean; failed: boolean; missing: Set<string> };
 
 /** Lista de efectos de la revisión: cada uno con su muestra, el texto que acompaña, su tiempo y sus acciones. */
 export function FxPanel({
@@ -227,7 +227,11 @@ export function FxPanel({
                     {waiting && (
                       <p className="flex items-center gap-1 text-xs text-accent-glow" aria-live="polite">
                         {maskStatus.pending ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <UserRound className="h-3 w-3" aria-hidden />}
-                        {maskStatus.pending ? "Recortándote del fondo para la vista previa…" : "La vista previa todavía no tiene tu recorte."}
+                        {maskStatus.pending
+                          ? "Recortándote del fondo para la vista previa…"
+                          : maskStatus.failed
+                            ? "No pudimos recortarte para la vista previa. Al renderizar se vuelve a intentar."
+                            : "La vista previa todavía no tiene tu recorte."}
                       </p>
                     )}
                     {item.why && (

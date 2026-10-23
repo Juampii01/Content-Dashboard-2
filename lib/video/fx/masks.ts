@@ -15,10 +15,8 @@ export const FX_MASK_CHUNK = 30;
 export function fxMaskKey(srcW: number, srcH: number, format: VideoFormat, offsetX: number): string {
   const { w, h } = OUTPUT[format];
   const wide = srcW / srcH > (w / h) * 1.02;
-  let off = wide ? Math.round(Math.max(-1, Math.min(1, offsetX)) * 100) / 100 : 0;
-  if (off === 0) off = 0;
-  const sign = off < 0 ? "-" : "+";
-  return `${format.replace(":", "x")}-o${sign}${Math.abs(off).toFixed(2)}-${FX_MASK_VERSION}`;
+  const off = wide ? Math.round(Math.max(-1, Math.min(1, offsetX)) * 100) : 0;
+  return `${format.replace(":", "x")}-o${off < 0 ? "m" : "p"}${String(Math.abs(off)).padStart(3, "0")}-${FX_MASK_VERSION}`;
 }
 
 /** Bloques (segundos del original) que usan los efectos con recorte del plan. */

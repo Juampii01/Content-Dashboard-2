@@ -89,15 +89,18 @@ export async function fxForRender(input: {
 
 // ─── Recorte para la vista previa ─────────────────────────────────────────
 
-export type FxMaskView = { key: string; fps: number; tile: [number, number]; urls: Record<number, string>; missing: number[]; pending: boolean };
+export type FxMaskView = { key: string; fps: number; tile: [number, number]; urls: Record<number, string>; missing: number[]; pending: boolean; failed: boolean };
 
-async function pendingFxJob(projectId: string): Promise<boolean> {
+/** Último trabajo de recorte del proyecto: en curso, o fallado hace poco (entonces no se vuelve a pedir enseguida). */
+async function lastFxJob(projectId: string): Promise<{ pending: boolean; failedRecently: boolean }> {
   const [row] = await getDb()
-    .select({ id: schema.jobs.id })
+    .select({ status: schema.jobs.status, at: sql<Date>`coalesce(${schema.jobs.finishedAt}, ${schema.jobs.createdAt})` })
     .from(schema.jobs)
-    .where(and(eq(schema.jobs.type, "VIDEO_FX"), inArray(schema.jobs.status, ["QUEUED", "RUNNING"]), sql`${schema.jobs.input}->>'projectId' = ${projectId}`))
+    .where(and(eq(schema.jobs.type, "VIDEO_FX"), sql`${schema.jobs.input}->>'projectId' = ${projectId}`))
+    .orderBy(desc(schema.jobs.createdAt))
     .limit(1);
-  return Boolean(row);
+  if (!row) return { pending: false, failedRecently: false };
+  return { pending: row.status === "QUEUED" || row.status === "RUNNING", failedRecently: row.status === "FAILED" && Date.now() - new Date(row.at).getTime() < 10 * 60_000 };
 }
 
 /**
@@ -113,8 +116,9 @@ export async function ensureFxMasks(input: { projectId: string; plan: EditPlan; 
   const have: FxMaskMedia | undefined = media.fxMasks?.[key];
   const ready = new Set(have?.chunks ?? []);
   const missing = chunks.filter((k) => !ready.has(k));
-  let pending = await pendingFxJob(input.projectId);
-  if (missing.length && !pending && input.enqueue !== false) {
+  const last = await lastFxJob(input.projectId);
+  let pending = last.pending;
+  if (missing.length && !pending && !last.failedRecently && input.enqueue !== false) {
     await enqueueJob({ type: "VIDEO_FX", createdBy: input.userId, stage: "En cola", maxAttempts: 2, input: { projectId: input.projectId, format, offsetX: plan.framing.offset_x, chunks: missing } });
     pending = true;
   }
@@ -125,5 +129,5 @@ export async function ensureFxMasks(input: { projectId: string; plan: EditPlan; 
       if (url) urls[k] = url;
     }
   }
-  return { key, fps: have?.fps ?? 10, tile: have?.tile ?? (format === "9:16" ? [180, 320] : [320, 180]), urls, missing, pending };
+  return { key, fps: have?.fps ?? 10, tile: have?.tile ?? (format === "9:16" ? [180, 320] : [320, 180]), urls, missing, pending, failed: !pending && last.failedRecently && missing.length > 0 };
 }

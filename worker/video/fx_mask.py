@@ -23,6 +23,7 @@ import functools
 import hashlib
 import json
 import logging
+import math
 import os
 import subprocess
 from pathlib import Path
@@ -85,13 +86,12 @@ def framing_filter(src_w: int, src_h: int, fmt: str, offset_x: float, out_w: int
 
 
 def framing_key(src_w: int, src_h: int, fmt: str, offset_x: float) -> str:
-    """Nombre corto del encuadre (carpeta de la caché y de la vista previa)."""
+    """Nombre corto del encuadre (carpeta de la caché y de la vista previa): "9x16-op000-mp2", "9x16-om035-mp2"…
+    (sin signos raros: va en las claves del almacenamiento)."""
     ref_w, ref_h = output_size(fmt)
     wide = src_w / src_h > ref_w / ref_h * 1.02
-    off = round(max(-1.0, min(1.0, offset_x)), 2) if wide else 0.0
-    if off == 0:
-        off = 0.0  # sin "-0.00"
-    return f"{fmt.replace(':', 'x')}-o{off:+.2f}-{MASK_VERSION}"
+    off = math.floor(max(-1.0, min(1.0, offset_x)) * 100 + 0.5) if wide else 0  # como Math.round de la app
+    return f"{fmt.replace(':', 'x')}-o{'m' if off < 0 else 'p'}{abs(off):03d}-{MASK_VERSION}"
 
 
 def read_frames(src: Path, start_frame: int, count: int, graph: str, size: tuple[int, int]) -> Iterator[np.ndarray]:

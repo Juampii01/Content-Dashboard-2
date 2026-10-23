@@ -618,7 +618,7 @@ export function ReviewEditor({
           canEdit={canEdit}
           activeId={activeFx}
           brand={fxBrand}
-          maskStatus={{ pending: Boolean(masks?.pending), missing: maskMissing }}
+          maskStatus={{ pending: Boolean(masks?.pending), failed: Boolean(masks?.failed), missing: maskMissing }}
           noThumbs={thumbs.length === 0}
           onActivate={showFx}
           onEdit={(id) => {

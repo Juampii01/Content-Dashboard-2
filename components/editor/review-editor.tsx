@@ -10,15 +10,20 @@ import { toast } from "@/components/ui/toast";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
 import { CAPTION_PICKER_ORDER, CAPTION_PRESETS, captionBlocks, hideDuring } from "@/lib/video/captions";
-import { brollSegments, computeZooms, directorZooms } from "@/lib/video/effects";
+import { brollSegments, computeZooms, cutTimes, directorZooms, graphicEntries } from "@/lib/video/effects";
+import { fillRhythm, planDensity, rhythmScore, themeOfPlan, type Density } from "@/lib/video/rhythm";
+import { motionTheme } from "@/lib/video/motion-graphics";
+import { protectedZones } from "@/lib/video/director/protect";
+import { RhythmPanel } from "./rhythm-panel";
 import { rangesFromIds } from "@/lib/video/plan";
-import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
+import { hookEnd, sfxCues, sfxLevel, type SfxLevel } from "@/lib/video/sfx";
 import { studioLevel, type AudioPreview, type StudioLevel } from "@/lib/video/studio-audio";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
-import { buildTimeline, outputRange } from "@/lib/video/timeline";
+import { buildTimeline, outputRange, sourceToOutput } from "@/lib/video/timeline";
 import type { DirectorView } from "@/lib/dal/video";
 import type { GraphicLook } from "@/lib/video/graphics";
-import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, PlanMove, RemovalReason, VideoFormat, Word } from "@/lib/video/types";
+import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, PlanMove, RemovalReason, VideoFormat, Word, ZoomMoment } from "@/lib/video/types";
+import type { FxKind as RhythmFxKind } from "@/lib/video/fx/catalog";
 import { cn } from "@/lib/utils";
 import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-edit";
 import { renderAction, saveReviewAction } from "./actions";
@@ -71,6 +76,7 @@ export function ReviewEditor({
   audioPreview = null,
   director = null,
   fxContext = null,
+  rhythmFx = [],
 }: {
   projectId: string;
   plan: EditPlan;
@@ -96,6 +102,8 @@ export function ReviewEditor({
   director?: DirectorView | null;
   /** Efectos: la cara medida, las miniaturas de tus reels y el recorte de la persona para la vista previa. */
   fxContext?: FxContext | null;
+  /** Efectos que permite Mi marca (el ritmo "Editor de reels" puede abrir con uno). */
+  rhythmFx?: RhythmFxKind[];
 }) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
@@ -133,6 +141,13 @@ export function ReviewEditor({
   const [gallery, setGallery] = useState<{ range: { from: number; to: number } | null; replace: string | null } | null>(null);
   const [masks, setMasks] = useState(fxContext?.masks ?? null);
   const captionStyle = style?.captions ?? null;
+  // Ritmo (lib/video/rhythm.ts): densidad, punch-ins, pausa máxima y palabras resaltadas (lo cambia el selector).
+  const [density, setDensity] = useState<Density>(() => planDensity(plan));
+  const [zoomMoments, setZoomMoments] = useState<ZoomMoment[]>(plan.zoom_moments ?? []);
+  const [pacing, setPacing] = useState(plan.pacing);
+  const [emphasis, setEmphasis] = useState<number[]>(plan.captions.emphasis_words);
+  const [rhythmLog, setRhythmLog] = useState(plan.rhythm?.added ?? []);
+  const [rhythmTouched, setRhythmTouched] = useState(false);
 
   const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
   const reasons = useMemo(() => {
@@ -157,8 +172,9 @@ export function ReviewEditor({
       music: { trackId: music.trackId && tracks.some((t) => t.id === music.trackId) ? music.trackId : null, db: Math.max(-30, Math.min(-8, music.db)) },
       ...(plan.moves?.length ? { moves } : {}),
       effects: fxItems,
+      ...(rhythmTouched ? { rhythm: { density, added: rhythmLog, zoomMoments, longPause: pacing?.long_pause ?? 0.5, emphasis } } : {}),
     }),
-    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks, moves, plan.moves, fxItems],
+    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks, moves, plan.moves, fxItems, rhythmTouched, density, rhythmLog, zoomMoments, pacing, emphasis],
   );
 
   const timeline = useMemo(
@@ -170,13 +186,13 @@ export function ReviewEditor({
           hook_candidates: plan.hook_candidates,
           selected_hook: selectedHook,
           corrections,
-          captions: { preset, emphasis_words: plan.captions.emphasis_words },
-          pacing: plan.pacing,
+          captions: { preset, emphasis_words: emphasis },
+          pacing,
           moves,
         },
         duration,
       ),
-    [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, plan.pacing, selectedHook, corrections, preset, duration, moves],
+    [words, review.removed, plan.removals, plan.hook_candidates, emphasis, pacing, selectedHook, corrections, preset, duration, moves],
   );
   const fxSegs = useMemo(() => fxSegments(timeline, fxItems), [timeline, fxItems]);
   // Sin subtítulos donde el director los ocultó (ya hay texto en pantalla en esa franja) ni durante los efectos que llevan
@@ -191,8 +207,46 @@ export function ReviewEditor({
   const segments = useMemo(() => brollSegments(timeline, brollItems), [timeline, brollItems]);
   const zooms = useMemo(() => {
     const avoid = [...segments, ...fxSegs];
-    return style && style.zoom.enabled && zoomsOn ? computeZooms(timeline, style.zoom, { emphasis: plan.captions.emphasis_words, avoid }) : directorZooms(timeline, plan.zoom_moments, avoid);
-  }, [style, zoomsOn, timeline, plan.captions.emphasis_words, plan.zoom_moments, segments, fxSegs]);
+    return style && style.zoom.enabled && zoomsOn ? computeZooms(timeline, style.zoom, { emphasis, avoid }) : directorZooms(timeline, zoomMoments, avoid);
+  }, [style, zoomsOn, timeline, emphasis, zoomMoments, segments, fxSegs]);
+  // Ritmo medido sobre lo que se ve (los mismos cálculos que el render) y los sonidos en su lugar.
+  const entries = useMemo(() => graphicEntries(segments), [segments]);
+  const rhythm = useMemo(() => rhythmScore({ timeline, broll: segments, zooms, effects: fxSegs.map((f) => ({ start: f.start, end: f.end, kind: f.item.kind })), entries, density }), [timeline, segments, zooms, fxSegs, entries, density]);
+  const sfxMarks = useMemo(
+    () => sfxCues({ level: sfx, duration: timeline.duration, broll: segments, hookEnd: hookEnd(timeline), entries: [...entries, ...fxSegs.map((f) => f.start)], punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start), dense: density === "reels" }),
+    [sfx, timeline, segments, entries, fxSegs, zooms, density],
+  );
+  const outTime = useMemo(() => (activeTime == null ? null : (sourceToOutput(timeline.clips, activeTime)?.out ?? null)), [activeTime, timeline.clips]);
+
+  /** Cambia la densidad: lo que agregó el ritmo antes se quita y se vuelve a calcular (punch-ins, gráficos, pausas). */
+  function changeDensity(next: Density) {
+    if (next === density) return;
+    const current: EditPlan = {
+      ...plan,
+      format,
+      removals: rangesFromIds(review.removed, plan.removals),
+      selected_hook: selectedHook,
+      corrections,
+      broll: brollItems,
+      effects: fxItems,
+      zoom_moments: zoomMoments,
+      ...(pacing ? { pacing } : {}),
+      captions: { ...plan.captions, preset, emphasis_words: emphasis },
+      moves,
+      rhythm: { density, added: rhythmLog },
+    };
+    const theme = themeOfPlan(current) ?? motionTheme(graphicLook);
+    const { plan: filled } = fillRhythm(current, { words, duration, density: next, format, forbidden: protectedZones(director?.state.map ?? null, words).zones, theme, fxAllowed: rhythmFx, replace: true });
+    setDensity(next);
+    setBrollItems(filled.broll);
+    setFxItems(filled.effects ?? []);
+    setZoomMoments(filled.zoom_moments ?? []);
+    setPacing(filled.pacing);
+    setEmphasis(filled.captions.emphasis_words);
+    setRhythmLog(filled.rhythm?.added ?? []);
+    setRemoved(idsOf(filled));
+    setRhythmTouched(true);
+  }
   // Efectos: el mismo spec que arma el render (lib/video/fx-service.ts), con la cara que midió el worker.
   const fxBrand = useMemo(() => fxBrandFromLook(graphicLook), [graphicLook]);
   const thumbs = useMemo(() => fxContext?.thumbs ?? [], [fxContext]);
@@ -816,6 +870,17 @@ export function ReviewEditor({
               fxStrips={fxStrips}
               fxMaskFps={masks?.fps ?? 10}
               fxImages={fxImages}
+            />
+            <RhythmPanel
+              score={rhythm}
+              cuts={cutTimes(timeline)}
+              sfx={sfxMarks}
+              entries={entries}
+              time={outTime}
+              density={density}
+              onDensity={changeDensity}
+              onSeek={(t) => preview.current?.seekOutput(t, false)}
+              canEdit={canEdit}
             />
             <dl className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-xl bg-white/[0.04] px-2 py-2">

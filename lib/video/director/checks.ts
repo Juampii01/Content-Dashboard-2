@@ -7,7 +7,7 @@
  */
 import { sentences } from "@/lib/ai/prompts/editor";
 import { CAPTION_STYLES, isCaptionStyle } from "../caption-styles";
-import { brollSegments, directorZooms } from "../effects";
+import { brollSegments, directorZooms, graphicHidesCaptions } from "../effects";
 import { normalizeRemovals, withDerived } from "../plan";
 import { endsSentence } from "../text";
 import { buildTimeline, outputRange, removedIds, type Timeline } from "../timeline";
@@ -29,7 +29,7 @@ export function captionBand(preset: string, format: VideoFormat): [number, numbe
 
 function hiddenSpans(timeline: Timeline, plan: EditPlan): { start: number; end: number }[] {
   const spans = (plan.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
-  for (const s of brollSegments(timeline, plan.broll)) if (s.option.source === "graphic") spans.push({ start: s.start, end: s.end });
+  for (const s of brollSegments(timeline, plan.broll)) if (s.option.source === "graphic" && graphicHidesCaptions(s.option.graphic)) spans.push({ start: s.start, end: s.end });
   return spans;
 }
 

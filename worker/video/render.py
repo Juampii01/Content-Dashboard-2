@@ -337,9 +337,10 @@ def zoom_expr(zooms: list[dict[str, Any]]) -> str | None:
         last_end = end
         amount = f"{scale - 1:.4f}"
         if ramp > 0:
-            terms.append(f"between(it,{start:.3f},{end:.3f})*{amount}*min(1,(it-{start:.3f})/{ramp:.3f})")
+            terms.append(f"gte(it,{start:.3f})*lt(it,{end:.3f})*{amount}*min(1,(it-{start:.3f})/{ramp:.3f})")
         else:
-            terms.append(f"between(it,{start:.3f},{end:.3f})*{amount}")
+            # Medio abierto [inicio, fin): dos punch-ins pegados (1,15 → 1,3) no se suman en el cuadro del cambio.
+            terms.append(f"gte(it,{start:.3f})*lt(it,{end:.3f})*{amount}")
     return f"1+{'+'.join(terms)}" if terms else None
 
 

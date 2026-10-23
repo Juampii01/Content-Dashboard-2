@@ -16,6 +16,7 @@ import { usePrefersReducedMotion } from "@/components/ui/hooks";
 import { FX_INFO, type FxSpec } from "@/lib/video/fx";
 import { CaptionOverlay } from "./caption-overlay";
 import { GraphicCanvas } from "./graphic-canvas";
+import { graphicHidesCaptions } from "@/lib/video/effects";
 
 export type PreviewHandle = {
   /** Salta a un instante del video final y, si se pide, reproduce. */
@@ -39,7 +40,7 @@ export type PreviewBroll = {
 
 /** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
 export function zoomAt(zooms: OutputZoom[], t: number): number {
-  const z = zooms.find((x) => t >= x.start && t <= x.end);
+  const z = zooms.find((x) => t >= x.start && t < x.end);
   if (!z) return 1;
   return 1 + (z.scale - 1) * (z.ramp > 0 ? Math.min(1, (t - z.start) / z.ramp) : 1);
 }
@@ -250,8 +251,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
 
   const activeBroll = broll.find((b) => out >= b.start && out < b.end) ?? null;
   const activeFx = activeBroll ? null : (effects.find((e) => out >= e.start && out < e.end) ?? null);
-  // Igual que el render: durante un gráfico no se muestran subtítulos.
-  const block = useMemo(() => (activeBroll?.graphic ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, activeBroll]);
+  // Igual que el render: durante un gráfico no se muestran subtítulos (salvo una palabra clave arriba).
+  const block = useMemo(() => (activeBroll?.graphic && graphicHidesCaptions(activeBroll.graphic) ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, activeBroll]);
   const pct = duration ? (out / duration) * 100 : 0;
   const zoom = zoomAt(zooms, out);
   const brollVideo = useRef<HTMLVideoElement>(null);

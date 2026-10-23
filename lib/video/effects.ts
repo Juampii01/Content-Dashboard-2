@@ -173,3 +173,17 @@ export function brollCredits(segments: OutputBroll[]): string {
   }
   return blocks.length ? `${blocks.join("\n\n")}\n` : "";
 }
+
+/**
+ * ¿Se ocultan los subtítulos mientras se ve este gráfico? Sí a pantalla completa, abajo (la franja de los subtítulos) o
+ * si el gráfico ya muestra la frase. Una palabra clave, una notificación o un ícono arriba conviven con los subtítulos
+ * (como hace un editor de reels).
+ */
+export function graphicHidesCaptions(graphic: unknown): boolean {
+  if (!graphic || typeof graphic !== "object") return false;
+  const g = graphic as { v?: number; mode?: string; position?: string; layers?: { type?: string; component?: string }[] };
+  if (g.v !== 2) return true;
+  if (g.mode !== "overlay" || g.position === "bottom") return true;
+  const comps = (g.layers ?? []).filter((l) => l.type === "component").map((l) => l.component);
+  return !(comps.length && comps.every((c) => c === "keyword" || c === "dmNotification" || c === "iconBurst"));
+}

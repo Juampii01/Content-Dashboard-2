@@ -19,7 +19,7 @@ import { rangesFromIds } from "@/lib/video/plan";
 import { hookEnd, sfxCues, sfxLevel, type SfxLevel } from "@/lib/video/sfx";
 import { studioLevel, type AudioPreview, type StudioLevel } from "@/lib/video/studio-audio";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
-import { buildTimeline, outputRange, sourceToOutput } from "@/lib/video/timeline";
+import { buildTimeline, outputRange } from "@/lib/video/timeline";
 import type { DirectorView } from "@/lib/dal/video";
 import type { GraphicLook } from "@/lib/video/graphics";
 import type { BrollItem, BrollOption, CaptionPresetKey, EditPlan, PlanMove, RemovalReason, VideoFormat, Word, ZoomMoment } from "@/lib/video/types";
@@ -216,7 +216,7 @@ export function ReviewEditor({
     () => sfxCues({ level: sfx, duration: timeline.duration, broll: segments, hookEnd: hookEnd(timeline), entries: [...entries, ...fxSegs.map((f) => f.start)], punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start), dense: density === "reels" }),
     [sfx, timeline, segments, entries, fxSegs, zooms, density],
   );
-  const outTime = useMemo(() => (activeTime == null ? null : (sourceToOutput(timeline.clips, activeTime)?.out ?? null)), [activeTime, timeline.clips]);
+  const [outTime, setOutTime] = useState<number | null>(null);
 
   /** Cambia la densidad: lo que agregó el ritmo antes se quita y se vuelve a calcular (punch-ins, gráficos, pausas). */
   function changeDensity(next: Density) {
@@ -843,7 +843,7 @@ export function ReviewEditor({
       </div>
 
       <aside className="order-1 lg:order-2">
-        <div className="flex flex-col gap-4 lg:sticky lg:top-6">
+        <div className="flex flex-col gap-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
           <div className="card flex flex-col gap-4 p-4">
             <PreviewPlayer
               ref={preview}
@@ -859,6 +859,7 @@ export function ReviewEditor({
               sourceHeight={sourceHeight}
               offsetX={showFraming ? offsetX : 0}
               onSourceTime={setActiveTime}
+              onOutputTime={setOutTime}
               captionStyle={preset === "estilo" ? captionStyle : null}
               captionLook={capLook}
               broll={previewBroll}

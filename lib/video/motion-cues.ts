@@ -54,6 +54,8 @@ export function tokenSimilarity(a: string, b: string): number {
 }
 
 const MATCH = 0.75;
+/** Palabras que no sirven para ubicar dónde empieza un elemento. */
+const WEAK = new Set(["no", "si", "ya", "mas", "muy", "que"]);
 
 /**
  * Para cada texto (en orden), el id de la palabra dicha en que empieza; -1 si no aparece. Las coincidencias van en
@@ -76,12 +78,16 @@ export function inferCueWords(texts: string[], spoken: CueWord[]): number[] {
     // Palabra suelta después de otra ya encontrada (una frase palabra por palabra): se busca cerca; lo demás, en todo
     // lo que queda.
     const horizon = single && matched ? Math.min(words.length, ptr + 8) : words.length;
+    // La palabra en que "empieza" el elemento tiene que ser una con peso (no un "no" suelto que se repite).
+    const strong = slot.filter((t) => t.length >= 3 && !WEAK.has(t));
+    const anchors = strong.length ? strong : slot;
     let best = { j: -1, score: 0 };
     for (let j = ptr; j < horizon; j++) {
-      if (!slot.some((t) => tokenSimilarity(t, words[j]!.tok) >= MATCH)) continue;
+      if (!anchors.some((t) => tokenSimilarity(t, words[j]!.tok) >= MATCH)) continue;
       const window = words.slice(j, j + slot.length * 2 + 2);
       const used = new Set<number>();
       let score = 0;
+      let lastK = 0;
       for (const t of slot) {
         let bestK = -1;
         let bestS = 0;
@@ -96,14 +102,16 @@ export function inferCueWords(texts: string[], spoken: CueWord[]): number[] {
         if (bestS >= MATCH) {
           used.add(bestK);
           score += bestS;
+          lastK = Math.max(lastK, bestK);
         }
       }
-      score /= slot.length;
+      // Entre dos ventanas igual de buenas, la más compacta (las palabras del ítem juntas).
+      score = score / slot.length - lastK * 0.004;
       // La primera palabra del ítem que suena tiene que ser una de las suyas (si no, la ventana empieza antes).
       if (score > best.score + 1e-6) best = { j, score };
       if (score >= 0.999) break;
     }
-    if (best.j >= 0 && best.score >= (slot.length === 1 ? MATCH : 0.34)) {
+    if (best.j >= 0 && best.score >= (slot.length === 1 ? MATCH - 0.05 : 0.3)) {
       out.push(words[best.j]!.id);
       ptr = best.j + 1;
       matched = true;

@@ -250,7 +250,7 @@ export type FillInput = {
 export type FillResult = { plan: EditPlan; added: RhythmAddition[] };
 
 const NEG = /^(no|nunca|nadie|nada|jamas|ninguno|ninguna|tampoco|sin)$/;
-const NUMW = /^(\d+|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|treinta|cuarenta|cincuenta|cien|ciento|mil|millon|millones|doble|triple|mitad|porciento)$/;
+const NUMW = /^(\d+|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|treinta|cuarenta|cincuenta|cien|ciento|mil|millon|millones|doble|triple|mitad|porciento)$/;
 const STOP = new Set("el la los las un una unos unas de del al a en y o u que con por para es son se te tu tus mi mis su sus lo le les como pero si ya muy mas este esta esto ese esa eso hay fue ser estar tienes tiene tengo hace hacer cuando donde porque yo me nos todo toda todos vos sos tenes".split(" "));
 
 /** Puntaje de "fuerza" de una palabra: cifras, negaciones, resaltadas, verbos en gerundio y palabras largas. */
@@ -343,6 +343,24 @@ export function fillRhythm(plan0: EditPlan, input: FillInput): FillResult {
   }
   const forbidden = input.forbidden;
 
+  // 0. Nunca dos recursos iguales seguidos (dos "número que cuenta" o dos "gráfico que crece" uno detrás del otro): el
+  // segundo se quita (si no lo puso la persona) y el hueco lo rellena algo distinto más abajo.
+  if (density !== "sobria") {
+    const rich = [
+      ...plan.broll.filter((b) => b.choice).map((b) => ({ from: b.from_word, key: `g:${componentOf(b)}`, drop: () => (plan.broll = plan.broll.filter((x) => x.id !== b.id)), user: b.id.startsWith("u"), label: "gráfico" })),
+      ...(plan.effects ?? []).map((e) => ({ from: e.from_word, key: `fx:${e.kind}`, drop: () => (plan.effects = (plan.effects ?? []).filter((x) => x.id !== e.id)), user: e.source === "user", label: `efecto «${FX_INFO[e.kind].label}»` })),
+    ].sort((a, b) => a.from - b.from);
+    for (let i = 1; i < rich.length; i++) {
+      const a = rich[i - 1]!;
+      const b = rich[i]!;
+      if (a.key !== b.key || b.user || a.key.endsWith(":")) continue;
+      b.drop();
+      added.push({ kind: b.key.startsWith("fx") ? "efecto" : "grafico", from_word: b.from, to_word: b.from, why: `${RHYTHM_TAG} quité un ${b.label} repetido justo después de otro igual.` });
+      rich.splice(i, 1);
+      i--;
+    }
+  }
+
   // 1. Pausas y muletillas (la pausa máxima de la densidad; con Editor de reels, fuera muletillas y arranques en falso).
   const pause = Math.min(plan.pacing?.long_pause ?? t.pause, t.pause);
   if (!plan.pacing || plan.pacing.long_pause !== pause || input.replace) {
@@ -429,8 +447,9 @@ export function fillRhythm(plan0: EditPlan, input: FillInput): FillResult {
         let kind: "keyword" | "quote" = words3 >= 4 && prev !== "quote" ? "quote" : "keyword";
         if (kind === prev || kind === next) kind = kind === "keyword" ? "quote" : "keyword";
         if (kind === "quote" && words3 < 3) kind = "keyword";
-        const prevPos = (prevItem?.choice?.graphic as MotionScene | undefined)?.position;
-        const scene = simpleScene(kind, clause, words, plan.corrections, input.theme, input.format, prevPos === "top" && kind === "keyword" ? "bottom" : "top");
+        // La frase va abajo (ocupa el lugar de los subtítulos, que dicen lo mismo); la palabra clave, arriba, junto a
+        // los subtítulos, sin tapar la cara.
+        const scene = simpleScene(kind, clause, words, plan.corrections, input.theme, input.format, kind === "quote" ? "bottom" : "top");
         if (!scene) {
           clauses.splice(clauses.indexOf(clause), 1);
           placed = true;

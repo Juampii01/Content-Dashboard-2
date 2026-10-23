@@ -56,8 +56,13 @@ export function enumeration(text: string): string[] | null {
     .filter((p) => p.split(/\s+/).length >= 2);
   if (parts.length < 3) return null;
   const items = parts.slice(-4).map((p) => {
-    const words = p.split(/\s+/).filter((w) => !SIM_STOP.has(w.toLowerCase()) || /^no$/i.test(w));
-    const short = words.slice(0, 4).join(" ");
+    // Desde el verbo ("creando…") si lo hay, hasta 3 palabras, sin cortar en una palabra vacía.
+    let words = p.split(/\s+/);
+    const g = words.findIndex((w) => /(ando|endo|iendo)$/i.test(w));
+    if (g > 0) words = words.slice(g);
+    words = words.slice(0, 3);
+    while (words.length > 1 && SIM_STOP.has(words[words.length - 1]!.toLowerCase())) words.pop();
+    const short = words.join(" ");
     return short.charAt(0).toUpperCase() + short.slice(1);
   });
   return items.every((i) => i.length >= 3) ? items : null;
@@ -71,11 +76,15 @@ export function contrast(text: string): { left: string; right: string } | null {
 
 /** Gráfico simulado para una frase: una lista, un contraste, una cifra (o "de X a Y") o una palabra clave. */
 function sceneFor(f: Sentence): MotionSceneAi {
+  const steps = f.text.match(/:\s*([^.]+)/)?.[1]?.split(/,\s*|\s+y\s+/).map((x) => x.trim()).filter(Boolean);
+  if (steps && steps.length >= 2 && steps.length <= 4 && steps.every((x) => x.split(/\s+/).length <= 3))
+    return { title: f.text.split(":")[0]!.replace(/^(el|la|los|las)\s+/i, "").slice(0, 40).replace(/^./, (c) => c.toUpperCase()), mode: "full", position: "top", layers: [{ kind: "component", component: "steps", at: 0, scale: 1, place: "auto", props: { title: "", steps: steps.map((x) => x.charAt(0).toUpperCase() + x.slice(1)), icons: [] } }] };
   const items = enumeration(f.text);
   if (items) return { title: "Los errores", mode: "full", position: "top", layers: [{ kind: "component", component: "list", at: 0, scale: 1, place: "auto", props: { title: "", items, marker: "number", icons: [] } }] };
   const vs = contrast(f.text);
   if (vs) return { title: "No es esto, es esto", mode: "full", position: "top", layers: [{ kind: "component", component: "comparison", at: 0, scale: 1, place: "auto", props: { left: { label: "No es", text: vs.left.charAt(0).toUpperCase() + vs.left.slice(1) }, right: { label: "Es", text: vs.right.charAt(0).toUpperCase() + vs.right.slice(1) } } }] };
-  const nums = spokenNumbers(f.text);
+  // "un video", "una pregunta" no son cifras.
+  const nums = spokenNumbers(f.text).filter((n) => n !== 1 || /\b1\b/.test(f.text));
   const pct = /por ciento|%/i.test(f.text);
   const money = /d[oó]lares|\$/i.test(f.text);
   if (nums.length >= 2 && /\bde\b.+\ba\b/i.test(f.text)) {
@@ -190,8 +199,8 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
     const range = best;
     if (forbidden.some((x) => overlaps(x, range))) continue;
     const span = f.end - f.start;
-    const figure = NUMBER_WORD.test(f.text) && spokenNumbers(f.text).length > 0;
-    const structured = Boolean(enumeration(f.text) || contrast(f.text));
+    const figure = NUMBER_WORD.test(f.text) && spokenNumbers(f.text).some((n) => n !== 1);
+    const structured = Boolean(enumeration(f.text) || contrast(f.text) || /:\s*\S+,/.test(f.text));
     if (!figure && !structured && !wantsMore && !(input.duration > 45 && span >= 2.5)) continue;
     // El gráfico cubre de 1,5 a 5 s del tramo (desde su inicio); una lista o un contraste, todo lo que se dice.
     let to = range.from;

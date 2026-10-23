@@ -64,6 +64,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   offsetX: number;
   /** Se llama ~10 veces por segundo con el instante del original (para resaltar la palabra en el texto). */
   onSourceTime?: (t: number | null) => void;
+  /** Segundo del video final (también en pausa, al saltar): lo usa la línea de tiempo del ritmo. */
+  onOutputTime?: (t: number) => void;
   captionStyle?: CaptionStyle | null;
   /** Diseño de un estilo de la galería de subtítulos (lib/video/caption-styles.ts). */
   captionLook?: CaptionLook | null;
@@ -93,6 +95,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     sourceHeight,
     offsetX,
     onSourceTime,
+    onOutputTime,
     captionStyle = null,
     captionLook = null,
     broll = [],
@@ -143,6 +146,10 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     return () => observer.disconnect();
   }, []);
 
+  const outputCb = useRef(onOutputTime);
+  useEffect(() => {
+    outputCb.current = onOutputTime;
+  }, [onOutputTime]);
   const seekOutput = useCallback((target: number, play = false) => {
     const v = video.current;
     const list = clipsRef.current;
@@ -151,6 +158,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     clipIndex.current = i;
     v.currentTime = source;
     setOut(Math.max(0, target));
+    outputCb.current?.(Math.max(0, target));
     if (play) void v.play().catch(() => undefined);
   }, []);
 
@@ -192,6 +200,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
       if (onSourceTime && now - lastReport.current > 100) {
         lastReport.current = now;
         onSourceTime(t);
+        outputCb.current?.(o);
       }
     }
     raf.current = requestAnimationFrame(tick);

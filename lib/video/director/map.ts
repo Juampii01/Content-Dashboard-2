@@ -12,7 +12,7 @@ import { norm } from "../text";
 
 const clip = (s: string, n: number) => s.trim().slice(0, n);
 const FIGURE_RE = /\d|(?:^|\s)(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|veinte|treinta|cuarenta|cincuenta|cien|mil|millón|millones|doble|triple|mitad)(?=\s|[.,!?]|$)/i;
-const CTA_RE = /\b(comenta|escr[ií]beme|escribe|s[ií]gueme|link|enlace|haz clic|reserva|agenda|compra|descarga|reg[ií]strate|dm|mensaje|guarda|comp[aá]rtelo)\b/i;
+const CTA_RE = /\b(comenta|escr[ií]beme|escribe|s[ií]gueme|seguime|s[ií]guenos|mi perfil|link|enlace|haz clic|reserva|agenda (una|tu|la)|compra (ya|ahora|aqu[ií])|descarga|reg[ií]strate|dm|m[aá]ndame|guarda|comp[aá]rtelo|entra a|entr[aá] a)\b/i;
 const PROBLEM_RE = /\b(error|problema|pierde|pierden|perder|nadie|nunca|dejas?|cuesta|caro|fracas|falla)\w*/i;
 const PROMISE_RE = /\b(hoy te|te muestro|te enseño|vas a|aprende|c[oó]mo|secreto|la clave|lo que funciona|cambia todo)\b/i;
 const OFFER_RE = /\b(gratis|precio|oferta|descuento|acceso|programa|curso|servicio|cup[oó]n|inscr[ií]bete)\b/i;

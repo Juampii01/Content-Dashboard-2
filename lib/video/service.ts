@@ -16,6 +16,8 @@ import { captionLook, captionTracks, isCaptionStyle } from "./caption-styles";
 import { captionBlocks, hideDuring, toSrt } from "./captions";
 import { brollRenderEdit } from "./broll-edit";
 import { brollCredits, brollSegments, computeZooms, directorZooms } from "./effects";
+import { cleanFx } from "./fx/schema";
+import { ensureFxMasks, fxForRender } from "./fx-service";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
 import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme } from "./motion-graphics";
@@ -360,6 +362,8 @@ export type Review = {
   music?: { trackId: string | null; db: number };
   /** Bloques movidos por el director que siguen en pie (la persona puede dejar alguno en su lugar). */
   moves?: PlanMove[];
+  /** Efectos de la biblioteca tal como quedaron en la revisión. */
+  effects?: unknown[];
 };
 
 export function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
@@ -389,6 +393,11 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     ...(review.broll ? { broll: cleanBroll(review.broll, words.length) } : {}),
     ...(review.zooms != null && plan.style_id ? { zooms_enabled: review.zooms } : {}),
   };
+  if (review.effects) {
+    const fx = cleanFx(review.effects, words.length, next.broll.filter((b) => b.choice));
+    if (fx.length) next.effects = fx;
+    else delete next.effects;
+  }
   if (review.moves) {
     // Solo se pueden quitar bloques movidos (no inventar nuevos desde el navegador).
     const kept = (plan.moves ?? []).filter((m) => review.moves!.some((r) => r.from_word === m.from_word && r.to_word === m.to_word && r.after_word === m.after_word));
@@ -426,6 +435,11 @@ export async function saveReview(projectId: string, review: Review, format: Vide
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: review.preset }).where(eq(schema.videoProjects.id, projectId));
+  // Efectos con recorte: el worker prepara la máscara de esos segundos para la vista previa (si falta).
+  if (next.effects?.length) {
+    const timeline = buildTimeline(transcript.words, next, media.duration || transcript.duration);
+    await ensureFxMasks({ projectId, plan: next, timeline, media, userId: null }).catch((error) => console.error("[efectos] no se pudo pedir el recorte:", error instanceof Error ? error.message : error));
+  }
 }
 
 const DEFAULT_CAPTION_ACCENT = "#FFD84D";
@@ -477,11 +491,15 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea. Tampoco donde el director los ocultó (texto quemado).
   const graphicSpans = broll.filter((b) => b.option.source === "graphic");
   const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
-  const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans]);
+  // Efectos de la biblioteca: lo que dibuja el worker (el mismo spec que la vista previa); algunos llevan sus propios
+  // subtítulos y ninguno lleva zooms del estilo encima (traen su propia cámara).
+  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections });
+  const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans, ...fx.hides]);
+  const noZoom = [...broll, ...fx.avoid];
   const zooms =
     style && style.preset.zoom.enabled && next.zooms_enabled !== false
-      ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: broll })
-      : directorZooms(timeline, next.zoom_moments, broll);
+      ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: noZoom })
+      : directorZooms(timeline, next.zoom_moments, noZoom);
   const credits = brollCredits(broll);
   const capLook = isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: look.font, emoji: next.captions.emoji === true }) : null;
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;
@@ -537,6 +555,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
           ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: brollEdit(b) }
           : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key, edit: brollEdit(b) },
     ),
+    effects: fx.items,
     credits,
     creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
     srt: toSrt(timeline.words),

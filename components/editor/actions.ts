@@ -9,6 +9,7 @@ import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
 import { setAutoExport } from "@/lib/video/auto-export";
 import { brollItemSchema } from "@/lib/video/plan";
+import { fxListSchema } from "@/lib/video/fx/schema";
 import { MUSIC_DB, SFX_LEVELS } from "@/lib/video/sfx";
 import { STUDIO_LEVELS } from "@/lib/video/studio-audio";
 import { CAPTION_PRESET_KEYS, type CaptionPresetKey } from "@/lib/video/types";
@@ -153,6 +154,7 @@ const reviewSchema = z.object({
   studio: z.enum(STUDIO_LEVELS).optional(),
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
+  effects: fxListSchema.optional(),
 });
 
 export async function saveReviewAction(projectId: string, review: Review, format: "9:16" | "16:9"): Promise<ActionResult> {

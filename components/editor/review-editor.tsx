@@ -35,6 +35,14 @@ import { DecisionsPanel } from "./director/decisions-panel";
 import { EditRequestCard } from "./director/edit-request";
 import { UnderstandingPanel } from "./director/understanding-panel";
 import { VariantsPanel } from "./director/variants-panel";
+import { FxEditor, FxGallery, FxPanel } from "./fx/fx-panel";
+import { useImages } from "./fx/fx-canvas";
+import { fxMasksAction } from "./fx-actions";
+import type { FxContext } from "@/lib/dal/video-fx";
+import { FX_INFO, type FxKind } from "@/lib/video/fx/catalog";
+import { compileFx, faceAnchor, fxBrandFromLook, fxCaptionHides, fxSegments, sourceFramesOf, sourceRangesOf } from "@/lib/video/fx/compile";
+import { FX_MASK_CHUNK } from "@/lib/video/fx/masks";
+import { defaultFx, newFxId, type FxItem } from "@/lib/video/fx/schema";
 
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
@@ -62,6 +70,7 @@ export function ReviewEditor({
   tracks = [],
   audioPreview = null,
   director = null,
+  fxContext = null,
 }: {
   projectId: string;
   plan: EditPlan;
@@ -85,6 +94,8 @@ export function ReviewEditor({
   audioPreview?: AudioPreview | null;
   /** Director de edición: lo que entendió, la segunda mirada, el brief, los pedidos y las versiones. */
   director?: DirectorView | null;
+  /** Efectos: la cara medida, las miniaturas de tus reels y el recorte de la persona para la vista previa. */
+  fxContext?: FxContext | null;
 }) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
@@ -115,6 +126,12 @@ export function ReviewEditor({
   // Frases corregidas con la voz clonada (components/editor/phrase-fix.tsx).
   const [fixRange, setFixRange] = useState<{ from: number; to: number } | null>(null);
   const phrase = usePhraseFixes(projectId);
+  // Efectos de la biblioteca (lib/video/fx).
+  const [fxItems, setFxItems] = useState<FxItem[]>(plan.effects ?? []);
+  const [activeFx, setActiveFx] = useState<string | null>(null);
+  const [editingFx, setEditingFx] = useState<string | null>(null);
+  const [gallery, setGallery] = useState<{ range: { from: number; to: number } | null; replace: string | null } | null>(null);
+  const [masks, setMasks] = useState(fxContext?.masks ?? null);
   const captionStyle = style?.captions ?? null;
 
   const proposed = useMemo(() => idsOf({ removals: plan.proposed_removals }), [plan.proposed_removals]);
@@ -139,8 +156,9 @@ export function ReviewEditor({
       studio,
       music: { trackId: music.trackId && tracks.some((t) => t.id === music.trackId) ? music.trackId : null, db: Math.max(-30, Math.min(-8, music.db)) },
       ...(plan.moves?.length ? { moves } : {}),
+      effects: fxItems,
     }),
-    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks, moves, plan.moves],
+    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks, moves, plan.moves, fxItems],
   );
 
   const timeline = useMemo(
@@ -160,22 +178,47 @@ export function ReviewEditor({
       ),
     [words, review.removed, plan.removals, plan.hook_candidates, plan.captions.emphasis_words, plan.pacing, selectedHook, corrections, preset, duration, moves],
   );
-  // Sin subtítulos donde el director los ocultó (ya hay texto en pantalla en esa franja), igual que en el render.
+  const fxSegs = useMemo(() => fxSegments(timeline, fxItems), [timeline, fxItems]);
+  // Sin subtítulos donde el director los ocultó (ya hay texto en pantalla en esa franja) ni durante los efectos que llevan
+  // los suyos, igual que en el render.
   const blocks = useMemo(() => {
     if (preset === "ninguno") return [];
     const hidden = (plan.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
-    return hideDuring(captionBlocks(timeline.words, preset, captionStyle), hidden);
-  }, [timeline, preset, captionStyle, plan.captions.hide]);
+    return hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...hidden, ...fxCaptionHides(fxSegs)]);
+  }, [timeline, preset, captionStyle, plan.captions.hide, fxSegs]);
   // Diseño del estilo de la galería con la marca: el mismo que arma el render (lib/video/service.ts).
   const capLook = useMemo(() => (isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: graphicLook.font, emoji }) : null), [preset, format, accent, graphicLook.font, emoji]);
   const segments = useMemo(() => brollSegments(timeline, brollItems), [timeline, brollItems]);
-  const zooms = useMemo(
+  const zooms = useMemo(() => {
+    const avoid = [...segments, ...fxSegs];
+    return style && style.zoom.enabled && zoomsOn ? computeZooms(timeline, style.zoom, { emphasis: plan.captions.emphasis_words, avoid }) : directorZooms(timeline, plan.zoom_moments, avoid);
+  }, [style, zoomsOn, timeline, plan.captions.emphasis_words, plan.zoom_moments, segments, fxSegs]);
+  // Efectos: el mismo spec que arma el render (lib/video/fx-service.ts), con la cara que midió el worker.
+  const fxBrand = useMemo(() => fxBrandFromLook(graphicLook), [graphicLook]);
+  const thumbs = useMemo(() => fxContext?.thumbs ?? [], [fxContext]);
+  const fxSpecs = useMemo(
     () =>
-      style && style.zoom.enabled && zoomsOn
-        ? computeZooms(timeline, style.zoom, { emphasis: plan.captions.emphasis_words, avoid: segments })
-        : directorZooms(timeline, plan.zoom_moments, segments),
-    [style, zoomsOn, timeline, plan.captions.emphasis_words, plan.zoom_moments, segments],
+      fxSegs.map((segment) => {
+        const face = faceAnchor(fxContext?.faces ?? [], sourceRangesOf(timeline, segment.start, segment.end), sourceWidth, sourceHeight, format, offsetX);
+        return compileFx({ segment, timeline, format, brand: fxBrand, face, thumbs: thumbs.length, cards: thumbs.map((t) => t.title) });
+      }),
+    [fxSegs, fxContext, timeline, sourceWidth, sourceHeight, format, offsetX, fxBrand, thumbs],
   );
+  const fxImages = useImages(useMemo(() => Object.fromEntries(thumbs.map((t, i) => [`t${i}`, t.url])), [thumbs]));
+  const stripUrls = useMemo(() => Object.fromEntries(Object.entries(masks?.urls ?? {}).map(([k, u]) => [k, u])), [masks]);
+  const stripImgs = useImages(stripUrls);
+  const fxStrips = useMemo(() => Object.fromEntries(Object.entries(stripImgs).map(([k, v]) => [Number(k), v])) as Record<number, HTMLImageElement | undefined>, [stripImgs]);
+  // Efectos con recorte cuyos segundos todavía no tienen máscara (la vista previa los muestra sin recortarte).
+  const maskMissing = useMemo(() => {
+    const ready = new Set(Object.keys(masks?.urls ?? {}).map(Number));
+    const out = new Set<string>();
+    for (const spec of fxSpecs) {
+      if (!spec.mask) continue;
+      const frames = sourceFramesOf(timeline, spec.start, Math.max(1, Math.round(spec.duration * 30)));
+      if (frames.some((f) => !ready.has(Math.floor(f / FX_MASK_CHUNK)))) out.add(spec.id);
+    }
+    return out;
+  }, [fxSpecs, masks, timeline]);
   const signedOf = useCallback(
     (o: BrollItem["choice"]) => (o ? (signed[optionKey(o)] ?? { ...o, thumbUrl: o.thumb ?? null, previewUrl: o.preview ?? null }) : null),
     [signed],
@@ -215,6 +258,10 @@ export function ReviewEditor({
       .slice(0, 4);
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: query.join(" ").slice(0, 100) || "b-roll", keywords: query.map((w) => w.toLowerCase()), choice: null, options: [] };
     setBrollItems((prev) => [...prev.filter((b) => !overlaps(b)), item].sort((a, b) => a.from_word - b.from_word));
+    if (fxItems.some((e) => range.from <= e.to_word && e.from_word <= range.to)) {
+      setFxItems((prev) => prev.filter((e) => !(range.from <= e.to_word && e.from_word <= range.to)));
+      toast.info("Quitamos el efecto que estaba en esas palabras: un tramo lleva b-roll o un efecto, no los dos.");
+    }
     setActiveBroll(item.id);
     setPickTab(ask ? "grafico" : undefined);
     setAskFocus(ask);
@@ -252,6 +299,53 @@ export function ReviewEditor({
     );
     toast.success(count === 1 ? "Look aplicado al otro b-roll." : `Look aplicado a los otros ${formatNumber(count)} b-roll.`);
   }
+
+  /** Agrega un efecto sobre un tramo (o cambia el efecto de uno existente), con sus textos por defecto. */
+  function addFx(kind: FxKind, range: { from: number; to: number }, replace: string | null) {
+    const hitsBroll = brollItems.some((b) => b.choice && range.from <= b.to_word && b.from_word <= range.to);
+    if (hitsBroll) {
+      toast.error("Ese tramo ya tiene b-roll. Quita el b-roll o elige otras palabras para el efecto.");
+      return;
+    }
+    const spoken = words.slice(range.from, range.to + 1).map((w) => ({ id: w.id, text: corrections[String(w.id)] ?? w.text }));
+    const item: FxItem = { id: replace ?? newFxId(), kind, from_word: range.from, to_word: range.to, ...defaultFx(kind, spoken), source: "user" };
+    setFxItems((prev) => [...prev.filter((e) => e.id !== replace && !(range.from <= e.to_word && e.from_word <= range.to)), item].sort((a, b) => a.from_word - b.from_word));
+    setActiveFx(item.id);
+    setEditingFx(item.id);
+    const seg = fxSegments(timeline, [item])[0];
+    if (seg) preview.current?.seekOutput(seg.start, true);
+  }
+
+  function showFx(id: string) {
+    setActiveFx(id);
+    const seg = fxSegs.find((s) => s.id === id);
+    if (seg) preview.current?.seekOutput(seg.start, true);
+  }
+
+  function moveFx(id: string, range: { from: number; to: number }) {
+    if (brollItems.some((b) => b.choice && range.from <= b.to_word && b.from_word <= range.to)) {
+      toast.error("Ese tramo ya tiene b-roll. Elige otras palabras.");
+      return;
+    }
+    setFxItems((prev) => prev.filter((e) => e.id === id || !(range.from <= e.to_word && e.from_word <= range.to)).map((e) => (e.id === id ? { ...e, from_word: range.from, to_word: range.to, words: e.words?.filter((w) => w >= range.from && w <= range.to) } : e)).sort((a, b) => a.from_word - b.from_word));
+  }
+
+  // Recorte para la vista previa: mientras falten segundos, se consulta (y se pide al worker) cada 5 s.
+  useEffect(() => {
+    if (!canEdit || maskMissing.size === 0) return;
+    let alive = true;
+    const poll = async () => {
+      const result = await fxMasksAction(projectId);
+      if (alive && result.ok && result.data) setMasks(result.data);
+    };
+    const first = setTimeout(poll, 2500);
+    const timer = setInterval(poll, 5000);
+    return () => {
+      alive = false;
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [canEdit, maskMissing.size, projectId]);
 
   function moveBroll(id: string, range: { from: number; to: number }) {
     setBrollItems((prev) =>
@@ -516,6 +610,66 @@ export function ReviewEditor({
           }}
         />
 
+        <FxPanel
+          items={fxItems}
+          segments={fxSegs}
+          words={words}
+          corrections={corrections}
+          canEdit={canEdit}
+          activeId={activeFx}
+          brand={fxBrand}
+          maskStatus={{ pending: Boolean(masks?.pending), missing: maskMissing }}
+          noThumbs={thumbs.length === 0}
+          onActivate={showFx}
+          onEdit={(id) => {
+            showFx(id);
+            setEditingFx(id);
+          }}
+          onRemove={(id) => setFxItems((prev) => prev.filter((e) => e.id !== id))}
+          onGallery={() => setGallery({ range: null, replace: null })}
+        />
+        <FxEditor
+          key={editingFx ?? "sin-efecto"}
+          item={fxItems.find((e) => e.id === editingFx) ?? null}
+          words={words}
+          corrections={corrections}
+          onChange={(next) => setFxItems((prev) => prev.map((e) => (e.id === next.id ? next : e)))}
+          onClose={() => setEditingFx(null)}
+          onReplace={() => {
+            const item = fxItems.find((e) => e.id === editingFx);
+            if (item) setGallery({ range: { from: item.from_word, to: item.to_word }, replace: item.id });
+            setEditingFx(null);
+          }}
+          onRemove={() => {
+            setFxItems((prev) => prev.filter((e) => e.id !== editingFx));
+            setEditingFx(null);
+          }}
+          maskNote={(() => {
+            const item = fxItems.find((e) => e.id === editingFx);
+            if (!item || !FX_INFO[item.kind].mask) return null;
+            return maskMissing.has(item.id)
+              ? "Este efecto va detrás tuyo. Mientras preparamos tu recorte, la vista previa lo muestra más tenue; en el video final siempre quedas adelante."
+              : "Este efecto va detrás tuyo: la vista previa ya usa tu recorte (el mismo del video final).";
+          })()}
+        />
+        {gallery && (
+          <FxGallery
+            open
+            onClose={() => setGallery(null)}
+            brand={fxBrand}
+            current={gallery.replace ? (fxItems.find((e) => e.id === gallery.replace)?.kind ?? null) : null}
+            rangeText={gallery.range ? words.slice(gallery.range.from, gallery.range.to + 1).map((w) => corrections[String(w.id)] ?? w.text).join(" ").slice(0, 120) : null}
+            onPick={
+              gallery.range && canEdit
+                ? (kind) => {
+                    addFx(kind, gallery.range!, gallery.replace);
+                    setGallery(null);
+                  }
+                : null
+            }
+          />
+        )}
+
         <PhraseFixPanel
           projectId={projectId}
           fixes={phrase.fixes}
@@ -609,9 +763,17 @@ export function ReviewEditor({
                       <Button size="sm" variant="ghost" icon={<WandSparkles className="h-3.5 w-3.5" aria-hidden />} onClick={() => (addBroll(range, true), clear())}>
                         Pide un gráfico aquí
                       </Button>
+                      <Button size="sm" variant="ghost" icon={<Sparkles className="h-3.5 w-3.5" aria-hidden />} onClick={() => (setGallery({ range, replace: null }), clear())}>
+                        Poner un efecto aquí
+                      </Button>
                       <Button size="sm" variant="ghost" icon={<Mic className="h-3.5 w-3.5" aria-hidden />} onClick={() => (setFixRange(range), clear())}>
                         Corregir esta frase
                       </Button>
+                      {activeFx && fxItems.some((e) => e.id === activeFx) && (
+                        <Button size="sm" variant="ghost" onClick={() => (moveFx(activeFx, range), clear())}>
+                          Mover el efecto elegido aquí
+                        </Button>
+                      )}
                       {activeBroll && brollItems.some((b) => b.id === activeBroll) && (
                         <Button size="sm" variant="ghost" onClick={() => (moveBroll(activeBroll, range), clear())}>
                           Mover el b-roll elegido aquí
@@ -650,6 +812,10 @@ export function ReviewEditor({
               focusY={style?.focusY ?? 0.42}
               brandAccent={graphicLook.theme.accent}
               brandGround={graphicLook.theme.bg}
+              effects={fxSpecs}
+              fxStrips={fxStrips}
+              fxMaskFps={masks?.fps ?? 10}
+              fxImages={fxImages}
             />
             <dl className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-xl bg-white/[0.04] px-2 py-2">

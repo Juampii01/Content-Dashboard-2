@@ -169,6 +169,13 @@
       "when": 1792706728427,
       "tag": "0023_director-de-edicion",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792722805950,
+      "tag": "0026_efectos",
+      "breakpoints": true
     }
   ]
 }

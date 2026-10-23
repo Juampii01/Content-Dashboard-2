@@ -177,6 +177,12 @@ export function sourceFramesOf(timeline: Pick<Timeline, "clips">, start: number,
 
 export type FxBrand = { accent: string; bg: string; surface: string; text: string; muted: string; accentText: string; font: "inter" | "montserrat" };
 
+/** Colores y fuente de Mi marca (el mismo "look" de los gráficos). */
+export function fxBrandFromLook(look: { theme: { accent: string; bg: string; surface: string; text: string; muted: string; accentText: string }; font: "inter" | "montserrat" }): FxBrand {
+  const t = look.theme;
+  return { accent: t.accent, bg: t.bg, surface: t.surface, text: t.text, muted: t.muted, accentText: t.accentText, font: look.font };
+}
+
 function seedOf(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619) >>> 0;

@@ -81,7 +81,7 @@ function fakeEyes(): Eyes {
 const eyes = fakeEyes();
 const map = mapFromMeasures(eyes, words);
 
-const emptyWire = (over: Partial<DirectorWire> = {}): DirectorWire => ({ summary: "", warning: "", pace: "normal", cuts: [], hooks: [], moves: [], emphasis_words: [], zooms: [], broll: [], caption_hide: [], variants: [], changes: [], ...over });
+const emptyWire = (over: Partial<DirectorWire> = {}): DirectorWire => ({ summary: "", warning: "", pace: "normal", cuts: [], hooks: [], moves: [], emphasis_words: [], zooms: [], broll: [], caption_hide: [], effects: [], variants: [], changes: [], ...over });
 const input = (over: Partial<DirectorInput> = {}): DirectorInput => ({
   words,
   duration,

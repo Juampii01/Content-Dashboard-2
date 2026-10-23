@@ -9,6 +9,7 @@ import { getBrand } from "@/lib/ai/brand-context";
 import { getEditorDefaults } from "@/lib/dal/editor-defaults";
 import { getStyle, listTracks, signedBroll } from "@/lib/dal/editor-media";
 import { getProject } from "@/lib/dal/video";
+import { getFxContext } from "@/lib/dal/video-fx";
 import { fileDriver } from "@/lib/storage";
 import { brandGraphicLook } from "@/lib/video/graphics";
 
@@ -31,6 +32,7 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
   const style = reviewing && styleId ? await getStyle(styleId) : null;
   const signed = reviewing ? await signedBroll(project.plan!.broll ?? []) : {};
   const tracks = reviewing ? await listTracks({ readyOnly: true }) : [];
+  const fxContext = reviewing ? await getFxContext(project.id) : null;
   return (
     <ProjectScreen
       project={{
@@ -43,6 +45,7 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
         autoSummary,
       }}
       signedBroll={signed}
+      fxContext={fxContext}
       graphicLook={brandGraphicLook(brand)}
       tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url }))}
       style={

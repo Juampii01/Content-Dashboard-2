@@ -89,6 +89,8 @@ def framing_key(src_w: int, src_h: int, fmt: str, offset_x: float) -> str:
     ref_w, ref_h = output_size(fmt)
     wide = src_w / src_h > ref_w / ref_h * 1.02
     off = round(max(-1.0, min(1.0, offset_x)), 2) if wide else 0.0
+    if off == 0:
+        off = 0.0  # sin "-0.00"
     return f"{fmt.replace(':', 'x')}-o{off:+.2f}-{MASK_VERSION}"
 
 

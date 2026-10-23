@@ -6,6 +6,7 @@ import { formatDuration } from "@/lib/format";
 import { buildTimeline, removedIds } from "../timeline";
 import type { EditPlan, Word } from "../types";
 import { textOf } from "./context";
+import { FX_INFO } from "../fx/catalog";
 
 function ranges(ids: number[]): [number, number][] {
   const out: [number, number][] = [];
@@ -52,6 +53,15 @@ export function diffPlans(before: EditPlan, after: EditPlan, words: Word[], dura
   };
   if (added.length) out.push(`Agregué ${kind(added)}.`);
   if (removed.length) out.push(`Quité ${kind(removed)}.`);
+
+  const fxKey = (e: NonNullable<EditPlan["effects"]>[number]) => `${e.kind}-${e.from_word}-${e.to_word}`;
+  const f0 = new Set((before.effects ?? []).map(fxKey));
+  const f1 = new Set((after.effects ?? []).map(fxKey));
+  const fxAdded = (after.effects ?? []).filter((e) => !f0.has(fxKey(e)));
+  const fxRemoved = (before.effects ?? []).filter((e) => !f1.has(fxKey(e)));
+  const names = (list: typeof fxAdded) => [...new Set(list.map((e) => `«${FX_INFO[e.kind].label}»`))].slice(0, 3).join(", ");
+  if (fxAdded.length) out.push(`Agregué ${fxAdded.length === 1 ? "el efecto" : "los efectos"} ${names(fxAdded)}.`);
+  if (fxRemoved.length) out.push(`Quité ${fxRemoved.length === 1 ? "el efecto" : "los efectos"} ${names(fxRemoved)}.`);
 
   const m0 = (before.moves ?? []).length;
   const m1 = (after.moves ?? []).length;

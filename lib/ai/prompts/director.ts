@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { sceneWireSchema } from "@/lib/ai/prompts/motion";
+import { FX_KINDS } from "@/lib/video/fx/catalog";
+import { FX_DIRECTOR_RULES } from "@/lib/video/fx/director";
 import { BAD_TAKE_KINDS, BEAT_ROLES, BRIEF_GOALS, ISSUE_KINDS, SHOT_KINDS, VIDEO_KINDS, type BriefGoal } from "@/lib/video/director/types";
 
 /**
@@ -106,7 +108,8 @@ QUÉ DECIDES
 6. broll: dónde se tapa al creador por unos segundos mientras su voz sigue. "graphic" para lo conceptual (cifras dichas, listas, contrastes, procesos, ideas clave) y "stock" para lo concreto que se puede mostrar. Donde sume al sentido, NUNCA encima de un shot important del mapa (producto, pantalla, gesto), del gancho ni de la CTA. Cada tramo empieza y termina en palabras de la misma frase y dura lo pedido.
 7. caption_hide: tramos donde los subtítulos irían encima de un texto ya quemado en la misma franja (ver TEXTO EN PANTALLA): ahí se ocultan.
 8. pace: "calm" (pausas de hasta 0,7 s), "normal" (0,5 s) o "fast" (0,3 s).
-9. variants: 0 a 2 versiones para probar (otro gancho u otra duración: 15, 30 o 60 s), con los cortes extra que hacen falta. Solo si el material lo permite y tiene sentido para el objetivo.
+9. effects: efectos de firma de la biblioteca (ver EFECTOS DE FIRMA) donde suman: la apertura, una lista, un dato, un giro. Respeta EFECTOS PERMITIDOS.
+10. variants: 0 a 2 versiones para probar (otro gancho u otra duración: 15, 30 o 60 s), con los cortes extra que hacen falta. Solo si el material lo permite y tiene sentido para el objetivo.
 
 REGLAS DURAS
 - Nunca cortes lo que el brief dice que no se puede cortar (DEBE QUEDAR) ni la oferta o la CTA de un anuncio.
@@ -116,6 +119,8 @@ REGLAS DURAS
 - Usa solo ids que existan. Los rangos son inclusivos.
 - Respeta las palabras prohibidas de la marca.
 - La duración ideal para Reels y TikTok es de 30 a 90 s; para YouTube horizontal no hay apuro. No inventes cortes solo para llegar.
+
+${FX_DIRECTOR_RULES}
 
 ${IDIOMA}`;
 
@@ -144,6 +149,15 @@ export const directorWireSchema = z.object({
     }),
   ),
   caption_hide: z.array(z.object({ ...range, why: z.string() })),
+  effects: z.array(
+    z.object({
+      ...range,
+      kind: z.enum(FX_KINDS),
+      text: z.string().describe("Texto principal del efecto (si lleva) o vacío."),
+      items: z.array(z.string()).describe("Lista del efecto (tareas, titulares; en digital_zoom, las palabras fuertes) o vacía."),
+      why: z.string(),
+    }),
+  ),
   variants: z.array(
     z.object({
       label: z.string().describe("Nombre corto: 'Versión de 30 s', 'Otro gancho'."),
@@ -170,6 +184,8 @@ export type DirectorTaskInput = {
   broll: { count: number; minSeconds: number; maxSeconds: number; graphics: boolean; stock: boolean; libraryTags: string[] };
   style: string | null;
   lessons: string;
+  /** Efectos permitidos en este video (Mi marca) y cuántos. */
+  effects: string;
   /** Al corregir: el plan actual y lo que hay que cambiar. */
   revise?: { plan: string; issues: string; instruction: string | null } | null;
 };
@@ -183,6 +199,7 @@ DATOS
 - B-ROLL: hasta ${b.count} tramos de ${b.minSeconds.toFixed(1)} a ${b.maxSeconds.toFixed(1)} s${b.graphics ? " (gráficos de 1,5 a 6 s)" : " (sin gráficos: solo stock)"}${b.stock ? "" : ". No hay videos de stock ni clips propios: usa gráficos."}
 - Clips propios del creador (etiquetas): ${b.libraryTags.length ? b.libraryTags.slice(0, 60).join(", ") : "(no tiene)"}
 ${input.forbidden}
+- ${input.effects}
 
 BRIEF
 ${input.brief}

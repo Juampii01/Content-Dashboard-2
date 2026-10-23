@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import ass, audio_preview, broll_edit, director, energy, eyes, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
 from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
 
@@ -161,6 +161,18 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
     return {"status": result.get("status")}
 
 
+# Un efecto entra como capa a pantalla completa y sin fundido (ya trae su entrada y su salida).
+FX_EDIT = {"fade": 0, "box": {"x": 0, "y": 0}}
+
+
+def fx_image_hosts(app_url: str) -> tuple[str, ...]:
+    """Desde dónde se pueden bajar las miniaturas de tus reels: la app (las de demostración) y el Blob público."""
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(app_url).hostname or "").lower()
+    return tuple(h for h in (host, "public.blob.vercel-storage.com") if h)
+
+
 # Bancos de videos de stock y los hosts desde donde se bajan sus archivos.
 STOCK_HOSTS = {"pexels": ("pexels.com",), "pixabay": ("pixabay.com",)}
 
@@ -237,7 +249,11 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         raise JobError("No quedó nada para renderizar. Restaura algunas palabras y vuelve a intentarlo.", retry=False)
     fmt = data["format"]
     expected = sum(c["end"] - c["start"] for c in clips) / render.FPS
-    stages = {"prepare": (0.0, 0.1), "cut": (0.1, 0.35), "audio": (0.35, 0.45), "broll": (0.45, 0.55)} if not preview else {"prepare": (0.0, 0.1), "cut": (0.1, 0.4), "broll": (0.4, 0.6)}
+    stages = (
+        {"prepare": (0.0, 0.1), "cut": (0.1, 0.35), "audio": (0.35, 0.45), "broll": (0.45, 0.55), "fx": (0.55, 0.65)}
+        if not preview
+        else {"prepare": (0.0, 0.1), "cut": (0.1, 0.4), "broll": (0.4, 0.6), "fx": (0.6, 0.8)}
+    )
 
     media = prepare(ctx, project, *stages["prepare"], need_proxy=False)
     workdir = ctx.workdir(pid)
@@ -275,6 +291,28 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         ctx.stage("Preparando el b-roll", *stages["broll"])
         broll_inputs = prepare_broll(ctx, pid, workdir, broll_items, (out_w, out_h), expected)
 
+    # Efectos de la biblioteca: cada uno se dibuja aparte (con el recorte de la persona si va detrás) y entra al grafo
+    # como una capa a pantalla completa, sin fundido.
+    fx_items = [e for e in data.get("effects") or [] if isinstance(e, dict)]
+    fx_layers: list[dict[str, Any]] = []
+    if fx_items:
+        ctx.stage("Dibujando los efectos", *stages["fx"])
+        fx_layers = fx.render_effects(
+            ctx,
+            fx_items,
+            joined=joined,
+            mezz=seg_mezz,
+            src_size=(int(media["width"]), int(media["height"])),
+            total_frames=int(round(float(media["duration"]) * render.FPS)),
+            fmt=fmt,
+            offset_x=float((data.get("framing") or {}).get("offsetX", 0)),
+            workdir=workdir,
+            fonts_dir=ctx.config.fonts_dir,
+            image_hosts=fx_image_hosts(ctx.config.app_url),
+            on_progress=ctx.progress,
+        )
+        fx_layers = [f for f in fx_layers if f["start"] < expected]
+
     stickers: list[dict[str, Any]] = []
     if ass.is_look(captions):
         # Galería de estilos animados: el ASS y los emojis (imágenes) que van encima.
@@ -287,7 +325,10 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         ass_path.write_text(ass.build_ass(captions, out_w, out_h, fmt), encoding="utf-8")
     # Una entrada por emoji en pantalla (en ffmpeg cada entrada se usa una sola vez; son pocos: solo palabras clave).
     emoji_files = [s["name"] for s in stickers]
-    emoji_base = 2 + len(broll_items)
+    overlays = [{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected), "edit": b.get("edit")} for i, b in enumerate(broll_items)]
+    overlays += [{"input": 2 + len(broll_items) + i, "start": f["start"], "end": min(f["end"], expected), "edit": FX_EDIT} for i, f in enumerate(fx_layers)]
+    overlays.sort(key=lambda o: o["start"])
+    emoji_base = 2 + len(broll_items) + len(fx_layers)
     graph, _, _ = render.framing_graph(
         media["width"],
         media["height"],
@@ -297,7 +338,7 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         ctx.config.fonts_dir,
         zooms=data.get("zooms") or [],
         focus_y=float((data.get("framing") or {}).get("focusY", 0.42)),
-        broll=[{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected), "edit": b.get("edit")} for i, b in enumerate(broll_items)],
+        broll=overlays,
         stickers=[{**s, "input": emoji_base + i} for i, s in enumerate(stickers)],
     )
     return {
@@ -306,8 +347,9 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         "graph": graph,
         "expected": expected,
         "out_dir": out_dir,
-        "broll_inputs": broll_inputs,
+        "broll_inputs": [*broll_inputs, *[f["path"] for f in fx_layers]],
         "broll_items": broll_items,
+        "fx_layers": fx_layers,
         "image_inputs": [EMOJI_DIR / f"{n}.png" for n in emoji_files],
         "audio_info": audio_info,
         "fmt": fmt,
@@ -369,6 +411,7 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         "broll": len(broll_items),
         "graphics": sum(1 for b in broll_items if b.get("source") == "graphic"),
         "zooms": len(data.get("zooms") or []),
+        "effects": [{"kind": f["kind"], "ms": f["ms"], "maskMs": f["maskMs"]} for f in built.get("fx_layers") or []],
         "qc": {"ok": qc["ok"], "checks": qc["checks"]},
         "audio": audio_info,
         "replaced": [k for k in data.get("previousKeys") or [] if k],
@@ -377,3 +420,50 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     # Los archivos intermedios de este render ya no hacen falta (los tramos se conservan para el próximo).
     shutil.rmtree(out_dir, ignore_errors=True)
     return {"outputKey": data["outputKey"], "duration": qc["duration"], "lufs": qc["lufs"]}
+
+
+@register("VIDEO_FX")
+def fx_job(ctx: JobContext) -> dict[str, Any]:
+    """Recorte de la persona para la vista previa de los efectos: los segundos pedidos del original (bloques de 1 s),
+    con el encuadre del plan. Sube una tira de máscaras chicas por segundo y anota en `media.fxMasks` cuáles hay."""
+    project = _project(ctx)
+    pid = str(project["id"])
+    if project["status"] not in ("AWAITING_REVIEW", "PROCESSING", "RENDERING", "DONE"):
+        return {"skipped": project["status"]}
+    fmt = "16:9" if ctx.input.get("format") == "16:9" else "9:16"
+    offset_x = max(-1.0, min(1.0, float(ctx.input.get("offsetX") or 0)))
+    chunks = sorted({int(k) for k in ctx.input.get("chunks") or [] if isinstance(k, int) and 0 <= k < 7200})[:600]
+    if not chunks:
+        return {"chunks": 0}
+    media = prepare(ctx, project, 0.0, 0.2, need_proxy=False)
+    workdir = ctx.workdir(pid)
+    ctx.stage("Recortándote del fondo", 0.2, 1.0)
+    result = fx.preview_masks(
+        ctx,
+        workdir / "mezz.mp4",
+        (int(media["width"]), int(media["height"])),
+        int(round(float(media["duration"]) * render.FPS)),
+        fmt,
+        offset_x,
+        chunks,
+        workdir,
+        upload=lambda path, key: ctx.app.upload(pid, key, path, "image/png"),
+        prefix=f"editor/{pid}/fx",
+        on_progress=ctx.progress,
+    )
+    # Se vuelve a leer el proyecto: la persona pudo seguir editando mientras tanto (solo se toca media.fxMasks).
+    fresh = db.get_project(ctx.conn, pid) or project
+    current = dict(fresh.get("media") or media)
+    masks = dict(current.get("fxMasks") or {})
+    prev = masks.get(result["key"]) or {}
+    from datetime import datetime, timezone
+
+    masks[result["key"]] = {
+        "chunks": sorted(set(prev.get("chunks") or []) | set(result["chunks"])),
+        "fps": result["fps"],
+        "tile": result["tile"],
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    current["fxMasks"] = masks
+    db.update_project(ctx.conn, pid, media=current)
+    return {"key": result["key"], "chunks": len(result["chunks"])}

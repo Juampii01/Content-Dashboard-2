@@ -14,6 +14,7 @@ import { fallbackHooks, hookIsValid, normalizeRemovals, trimHook, withDerived, t
 import { buildTimeline, removedIds } from "../timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, HookCandidate, PlanMove, Removal, VideoFormat, Word, ZoomMoment } from "../types";
 import type { PlanVariant, VideoMap } from "./types";
+import { effectsFromWire, type FxLimits } from "../fx/director";
 
 export const PACE_PAUSE: Record<"calm" | "normal" | "fast", number> = { calm: 0.7, normal: 0.5, fast: 0.3 };
 
@@ -41,6 +42,8 @@ export type DirectorInput = {
   base: EditPlan | null;
   /** Clips de un video largo: el gancho ya está al principio. */
   keepOpening?: boolean;
+  /** Efectos de la biblioteca: los que permite Mi marca y cuántos, y dónde se ve la cara (para los que te recortan). */
+  fx?: { limits: FxLimits; faceWords?: Set<number> | null };
 };
 
 export type PendingGraphic = { item: BrollItem; scene: MotionSceneAi | null; spoken: string };
@@ -204,6 +207,7 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     const from = Math.min(z.from_word, z.to_word);
     const to = Math.max(z.from_word, z.to_word);
     if (!valid(from, to) || broll.some((b) => overlaps({ from: b.from_word, to: b.to_word }, { from, to }))) continue;
+    if ((ai.effects ?? []).some((e) => overlaps({ from: Math.min(e.from_word, e.to_word), to: Math.max(e.from_word, e.to_word) }, { from, to }))) continue;
     const last = zooms[zooms.length - 1];
     if (last && words[from]!.start - words[last.to_word]!.end < 2.5) continue;
     zooms.push({ from_word: from, to_word: to, scale: z.strength === "marcado" ? 1.15 : 1.08, why: clip(z.why, 300) });
@@ -212,6 +216,16 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     .filter((h) => valid(Math.min(h.from_word, h.to_word), Math.max(h.from_word, h.to_word)))
     .slice(0, 30)
     .map((h) => ({ from_word: Math.min(h.from_word, h.to_word), to_word: Math.max(h.from_word, h.to_word), why: clip(h.why, 300) }));
+
+  // 6 bis. Efectos de la biblioteca (nunca sobre un b-roll, lo importante que se muestra ni una toma mala).
+  const fxForbidden = [
+    ...(map?.shots ?? []).filter((s) => s.important).map((s) => ({ from: s.from, to: s.to, label: `lo que se ve (${s.shows.slice(0, 40)})` })),
+    ...(map?.badTakes ?? []).map((b) => ({ from: b.from, to: b.to, label: "una toma mala" })),
+  ];
+  const fx = input.fx
+    ? effectsFromWire(ai.effects ?? [], { words, limits: input.fx.limits, broll, forbidden: fxForbidden, faceWords: input.fx.faceWords ?? null, removed: removedSet, base: base?.effects ?? null })
+    : { items: base?.effects ?? [], dropped: [] };
+  dropped.push(...fx.dropped);
 
   // 7. El plan.
   const pace = ai.pace;
@@ -244,6 +258,7 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     director: { version: 1, pace },
     ...(moves.length ? { moves } : {}),
     ...(zooms.length ? { zoom_moments: zooms } : {}),
+    ...(fx.items.length ? { effects: fx.items } : {}),
     ...(style ? { zooms_enabled: style.zoom, style_id: style.id } : {}),
   };
   const derived = withDerived(plan, words, input.duration);

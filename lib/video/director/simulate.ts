@@ -16,6 +16,7 @@ import { captionBand } from "./checks";
 import { wordsInSpan } from "./context";
 import type { KeyFrame } from "./keyframes";
 import type { Brief, CriticIssue, VideoMap } from "./types";
+import { simulateEffects, type FxLimits } from "../fx/director";
 
 const overlaps = (a: { from: number; to: number }, b: { from: number; to: number }) => a.from <= b.to && b.from <= a.to;
 
@@ -77,6 +78,8 @@ export type SimDirectorInput = {
   base?: EditPlan | null;
   issues?: CriticIssue[];
   instruction?: string | null;
+  /** Efectos permitidos (Mi marca). Sin el campo, sin efectos. */
+  fx?: FxLimits | null;
 };
 
 export function simulateDirector(input: SimDirectorInput): DirectorWire {
@@ -224,6 +227,16 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
     if (i.kind === "toma_mala") changes.push("Corté la toma mala que quedaba.");
   }
 
+  // Efectos de la biblioteca: portada al abrir, checklist si enumera, gráfico si habla de crecer (y lo que pida la persona).
+  const taken = [
+    ...broll.map((b) => ({ from: b.from_word, to: b.to_word })),
+    ...(map?.shots ?? []).filter((s) => s.important).map((s) => ({ from: s.from, to: s.to })),
+    ...(map?.badTakes ?? []).map((b) => ({ from: b.from, to: b.to })),
+  ];
+  const effects = input.fx ? simulateEffects({ words, limits: input.fx, removed, taken, instruction: input.instruction }) : [];
+  const fxAsked = input.instruction ? /efecto/.test(instruction) : false;
+  if (fxAsked) changes.push(effects.length ? "Ajusté los efectos como pediste." : "Quité los efectos.");
+
   const goal = brief.goal ?? "otro";
   return {
     summary: `${map ? `Vi ${map.kind === "anuncio" ? "un anuncio" : "tu video"}${map.shots.some((s) => s.important) ? " con partes que muestran algo importante (no las tapé)" : ""}${map.badTakes.length ? ` y ${map.badTakes.length === 1 ? "una toma mala que corté" : `${map.badTakes.length} tomas malas que corté`}` : ""}. ` : ""}Dejé ${goal === "anuncio" ? "el gancho en los primeros segundos, ritmo alto y la CTA clara al final" : "un gancho fuerte, el contenido completo y un cierre claro"}.`,
@@ -236,6 +249,7 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
     zooms,
     broll,
     caption_hide,
+    effects,
     variants,
     changes: [...new Set(changes)],
   };

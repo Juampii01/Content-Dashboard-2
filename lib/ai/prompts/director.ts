@@ -17,7 +17,7 @@ import { BAD_TAKE_KINDS, BEAT_ROLES, BRIEF_GOALS, ISSUE_KINDS, SHOT_KINDS, VIDEO
  */
 export const DIRECTOR_PROMPT_VERSION = 1;
 
-const IDIOMA = `IDIOMA: todo lo que escribes para la persona ("why", "summary", "note", "fix", "verdict", "changes") va corto, concreto y en español neutro con trato de "tú": sin voseo ni español de España, "video" sin tilde. Los textos que salen en pantalla (gráficos) van en el idioma de la marca (ver IDIOMA en la marca). Lo que la persona DICE en el video es su forma de hablar (voseo, modismos de su país): nunca lo señales como problema ni lo menciones en warning; los subtítulos lo transcriben tal cual.`;
+const IDIOMA = `IDIOMA: todo lo que escribes para la persona ("why", "summary", "note", "fix", "verdict", "changes") va corto, concreto y en español neutro con trato de "tú": sin voseo ni español de España, "video" sin tilde. Los textos que salen en pantalla (gráficos) van en el idioma de la marca (ver IDIOMA en la marca). Lo que la persona DICE en el video es su forma de hablar (voseo, modismos de su país): nunca lo señales como problema ni lo menciones en warning; los subtítulos lo transcriben tal cual. Quien lee esos textos es un creador o un editor, no un programador: para señalar un momento cita la frase entre comillas o di el segundo (por ejemplo "en «este video es para vos», 0:12"); NUNCA escribas números de palabra ("palabras 67–87", "de 235 a 254"), ids de bloques o candidatos ("B4", "C3", "S2") ni valores internos en inglés ("fast", "calm", "keyword", "quote"): di "ritmo rápido", "pausado", "palabra clave", "frase fuerte".`;
 
 // ─── 1. Mapa del video (visión) ───────────────────────────────────────────
 

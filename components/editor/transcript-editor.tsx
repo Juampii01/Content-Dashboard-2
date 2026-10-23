@@ -61,7 +61,43 @@ export function TranscriptEditor({
   const [selection, setSelection] = useState<Range | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  const [everywhere, setEverywhere] = useState(true);
   const dragged = useRef(false);
+
+  /** Abre "Corregir cómo se escribe" para una palabra (botón de la selección o doble clic). */
+  function openCorrect(id: number) {
+    setEditing(id);
+    setDraft(corrections[String(id)] ?? words[id]!.text);
+    setEverywhere(true);
+  }
+
+  // Las otras veces que se transcribió igual la misma palabra (sin contar signos ni mayúsculas) y que nadie corrigió.
+  const twins = useMemo(() => {
+    if (editing == null) return [];
+    const key = bare(words[editing]!.text);
+    if (!key) return [];
+    return words.filter((w) => w.id !== editing && bare(w.text) === key && !corrections[String(w.id)]).map((w) => w.id);
+  }, [editing, words, corrections]);
+
+  function saveCorrection() {
+    if (editing == null) return;
+    const text = draft.trim();
+    onCorrect(editing, text || null);
+    if (everywhere && text) {
+      // Cada una conserva sus propios signos (coma, punto, ¿?) y la mayúscula de comienzo de frase.
+      const core = text.replace(/^[¿¡«"“(]+|[.,;:?!…»"”)]+$/g, "");
+      for (const id of twins) {
+        const original = words[id]!.text;
+        const lead = original.match(/^[¿¡«"“(]+/)?.[0] ?? "";
+        const trail = original.match(/[.,;:?!…»"”)]+$/)?.[0] ?? "";
+        const first = original.replace(/^[¿¡«"“(]+/, "").charAt(0);
+        const cased = first && first === first.toUpperCase() && first !== first.toLowerCase() ? core.charAt(0).toUpperCase() + core.slice(1) : core.charAt(0).toLowerCase() + core.slice(1);
+        onCorrect(id, `${lead}${cased}${trail}`);
+      }
+    }
+    setEditing(null);
+    setSelection(null);
+  }
 
   const ids = (r: Range) => Array.from({ length: r.to - r.from + 1 }, (_, i) => r.from + i);
 
@@ -176,10 +212,7 @@ export function TranscriptEditor({
                 size="sm"
                 variant="ghost"
                 icon={<PenLine className="h-3.5 w-3.5" aria-hidden />}
-                onClick={() => {
-                  setEditing(selIds[0]!);
-                  setDraft(corrections[String(selIds[0])] ?? words[selIds[0]!]!.text);
-                }}
+                onClick={() => openCorrect(selIds[0]!)}
               >
                 Corregir texto
               </Button>
@@ -192,7 +225,7 @@ export function TranscriptEditor({
           </>
         ) : (
           <p className="text-xs text-muted">
-            {canEdit ? "Toca una palabra para cortarla o restaurarla. Arrastra (o Mayús + clic) para elegir un tramo." : "Solo lectura: tu usuario no puede editar."}
+            {canEdit ? "Toca una palabra para cortarla o restaurarla. Doble clic para corregir cómo se escribe en los subtítulos. Arrastra (o Mayús + clic) para elegir un tramo." : "Solo lectura: tu usuario no puede editar."}
           </p>
         )}
       </div>
@@ -215,6 +248,7 @@ export function TranscriptEditor({
           cursor={cursor}
           canEdit={canEdit}
           onWordClick={onWordClick}
+          onWordDoubleClick={canEdit ? openCorrect : undefined}
           onKeyDown={onKeyDown}
           onRestore={(r) => onSetCut(ids(r), false)}
           brollMarks={brollMarks}
@@ -226,8 +260,8 @@ export function TranscriptEditor({
       <Dialog
         open={editing != null}
         onOpenChange={(open) => !open && setEditing(null)}
-        title="Corregir cómo se escribe"
-        description="Cambia solo el texto de los subtítulos; el audio queda igual."
+        title="Corregir el subtítulo"
+        description="Cambia cómo se escribe esta palabra en los subtítulos y en los gráficos. El audio queda igual."
         footer={
           <>
             {editing != null && corrections[String(editing)] && (
@@ -238,22 +272,27 @@ export function TranscriptEditor({
             <Button variant="ghost" onClick={() => setEditing(null)}>
               Cancelar
             </Button>
-            <Button
-              onClick={() => {
-                if (editing != null) onCorrect(editing, draft.trim() || null);
-                setEditing(null);
-                setSelection(null);
-              }}
-            >
-              Guardar
-            </Button>
+            <Button onClick={saveCorrection}>Guardar</Button>
           </>
         }
       >
         {editing != null && (
           <div className="flex flex-col gap-2">
             <p className="text-xs text-muted">Se dijo: «{words[editing]?.text}»</p>
-            <Input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={60} aria-label="Texto corregido" autoFocus />
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), saveCorrection())}
+              maxLength={60}
+              aria-label="Texto corregido"
+              autoFocus
+            />
+            {twins.length > 0 && (
+              <label className="flex items-center gap-2 text-sm text-text">
+                <input type="checkbox" checked={everywhere} onChange={(e) => setEverywhere(e.target.checked)} className="h-4 w-4 accent-[#0070f8]" />
+                {twins.length === 1 ? "Corregirla también la otra vez que aparece" : `Corregirla también las otras ${twins.length} veces que aparece`}
+              </label>
+            )}
           </div>
         )}
       </Dialog>
@@ -272,6 +311,7 @@ const WordList = memo(function WordList({
   cursor,
   canEdit,
   onWordClick,
+  onWordDoubleClick,
   onKeyDown,
   onRestore,
   brollMarks,
@@ -288,6 +328,7 @@ const WordList = memo(function WordList({
   cursor: number;
   canEdit: boolean;
   onWordClick: (e: MouseEvent<HTMLButtonElement>, id: number) => void;
+  onWordDoubleClick?: (id: number) => void;
   onKeyDown: (e: KeyboardEvent<HTMLButtonElement>, id: number) => void;
   onRestore: (r: Range) => void;
   brollMarks: BrollMark[];
@@ -372,10 +413,11 @@ const WordList = memo(function WordList({
           data-w={w.id}
           tabIndex={w.id === cursor ? 0 : -1}
           onClick={(e) => onWordClick(e, w.id)}
+          onDoubleClick={onWordDoubleClick ? () => onWordDoubleClick(w.id) : undefined}
           onKeyDown={(e) => onKeyDown(e, w.id)}
           aria-pressed={cut}
           aria-label={`${corrected ?? w.text}${cut ? ", cortada" : ""}`}
-          title={corrected ? `Se dijo «${w.text}»` : offScript.has(w.id) ? "No está en el guion" : undefined}
+          title={corrected ? `Transcrito como «${w.text}»` : offScript.has(w.id) ? "No está en el guion" : undefined}
           className={cn(
             "word rounded-md px-[3px] py-0.5 transition-colors select-text data-[playing]:ring-2 data-[playing]:ring-accent-hi",
             cut ? "text-placeholder line-through decoration-danger/70 decoration-2" : "text-text hover:bg-white/[0.08]",
@@ -392,6 +434,11 @@ const WordList = memo(function WordList({
       out.push(" ");
     }
     return out;
-  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick]);
+  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onWordDoubleClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick]);
   return <>{nodes}</>;
 });
+
+/** Una palabra sin signos ni mayúsculas, para encontrar las otras veces que se transcribió igual. */
+function bare(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}

@@ -28,6 +28,7 @@ import { loadTrack } from "./music";
 import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
 import { phraseFixesForRender } from "./phrase-fix-service";
 import { alignScript } from "./script-align";
+import { proofreadTranscript } from "./transcript-fix";
 import { hookEnd, MUSIC_DB, sfxCues, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
 import type { ZoomMoment } from "./types";
@@ -307,7 +308,7 @@ export async function legacyPlan(project: Project): Promise<EditPlan> {
     format: project.format as VideoFormat,
     // "Del estilo" solo si el estilo trae subtítulos; si no, los de la marca.
     preset: requested === "estilo" && !style?.preset.captions ? "clasico" : requested,
-    corrections: alignment?.corrections ?? {},
+    corrections: { ...(await proofreadTranscript({ words, brandCtx: context, script })), ...(alignment?.corrections ?? {}) },
     offScript: alignment?.offScript ?? [],
     aiError,
     style: style

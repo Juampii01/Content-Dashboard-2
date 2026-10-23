@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Clapperboard, Loader2, Mic, Palette, RotateCcw, Sparkles, Undo2, Wand2, WandSparkles, ZoomIn } from "lucide-react";
+import { Clapperboard, Loader2, Mic, Palette, PenLine, RotateCcw, Sparkles, SpellCheck, Undo2, Wand2, WandSparkles, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
+import { proofreadAction } from "./subtitle-actions";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
 import { CAPTION_PICKER_ORDER, CAPTION_PRESETS, captionBlocks, hideDuring } from "@/lib/video/captions";
@@ -134,6 +135,26 @@ export function ReviewEditor({
   // Frases corregidas con la voz clonada (components/editor/phrase-fix.tsx).
   const [fixRange, setFixRange] = useState<{ from: number; to: number } | null>(null);
   const phrase = usePhraseFixes(projectId);
+  const [proofreading, startProofread] = useTransition();
+
+  /** "Revisar ortografía con IA": suma las correcciones de la IA sin pisar las que ya hizo la persona. */
+  function proofread() {
+    startProofread(async () => {
+      const res = await proofreadAction(projectId);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      const fresh = Object.entries(res.fixes).filter(([id]) => !(id in corrections));
+      if (!fresh.length) {
+        toast.success("No encontramos palabras mal escritas en los subtítulos.");
+        return;
+      }
+      setCorrections((prev) => ({ ...Object.fromEntries(fresh), ...prev }));
+      const sample = fresh.slice(0, 3).map(([id, text]) => `«${words[Number(id)]?.text}» → «${text}»`).join(", ");
+      toast.success(fresh.length === 1 ? "Corregimos 1 palabra en los subtítulos." : `Corregimos ${fresh.length} palabras en los subtítulos.`, { description: `${sample}. Están subrayadas con puntos azules; doble clic para cambiarlas.` });
+    });
+  }
   // Efectos de la biblioteca (lib/video/fx).
   const [fxItems, setFxItems] = useState<FxItem[]>(plan.effects ?? []);
   const [activeFx, setActiveFx] = useState<string | null>(null);
@@ -368,6 +389,22 @@ export function ReviewEditor({
     setEditingFx(item.id);
     const seg = fxSegments(timeline, [item])[0];
     if (seg) preview.current?.seekOutput(seg.start, true);
+  }
+
+  /** "Editar" de lo que se ve ahora en la vista previa: pausa ahí y abre el editor del efecto, gráfico o b-roll. */
+  function editOnScreen(t: number, fxId: string | null, brollId: string | null, isGraphic: boolean) {
+    preview.current?.seekOutput(t, false);
+    if (fxId) {
+      setActiveFx(fxId);
+      setEditingFx(fxId);
+    } else if (brollId) {
+      setActiveBroll(brollId);
+      if (isGraphic) {
+        setPickTab("grafico");
+        setAskFocus(false);
+        setPicking(brollId);
+      } else setEditing(brollId);
+    }
   }
 
   function showFx(id: string) {
@@ -779,6 +816,9 @@ export function ReviewEditor({
                     Volver a la propuesta
                   </Button>
                 )}
+                <Button size="sm" variant="ghost" icon={proofreading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <SpellCheck className="h-3.5 w-3.5" aria-hidden />} onClick={proofread} disabled={proofreading}>
+                  {proofreading ? "Revisando…" : "Revisar ortografía con IA"}
+                </Button>
                 <Button size="sm" variant="ghost" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => setRemoved(new Set())} disabled={removed.size === 0}>
                   Restaurar todo
                 </Button>
@@ -872,6 +912,33 @@ export function ReviewEditor({
               fxMaskFps={masks?.fps ?? 10}
               fxImages={fxImages}
             />
+            {canEdit && (() => {
+              // Lo que se ve ahora en la vista previa, con su botón de editar (los efectos y gráficos se editan aquí).
+              const t = outTime ?? 0;
+              const fxNow = fxSegs.find((sg) => t >= sg.start && t < sg.end);
+              const fxItem = fxNow ? fxItems.find((e) => e.id === fxNow.id) : null;
+              const brNow = fxItem ? null : segments.find((sg) => t >= sg.start && t < sg.end);
+              const brItem = brNow ? brollItems.find((b) => b.id === brNow.id) : null;
+              if (!fxItem && !brItem?.choice) return null;
+              const isGraphic = brItem?.choice?.source === "graphic";
+              const label = fxItem ? FX_INFO[fxItem.kind].label : isGraphic ? "Gráfico" : "B-roll";
+              return (
+                <div className="-mt-2 flex items-center justify-between gap-2 rounded-xl bg-white/[0.04] px-3 py-2">
+                  <p className="min-w-0 truncate text-xs text-muted">
+                    En pantalla: <span className="font-semibold text-white">{label}</span>
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="!h-8 !px-2.5"
+                    icon={<PenLine className="h-3.5 w-3.5" aria-hidden />}
+                    onClick={() => editOnScreen(t, fxItem?.id ?? null, brItem?.id ?? null, isGraphic)}
+                  >
+                    Editar
+                  </Button>
+                </div>
+              );
+            })()}
             <RhythmPanel
               score={rhythm}
               cuts={cutTimes(timeline)}

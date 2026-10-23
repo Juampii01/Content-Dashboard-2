@@ -31,6 +31,7 @@ import { resolveScenes } from "../motion-build";
 import { brollGraphicOption } from "../motion-graphics";
 import { planSchemaFor, type PlanStyle } from "../plan";
 import { alignScript } from "../script-align";
+import { proofreadTranscript } from "../transcript-fix";
 import { legacyPlan, loadProject, renderInputFor, scriptText, VideoError, withEditorDefaults, type Project } from "../service";
 import type { StyleMetrics } from "../style";
 import { stylePreset } from "../styles";
@@ -411,6 +412,9 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   // Un efecto pedido en "Edítalo así" entra aunque se llegue al tope (uno más), siempre que Mi marca lo permita.
   const fx = fxAsk && "kind" in fxAsk && baseFx.allowed.includes(fxAsk.kind) ? { ...baseFx, max: baseFx.max + 1 } : baseFx;
   const faceWords = faceWordsOf(ctx.eyes, words);
+  // Palabras mal transcritas ("desancado" → "estancado"): solo en la primera dirección, en paralelo con el director.
+  // Después las correcciones viajan en el plan (y la persona las ajusta en la revisión).
+  const proofread = !mode && !base ? proofreadTranscript({ words, brandCtx: ctx.brandCtx, script }) : Promise.resolve({} as Record<string, string>);
   const simInput = { words, duration, format, candidates, map, brief, broll: { ...limits, stock: stockReady }, mustKeep: keep, preset: ctx.project.captionPreset, base, issues, instruction, fx };
   let ai: DirectorWire | null = null;
   try {
@@ -472,7 +476,8 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     duration,
     format,
     preset: preset === "estilo" && !style ? "clasico" : preset,
-    corrections: alignment?.corrections ?? {},
+    // Lo que coincide con el guion manda sobre la corrección de la IA.
+    corrections: { ...(await proofread), ...(alignment?.corrections ?? {}) },
     offScript: alignment?.offScript ?? [],
     candidates,
     map,

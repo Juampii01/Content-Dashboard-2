@@ -144,6 +144,18 @@ export function FxVideoLayer({
   const scale = spec.format === "9:16" ? 0.5 : 0.375;
   const cw = Math.round(spec.width * scale);
   const ch = Math.round(spec.height * scale);
+  // Con el video en pausa, se vuelve a dibujar cuando termina de buscar el cuadro (si no, queda el de antes o nada).
+  const [seekTick, setSeekTick] = useState(0);
+  useEffect(() => {
+    if (!video) return;
+    const bump = () => setSeekTick((n) => n + 1);
+    video.addEventListener("seeked", bump);
+    video.addEventListener("loadeddata", bump);
+    return () => {
+      video.removeEventListener("seeked", bump);
+      video.removeEventListener("loadeddata", bump);
+    };
+  }, [video]);
 
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
@@ -181,7 +193,7 @@ export function FxVideoLayer({
       }
     }
     renderer.render(ctx as unknown as FxCtx, spec, time, { frame, mask, images }, scale);
-  }, [spec, time, video, fonts, renderer, strips, maskFps, images, sourceWidth, sourceHeight, offsetX, cw, ch, scale]);
+  }, [spec, time, video, fonts, renderer, strips, maskFps, images, sourceWidth, sourceHeight, offsetX, cw, ch, scale, seekTick]);
 
   return <canvas ref={canvas} width={cw} height={ch} className={cn("block h-full w-full", className)} aria-hidden />;
 }

@@ -65,7 +65,6 @@ export type TimelineBlock = {
 export type LibraryDrop = { type: "fx"; kind: string } | { type: "broll" } | { type: "graphic"; template?: string } | { type: "zoom" };
 export const LIBRARY_MIME = "application/x-content2-studio";
 
-const LABEL_W = 108;
 const TRACKS: { key: TrackKey; label: string; icon: ReactNode; h: number }[] = [
   { key: "video", label: "Video", icon: <Film className="h-3.5 w-3.5" aria-hidden />, h: 40 },
   { key: "captions", label: "Subtítulos", icon: <Captions className="h-3.5 w-3.5" aria-hidden />, h: 26 },
@@ -145,6 +144,8 @@ export function StudioTimeline({
   const scroller = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
+  // Columna de nombres de pista (más angosta en el teléfono).
+  const LABEL_W = width < 560 ? 84 : 108;
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [rangeGhost, setRangeGhost] = useState<{ start: number; end: number } | null>(null);
   const drag = useRef<Drag | null>(null);
@@ -169,7 +170,7 @@ export function StudioTimeline({
   useEffect(() => {
     base.current = { t: time, at: performance.now() };
     if (!playing && playhead.current) playhead.current.style.transform = `translateX(${LABEL_W + time * pps}px)`;
-  }, [time, playing, pps]);
+  }, [time, playing, pps, LABEL_W]);
   useEffect(() => {
     if (!playing) return;
     let raf = 0;
@@ -184,7 +185,7 @@ export function StudioTimeline({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, pps, d]);
+  }, [playing, pps, d, LABEL_W]);
 
   // Al cambiar el zoom, el cabezal queda a la vista.
   useEffect(() => {
@@ -192,7 +193,7 @@ export function StudioTimeline({
     if (!el) return;
     const px = LABEL_W + base.current.t * pps;
     if (px > el.scrollLeft + el.clientWidth - 40 || px < el.scrollLeft + LABEL_W) el.scrollLeft = Math.max(0, px - el.clientWidth / 2);
-  }, [pps]);
+  }, [pps, LABEL_W]);
 
   const timeAt = useCallback(
     (clientX: number) => {
@@ -201,7 +202,7 @@ export function StudioTimeline({
       const r = el.getBoundingClientRect();
       return Math.max(0, Math.min(d, (clientX - r.left + el.scrollLeft - LABEL_W) / pps));
     },
-    [d, pps],
+    [d, pps, LABEL_W],
   );
 
   // ─── Cabezal y regla ───
@@ -509,7 +510,7 @@ export function StudioTimeline({
                     style={{ width: lane }}
                     onClick={() => onSelect({ kind: "audio" })}
                   >
-                    <span className="sticky left-[116px] truncate">{music.label}</span>
+                    <span className="sticky truncate" style={{ left: LABEL_W + 8 }}>{music.label}</span>
                   </button>
                 )}
                 {track.key === "audio" &&
@@ -517,7 +518,7 @@ export function StudioTimeline({
                     <span key={`s${i}`} aria-hidden className="pointer-events-none absolute top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-warning" style={{ left: x(c.at) }} />
                   ))}
                 {notes?.[track.key] && byTrack[track.key].length === 0 && !(track.key === "audio" && (music || sfx.length)) && (
-                  <span className="pointer-events-none sticky left-[116px] inline-block px-2 text-[10px] leading-[inherit] text-placeholder" style={{ lineHeight: `${track.h}px` }}>
+                  <span className="pointer-events-none sticky inline-block px-2 text-[10px] text-placeholder" style={{ lineHeight: `${track.h}px`, left: LABEL_W + 8 }}>
                     {notes[track.key]}
                   </span>
                 )}

@@ -15,7 +15,7 @@ import { DecisionsPanel } from "../director/decisions-panel";
 import { EditRequestCard } from "../director/edit-request";
 import { UnderstandingPanel } from "../director/understanding-panel";
 import { VariantsPanel } from "../director/variants-panel";
-import { Badges, FxSample, useInView, useLoop } from "../fx/fx-panel";
+import { FxSample, useInView, useLoop } from "../fx/fx-panel";
 import { LIBRARY_MIME, type LibraryDrop, type StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
@@ -228,7 +228,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
       <p className="text-xs text-muted">{edit ? "Toca para agregarlo donde está el cabezal, o arrástralo a la línea de tiempo." : "Solo lectura: tu usuario no puede editar."}</p>
 
       {tab === "efectos" && (
-        <div ref={ref} role="list" aria-label="Efectos" className="grid grid-cols-2 gap-2">
+        <div ref={ref} role="list" aria-label="Efectos" className="grid grid-cols-3 gap-1.5">
           {FX_GALLERY_ORDER.map((kind: FxKind) => {
             const info = FX_INFO[kind];
             return (
@@ -239,15 +239,12 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
                 disabled={!edit}
                 onClick={() => onAdd({ type: "fx", kind })}
                 {...dragProps({ type: "fx", kind }, edit)}
-                className="flex flex-col gap-1.5 rounded-xl border border-white/10 p-1.5 text-left transition hover:border-white/30 focus-visible:outline-2 focus-visible:outline-accent-hi disabled:cursor-default"
+                className="flex flex-col gap-1 rounded-xl border border-white/10 p-1 text-left transition hover:border-white/30 focus-visible:outline-2 focus-visible:outline-accent-hi disabled:cursor-default"
                 aria-label={`Agregar «${info.label}» en el cabezal`}
                 title={info.description}
               >
                 <FxSample kind={kind} brand={api.fxBrand} clock={clock} reduced={reduced} />
-                <span className="px-0.5 text-xs font-semibold text-white">{info.label}</span>
-                <span className="px-0.5 pb-0.5">
-                  <Badges kind={kind} />
-                </span>
+                <span className="px-0.5 pb-0.5 text-[11px] leading-tight font-semibold text-white">{info.label}</span>
               </button>
             );
           })}

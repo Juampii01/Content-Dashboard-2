@@ -202,3 +202,21 @@ export function splitSpan(span: WordSpan, at: number): [WordSpan, WordSpan] | nu
     { from: at, to: span.to },
   ];
 }
+
+/**
+ * Un tramo libre en el cabezal para agregar algo: el de `spanAround`, acortado para que termine antes del próximo bloque
+ * que no se puede pisar. null si el cabezal cae encima de otro bloque o si no queda la duración mínima.
+ */
+export function fitSpan(timeline: Pick<Timeline, "words">, t: number, seconds: number, min: number, blocked: { from_word: number; to_word: number }[]): SnappedSpan | null {
+  const span = spanAround(timeline, t, seconds);
+  if (!span) return null;
+  const hit = blocked.filter((b) => overlaps(span, b));
+  if (!hit.length) return span;
+  if (hit.some((b) => b.from_word <= span.from)) return null;
+  const first = Math.min(...hit.map((b) => b.from_word));
+  const inside = timeline.words.filter((w) => w.id >= span.from && w.id < first && w.start >= span.start - 0.001);
+  const last = inside[inside.length - 1];
+  if (!last) return null;
+  const short = snapToWords(timeline, span.start, last.end);
+  return short && short.end - short.start >= min ? short : null;
+}

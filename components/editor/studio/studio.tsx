@@ -12,7 +12,7 @@ import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-ed
 import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
 import { captionBlocks, hideDuring } from "@/lib/video/captions";
 import { protectedZones } from "@/lib/video/director/protect";
-import { brollSegments, computeZooms, directorZooms, graphicEntries } from "@/lib/video/effects";
+import { brollSegments, computeZooms, directorZooms, graphicEntries, graphicHidesCaptions } from "@/lib/video/effects";
 import { FX_INFO, type FxKind } from "@/lib/video/fx/catalog";
 import { compileFx, faceAnchor, fxBrandFromLook, fxCaptionHides, fxSegments, sourceFramesOf, sourceRangesOf } from "@/lib/video/fx/compile";
 import { FX_MASK_CHUNK } from "@/lib/video/fx/masks";
@@ -23,7 +23,7 @@ import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } 
 import { rangesFromIds } from "@/lib/video/plan";
 import { fillRhythm, rhythmScore, themeOfPlan, RHYTHM_TAG, type Density } from "@/lib/video/rhythm";
 import { hookEnd, sfxCues } from "@/lib/video/sfx";
-import { clipOffsets, cutMarks, snapToWords, spanAround, splitSpan, timeLabel, wordAt, type SnappedSpan, type WordSpan } from "@/lib/video/studio";
+import { clipOffsets, cutMarks, fitSpan, snapToWords, splitSpan, timeLabel, wordAt, type SnappedSpan, type WordSpan } from "@/lib/video/studio";
 import { buildTimeline, outputRange } from "@/lib/video/timeline";
 import { FPS, type BrollItem, type BrollOption, type EditPlan, type RemovalReason } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
@@ -690,24 +690,23 @@ export function Studio(props: StudioProps) {
   function addFromLibrary(item: LibraryDrop, at?: number) {
     if (!canEdit) return;
     const t = at ?? outRef.current;
+    const busy = "Ahí ya hay algo en esa pista. Mueve el cabezal a un lugar libre (o elige lo que hay para cambiarlo).";
     if (item.type === "fx") {
       const info = FX_INFO[item.kind as FxKind];
       if (!info) return;
       const target = Math.min(info.duration.max, Math.max(info.duration.min, (info.duration.min + info.duration.max) / 2.5));
-      const span = spanAround(timeline, t, target);
-      if (!span) return;
-      if (s.effects.some((e) => span.from <= e.to_word && e.from_word <= span.to)) return void toast.error("Ahí ya hay un efecto. Mueve el cabezal a un lugar libre o elige el efecto para cambiarlo.");
-      if (s.broll.some((b) => b.choice && span.from <= b.to_word && b.from_word <= span.to)) return void toast.error("Ahí hay b-roll: un tramo lleva b-roll o efecto, no los dos. Mueve el cabezal a un lugar libre.");
+      const span = fitSpan(timeline, t, target, info.duration.min, [...s.effects, ...s.broll.filter((b) => b.choice)]);
+      if (!span) return void toast.error(busy, { description: "Un tramo lleva b-roll o efecto, no los dos." });
       addFx(item.kind as FxKind, span, null);
-    } else if (item.type === "graphic" && item.template) {
-      const span = spanAround(timeline, t, 2.5);
-      if (span) addGraphic(span, item.template as GraphicTemplate);
     } else if (item.type === "graphic" || item.type === "broll") {
-      const span = spanAround(timeline, t, 2.5);
-      if (span) addBroll(span, item.type === "graphic");
+      const span = fitSpan(timeline, t, 2.5, 0.8, [...s.broll, ...s.effects]);
+      if (!span) return void toast.error(busy, { description: "Un tramo lleva b-roll o efecto, no los dos." });
+      if (item.type === "graphic" && item.template) addGraphic(span, item.template as GraphicTemplate);
+      else addBroll(span, item.type === "graphic");
     } else if (item.type === "zoom") {
-      const span = spanAround(timeline, t, 1.2);
-      if (span) addZoom(span);
+      const span = fitSpan(timeline, t, 1.2, 0.3, s.zoomMoments);
+      if (!span) return void toast.error(busy);
+      addZoom(span);
     }
   }
 
@@ -885,13 +884,18 @@ export function Studio(props: StudioProps) {
     return () => ro.disconnect();
   }, []);
   const ratio = s.format === "9:16" ? 9 / 16 : 16 / 9;
-  // Debajo del cuadro van los controles del reproductor (~48 px) y la línea de "en pantalla" (~36 px).
-  const previewW = box && box.h > 200 ? Math.max(180, Math.min(box.w - 16, (box.h - 96) * ratio)) : null;
+  // Debajo del cuadro va la línea de "en pantalla" (~36 px); la barra del reproductor se oculta en pantallas grandes.
+  const previewW = box && box.h > 200 ? Math.max(180, Math.min(box.w - 16, (box.h - 52) * ratio)) : null;
 
   const rangeSel = selection?.kind === "range" ? outputRange(timeline, selection.from, selection.to) : null;
   const dirty = reviewKey !== savedKey;
   const changedFromProposal = removedSet.size !== proposed.size || s.removed.some((id) => !proposed.has(id));
   const cuts = useMemo(() => cutMarks(timeline, removedSet), [timeline, removedSet]);
+  // En la pista de subtítulos: dónde no se ven (los ocultó el director, un efecto lleva los suyos o un gráfico los tapa).
+  const captionGaps = useMemo(
+    () => [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...segments.filter((sg) => sg.option.source === "graphic" && graphicHidesCaptions(sg.option.graphic)).map((sg) => ({ start: sg.start, end: sg.end }))],
+    [hiddenCaptions, fxSegs, segments],
+  );
   const musicTrack = tracks.find((t) => t.id === s.music.trackId) ?? null;
 
   const api: StudioApi = {
@@ -1068,7 +1072,7 @@ export function Studio(props: StudioProps) {
                       <PanelLeftClose className="h-4 w-4" aria-hidden />
                     </button>
                   </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" role="tabpanel">
+                  <div key={leftTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" role="tabpanel">
                     {leftTab === "texto" && (
                       <div className="flex flex-col gap-3 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1201,7 +1205,14 @@ export function Studio(props: StudioProps) {
 
             {/* Centro: la vista previa, lo más grande posible */}
             <main ref={center} className="order-1 flex min-h-0 min-w-0 flex-col items-center justify-center p-3 lg:order-none" aria-label="Vista previa">
-              <div ref={stage} className="relative w-full max-w-[360px] lg:max-w-none [&_div[style*='aspect-ratio']]:!max-w-none" style={previewW ? { width: previewW } : undefined} data-testid="studio-stage">
+              <div
+                ref={stage}
+                // En pantallas grandes, la barra propia del reproductor se oculta: la línea de tiempo de abajo ya tiene
+                // reproducir, el tiempo y el cabezal (así el cuadro del video queda más grande).
+                className="relative w-full max-w-[360px] lg:max-w-none [&_div[style*='aspect-ratio']]:!max-w-none lg:[&>div>div:has(>input[aria-label^='Posici'])]:hidden"
+                style={previewW ? { width: previewW } : undefined}
+                data-testid="studio-stage"
+              >
                 <PreviewPlayer
                   ref={preview}
                   src={proxyUrl}
@@ -1270,7 +1281,7 @@ export function Studio(props: StudioProps) {
                 cuts={cuts}
                 sfx={sfxMarks}
                 music={musicTrack ? { label: `Música · ${musicTrack.title}` } : null}
-                hiddenCaptions={hiddenCaptions}
+                hiddenCaptions={captionGaps}
                 selection={selection}
                 range={rangeSel}
                 obstacles={obstacles}

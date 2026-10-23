@@ -92,6 +92,7 @@ export function humanize(text: string | null | undefined, ctx: HumanContext): st
   out = out.replace(/\b(retake|false_start|filler|off_topic|bad_take)\b/g, (m) => REASONS[m] ?? m);
   for (const kind of FX_KINDS) out = out.replace(new RegExp(`\\b${kind}\\b`, "g"), `«${FX_INFO[kind].label}»`);
   // Etiquetas internas del ritmo.
-  out = out.replace(/^Ritmo:\s*/, "");
-  return out.replace(/\s{2,}/g, " ").replace(/\s+([.,;:])/g, "$1").trim();
+  out = out.replace(/^(?:Ritmo|Tuyo):\s*/, "");
+  out = out.replace(/\s{2,}/g, " ").replace(/\s+([.,;:])/g, "$1").trim();
+  return out.charAt(0).toLocaleUpperCase("es") + out.slice(1);
 }

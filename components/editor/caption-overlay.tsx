@@ -6,6 +6,10 @@ import { cn } from "@/lib/utils";
 import { captionTracks, colorAt, valueAt, type CaptionLook, type WordTrack } from "@/lib/video/caption-styles";
 import type { CaptionStyle } from "@/lib/video/style";
 import type { CaptionBlock, CaptionPresetKey, VideoFormat } from "@/lib/video/types";
+import { captionAnchor } from "@/lib/video/canvas/captions";
+
+/** Caja del bloque visible en px de la vista previa (relativa al cuadro), para el lienzo de la revisión. */
+export type CaptionBoxReport = { x: number; y: number; w: number; h: number } | null;
 
 /**
  * Subtítulos dibujados en HTML sobre la vista previa, con las mismas medidas que el ASS del worker
@@ -32,6 +36,7 @@ export function CaptionOverlay({
   captionStyle,
   look,
   extraGap = 0,
+  onBox,
 }: {
   block: CaptionBlock | null;
   /** Instante del video final. */
@@ -50,9 +55,11 @@ export function CaptionOverlay({
    * activa y su caja tapan el espacio y dos palabras se leen pegadas. La vista previa y el render no lo usan (0).
    */
   extraGap?: number;
+  /** Informa la caja del bloque que se ve (solo los estilos de la galería; el lienzo de la revisión la usa). */
+  onBox?: (box: CaptionBoxReport) => void;
 }) {
   if (!block || preset === "ninguno") return null;
-  if (look && look.style === preset) return <GalleryCaption block={block} time={time} look={look} format={format} accent={accent} height={height} extraGap={extraGap} />;
+  if (look && look.style === preset) return <GalleryCaption block={block} time={time} look={look} format={format} accent={accent} height={height} extraGap={extraGap} onBox={onBox} />;
   const activeIndex = block.words.findIndex((w, i) => time >= (i === 0 ? block.start : w.start) && (i + 1 >= block.words.length || time < block.words[i + 1]!.start));
   if (preset === "estilo" && captionStyle) return <StyledCaption block={block} activeIndex={activeIndex} height={height} st={captionStyle} />;
   const key = preset === "pop" ? "pop" : "clasico";
@@ -140,10 +147,12 @@ const rgba = (hex: string, alpha: number) => {
  * cada palabra centrada en su lugar (la escala no mueve a las demás), la caja y el resaltador detrás, la sombra
  * con el contorno, y si un renglón no entra en `maxWidth` el bloque entero se achica.
  */
-function GalleryCaption({ block, time, look, format, accent, height, extraGap = 0 }: { block: CaptionBlock; time: number; look: CaptionLook; format: VideoFormat; accent: string; height: number; extraGap?: number }) {
+function GalleryCaption({ block, time, look, format, accent, height, extraGap = 0, onBox }: { block: CaptionBlock; time: number; look: CaptionLook; format: VideoFormat; accent: string; height: number; extraGap?: number; onBox?: (box: CaptionBoxReport) => void }) {
   const laid = useMemo(() => captionTracks(look, block, format, accent), [look, block, format, accent]);
   const width = format === "9:16" ? (height * 9) / 16 : (height * 16) / 9;
-  const em = look.size * height;
+  // Centro, tamaño y ancho máximo con el lugar del lienzo (el mismo cálculo que `caption_anchor` del worker).
+  const anchor = captionAnchor(look, laid.place, width, height);
+  const em = anchor.em;
   const rows = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(1);
   useLayoutEffect(() => {
@@ -151,20 +160,33 @@ function GalleryCaption({ block, time, look, format, accent, height, extraGap = 
       const el = rows.current;
       if (!el) return;
       const widest = Math.max(0, ...[...el.children].map((row) => (row as HTMLElement).scrollWidth));
-      const next = widest > 0 ? Math.min(1, (look.maxWidth * width) / widest) : 1;
+      const next = widest > 0 ? Math.min(1, anchor.maxW / widest) : 1;
       setFit((prev) => (Math.abs(prev - next) > 0.005 ? next : prev));
     };
     measure();
     if (typeof document !== "undefined" && document.fonts) void document.fonts.ready.then(measure);
-  }, [laid, em, width, look.maxWidth]);
+  }, [laid, em, width, anchor.maxW]);
+  // Caja del bloque para el lienzo (sin las animaciones de cada palabra: el tamaño de los renglones a su escala).
+  const report = useRef(onBox);
+  useLayoutEffect(() => {
+    report.current = onBox;
+  });
+  useLayoutEffect(() => {
+    const el = rows.current;
+    if (!el || !report.current) return;
+    const w = el.offsetWidth * fit;
+    const h = el.offsetHeight * fit;
+    report.current({ x: anchor.cx - w / 2, y: anchor.cy - h / 2, w, h });
+  }, [fit, laid, anchor.cx, anchor.cy, em]);
+  useLayoutEffect(() => () => report.current?.(null), []);
   const font = fontStyle(look);
   const lines: WordTrack[][] = Array.from({ length: laid.lines }, (_, i) => laid.words.filter((w) => w.line === i));
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
       <div
         ref={rows}
-        className={cn("absolute left-1/2 flex flex-col items-center", font.className)}
-        style={{ ...font.style, top: `${look.y * 100}%`, fontSize: `${em}px`, transform: `translate(-50%, -50%) scale(${fit})`, letterSpacing: 0, whiteSpace: "nowrap" }}
+        className={cn("absolute flex flex-col items-center", font.className)}
+        style={{ ...font.style, top: `${anchor.cy}px`, left: `${anchor.cx}px`, fontSize: `${em}px`, transform: `translate(-50%, -50%) scale(${fit})`, letterSpacing: 0, whiteSpace: "nowrap" }}
       >
         {lines.map((line, li) => (
           <div key={li} className="flex items-center" style={{ columnGap: `${look.gap + extraGap}em` }}>

@@ -1,0 +1,118 @@
+import type { ReactNode } from "react";
+import type { DirectorView } from "@/lib/dal/video";
+import type { FxContext } from "@/lib/dal/video-fx";
+import type { OutputBroll, OutputZoom } from "@/lib/video/effects";
+import type { FxSegment, FxBrand } from "@/lib/video/fx/compile";
+import type { FxKind } from "@/lib/video/fx/catalog";
+import type { GraphicLook } from "@/lib/video/graphics";
+import type { BrollGraphic } from "@/lib/video/motion-graphics";
+import type { Density, RhythmScore } from "@/lib/video/rhythm";
+import type { BrollEdit } from "@/lib/video/broll-edit";
+import type { AudioPreview } from "@/lib/video/studio-audio";
+import type { CaptionStyle, StylePreset } from "@/lib/video/style";
+import type { Timeline } from "@/lib/video/timeline";
+import type { BrollItem, BrollOption, CaptionBlock, EditPlan, RemovalReason, Word } from "@/lib/video/types";
+import type { WordSpan } from "@/lib/video/studio";
+import type { PickerTab, SignedOption } from "../broll-panel";
+import type { TrackItem } from "../music-manager";
+import type { StudioSelection } from "./studio-timeline";
+import type { StudioState, StudioUpdate } from "./use-studio-state";
+
+export type StudioStyle = { id: string; name: string; zoom: StylePreset["zoom"]; captions: CaptionStyle | null; focusY: number } | null;
+
+export type StudioProps = {
+  projectId: string;
+  plan: EditPlan;
+  words: Word[];
+  duration: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  proxyUrl: string | null;
+  posterUrl: string | null;
+  accent: string;
+  canEdit: boolean;
+  /** URLs listas para el navegador de cada alternativa de b-roll (clave "fuente:id"). */
+  signedBroll?: Record<string, SignedOption>;
+  /** Estilo con el que se armó el plan (nombre, zooms y subtítulos), si hay. */
+  style?: StudioStyle;
+  /** Colores y fuente de Mi marca para los gráficos nuevos del b-roll. */
+  graphicLook: GraphicLook;
+  /** Pistas de música listas de la biblioteca. */
+  tracks?: TrackItem[];
+  /** Muestra de 10 s de "Audio de estudio" (antes y después), si ya está. */
+  audioPreview?: AudioPreview | null;
+  /** Director de edición: lo que entendió, la segunda mirada, el brief, los pedidos y las versiones. */
+  director?: DirectorView | null;
+  /** Efectos: la cara medida, las miniaturas de tus reels y el recorte de la persona para la vista previa. */
+  fxContext?: FxContext | null;
+  /** Efectos que permite Mi marca (el ritmo "Editor de reels" puede abrir con uno). */
+  rhythmFx?: FxKind[];
+  /** Nombre del proyecto (barra superior). */
+  title?: string;
+  /** Acciones extra de la barra superior (por ejemplo, borrar el proyecto). */
+  menu?: ReactNode;
+  /** Aviso del proyecto (por ejemplo, "No lo exportamos solo"). */
+  notice?: ReactNode;
+  /**
+   * Controles de posición, tamaño y animación de entrada y salida para lo elegido (gráfico, efecto o subtítulo). Los
+   * agrega el lienzo: el inspector los muestra en su sección "Posición y animación".
+   */
+  transformControls?: (selection: StudioSelection) => ReactNode;
+  /** Capa para manipular lo elegido sobre la vista previa (la agrega el lienzo). Va encima del cuadro del video. */
+  stageOverlay?: ReactNode;
+};
+
+/** Lo que el inspector y los paneles necesitan del Estudio: el estado, lo calculado y las acciones. */
+export type StudioApi = {
+  props: StudioProps;
+  state: StudioState;
+  update: StudioUpdate;
+  removedSet: Set<number>;
+  selection: StudioSelection | null;
+  select: (sel: StudioSelection | null) => void;
+  timeline: Timeline;
+  segments: OutputBroll[];
+  fxSegs: FxSegment[];
+  zooms: OutputZoom[];
+  captions: CaptionBlock[];
+  rhythm: RhythmScore;
+  fxBrand: FxBrand;
+  thumbsCount: number;
+  maskMissing: Set<string>;
+  masks: { pending: boolean; failed: boolean };
+  reasons: Map<number, RemovalReason>;
+  styleZooms: boolean;
+  showFraming: boolean;
+  time: number;
+  /** Texto de un rango de palabras (con las correcciones). */
+  textOf: (from: number, to: number, max?: number) => string;
+  humanize: (text: string | null | undefined) => string;
+  signedOf: (o: BrollItem["choice"]) => SignedOption | null;
+  /** Controles de posición y animación de lo elegido (los del lienzo), o null si no se puede mover. */
+  transformControls: (selection: StudioSelection) => ReactNode;
+  actions: {
+    seek: (t: number, play?: boolean) => void;
+    listenFrom: (wordId: number) => void;
+    /** Elige el gancho y lo reproduce desde el principio. */
+    listenHook: (index: number) => void;
+    cut: (ids: number[], cut: boolean) => void;
+    cutSpan: (span: WordSpan) => void;
+    addBroll: (span: WordSpan, ask?: boolean) => void;
+    openPicker: (id: string, tab?: PickerTab) => void;
+    openGallery: (span: WordSpan | null, replace: string | null) => void;
+    addFx: (kind: FxKind, span: WordSpan, replace: string | null) => void;
+    addZoom: (span: WordSpan) => void;
+    openPhraseFix: (span: WordSpan) => void;
+    removeSelection: () => void;
+    split: () => void;
+    accept: (sel: StudioSelection) => void;
+    setBrollEdit: (id: string, edit: BrollEdit) => void;
+    applyLookToAll: (id: string) => void;
+    setGraphic: (id: string, graphic: BrollGraphic) => void;
+    changeDensity: (d: Density) => void;
+    pickOption: (id: string, option: SignedOption | BrollOption) => void;
+  };
+};
+
+/** Marca de los zooms que puso o aceptó la persona (los del ritmo empiezan con "Ritmo:" y se recalculan). */
+export const USER_TAG = "Tuyo:";

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { formatNumber } from "@/lib/format";
 import type { EditPlan, PlanMove, Word } from "@/lib/video/types";
 import { reasonLabel } from "../labels";
+import { useHumanize } from "../studio/humanize";
 
 const text = (words: Word[], from: number, to: number, corrections: Record<string, string>, max = 80) => {
   const t = words
@@ -41,6 +42,7 @@ export function DecisionsPanel({
   canEdit: boolean;
 }) {
   const [all, setAll] = useState(false);
+  const h = useHumanize();
   const cuts = plan.proposed_removals.filter((r) => r.note && r.source !== "user" && Array.from({ length: r.to_word - r.from_word + 1 }, (_, k) => r.from_word + k).every((id) => removed.has(id)));
   const shown = all ? cuts : cuts.slice(0, 5);
   const zooms = plan.zoom_moments ?? [];
@@ -62,7 +64,7 @@ export function DecisionsPanel({
             <div className="min-w-0 flex-1 text-sm">
               <p className="text-xs font-semibold text-danger">{reasonLabel[r.reason]}</p>
               <p className="line-clamp-2 text-text/80 line-through decoration-danger/60">“{text(words, r.from_word, r.to_word, corrections)}”</p>
-              <p className="mt-0.5 text-xs text-muted">{r.note}</p>
+              <p className="mt-0.5 text-xs text-muted">{h(r.note)}</p>
             </div>
             <div className="flex flex-none gap-1">
               <Button size="sm" variant="subtle" className="!h-8 !w-8 !px-0" icon={<Play className="h-3.5 w-3.5" aria-hidden />} aria-label="Escuchar cómo queda" title="Escuchar cómo queda" onClick={() => onListen(Math.max(0, r.from_word - 3))} />
@@ -81,7 +83,7 @@ export function DecisionsPanel({
             <div className="min-w-0 flex-1 text-sm">
               <p className="text-xs font-semibold text-accent-glow">Bloque movido {m.after_word < 0 ? "al principio" : "más adelante"}</p>
               <p className="line-clamp-2 text-text/90">“{text(words, m.from_word, m.to_word, corrections)}”</p>
-              <p className="mt-0.5 text-xs text-muted">{m.why}</p>
+              <p className="mt-0.5 text-xs text-muted">{h(m.why)}</p>
             </div>
             {canEdit && (
               <Button size="sm" variant="ghost" className="!h-8 flex-none !px-2.5" onClick={() => onMoves(moves.filter((x) => x !== m))}>
@@ -101,7 +103,7 @@ export function DecisionsPanel({
                 {zooms.slice(0, 4).map((z) => (
                   <li key={z.from_word}>
                     <button type="button" className="text-left hover:text-text" onClick={() => onListen(z.from_word)}>
-                      “{text(words, z.from_word, z.to_word, corrections, 40)}” · {z.why}
+                      “{text(words, z.from_word, z.to_word, corrections, 40)}” · {h(z.why)}
                     </button>
                   </li>
                 ))}
@@ -114,7 +116,7 @@ export function DecisionsPanel({
             <CaptionsOff className="mt-0.5 h-4 w-4 flex-none text-accent-hi" aria-hidden />
             <div className="min-w-0 flex-1 text-sm">
               <p className="text-xs font-semibold text-accent-glow">Sin subtítulos en {formatNumber(hidden.length)} {hidden.length === 1 ? "tramo" : "tramos"}</p>
-              <p className="mt-0.5 text-xs text-muted">{hidden[0]!.why}</p>
+              <p className="mt-0.5 text-xs text-muted">{h(hidden[0]!.why)}</p>
             </div>
           </div>
         )}

@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/toast";
 import { formatRelative, formatUsd } from "@/lib/format";
 import type { EditRequest } from "@/lib/video/director/types";
 import { editAction } from "../director-actions";
+import { useHumanize } from "../studio/humanize";
 
 const SUGGESTIONS = ["Más dinámico", "No cortes la parte del precio", "Más gráficos en la segunda mitad", "Versión de 30 s", "Otro gancho"];
 
@@ -34,6 +35,7 @@ export function EditRequestCard({
   dirty: boolean;
 }) {
   const [text, setText] = useState("");
+  const h = useHumanize();
   const [pending, start] = useTransition();
   const over = spent + estimate > cap;
   const last = edits.at(-1);
@@ -60,10 +62,10 @@ export function EditRequestCard({
           </p>
           <ul className="mt-1.5 flex flex-col gap-0.5 text-text/90">
             {last.changes.map((c, i) => (
-              <li key={i}>· {c}</li>
+              <li key={i}>· {h(c)}</li>
             ))}
           </ul>
-          {last.note && <p className="mt-1.5 text-muted">{last.note}</p>}
+          {last.note && <p className="mt-1.5 text-muted">{h(last.note)}</p>}
         </div>
       )}
       {canEdit && (
@@ -113,7 +115,7 @@ export function EditRequestCard({
                 <li key={i} className="rounded-lg bg-white/[0.03] p-2">
                   <p className="text-text">“{e.instruction}”</p>
                   <p className="mt-0.5 text-muted">
-                    {formatRelative(e.at)} · {e.changes.join(" ")}
+                    {formatRelative(e.at)} · {e.changes.map((c) => h(c)).join(" ")}
                   </p>
                 </li>
               ))}

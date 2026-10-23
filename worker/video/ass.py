@@ -295,6 +295,21 @@ def _scale_tag(v: float, bord: float) -> str:
     return tag + (f"\\bord{bord * v:.2f}" if bord else "")
 
 
+def caption_anchor(look: dict[str, Any], place: Any, width: int, height: int) -> tuple[float, float, float, float]:
+    """Centro (x, y), tamaño de 1 em y ancho máximo de un bloque, en px, con el lugar del lienzo de la revisión.
+
+    Espejo de `captionAnchor` (lib/video/canvas/captions.ts): `place` = {x, y, scale} (corrimiento en fracción del
+    cuadro y tamaño); sin `place`, el lugar del estilo. Agrandar también agranda el ancho máximo (hasta el 96 %).
+    """
+    p = place if isinstance(place, dict) else {}
+    px, py, ps = float(p.get("x", 0) or 0), float(p.get("y", 0) or 0), float(p.get("scale", 1) or 1)
+    cx = width * (0.5 + px)
+    cy = height * (float(look["y"]) + py)
+    em = float(look["size"]) * height * ps
+    max_w = min(width * 0.96, float(look["maxWidth"]) * width * ps)
+    return cx, cy, em, max_w
+
+
 def build_look_ass(captions: dict[str, Any], width: int, height: int, fonts_dir: Path) -> tuple[str, list[dict[str, Any]]]:
     """ASS de un estilo de la galería y los emojis a superponer (`{name, start, end, fadeIn, x, y, size}` en px)."""
     look = captions["look"]
@@ -310,8 +325,6 @@ def build_look_ass(captions: dict[str, Any], width: int, height: int, fonts_dir:
     shadow = look.get("shadow")
     box = look.get("box")
     marker = look.get("marker")
-    cx, cy = width / 2, float(look["y"]) * height
-    max_w = float(look["maxWidth"]) * width
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -334,6 +347,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         start, end = float(block["start"]), float(block["end"])
         if not words or end - start < 0.02:
             continue
+        # Lugar del bloque (lienzo de la revisión): centro, tamaño y ancho máximo, igual que la vista previa.
+        cx, cy, em0, max_w = caption_anchor(look, block.get("place"), width, height)
         # Medidas a tamaño natural; si un renglón no entra, se achica todo el bloque (igual que la vista previa).
         nlines = max(int(w.get("line", 0)) for w in words) + 1
         rows = [[w for w in words if int(w.get("line", 0)) == i] for i in range(nlines)]

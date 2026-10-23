@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useTransition, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, RefreshCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, RefreshCcw, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Notice, Progress } from "@/components/ui/feedback";
 import { toast } from "@/components/ui/toast";
@@ -51,8 +51,46 @@ export function ProjectScreen({
 }) {
   const status = project.status as ProjectStatus;
   const working = status === "PROCESSING" || status === "RENDERING" || (status === "AWAITING_REVIEW" && project.autoPending);
+  const reviewing = status === "AWAITING_REVIEW" && !project.autoPending && Boolean(project.plan && project.transcript);
+  if (reviewing && project.plan && project.transcript) {
+    // La revisión es el Estudio a pantalla completa: título, borrar y el aviso del proyecto van en su barra y su panel.
+    return (
+      <ReviewEditor
+        projectId={project.id}
+        plan={project.plan}
+        words={project.transcript.words}
+        duration={project.media?.duration ?? project.transcript.duration}
+        sourceWidth={project.media?.width ?? 1080}
+        sourceHeight={project.media?.height ?? 1920}
+        proxyUrl={project.proxyUrl}
+        posterUrl={project.sourcePosterUrl ?? project.posterUrl}
+        accent={project.accent}
+        canEdit={project.canEdit}
+        signedBroll={signedBroll}
+        style={style}
+        graphicLook={graphicLook}
+        tracks={tracks}
+        audioPreview={project.audioPreview}
+        director={project.director}
+        fxContext={fxContext}
+        rhythmFx={rhythmFx}
+        title={project.title}
+        menu={project.canEdit ? <DeleteProject projectId={project.id} compact /> : null}
+        notice={
+          project.errorMessage ? (
+            <Notice tone="warning" title="No lo exportamos solo">
+              {project.errorMessage.replace(/^No pudimos exportarlo solo: /, "")} Revisa la propuesta y expórtala cuando quieras.
+            </Notice>
+          ) : null
+        }
+      />
+    );
+  }
   return (
     <div className="flex flex-col gap-6">
+      <ButtonLink href="/editor" variant="subtle" size="sm" icon={<ArrowLeft className="h-4 w-4" aria-hidden />} className="-mb-2 self-start">
+        Volver al Editor
+      </ButtonLink>
       <ProjectHeader project={project} status={status} />
       {status === "UPLOADING" && <UploadPending project={project} />}
       {working && (
@@ -62,33 +100,6 @@ export function ProjectScreen({
           canEdit={project.canEdit}
           autoSummary={project.autoSummary}
           initial={{ status, errorMessage: project.errorMessage, autoExport: project.autoExport, job: project.job, worker: { online: project.worker.online, autoStart: project.worker.autoStart } }}
-        />
-      )}
-      {status === "AWAITING_REVIEW" && !project.autoPending && project.errorMessage && (
-        <Notice tone="warning" title="No lo exportamos solo">
-          {project.errorMessage.replace(/^No pudimos exportarlo solo: /, "")} Revisa la propuesta y expórtala cuando quieras.
-        </Notice>
-      )}
-      {status === "AWAITING_REVIEW" && !project.autoPending && project.plan && project.transcript && (
-        <ReviewEditor
-          projectId={project.id}
-          plan={project.plan}
-          words={project.transcript.words}
-          duration={project.media?.duration ?? project.transcript.duration}
-          sourceWidth={project.media?.width ?? 1080}
-          sourceHeight={project.media?.height ?? 1920}
-          proxyUrl={project.proxyUrl}
-          posterUrl={project.sourcePosterUrl ?? project.posterUrl}
-          accent={project.accent}
-          canEdit={project.canEdit}
-          signedBroll={signedBroll}
-          style={style}
-          graphicLook={graphicLook}
-          tracks={tracks}
-          audioPreview={project.audioPreview}
-          director={project.director}
-          fxContext={fxContext}
-          rhythmFx={rhythmFx}
         />
       )}
       {status === "DONE" && project.output && (
@@ -122,8 +133,6 @@ export function ProjectScreen({
 }
 
 function ProjectHeader({ project, status }: { project: View; status: ProjectStatus }) {
-  const [confirm, setConfirm] = useState(false);
-  const [pending, start] = useTransition();
   return (
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
@@ -140,7 +149,22 @@ function ProjectHeader({ project, status }: { project: View; status: ProjectStat
           </p>
         )}
       </div>
-      {project.canEdit && (
+      {project.canEdit && <DeleteProject projectId={project.id} />}
+    </header>
+  );
+}
+
+/** Borrar el proyecto (con confirmación). `compact`: solo el ícono, para la barra del Estudio. */
+function DeleteProject({ projectId, compact = false }: { projectId: string; compact?: boolean }) {
+  const [confirm, setConfirm] = useState(false);
+  const [pending, start] = useTransition();
+  return (
+    <>
+      {compact ? (
+        <button type="button" className="btn-ghost !h-9 !w-9 !p-0" onClick={() => setConfirm(true)} aria-label="Borrar este video" title="Borrar este video">
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
+      ) : (
         <Button variant="ghost" size="sm" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => setConfirm(true)}>
           Borrar
         </Button>
@@ -160,7 +184,7 @@ function ProjectHeader({ project, status }: { project: View; status: ProjectStat
               className="!bg-danger/90 ![background-image:none]"
               onClick={() =>
                 start(async () => {
-                  const result = await deleteAction(project.id);
+                  const result = await deleteAction(projectId);
                   if (result && !result.ok) toast.error(result.error);
                 })
               }
@@ -170,7 +194,7 @@ function ProjectHeader({ project, status }: { project: View; status: ProjectStat
           </>
         }
       />
-    </header>
+    </>
   );
 }
 

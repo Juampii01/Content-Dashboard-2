@@ -9,6 +9,7 @@ import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { BriefEditor } from "./brief-form";
 import { FrameThumb, gridFor, type SheetGrid } from "./frame-thumb";
+import { useHumanize } from "../studio/humanize";
 
 const BEAT_TONE: Partial<Record<BeatRole, string>> = {
   gancho: "border-accent/60 bg-accent/15 text-white",
@@ -57,6 +58,7 @@ export function UnderstandingPanel({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const h = useHumanize();
   const { state, cost } = view;
   const map = state.map;
   const grid: SheetGrid = view.layout ?? gridFor(sourceWidth, sourceHeight);
@@ -71,7 +73,7 @@ export function UnderstandingPanel({
   };
 
   return (
-    <section aria-labelledby="director-title" className="section-shell !p-0">
+    <section aria-labelledby="director-title" className="section-shell @container !p-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -90,7 +92,7 @@ export function UnderstandingPanel({
             </span>
             {map && (
               <span className="mt-1 block text-sm text-muted">
-                <span className="font-semibold text-text">{VIDEO_KIND_LABELS[map.kind]}.</span> {map.summary}
+                <span className="font-semibold text-text">{VIDEO_KIND_LABELS[map.kind]}.</span> {h(map.summary)}
               </span>
             )}
           </span>
@@ -121,22 +123,22 @@ export function UnderstandingPanel({
                       type="button"
                       onClick={() => onListen?.(b.from)}
                       disabled={!onListen}
-                      className={cn("flex w-44 flex-col gap-1 rounded-xl border p-2.5 text-left text-xs transition hover:border-white/30 disabled:cursor-default sm:w-52", BEAT_TONE[b.role] ?? "border-white/10 bg-white/[0.03] text-text")}
+                      className={cn("flex w-44 flex-col gap-1 rounded-xl border p-2.5 text-left text-xs transition hover:border-white/30 disabled:cursor-default @lg:w-52", BEAT_TONE[b.role] ?? "border-white/10 bg-white/[0.03] text-text")}
                     >
                       <span className="font-mono text-[10px] tracking-wide text-accent-glow uppercase">
                         {i + 1}. {BEAT_LABELS[b.role]}
                       </span>
-                      <span className="line-clamp-3">{b.summary || `“${excerpt(words, b.from, b.to, corrections)}”`}</span>
+                      <span className="line-clamp-3">{b.summary ? h(b.summary) : `“${excerpt(words, b.from, b.to, corrections)}”`}</span>
                     </button>
                   </li>
                 ))}
               </ol>
               {(map.promise || map.cta || map.figures.length > 0) && (
-                <dl className="grid gap-2 text-xs sm:grid-cols-3">
+                <dl className="grid gap-2 text-xs @lg:grid-cols-3">
                   {map.promise && (
                     <div className="rounded-xl bg-white/[0.03] p-2.5">
                       <dt className="text-muted">Promesa</dt>
-                      <dd className="mt-0.5 text-text">{map.promise}</dd>
+                      <dd className="mt-0.5 text-text">{h(map.promise)}</dd>
                     </div>
                   )}
                   {map.figures.length > 0 && (
@@ -148,7 +150,7 @@ export function UnderstandingPanel({
                   {map.cta && (
                     <div className="rounded-xl bg-white/[0.03] p-2.5">
                       <dt className="text-muted">Llamada a la acción</dt>
-                      <dd className="mt-0.5 text-text">{map.cta}</dd>
+                      <dd className="mt-0.5 text-text">{h(map.cta)}</dd>
                     </div>
                   )}
                 </dl>
@@ -157,7 +159,7 @@ export function UnderstandingPanel({
           )}
 
           {map && (important.length > 0 || map.badTakes.length > 0) && (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 @2xl:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
                   <ShieldCheck className="h-4 w-4 text-success" aria-hidden /> Lo importante que se ve
@@ -171,7 +173,7 @@ export function UnderstandingPanel({
                           <p className="font-semibold text-white">
                             {SHOT_KIND_LABELS[s.kind]} <span className="font-mono font-normal text-muted">{formatDuration(s.start)}–{formatDuration(s.end)}</span>
                           </p>
-                          <p className="mt-0.5 line-clamp-2 text-text/90">{s.shows}</p>
+                          <p className="mt-0.5 line-clamp-2 text-text/90">{h(s.shows)}</p>
                           <p className="mt-1 text-success">No se tapa con b-roll ni se corta.</p>
                         </div>
                       </li>
@@ -197,7 +199,7 @@ export function UnderstandingPanel({
                             <p className="font-semibold text-white">
                               {BAD_TAKE_LABELS[b.kind]} <span className="font-mono font-normal text-muted">{formatDuration(b.start)}–{formatDuration(b.end)}</span>
                             </p>
-                            <p className="mt-0.5 line-clamp-2 text-text/90">{b.note}</p>
+                            <p className="mt-0.5 line-clamp-2 text-text/90">{h(b.note)}</p>
                             <p className={cn("mt-1", stays && !covered ? "text-warning" : "text-success")}>{!stays ? "Cortada." : covered ? "Tapada con b-roll." : "Quedó en el video: revísala."}</p>
                           </div>
                         </li>
@@ -241,14 +243,14 @@ export function UnderstandingPanel({
                       <span className="text-muted">· miró {formatNumber(r.frames)} cuadros</span>
                       {r.fixed && <span className="pill !py-0.5 text-[11px] text-accent-glow">corregido</span>}
                     </p>
-                    <p className="mt-1 text-text/90">{r.verdict}</p>
+                    <p className="mt-1 text-text/90">{h(r.verdict)}</p>
                     {r.issues.length > 0 && (
                       <ul className="mt-2 flex flex-col gap-1">
                         {r.issues.slice(0, 6).map((i, k) => (
                           <li key={k} className="flex gap-2">
                             <AlertTriangle className={cn("mt-0.5 h-3.5 w-3.5 flex-none", i.severity === "alta" ? "text-danger" : i.severity === "media" ? "text-warning" : "text-muted")} aria-hidden />
                             <span>
-                              <span className="font-semibold text-white">{ISSUE_LABELS[i.kind]}</span> <span className="font-mono text-muted">{formatDuration(i.at)}</span> · {i.note}
+                              <span className="font-semibold text-white">{ISSUE_LABELS[i.kind]}</span> <span className="font-mono text-muted">{formatDuration(i.at)}</span> · {h(i.note)}
                             </span>
                           </li>
                         ))}
@@ -284,7 +286,7 @@ export function UnderstandingPanel({
             {state.degraded.length > 0 && (
               <ul className="mt-1 list-disc pl-4 text-muted">
                 {state.degraded.map((d, i) => (
-                  <li key={i}>{d}</li>
+                  <li key={i}>{h(d)}</li>
                 ))}
               </ul>
             )}

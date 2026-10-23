@@ -36,29 +36,7 @@ type Group = "ubicacion" | "encuadre" | "look" | "tiempo";
  * corre el encuadre). Los cambios se aplican al momento (y se guardan solos, como el resto de la revisión).
  * En un gráfico solo se edita el tiempo: su ubicación se elige en "Pide tu gráfico".
  */
-export function BrollEditPanel({
-  open,
-  onClose,
-  edit,
-  onChange,
-  onApplyLookToAll,
-  otherVideos,
-  format,
-  media,
-  poster,
-  accent,
-  ground,
-  focusY,
-  span,
-  clipDuration,
-  isGraphic,
-  graphic = null,
-  posterFit = "cover",
-  posterX = 0,
-  title,
-}: {
-  open: boolean;
-  onClose: () => void;
+type BrollEditProps = {
   edit: BrollEdit;
   onChange: (edit: BrollEdit) => void;
   /** Copia el look de esta toma a todos los b-roll de video. */
@@ -82,7 +60,58 @@ export function BrollEditPanel({
   posterFit?: "cover" | "contain";
   posterX?: number;
   title: string;
-}) {
+};
+
+export function BrollEditPanel(props: BrollEditProps & { open: boolean; onClose: () => void }) {
+  const { open, onClose, edit, onChange, isGraphic, title } = props;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => !o && onClose()}
+      title={isGraphic ? "Tiempo del gráfico" : "Editar b-roll"}
+      description={isGraphic ? `“${title}”. Cuándo entra, cuándo sale y cómo aparece.` : `“${title}”. Dónde va, qué parte del clip se ve y con qué color. Los cambios se guardan solos.`}
+      className="max-w-4xl"
+      footer={
+        <>
+          <Button variant="subtle" icon={<RotateCcw className="h-4 w-4" aria-hidden />} onClick={() => onChange(DEFAULT_EDIT)}>
+            Restablecer
+          </Button>
+          <Button icon={<Check className="h-4 w-4" aria-hidden />} onClick={onClose}>
+            Listo
+          </Button>
+        </>
+      }
+    >
+      {open && <BrollEditBody {...props} edit={edit} />}
+    </Dialog>
+  );
+}
+
+/**
+ * Los controles de "Editar b-roll" sin la ventana: en el diálogo (vista previa a la izquierda) o en el inspector del
+ * Estudio (`inline`: una columna, la vista previa chica arriba y "Restablecer" al pie).
+ */
+export function BrollEditBody({
+  edit,
+  onChange,
+  onApplyLookToAll,
+  otherVideos,
+  format,
+  media,
+  poster,
+  accent,
+  ground,
+  focusY,
+  span,
+  clipDuration,
+  isGraphic,
+  graphic = null,
+  posterFit = "cover",
+  posterX = 0,
+  inline = false,
+}: BrollEditProps & { inline?: boolean }) {
+  // El cuadro de la vista previa se mide al montarse (en el diálogo, al abrirse).
+  const open = true;
   const [group, setGroup] = useState<Group>(isGraphic ? "tiempo" : "ubicacion");
   const [replay, setReplay] = useState<number | null>(null);
   // "Ver la entrada": 1,2 s de un clip; un gráfico se ve entero (con su salida).
@@ -136,29 +165,12 @@ export function BrollEditPanel({
       ];
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => !o && onClose()}
-      title={isGraphic ? "Tiempo del gráfico" : "Editar b-roll"}
-      description={isGraphic ? `“${title}”. Cuándo entra, cuándo sale y cómo aparece.` : `“${title}”. Dónde va, qué parte del clip se ve y con qué color. Los cambios se guardan solos.`}
-      className="max-w-4xl"
-      footer={
-        <>
-          <Button variant="subtle" icon={<RotateCcw className="h-4 w-4" aria-hidden />} onClick={() => onChange(DEFAULT_EDIT)}>
-            Restablecer
-          </Button>
-          <Button icon={<Check className="h-4 w-4" aria-hidden />} onClick={onClose}>
-            Listo
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-5 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+      <div className={cn("grid gap-5", !inline && "md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]")}>
         {/* En el teléfono la vista previa queda fija arriba mientras se mueven los controles. */}
-        <div className="sticky -top-5 z-10 -mx-6 -mt-5 flex flex-col gap-2 border-b border-white/10 bg-[#06143a] px-6 pt-4 pb-3 md:top-0 md:m-0 md:self-start md:border-0 md:bg-transparent md:p-0">
+        <div className={cn(inline ? "flex flex-col gap-2" : "sticky -top-5 z-10 -mx-6 -mt-5 flex flex-col gap-2 border-b border-white/10 bg-[#06143a] px-6 pt-4 pb-3 md:top-0 md:m-0 md:self-start md:border-0 md:bg-transparent md:p-0")}>
           <div
             ref={frame}
-            className={cn("relative mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-black", format === "9:16" ? "aspect-[9/16] max-w-[130px] md:max-w-none" : "aspect-video max-w-[300px] md:max-w-none")}
+            className={cn("relative mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-black", format === "9:16" ? (inline ? "aspect-[9/16] max-w-[140px]" : "aspect-[9/16] max-w-[130px] md:max-w-none") : inline ? "aspect-video max-w-[260px]" : "aspect-video max-w-[300px] md:max-w-none")}
           >
             {person && <div aria-hidden className="absolute inset-0" style={{ background: ground }} />}
             {poster && (
@@ -403,9 +415,13 @@ export function BrollEditPanel({
               </Button>
             </div>
           )}
+          {inline && (
+            <Button size="sm" variant="subtle" className="self-start" icon={<RotateCcw className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(DEFAULT_EDIT)}>
+              Restablecer este b-roll
+            </Button>
+          )}
         </div>
       </div>
-    </Dialog>
   );
 }
 

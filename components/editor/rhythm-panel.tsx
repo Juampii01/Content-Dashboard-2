@@ -33,6 +33,7 @@ export function RhythmPanel({
   onDensity,
   onSeek,
   canEdit,
+  showBar = true,
 }: {
   score: RhythmScore;
   /** Instantes de corte del video final. */
@@ -46,6 +47,8 @@ export function RhythmPanel({
   onDensity: (d: Density) => void;
   onSeek: (t: number) => void;
   canEdit: boolean;
+  /** Sin la barra de ritmo (en el Estudio, la línea de tiempo editable ya muestra todo). */
+  showBar?: boolean;
 }) {
   const d = score.duration;
   const target = DENSITY_TARGETS[density];
@@ -87,6 +90,7 @@ export function RhythmPanel({
         <span className="font-semibold text-text">{DENSITY_LABELS[density].label}:</span> {DENSITY_LABELS[density].description}
       </p>
 
+      {showBar && (
       <div className="flex flex-col gap-1">
         {/* Barra: tocarla lleva la vista previa a ese segundo. */}
         <div
@@ -158,6 +162,7 @@ export function RhythmPanel({
           </li>
         </ul>
       </div>
+      )}
 
       <dl className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-xl bg-white/[0.04] px-2 py-2">

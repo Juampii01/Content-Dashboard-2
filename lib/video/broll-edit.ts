@@ -11,6 +11,7 @@
  * (pantalla completa, recorte al centro, sin filtro, fundido de 0,2 s).
  */
 import { z } from "zod";
+import { animFades, animSchema, rampAlpha, transformSchema } from "./canvas/transform";
 import type { VideoFormat } from "./types";
 
 export const BROLL_LAYOUTS = ["full", "split", "card", "side"] as const;
@@ -63,6 +64,12 @@ export const brollEditSchema = z.object({
   /** Segundo del clip desde el que se ve. */
   clip_start: z.number().min(0).max(600).default(0),
   transition: z.enum(TRANSITIONS).default("fade"),
+  /**
+   * Solo gráficos: dónde va (corrimiento, tamaño y rotación) y cómo entra y sale, desde el lienzo de la revisión
+   * (lib/video/canvas/transform.ts). Sin estos campos, como siempre (fundido de 0,2 s según `transition`).
+   */
+  transform: transformSchema.optional(),
+  anim: animSchema.optional(),
 });
 
 export type BrollFrame = z.output<typeof frameSchema>;
@@ -316,6 +323,18 @@ export function brollAlpha(edit: Pick<BrollEdit, "transition"> & { look?: Pick<B
   return opacity * clamp(Math.min(t / fade, (duration - t) / fade), 0, 1);
 }
 
+/**
+ * Opacidad de un gráfico en el instante t: con animación propia, sus rampas (las mismas que manda `brollRenderEdit` al
+ * worker); sin ella, el fundido de siempre (o corte).
+ */
+export function graphicAlpha(edit: Pick<BrollEdit, "transition" | "anim">, t: number, duration: number): number {
+  if (edit.anim) {
+    const f = animFades(edit.anim, duration);
+    return rampAlpha(f.fadeIn, f.fadeOut, t, duration);
+  }
+  return brollAlpha({ transition: edit.transition === "cut" ? "cut" : "fade" }, t, duration);
+}
+
 /** Escala del contenido del clip por el zoom de entrada (1 cuando ya entró). Curva de salida cúbica, igual que en ffmpeg. */
 export function entranceScale(transition: BrollTransition, t: number): number {
   if (transition !== "zoom") return 1;
@@ -373,6 +392,9 @@ export type BrollRenderEdit = {
   opacity: number;
   transition: BrollTransition;
   fade: number;
+  /** Rampas distintas de entrada y salida (gráficos con animación propia). Sin esto, `fade` en las dos. */
+  fadeIn?: number;
+  fadeOut?: number;
   clipStart: number;
   zoom: { from: number; seconds: number } | null;
 };
@@ -397,6 +419,7 @@ export function brollRenderEdit(input: {
   const { w: W, h: H } = OUTPUT_SIZE[format];
   if (input.graphic) {
     const transition: BrollTransition = edit.transition === "cut" ? "cut" : "fade";
+    const fades = edit.anim ? animFades(edit.anim, duration) : null;
     return {
       layout: "full",
       box: { x: 0, y: 0, w: W, h: H },
@@ -406,8 +429,9 @@ export function brollRenderEdit(input: {
       frame: DEFAULT_EDIT.frame,
       color: null,
       opacity: 1,
-      transition,
-      fade: fadeSeconds(transition, duration),
+      transition: fades ? (fades.fadeIn || fades.fadeOut ? "fade" : "cut") : transition,
+      fade: fades ? Math.max(fades.fadeIn, fades.fadeOut) : fadeSeconds(transition, duration),
+      ...(fades ? { fadeIn: fades.fadeIn, fadeOut: fades.fadeOut } : {}),
       clipStart: 0,
       zoom: null,
     };

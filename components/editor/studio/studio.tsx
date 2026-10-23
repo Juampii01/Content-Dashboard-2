@@ -72,7 +72,7 @@ export function Studio(props: StudioProps) {
   const stage = useRef<HTMLDivElement>(null);
   const { state: s, removedSet, update, undo, redo, canUndo, canRedo } = useStudioState(plan);
   const [signed, setSigned] = useState<Record<string, SignedOption>>(signedBroll);
-  const [selection, setSelection] = useState<StudioSelection | null>(null);
+  const [rawSelection, setSelection] = useState<StudioSelection | null>(null);
   const [outTime, setOutTime] = useState(0);
   const outRef = useRef(0);
   const [activeTime, setActiveTime] = useState<number | null>(null);
@@ -90,6 +90,12 @@ export function Studio(props: StudioProps) {
   const phrase = usePhraseFixes(projectId);
   const captionStyle = style?.captions ?? null;
   const trackIds = useMemo(() => tracks.map((t) => t.id), [tracks]);
+  // Al aceptar un b-roll de la IA su id cambia (queda como tuyo); deshacer lo vuelve atrás: la selección lo sigue.
+  const selection = useMemo<StudioSelection | null>(() => {
+    if (rawSelection?.kind !== "broll" || s.broll.some((b) => b.id === rawSelection.id)) return rawSelection;
+    const alt = s.broll.find((b) => b.id === `u${rawSelection.id}`.slice(0, 40) || `u${b.id}`.slice(0, 40) === rawSelection.id);
+    return alt ? { kind: "broll", id: alt.id } : rawSelection;
+  }, [rawSelection, s.broll]);
 
   useEffect(() => {
     outRef.current = outTime;
@@ -319,6 +325,8 @@ export function Studio(props: StudioProps) {
     setSelection({ kind: "broll", id: item.id });
     const r = outputRange(timeline, range.from, range.to);
     if (r) seek(r.start);
+    // Se abre el estudio de gráficos con la plantilla para poner los textos (las cifras salen de lo que dices).
+    setPicking({ id: item.id, tab: "grafico" });
   }
 
   function addFx(kind: FxKind, range: WordSpan, replace: string | null) {
@@ -459,8 +467,6 @@ export function Studio(props: StudioProps) {
     const items = aiItems(api);
     if (!items.length) return;
     update((st) => items.reduce((acc, it) => acceptIn(acc, it.sel), st));
-    // El id de un b-roll aceptado cambia: la selección se actualiza.
-    if (selection?.kind === "broll" && !selection.id.startsWith("u")) setSelection({ kind: "broll", id: `u${selection.id}`.slice(0, 40) });
     toast.success(items.length === 1 ? "Aceptaste 1 cosa de la IA." : `Aceptaste ${formatNumber(items.length)} cosas de la IA.`);
   }
 

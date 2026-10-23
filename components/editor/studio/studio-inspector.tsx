@@ -11,7 +11,7 @@ import { isCaptionStyle } from "@/lib/video/caption-styles";
 import { CAPTION_PICKER_ORDER, CAPTION_PRESETS } from "@/lib/video/captions";
 import { resolveEdit } from "@/lib/video/broll-edit";
 import { FX_INFO } from "@/lib/video/fx/catalog";
-import { graphicKindLabel, isMotionScene, sceneFields, setSceneField, unsupportedSceneNumbers } from "@/lib/video/motion-graphics";
+import { graphicKindLabel, isMotionScene, sceneFields, setSceneField, unsupportedGraphicNumbers, unsupportedSceneNumbers } from "@/lib/video/motion-graphics";
 import { outputRange } from "@/lib/video/timeline";
 import { secondsLabel, timeLabel } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
@@ -167,7 +167,7 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
   const others = state.broll.filter((b) => b.id !== id && b.choice && b.choice.source !== "graphic").length;
   const sel: StudioSelection = { kind: "broll", id };
   const fields = graphic && isMotionScene(graphic) ? sceneFields(graphic) : [];
-  const missing = graphic && isMotionScene(graphic) ? unsupportedSceneNumbers(graphic, spoken) : [];
+  const missing = graphic ? (isMotionScene(graphic) ? unsupportedSceneNumbers(graphic, spoken) : unsupportedGraphicNumbers(graphic, spoken)) : [];
   return (
     <>
       <Header eyebrow={graphic ? "Gráfico" : "B-roll"} title={graphic ? graphicKindLabel(graphic) : choice ? (choice.title ?? "Toma de apoyo") : "B-roll sin clip"} onClose={onClose} />
@@ -175,6 +175,11 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
         <Spoken text={spoken} start={seg?.start} end={seg?.end} />
         {!seg && choice && <p className="text-xs text-warning">Cae sobre palabras cortadas: no se ve en el video.</p>}
         {choice ? <SourceLine option={choice} /> : <p className="text-sm text-warning">Todavía no tiene clip: elige uno o quítalo.</p>}
+        {missing.length > 0 && fields.length === 0 && (
+          <Notice tone="warning">
+            {missing.length === 1 ? "Esta cifra no aparece" : "Estas cifras no aparecen"} en lo que dices en este tramo ({missing.map((n) => formatNumber(n)).join(", ")}). Cámbiala en «Editar gráfico» para no mostrar un dato que no dijiste.
+          </Notice>
+        )}
         {ai && <AiNote api={api} why={item.why} sel={sel} />}
         {!ai && item.why && <p className="text-xs text-muted">{api.humanize(item.why)}</p>}
         {props.canEdit && (

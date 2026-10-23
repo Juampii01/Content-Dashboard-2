@@ -58,14 +58,14 @@ export function BriefFields({
           })}
         </div>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="@container"><div className="grid gap-4 @lg:grid-cols-2">
         <Field label="¿Para quién es?" htmlFor={`${idPrefix}-audience`} hint={hint("audience")}>
           <Input id={`${idPrefix}-audience`} value={value.audience} maxLength={300} disabled={disabled} placeholder={inferred?.audience || "Dueños de clínicas que pautan en redes"} onChange={(e) => set("audience", e.target.value)} />
         </Field>
         <Field label="Llamada a la acción" htmlFor={`${idPrefix}-cta`} hint={hint("cta")}>
           <Input id={`${idPrefix}-cta`} value={value.cta} maxLength={300} disabled={disabled} placeholder={inferred?.cta || "Comenta PANEL y te mando el acceso"} onChange={(e) => set("cta", e.target.value)} />
         </Field>
-      </div>
+      </div></div>
       <Field label="Algo que no se puede cortar" htmlFor={`${idPrefix}-keep`} hint={hint("mustKeep") ?? "Por ejemplo: la parte del precio, la demo del producto."}>
         <Input id={`${idPrefix}-keep`} value={value.mustKeep} maxLength={400} disabled={disabled} placeholder={inferred?.mustKeep || "La parte del precio"} onChange={(e) => set("mustKeep", e.target.value)} />
       </Field>

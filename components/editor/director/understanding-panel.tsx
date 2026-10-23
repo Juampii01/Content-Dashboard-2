@@ -73,7 +73,7 @@ export function UnderstandingPanel({
   };
 
   return (
-    <section aria-labelledby="director-title" className="section-shell !p-0">
+    <section aria-labelledby="director-title" className="section-shell @container !p-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -123,7 +123,7 @@ export function UnderstandingPanel({
                       type="button"
                       onClick={() => onListen?.(b.from)}
                       disabled={!onListen}
-                      className={cn("flex w-44 flex-col gap-1 rounded-xl border p-2.5 text-left text-xs transition hover:border-white/30 disabled:cursor-default sm:w-52", BEAT_TONE[b.role] ?? "border-white/10 bg-white/[0.03] text-text")}
+                      className={cn("flex w-44 flex-col gap-1 rounded-xl border p-2.5 text-left text-xs transition hover:border-white/30 disabled:cursor-default @lg:w-52", BEAT_TONE[b.role] ?? "border-white/10 bg-white/[0.03] text-text")}
                     >
                       <span className="font-mono text-[10px] tracking-wide text-accent-glow uppercase">
                         {i + 1}. {BEAT_LABELS[b.role]}
@@ -134,7 +134,7 @@ export function UnderstandingPanel({
                 ))}
               </ol>
               {(map.promise || map.cta || map.figures.length > 0) && (
-                <dl className="grid gap-2 text-xs sm:grid-cols-3">
+                <dl className="grid gap-2 text-xs @lg:grid-cols-3">
                   {map.promise && (
                     <div className="rounded-xl bg-white/[0.03] p-2.5">
                       <dt className="text-muted">Promesa</dt>
@@ -159,7 +159,7 @@ export function UnderstandingPanel({
           )}
 
           {map && (important.length > 0 || map.badTakes.length > 0) && (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 @2xl:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
                   <ShieldCheck className="h-4 w-4 text-success" aria-hidden /> Lo importante que se ve

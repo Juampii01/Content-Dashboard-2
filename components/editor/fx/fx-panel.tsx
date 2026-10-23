@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { FxDemoCanvas, useImages } from "./fx-canvas";
 
 /** Reloj compartido de las muestras: corre solo si se ven y si no se pidió reducir movimiento. */
-function useLoop(active: boolean, reduced: boolean): number {
+export function useLoop(active: boolean, reduced: boolean): number {
   const [t, setT] = useState(1.6);
   useEffect(() => {
     if (!active || reduced) return;
@@ -36,7 +36,7 @@ function useLoop(active: boolean, reduced: boolean): number {
   return t;
 }
 
-function useInView<T extends Element>(): [React.RefObject<T | null>, boolean] {
+export function useInView<T extends Element>(): [React.RefObject<T | null>, boolean] {
   const ref = useRef<T>(null);
   const [inView, setInView] = useState(false);
   useEffect(() => {
@@ -67,7 +67,7 @@ export function FxSample({ kind, brand, clock, reduced, label }: { kind: FxKind;
   );
 }
 
-function Badges({ kind }: { kind: FxKind }) {
+export function Badges({ kind }: { kind: FxKind }) {
   const info = FX_INFO[kind];
   return (
     <span className="flex flex-wrap gap-1">
@@ -282,10 +282,6 @@ export function FxEditor({
 }) {
   if (!item) return null;
   const info = FX_INFO[item.kind];
-  const range = words.slice(item.from_word, item.to_word + 1);
-  const strong = new Set(item.words ?? []);
-  const items = [...(item.items ?? [])];
-  while (info.items && items.length < info.items.count) items.push("");
   return (
     <Sheet
       open
@@ -306,18 +302,45 @@ export function FxEditor({
         </div>
       }
     >
+      <FxEditorBody item={item} words={words} corrections={corrections} onChange={onChange} maskNote={maskNote} />
+    </Sheet>
+  );
+}
+
+/** Los campos de un efecto (sin la hoja): textos, ítems, palabras fuertes y notas. Lo usa también el inspector del Estudio. */
+export function FxEditorBody({
+  item,
+  words,
+  corrections,
+  onChange,
+  maskNote,
+  idPrefix = "fx",
+}: {
+  item: FxItem;
+  words: Word[];
+  corrections: Record<string, string>;
+  onChange: (next: FxItem) => void;
+  maskNote: string | null;
+  idPrefix?: string;
+}) {
+  const info = FX_INFO[item.kind];
+  const range = words.slice(item.from_word, item.to_word + 1);
+  const strong = new Set(item.words ?? []);
+  const items = [...(item.items ?? [])];
+  while (info.items && items.length < info.items.count) items.push("");
+  return (
       <div className="flex flex-col gap-4">
         <p className="rounded-xl bg-white/[0.04] px-3 py-2 text-sm text-text/90">
           Sobre: “{range.map((w) => corrections[String(w.id)] ?? w.text).join(" ")}”
         </p>
         {info.text && (
-          <Field label={info.text.label} htmlFor="fx-text" hint={`Hasta ${info.text.max} caracteres.`}>
-            <Input id="fx-text" value={item.text ?? ""} maxLength={info.text.max} placeholder={info.text.placeholder} onChange={(e) => onChange({ ...item, text: e.target.value })} />
+          <Field label={info.text.label} htmlFor={`${idPrefix}-text`} hint={`Hasta ${info.text.max} caracteres.`}>
+            <Input id={`${idPrefix}-text`} value={item.text ?? ""} maxLength={info.text.max} placeholder={info.text.placeholder} onChange={(e) => onChange({ ...item, text: e.target.value })} />
           </Field>
         )}
         {info.kicker && (
-          <Field label={info.kicker.label} htmlFor="fx-kicker" hint={`Hasta ${info.kicker.max} caracteres.`}>
-            <Input id="fx-kicker" value={item.kicker ?? ""} maxLength={info.kicker.max} placeholder={info.kicker.placeholder} onChange={(e) => onChange({ ...item, kicker: e.target.value })} />
+          <Field label={info.kicker.label} htmlFor={`${idPrefix}-kicker`} hint={`Hasta ${info.kicker.max} caracteres.`}>
+            <Input id={`${idPrefix}-kicker`} value={item.kicker ?? ""} maxLength={info.kicker.max} placeholder={info.kicker.placeholder} onChange={(e) => onChange({ ...item, kicker: e.target.value })} />
           </Field>
         )}
         {info.items && (
@@ -374,7 +397,6 @@ export function FxEditor({
           </p>
         )}
       </div>
-    </Sheet>
   );
 }
 

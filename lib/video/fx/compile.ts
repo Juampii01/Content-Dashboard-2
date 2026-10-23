@@ -62,9 +62,13 @@ const snap = (t: number) => Math.round(t * FPS) / FPS;
 /** Tramos de los efectos en el video final (como el b-roll): sin pisarse, dentro del video, con su duración mínima. */
 export function fxSegments(timeline: Pick<Timeline, "words" | "duration">, items: FxItem[]): FxSegment[] {
   const out: FxSegment[] = [];
-  for (const item of [...items].sort((a, b) => a.from_word - b.from_word)) {
-    const range = outputRange(timeline, item.from_word, item.to_word);
-    if (!range) continue;
+  // En el orden en que se ven: un efecto sobre el gancho (que pasa al principio) va primero aunque sus palabras sean de
+  // más adelante.
+  const placed = items
+    .map((item) => ({ item, range: outputRange(timeline, item.from_word, item.to_word) }))
+    .filter((x): x is { item: FxItem; range: { start: number; end: number } } => Boolean(x.range))
+    .sort((a, b) => a.range.start - b.range.start || a.item.from_word - b.item.from_word);
+  for (const { item, range } of placed) {
     const info = FX_INFO[item.kind];
     let start = Math.max(0, range.start - 0.05);
     let end = Math.min(timeline.duration, range.end + 0.15);

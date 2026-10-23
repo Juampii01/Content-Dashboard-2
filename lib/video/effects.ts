@@ -115,8 +115,13 @@ export function directorZooms(timeline: Timeline, moments: ZoomMoment[] | undefi
  */
 export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBroll[] {
   const out: OutputBroll[] = [];
-  const sorted = [...items].filter((b) => b.choice).sort((a, b) => a.from_word - b.from_word);
-  const ranges = sorted.map((item) => outputRange(timeline, item.from_word, item.to_word));
+  // En el orden en que se ven (un b-roll sobre el gancho, que pasa al principio, va primero).
+  const placed = [...items]
+    .filter((b) => b.choice)
+    .map((item) => ({ item, range: outputRange(timeline, item.from_word, item.to_word) }))
+    .sort((a, b) => (a.range?.start ?? Infinity) - (b.range?.start ?? Infinity) || a.item.from_word - b.item.from_word);
+  const sorted = placed.map((p) => p.item);
+  const ranges = placed.map((p) => p.range);
   for (const [i, item] of sorted.entries()) {
     const range = ranges[i];
     if (!range) continue;

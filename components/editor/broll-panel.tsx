@@ -28,7 +28,7 @@ export const graphicPreviewSeconds = graphicSeconds;
 const FAKE_VIDEO = "bg-[radial-gradient(ellipse_at_50%_42%,#b9a48f_0%,#6d655c_38%,#2f2b27_100%)]";
 
 /** Cuadro quieto de un gráfico (miniatura), ya con todo a la vista. */
-function GraphicThumb({ spec, format }: { spec: BrollGraphic; format: VideoFormat }) {
+export function GraphicThumb({ spec, format }: { spec: BrollGraphic; format: VideoFormat }) {
   return (
     <span className={cn("absolute inset-0", spec.mode === "overlay" && FAKE_VIDEO)}>
       <GraphicCanvas spec={spec} format={format} duration={3} time={2.2} scale={0.15} />
@@ -163,7 +163,7 @@ export function BrollPanel({
 }
 
 /** Origen del clip; los de Pexels llevan la atribución que pide su guía. */
-function SourceLine({ option }: { option: BrollOption }) {
+export function SourceLine({ option }: { option: BrollOption }) {
   if (option.source === "graphic" && option.graphic) {
     return (
       <p className="flex items-center gap-1 truncate text-xs text-muted">

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
-import { ButtonLink } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/feedback";
 import { ProjectScreen } from "@/components/editor/project-screen";
 import { getBrand } from "@/lib/ai/brand-context";
@@ -64,13 +62,9 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
 
 export default function VideoProjectPage({ params }: PageProps<"/editor/[id]">) {
   return (
-    <>
-      <ButtonLink href="/editor" variant="subtle" size="sm" icon={<ArrowLeft className="h-4 w-4" aria-hidden />} className="mb-4">
-        Volver al Editor
-      </ButtonLink>
-      <Suspense fallback={<Skeleton className="h-[600px]" />}>
-        <Project params={params} />
-      </Suspense>
-    </>
+    // El enlace para volver va en la pantalla del proyecto (en la revisión, en la barra del Estudio).
+    <Suspense fallback={<Skeleton className="h-[600px]" />}>
+      <Project params={params} />
+    </Suspense>
   );
 }

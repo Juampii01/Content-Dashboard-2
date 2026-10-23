@@ -156,6 +156,28 @@ def fade_of(edit: dict[str, Any] | None, duration: float, default: float = 0.2) 
     return max(0.0, min(float(edit.get("fade", default)), duration / 4))
 
 
+def fades_of(edit: dict[str, Any] | None, duration: float, default: float = 0.2) -> tuple[float, float]:
+    """Fundido de entrada y de salida (s). Un gráfico con animación propia trae los dos (`fadeIn`/`fadeOut`, calculados
+    en la app con `animFades` de lib/video/canvas/transform.ts); si no, el mismo `fade` en los dos, como siempre."""
+    if edit and ("fadeIn" in edit or "fadeOut" in edit):
+        cap = max(0.0, duration) * 0.45
+        fi = max(0.0, min(float(edit.get("fadeIn") or 0), cap))
+        fo = max(0.0, min(float(edit.get("fadeOut") or 0), cap))
+        return fi, fo
+    fade = fade_of(edit, duration, default)
+    return fade, fade
+
+
+def ramp_alpha(fade_in: float, fade_out: float, t: float, duration: float) -> float:
+    """Opacidad con rampas lineales en el instante t (lo que hace `fade=...:alpha=1`); espejo de `rampAlpha`."""
+    a = 1.0
+    if fade_in > 0:
+        a = min(a, t / fade_in)
+    if fade_out > 0:
+        a = min(a, (duration - t) / fade_out)
+    return clamp(a, 0.0, 1.0)
+
+
 def opacity_of(edit: dict[str, Any] | None) -> float:
     return clamp(float((edit or {}).get("opacity", 1)), 0.0, 1.0)
 

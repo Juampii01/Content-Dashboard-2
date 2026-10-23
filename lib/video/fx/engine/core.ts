@@ -7,6 +7,7 @@
  * mismo cuadro.
  */
 import type { FxSpec } from "../compile";
+import { animState, applyAnimGeometry, applyTransform, type Box as PlaceBox } from "../../canvas/place-math";
 
 export type ImageLike = { width: number; height: number };
 
@@ -17,6 +18,8 @@ export interface FxCtx {
   scale(x: number, y: number): void;
   rotate(a: number): void;
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  /** Matriz actual (navegador y skia-canvas la tienen). */
+  getTransform?(): { a: number; b: number; c: number; d: number; e: number; f: number };
   globalAlpha: number;
   globalCompositeOperation: string;
   filter: string;
@@ -195,6 +198,10 @@ export class FxFrame {
   readonly u: number;
   readonly vertical: boolean;
   private personCache = new Map<string, Layer>();
+  /** Caja de diseño del elemento movible de este cuadro (la que muestra el lienzo de la revisión). */
+  movableBox: PlaceBox | null = null;
+  /** Matriz de afuera del elemento movible: el video de fondo (vidrio de la tarjeta) se dibuja sin moverse. */
+  private baseMatrix: { a: number; b: number; c: number; d: number; e: number; f: number } | null = null;
 
   constructor(
     readonly ctx: FxCtx,
@@ -251,9 +258,40 @@ export class FxFrame {
     ctx.save();
     ctx.globalAlpha *= alpha;
     if (filter !== "none") ctx.filter = this.scaleFilter(filter, layerScale);
+    // Dentro del elemento movido, el video sigue en su lugar (el recorte sí se mueve con el elemento).
+    const m = ctx === this.ctx ? this.baseMatrix : null;
+    if (m) ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
     this.applyXf(ctx, xf);
     ctx.drawImage(this.src.frame, 0, 0, this.W, this.H);
     ctx.restore();
+  }
+
+  /**
+   * Dibuja el elemento superpuesto que la persona puede mover (tarjeta, teléfono, gráfico, titular): con el lugar y la
+   * animación de la revisión (`spec.place`) alrededor del centro de su caja de diseño. Sin `place`, igual que siempre.
+   */
+  movable(box: PlaceBox, draw: () => void): void {
+    this.movableBox = box;
+    const place = this.spec.place;
+    if (!place) {
+      draw();
+      return;
+    }
+    const ctx = this.ctx;
+    ctx.save();
+    this.baseMatrix = ctx.getTransform ? ctx.getTransform() : null;
+    applyTransform(ctx, place.transform, box, this.W, this.H);
+    if (place.anim) {
+      const st = animState(place.anim, this.t, this.spec.duration);
+      ctx.globalAlpha *= st.alpha;
+      applyAnimGeometry(ctx, st, box, this.W, this.H, 80 * this.u);
+    }
+    try {
+      draw();
+    } finally {
+      this.baseMatrix = null;
+      ctx.restore();
+    }
   }
 
   /** Los filtros de blur van en píxeles del lienzo real (en la vista previa, más chicos). */

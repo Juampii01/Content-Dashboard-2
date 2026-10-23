@@ -13,6 +13,7 @@ import { colorTokenSchema, themeSchema } from "./theme";
 import { COMPONENTS, type ComponentName } from "./components";
 import { PROPS } from "./nodes";
 import { easeSchema } from "./easing";
+import { placeSchema } from "../canvas/transform";
 
 export const MOTION_VERSION = 2 as const;
 
@@ -227,6 +228,11 @@ export const sceneSchema = z.object({
   /** Salida automática al final (fundido y subida). "none": cada capa decide. */
   exit: z.enum(["auto", "none"]).default("auto"),
   layers: z.array(layerSchema).min(1).max(40),
+  /**
+   * Dónde va y cómo entra y sale (lo cambia la persona en la revisión, lib/video/canvas/transform.ts). Sin el campo,
+   * como siempre. La opacidad de la animación la aplica quien compone (ffmpeg o la vista previa).
+   */
+  place: placeSchema.optional(),
 });
 export type MotionSceneInput = z.input<typeof sceneSchema>;
 export type MotionScene = z.output<typeof sceneSchema>;

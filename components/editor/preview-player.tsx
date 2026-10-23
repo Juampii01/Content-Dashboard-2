@@ -3,7 +3,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
-import { brollAlpha, brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicSideGeometry, type BrollEdit } from "@/lib/video/broll-edit";
+import { brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicAlpha, graphicSideGeometry, type BrollEdit } from "@/lib/video/broll-edit";
 import type { OutputZoom } from "@/lib/video/effects";
 import type { CaptionLook } from "@/lib/video/caption-styles";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
@@ -14,13 +14,23 @@ import { BrollLayer, personStyle } from "./broll-layer";
 import { FxVideoLayer } from "./fx/fx-canvas";
 import { usePrefersReducedMotion } from "@/components/ui/hooks";
 import { FX_INFO, type FxSpec } from "@/lib/video/fx";
-import { CaptionOverlay } from "./caption-overlay";
-import { GraphicCanvas } from "./graphic-canvas";
+import { CaptionOverlay, type CaptionBoxReport } from "./caption-overlay";
+import { GraphicCanvas, useMotionScene } from "./graphic-canvas";
 import { graphicHidesCaptions } from "@/lib/video/effects";
+import { FX_MOVABLE } from "@/lib/video/fx/catalog";
+import { graphicKindLabel } from "@/lib/video/motion-graphics";
+import { placedContentBox } from "@/lib/video/motion";
+import { IDENTITY_TRANSFORM, transformedBox, type Box, type Transform } from "@/lib/video/canvas/transform";
+import { TransformOverlay, type CanvasElement } from "./canvas/transform-overlay";
+import { canvasId, captionCanvasTexts, effectCanvasTexts, graphicCanvasTexts, movableEffectLabel } from "./canvas/elements";
 
 export type PreviewHandle = {
   /** Salta a un instante del video final y, si se pide, reproduce. */
   seekOutput: (out: number, play?: boolean) => void;
+  /** Pausa la vista previa. */
+  pause: () => void;
+  /** El video de la vista previa (para saber si está reproduciendo o cambiar la velocidad). */
+  video: () => HTMLVideoElement | null;
 };
 
 /** Un b-roll en la vista previa: tramo del video final y el clip (video liviano o, si no hay, su miniatura) o el gráfico. */
@@ -36,6 +46,19 @@ export type PreviewBroll = {
   /** Tamaño del clip (para el recorte y la forma de la tarjeta). */
   width?: number;
   height?: number;
+};
+
+/**
+ * Lienzo de la revisión (components/editor/canvas): con esto, lo que se ve se puede tocar, mover, agrandar y editar.
+ * Ids de los elementos: ver `canvasId` ("graphic:<b-roll>", "effect:<efecto>", "caption:<primera palabra del bloque>").
+ */
+export type PreviewCanvas = {
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onTransform: (id: string, next: Transform) => void;
+  onText: (id: string, textId: string, value: string) => void;
+  /** Solo mirar (sin permiso para editar). */
+  disabled?: boolean;
 };
 
 /** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
@@ -81,6 +104,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   fxStrips?: Record<number, HTMLImageElement | undefined>;
   fxMaskFps?: number;
   fxImages?: Record<string, HTMLImageElement | undefined>;
+  /** Lienzo para tocar lo que se ve (opcional: sin esto, la vista previa es solo para mirar). */
+  canvas?: PreviewCanvas;
 }>(function PreviewPlayer(
   {
     src,
@@ -107,6 +132,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     fxStrips = {},
     fxMaskFps = 10,
     fxImages = {},
+    canvas,
   },
   ref,
 ) {
@@ -162,7 +188,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     if (play) void v.play().catch(() => undefined);
   }, []);
 
-  useImperativeHandle(ref, () => ({ seekOutput }), [seekOutput]);
+  useImperativeHandle(ref, () => ({ seekOutput, pause: () => video.current?.pause(), video: () => video.current }), [seekOutput]);
 
   // Si cambian los cortes con el video en pausa, se mantiene el mismo instante del video final.
   useEffect(() => {
@@ -228,6 +254,11 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   }, [tick]);
 
   function toggle() {
+    // Con el lienzo, tocar el video suelta lo elegido (sin reproducir).
+    if (canvas?.selectedId) {
+      canvas.onSelect(null);
+      return;
+    }
     const v = video.current;
     if (!v || !clips.length) return;
     if (v.paused) {
@@ -274,6 +305,72 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
       ? graphicSideGeometry(format, activeBroll.graphic.mode, (activeBroll.graphic as { position?: string }).position)
       : brollGeometry(activeEdit, format, clipAspectOf(activeBroll.width, activeBroll.height), focusY).person;
   const pxScale = height / (format === "9:16" ? 1920 : 1080);
+
+  // ─── Lienzo: los elementos que se ven ahora, con su caja (las mismas cuentas que dibujan los motores) ───
+  const outW = format === "9:16" ? 1080 : 1920;
+  const outH = format === "9:16" ? 1920 : 1080;
+  const activeGraphic = activeBroll?.graphic ?? null;
+  const compiledGraphic = useMotionScene(activeGraphic, format, activeBroll ? activeBroll.end - activeBroll.start : 1);
+  const [fxBox, setFxBox] = useState<{ id: string; box: Box } | null>(null);
+  const [capBox, setCapBox] = useState<CaptionBoxReport>(null);
+  const onFxMovable = useCallback((id: string, box: Box | null) => {
+    setFxBox((prev) => {
+      if (!box) return prev?.id === id ? null : prev;
+      if (prev && prev.id === id && Math.abs(prev.box.x - box.x) < 0.5 && Math.abs(prev.box.y - box.y) < 0.5 && Math.abs(prev.box.w - box.w) < 0.5 && Math.abs(prev.box.h - box.h) < 0.5) return prev;
+      return { id, box };
+    });
+  }, []);
+  const onCaptionBox = useCallback((box: CaptionBoxReport) => {
+    setCapBox((prev) => {
+      if (!box) return prev ? null : prev;
+      if (prev && Math.abs(prev.x - box.x) < 0.5 && Math.abs(prev.y - box.y) < 0.5 && Math.abs(prev.w - box.w) < 0.5 && Math.abs(prev.h - box.h) < 0.5) return prev;
+      return box;
+    });
+  }, []);
+  const elements = useMemo<CanvasElement[]>(() => {
+    if (!canvas) return [];
+    const out: CanvasElement[] = [];
+    if (activeBroll && activeGraphic && compiledGraphic) {
+      out.push({
+        id: canvasId({ kind: "graphic", key: activeBroll.id }),
+        kind: "graphic",
+        label: `Gráfico · ${graphicKindLabel(activeGraphic)}`,
+        box: placedContentBox(compiledGraphic),
+        transform: activeBroll.edit?.transform ?? IDENTITY_TRANSFORM,
+        rotatable: true,
+        texts: graphicCanvasTexts(activeGraphic),
+        textsTitle: "Edita los textos del gráfico",
+      });
+    }
+    const movable = activeFx ? FX_MOVABLE[activeFx.kind] : null;
+    if (activeFx && movable && fxBox?.id === activeFx.id) {
+      out.push({
+        id: canvasId({ kind: "effect", key: activeFx.id }),
+        kind: "effect",
+        label: movableEffectLabel(activeFx.kind),
+        box: transformedBox(fxBox.box, activeFx.place?.transform, outW, outH),
+        transform: activeFx.place?.transform ?? IDENTITY_TRANSFORM,
+        rotatable: movable.rotation,
+        texts: effectCanvasTexts(activeFx.kind, { text: activeFx.text, kicker: activeFx.kicker, items: activeFx.items }),
+        textsTitle: "Edita los textos del efecto",
+      });
+    }
+    const key = block?.words[0] ? String(block.words[0].id) : null;
+    if (block && key && captionLook && captionLook.style === preset && capBox && pxScale > 0) {
+      const p = block.place;
+      out.push({
+        id: canvasId({ kind: "caption", key }),
+        kind: "caption",
+        label: "Subtítulos",
+        box: { cx: (capBox.x + capBox.w / 2) / pxScale, cy: (capBox.y + capBox.h / 2) / pxScale, w: capBox.w / pxScale, h: capBox.h / pxScale, rotation: 0 },
+        transform: p ? { x: p.x, y: p.y, scale: p.scale } : IDENTITY_TRANSFORM,
+        rotatable: false,
+        texts: captionCanvasTexts(block),
+        textsTitle: "Corrige una palabra del subtítulo",
+      });
+    }
+    return out;
+  }, [canvas, activeBroll, activeGraphic, compiledGraphic, activeFx, fxBox, block, captionLook, preset, capBox, pxScale, outW, outH]);
 
   // El b-roll de la vista previa sigue al video principal: arranca en su punto (más el segundo del clip elegido) y se
   // pausa con él. Si el clip es más corto que el tramo, vuelve a empezar (como el render).
@@ -331,9 +428,9 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
             <div
               key={activeBroll.id}
               className="pointer-events-none absolute inset-0"
-              style={{ opacity: brollAlpha({ transition: activeEdit.transition === "cut" ? "cut" : "fade" }, Math.max(0, out - activeBroll.start), activeBroll.end - activeBroll.start) }}
+              style={{ opacity: graphicAlpha(activeEdit, Math.max(0, out - activeBroll.start), activeBroll.end - activeBroll.start) }}
             >
-              <GraphicCanvas spec={activeBroll.graphic} format={format} duration={activeBroll.end - activeBroll.start} time={Math.max(0, out - activeBroll.start)} scale={0.5} />
+              <GraphicCanvas spec={activeBroll.graphic} compiled={compiledGraphic} format={format} duration={activeBroll.end - activeBroll.start} time={Math.max(0, out - activeBroll.start)} scale={0.5} />
             </div>
           ) : activeBroll.previewUrl || activeBroll.thumbUrl ? (
             <BrollLayer
@@ -363,23 +460,42 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
               maskFps={fxMaskFps}
               images={fxImages}
               reducedMotion={reducedMotion}
+              onMovable={canvas ? onFxMovable : undefined}
             />
           </div>
         )}
         {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeBroll.graphic ? "Gráfico" : "B-roll"}</span>}
         {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{FX_INFO[activeFx.kind].label}</span>}
-        <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} />
+        <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} onBox={canvas ? onCaptionBox : undefined} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">
             {error ? "Este navegador no pudo reproducir la vista previa. Recarga la página o prueba con Chrome o Safari; el render final no se ve afectado." : "La vista previa todavía no está lista."}
           </div>
         )}
-        {src && !playing && ready && (
+        {src && !playing && ready && !canvas && (
           <button type="button" onClick={toggle} className="absolute inset-0 grid place-items-center bg-black/10 transition hover:bg-black/20" aria-label="Reproducir la vista previa">
             <span className="grid h-14 w-14 place-items-center rounded-full bg-white/90 text-bg shadow-lg">
               <Play className="ml-0.5 h-6 w-6" aria-hidden />
             </span>
           </button>
+        )}
+        {src && !playing && ready && canvas && !canvas.selectedId && !elements.length && (
+          // Con el lienzo, el botón de reproducir no tapa el cuadro: así se puede tocar lo que se ve.
+          <button type="button" onClick={toggle} className="absolute top-1/2 left-1/2 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-bg shadow-lg transition hover:scale-105" aria-label="Reproducir la vista previa">
+            <Play className="ml-0.5 h-6 w-6" aria-hidden />
+          </button>
+        )}
+        {canvas && (
+          <TransformOverlay
+            format={format}
+            elements={elements}
+            selectedId={canvas.selectedId}
+            onSelect={canvas.onSelect}
+            onChange={canvas.onTransform}
+            onTextChange={canvas.onText}
+            onInteract={() => video.current?.pause()}
+            disabled={canvas.disabled}
+          />
         )}
       </div>
 

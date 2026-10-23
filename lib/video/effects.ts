@@ -7,6 +7,7 @@
 import { resolveEdit, type BrollEdit } from "./broll-edit";
 import type { StylePreset } from "./style";
 import { isV2Scene, lastCueWord, resolveSceneCues, sceneCueTimes } from "./motion-cues";
+import { graphicWithPlace } from "./motion-graphics";
 import { outputRange, type Timeline } from "./timeline";
 import { FPS, type BrollItem, type BrollOption, type ZoomMoment } from "./types";
 
@@ -141,6 +142,8 @@ export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBro
       if (lastAt && hold > end) end = Math.min(timeline.duration, hold, next ? next.start - 0.05 : Infinity);
       option = { ...option, graphic: resolveSceneCues(option.graphic, timeline.words, start, end) };
     }
+    // Lugar y animación del lienzo de la revisión: van con el gráfico (los dibuja el motor, igual en la vista previa y el render).
+    if (option.source === "graphic" && option.graphic) option = { ...option, graphic: graphicWithPlace(option.graphic, edit) };
     // Un b-roll de menos de 0,8 s parpadea: se estira un poco (sin pasarse del final).
     if (end - start < 0.8) end = Math.min(start + 1.2, timeline.duration);
     if (end - start < 0.5) continue;

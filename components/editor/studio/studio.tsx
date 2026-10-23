@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Bot, Clapperboard, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -37,6 +37,8 @@ import { captionCorrections } from "@/lib/video/phrase-fix";
 import { PreviewPlayer, type PreviewHandle } from "../preview-player";
 import { proofreadAction } from "../subtitle-actions";
 import { TranscriptEditor, type BrollMark } from "../transcript-editor";
+import { useCanvasEdits } from "../canvas/use-canvas-edits";
+import type { CaptionPlacement } from "@/lib/video/canvas/captions";
 import { HumanizeProvider } from "./humanize";
 import { StudioInspector } from "./studio-inspector";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
@@ -70,7 +72,7 @@ export function Studio(props: StudioProps) {
   const router = useRouter();
   const preview = useRef<PreviewHandle>(null);
   const stage = useRef<HTMLDivElement>(null);
-  const { state: s, removedSet, update, undo, redo, canUndo, canRedo } = useStudioState(plan);
+  const { state: s, removedSet, update, undo, redo, canUndo, canRedo } = useStudioState(plan, words.length);
   const [signed, setSigned] = useState<Record<string, SignedOption>>(signedBroll);
   const [rawSelection, setSelection] = useState<StudioSelection | null>(null);
   const [outTime, setOutTime] = useState(0);
@@ -215,7 +217,7 @@ export function Studio(props: StudioProps) {
   );
 
   // ─── Reproducción ───
-  const videoEl = useCallback(() => stage.current?.querySelector<HTMLVideoElement>('video[aria-label="Vista previa del video editado"]') ?? null, []);
+  const videoEl = useCallback(() => preview.current?.video() ?? null, []);
   useEffect(() => {
     const v = videoEl();
     if (!v) return;
@@ -260,6 +262,53 @@ export function Studio(props: StudioProps) {
       update((st) => ({ ...st, selectedHook: i }));
     } else seek(0, true);
   }
+
+  // ─── Lienzo (components/editor/canvas): mover, agrandar, animar y editar textos sobre la vista previa ───
+  // Sus cambios pasan por el mismo estado con historial: un arrastre seguido cuenta como un solo paso de deshacer.
+  const canvasStep = useRef("canvas");
+  const setCanvasBroll = useCallback((a: SetStateAction<BrollItem[]>) => update((st) => ({ ...st, broll: typeof a === "function" ? a(st.broll) : a }), { coalesce: canvasStep.current }), [update]);
+  const setCanvasFx = useCallback((a: SetStateAction<FxItem[]>) => update((st) => ({ ...st, effects: typeof a === "function" ? a(st.effects) : a }), { coalesce: canvasStep.current }), [update]);
+  const setCanvasCorrections = useCallback((a: SetStateAction<Record<string, string>>) => update((st) => ({ ...st, corrections: typeof a === "function" ? a(st.corrections) : a }), { coalesce: canvasStep.current }), [update]);
+  const setCanvasPlace = useCallback((a: SetStateAction<CaptionPlacement>) => update((st) => ({ ...st, captionPlace: typeof a === "function" ? a(st.captionPlace) : a }), { coalesce: canvasStep.current }), [update]);
+  // Selección unificada: lo elegido en la línea de tiempo es lo elegido en el lienzo, y al revés.
+  const canvasSelected = useMemo(() => {
+    if (selection?.kind === "broll") return s.broll.find((b) => b.id === selection.id)?.choice?.source === "graphic" ? `graphic:${selection.id}` : null;
+    if (selection?.kind === "fx") return `effect:${selection.id}`;
+    if (selection?.kind === "caption") {
+      const first = captions[selection.index]?.words[0];
+      return first ? `caption:${first.id}` : null;
+    }
+    return null;
+  }, [selection, s.broll, captions]);
+  const captionsRef = useRef(captions);
+  useEffect(() => {
+    captionsRef.current = captions;
+  }, [captions]);
+  const onCanvasSelected = useCallback((id: string | null) => {
+    if (!id) return setSelection(null);
+    const [kind, key] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];
+    if (kind === "graphic") setSelection({ kind: "broll", id: key });
+    else if (kind === "effect") setSelection({ kind: "fx", id: key });
+    else if (kind === "caption") {
+      const index = captionsRef.current.findIndex((b) => String(b.words[0]?.id) === key);
+      if (index >= 0) setSelection({ kind: "caption", index });
+    }
+  }, []);
+  canvasStep.current = `canvas:${canvasSelected ?? ""}`;
+  const canvasEdits = useCanvasEdits({
+    canEdit,
+    captions: plan.captions,
+    brollItems: s.broll,
+    setBrollItems: setCanvasBroll,
+    fxItems: s.effects,
+    setFxItems: setCanvasFx,
+    setCorrections: setCanvasCorrections,
+    wordCount: words.length,
+    place: s.captionPlace,
+    onPlace: setCanvasPlace,
+    selected: canvasSelected,
+    onSelected: onCanvasSelected,
+  });
 
   // ─── Selección ───
   const select = useCallback(
@@ -801,7 +850,8 @@ export function Studio(props: StudioProps) {
   const keys = useRef<(e: KeyboardEvent) => void>(() => undefined);
   useEffect(() => {
     keys.current = (e: KeyboardEvent) => {
-      if (document.querySelector("dialog[open]")) return;
+      // Lo que ya atendió el lienzo (flechas, + y −, Esc, Enter sobre un elemento del video) no se repite aquí.
+      if (e.defaultPrevented || document.querySelector("dialog[open]")) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key;
       if (mod && (key === "z" || key === "Z")) {
@@ -950,6 +1000,7 @@ export function Studio(props: StudioProps) {
     textOf,
     humanize,
     signedOf,
+    transformControls: (sel) => canvasEdits.controls ?? props.transformControls?.(sel) ?? null,
     actions: {
       seek,
       listenFrom,
@@ -1247,7 +1298,7 @@ export function Studio(props: StudioProps) {
                   poster={posterUrl}
                   clips={timeline.clips}
                   duration={timeline.duration}
-                  blocks={captions}
+                  blocks={canvasEdits.placeBlocks(captions)}
                   preset={s.preset}
                   format={s.format}
                   accent={accent}
@@ -1267,6 +1318,7 @@ export function Studio(props: StudioProps) {
                   fxStrips={fxStrips}
                   fxMaskFps={masks?.fps ?? 10}
                   fxImages={fxImages}
+                  canvas={canvasEdits.canvas}
                 />
                 {/*
                   Capa del lienzo: aquí va el overlay para mover, escalar y animar lo elegido sobre el video (lo agrega el

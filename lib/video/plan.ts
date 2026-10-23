@@ -11,6 +11,8 @@ import { confidentRemovals, type Candidate } from "./candidates";
 import { brollEditSchema } from "./broll-edit";
 import { brollGraphicSchema } from "./motion-graphics";
 import { fxIssues, fxListSchema } from "./fx/schema";
+import { captionLinesSchema } from "./canvas/captions";
+import { transformSchema } from "./canvas/transform";
 import { buildTimeline, planSegments } from "./timeline";
 import { CAPTION_PRESET_KEYS, REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
 
@@ -75,6 +77,10 @@ export const planSchema = z.object({
     emoji: z.boolean().optional(),
     /** Tramos sin subtítulos (el director los oculta donde ya hay texto quemado en la misma franja). */
     hide: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(30).optional(),
+    /** Lugar y tamaño de todos los subtítulos (lienzo de la revisión). Sin esto, el del estilo. */
+    transform: transformSchema.optional(),
+    /** Lugar de una línea (bloque) por el id de su primera palabra; manda sobre el de todos. */
+    lines: captionLinesSchema.optional(),
   }),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   overlays: z.array(z.object({ text: z.string().max(120), from_word: z.number().int(), to_word: z.number().int(), position: z.enum(["top", "center"]) })).max(20),

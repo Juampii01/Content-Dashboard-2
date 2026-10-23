@@ -280,6 +280,20 @@ export const FX_INFO: Record<FxKind, FxInfo> = {
   },
 };
 
+/**
+ * Efectos con un elemento superpuesto que se puede mover, agrandar y animar desde el lienzo de la revisión
+ * (lib/video/canvas/transform.ts). Los de pantalla completa, los de cámara y los que van detrás de la persona no:
+ * dependen de la cara y del cuadro entero.
+ */
+export const FX_MOVABLE: Partial<Record<FxKind, { label: string; rotation: boolean }>> = {
+  checklist: { label: "Tarjeta de tareas", rotation: true },
+  iphone: { label: "Teléfono", rotation: true },
+  chart_grow: { label: "Gráfico de la semana", rotation: false },
+  cover_story: { label: "Titular de portada", rotation: true },
+};
+
+export const isFxMovable = (kind: FxKind) => Boolean(FX_MOVABLE[kind]);
+
 /** Orden de la galería: primero los más versátiles. */
 export const FX_GALLERY_ORDER: FxKind[] = [
   "digital_zoom",

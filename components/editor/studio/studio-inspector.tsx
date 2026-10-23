@@ -108,10 +108,10 @@ function Spoken({ text, start, end }: { text: string; start?: number; end?: numb
 
 /** Lugar para los controles de posición y animación (los agrega el lienzo con `transformControls`). */
 function TransformSlot({ api, sel }: { api: StudioApi; sel: StudioSelection }) {
-  const node = api.props.transformControls?.(sel);
+  const node = api.transformControls(sel);
   if (!node) return null;
   return (
-    <Group title="Posición y animación" icon={<Sparkles className="h-4 w-4" aria-hidden />}>
+    <Group title="Lugar y animación" icon={<Sparkles className="h-4 w-4" aria-hidden />}>
       {node}
     </Group>
   );

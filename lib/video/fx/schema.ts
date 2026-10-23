@@ -4,7 +4,8 @@
  * marca (qué efectos puede elegir el director y con qué frecuencia). Sin servidor.
  */
 import { z } from "zod";
-import { FX_FREQUENCIES, FX_INFO, FX_KINDS, type FxFrequency, type FxKind } from "./catalog";
+import { FX_FREQUENCIES, FX_INFO, FX_KINDS, FX_MOVABLE, type FxFrequency, type FxKind } from "./catalog";
+import { animSchema, cleanPlace, transformSchema } from "../canvas/transform";
 import { captionText, norm } from "../text";
 
 const hex = z.string().regex(/^#[0-9a-f]{6}$/i);
@@ -26,6 +27,12 @@ export const fxItemSchema = z.object({
   accent: hex.optional(),
   why: z.string().max(300).optional(),
   source: z.enum(["director", "user"]).optional(),
+  /**
+   * Solo los efectos con elemento movible (FX_MOVABLE): dónde va ese elemento y cómo entra y sale, desde el lienzo de
+   * la revisión. Sin estos campos, como siempre (la entrada y la salida propias del efecto).
+   */
+  transform: transformSchema.optional(),
+  anim: animSchema.optional(),
 });
 export type FxItem = z.infer<typeof fxItemSchema>;
 
@@ -177,6 +184,10 @@ export function clampFx(item: FxItem): FxItem {
   if (item.accent) out.accent = item.accent;
   if (item.why) out.why = item.why.slice(0, 300);
   if (item.source) out.source = item.source;
+  const movable = FX_MOVABLE[item.kind];
+  const place = movable ? cleanPlace({ transform: item.transform, anim: item.anim }, { rotation: movable.rotation, keepDefaultAnim: true }) : undefined;
+  if (place?.transform) out.transform = place.transform;
+  if (place?.anim) out.anim = place.anim;
   return out;
 }
 

@@ -8,6 +8,7 @@ import { pointAt, tracePath, type PathSink } from "./path";
 import { propAt, type CounterNode, type EllipseNode, type Fill, type Node, type PathNode, type RectNode, type TextNode } from "./nodes";
 import { rgba } from "./color";
 import type { CompiledScene } from "./compile";
+import { animState, applyAnimGeometry, applyTransform, transformedBox, type PlacedBox } from "../canvas/place-math";
 
 type GradientLike = { addColorStop(offset: number, color: string): void };
 type MetricsLike = { width: number };
@@ -66,7 +67,14 @@ export type RenderOptions = {
   backdrop?: boolean;
   /** Imágenes ya cargadas por clave (capas "image"). */
   images?: Record<string, ImageLike | undefined>;
+  /** Aplica también la opacidad de la animación de la revisión (por defecto no: la compone ffmpeg o la vista previa). */
+  animAlpha?: boolean;
 };
+
+/** Caja del contenido ya movido y escalado por la revisión (sin animación): la que muestra el lienzo para tocarlo. */
+export function placedContentBox(scene: CompiledScene): PlacedBox {
+  return transformedBox(scene.content, scene.place?.transform, scene.width, scene.height);
+}
 
 // ─── Utilidades ───────────────────────────────────────────────────────────
 
@@ -622,6 +630,7 @@ export function renderFrame(ctx: MotionCanvas, scene: CompiledScene, t: number, 
   ctx.globalCompositeOperation = "source-over";
   clearShadow(ctx);
   if (opts.backdrop !== false) drawBackdrop(env, time);
+  applyPlace(ctx, scene, time, opts.animAlpha === true);
   // Respiración: el contenido se acerca un 1,5 % a lo largo de la escena (sin cuadros muertos).
   const breathe = scene.drift ? 1 + 0.015 * EASINGS.easeInOutSine(clamp01(time / scene.duration)) : 1;
   const c = scene.region;
@@ -631,4 +640,21 @@ export function renderFrame(ctx: MotionCanvas, scene: CompiledScene, t: number, 
   const top = scene.nodes;
   top.forEach((n, i) => drawNode(env, n, time, n.noExit ? undefined : exitFor(scene, i, top.length, time)));
   ctx.restore();
+}
+
+/**
+ * Lugar y animación de la revisión (lib/video/canvas/transform.ts): la transformación alrededor del centro del
+ * contenido y el movimiento, la escala y el revelado de la animación. La opacidad no: la compone ffmpeg en el render y
+ * la vista previa con la misma rampa (salvo `animAlpha`).
+ */
+function applyPlace(ctx: MotionCanvas, scene: CompiledScene, t: number, animAlpha: boolean): void {
+  const place = scene.place;
+  if (!place) return;
+  const { width: W, height: H, content } = scene;
+  applyTransform(ctx, place.transform, content, W, H);
+  if (place.anim) {
+    const st = animState(place.anim, t, scene.duration);
+    if (animAlpha) ctx.globalAlpha *= st.alpha;
+    applyAnimGeometry(ctx, st, content, W, H, 60 * scene.unit);
+  }
 }

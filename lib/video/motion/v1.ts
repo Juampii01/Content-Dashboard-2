@@ -3,6 +3,7 @@
  * escena v2 con el componente equivalente. Así los planes existentes se ven y se renderizan con el motor nuevo.
  */
 import type { GraphicSpec } from "../graphics";
+import { placeSchema } from "../canvas/transform";
 import { sceneSchema, type MotionScene, type MotionSceneInput } from "./schema";
 
 type Ctx = { duration: number; format: "9:16" | "16:9" };
@@ -48,7 +49,12 @@ export function toMotionScene(graphic: unknown, ctx: Ctx): MotionScene | null {
       const parsed = sceneSchema.safeParse({ ...(graphic as object), duration: clampDuration(ctx.duration), format: ctx.format });
       return parsed.success ? parsed.data : null;
     }
-    if (v === 1 && "template" in graphic) return sceneFromV1(graphic as GraphicSpec, ctx);
+    if (v === 1 && "template" in graphic) {
+      // Un v1 con lugar propio (la revisión lo movió o le cambió la animación): se le pasa a la escena.
+      const scene = sceneFromV1(graphic as GraphicSpec, ctx);
+      const place = placeSchema.safeParse((graphic as { place?: unknown }).place);
+      return place.success && place.data ? { ...scene, place: place.data } : scene;
+    }
   } catch {
     return null;
   }

@@ -28,6 +28,7 @@ import {
   type GraphicSpec,
 } from "./graphics";
 import type { BrollOption, VideoFormat } from "./types";
+import { cleanPlace, type Place } from "./canvas/transform";
 
 export type BrollGraphic = GraphicSpec | MotionScene;
 
@@ -317,4 +318,15 @@ export const graphicSeconds = (span: number) => Math.max(1.5, Math.min(6, Number
 /** Formato y duración de la escena según el tramo (el render usa siempre los del tramo). */
 export function sceneForSpan(scene: MotionScene, format: VideoFormat, span: number): MotionScene {
   return { ...scene, format, duration: graphicSeconds(span) };
+}
+
+/**
+ * El gráfico con el lugar y la animación que eligió la persona en el lienzo (`edit.transform` / `edit.anim` del b-roll)
+ * como `place`: así lo dibujan igual el motor de la vista previa y el del worker. Sin cambios, sin `place`.
+ */
+export function graphicWithPlace<G extends BrollGraphic>(graphic: G, edit: { transform?: unknown; anim?: unknown } | null | undefined): G & { place?: Place } {
+  const place = cleanPlace(edit ?? null);
+  const { place: _old, ...rest } = graphic as G & { place?: Place };
+  void _old;
+  return (place ? { ...rest, place } : rest) as G & { place?: Place };
 }

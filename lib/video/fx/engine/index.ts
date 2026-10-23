@@ -37,7 +37,7 @@ export class FxRenderer {
    * Dibuja el cuadro. `ctx` es el lienzo de salida; `pixelScale` = píxeles del lienzo por píxel del video final
    * (1 en el worker, ~0,33 en la vista previa).
    */
-  render(ctx: FxCtx, spec: FxSpec, t: number, src: FxSources, pixelScale = 1): void {
+  render(ctx: FxCtx, spec: FxSpec, t: number, src: FxSources, pixelScale = 1): { movable: { x: number; y: number; w: number; h: number } | null } {
     ctx.save();
     // Borrar todo el lienzo también reinicia lo que skia-canvas tiene grabado (si no, cada cuadro repite los anteriores).
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -50,6 +50,8 @@ export class FxRenderer {
     const frame = new FxFrame(ctx, spec, Math.max(0, Math.min(spec.duration, t)), src, this.host, pixelScale, this.pool);
     FX_DRAW[spec.kind](frame);
     ctx.restore();
+    // La caja de diseño del elemento movible (para el lienzo de la revisión), si el efecto tiene uno.
+    return { movable: frame.movableBox };
   }
 }
 

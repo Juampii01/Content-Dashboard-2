@@ -7,6 +7,8 @@ import { outputRange, type Timeline } from "../timeline";
 import { FPS, type VideoFormat } from "../types";
 import { FX_INFO, type FxKind } from "./catalog";
 import type { FxItem } from "./schema";
+import { FX_MOVABLE } from "./catalog";
+import { cleanPlace, type Place } from "../canvas/transform";
 
 export const FX_VERSION = 1;
 
@@ -51,6 +53,8 @@ export type FxSpec = {
   cards: string[];
   /** Necesita el recorte de la persona. */
   mask: boolean;
+  /** Lugar y animación del elemento movible (lienzo de la revisión). Sin esto, como siempre. */
+  place?: Place;
 };
 
 export type FxSegment = { id: string; start: number; end: number; item: FxItem };
@@ -284,7 +288,16 @@ export function compileFx(input: {
     thumbs: info.thumbs ? Array.from({ length: Math.min(8, input.thumbs) }, (_, i) => `t${i}`) : [],
     cards: info.thumbs ? (input.cards ?? []).slice(0, 8) : [],
     mask: info.mask,
+    ...fxPlace(item),
   };
+}
+
+/** El lugar del elemento movible de un efecto (solo si el efecto lo tiene y cambió algo). */
+function fxPlace(item: FxItem): { place?: Place } {
+  const movable = FX_MOVABLE[item.kind];
+  if (!movable) return {};
+  const place = cleanPlace({ transform: item.transform, anim: item.anim }, { rotation: movable.rotation, keepDefaultAnim: true });
+  return place ? { place } : {};
 }
 
 /** Tramos (segundos del video final) donde un efecto oculta los subtítulos. */

@@ -155,6 +155,8 @@ const reviewSchema = z.object({
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
   effects: fxListSchema.optional(),
+  // Lugar de los subtítulos del lienzo (lo limpia applyReview con cleanCaptionPlacement).
+  captionPlace: z.object({ transform: z.unknown().optional(), lines: z.unknown().optional() }).optional(),
   rhythm: z
     .object({
       density: z.enum(["sobria", "normal", "reels"]),

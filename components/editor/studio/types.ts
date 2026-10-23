@@ -88,6 +88,8 @@ export type StudioApi = {
   textOf: (from: number, to: number, max?: number) => string;
   humanize: (text: string | null | undefined) => string;
   signedOf: (o: BrollItem["choice"]) => SignedOption | null;
+  /** Controles de posición y animación de lo elegido (los del lienzo), o null si no se puede mover. */
+  transformControls: (selection: StudioSelection) => ReactNode;
   actions: {
     seek: (t: number, play?: boolean) => void;
     listenFrom: (wordId: number) => void;

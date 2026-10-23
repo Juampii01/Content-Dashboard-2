@@ -5,6 +5,7 @@ import { planDensity, type Density, type RhythmAddition } from "@/lib/video/rhyt
 import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
 import { studioLevel, type StudioLevel } from "@/lib/video/studio-audio";
 import type { FxItem } from "@/lib/video/fx/schema";
+import { cleanCaptionPlacement, type CaptionPlacement } from "@/lib/video/canvas/captions";
 import type { BrollItem, CaptionPresetKey, EditPlan, PlanMove, VideoFormat, ZoomMoment } from "@/lib/video/types";
 
 /**
@@ -33,11 +34,13 @@ export type StudioState = {
   pacing: EditPlan["pacing"];
   emphasis: number[];
   rhythmLog: RhythmAddition[];
+  /** Lugar de los subtítulos movidos en el lienzo (todos y, si se pidió, por línea). */
+  captionPlace: CaptionPlacement;
   /** Se tocó el ritmo (densidad, zooms del director o resaltados): se guarda el bloque `rhythm` de la revisión. */
   rhythmTouched: boolean;
 };
 
-export function initialStudioState(plan: EditPlan): StudioState {
+export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_INTEGER): StudioState {
   const removed = new Set<number>();
   for (const r of plan.removals) for (let id = r.from_word; id <= r.to_word; id++) removed.add(id);
   return {
@@ -62,6 +65,7 @@ export function initialStudioState(plan: EditPlan): StudioState {
     emphasis: plan.captions.emphasis_words,
     rhythmLog: plan.rhythm?.added ?? [],
     rhythmTouched: false,
+    captionPlace: cleanCaptionPlacement({ transform: plan.captions.transform, lines: plan.captions.lines }, wordCount),
   };
 }
 
@@ -81,6 +85,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     music: { trackId: s.music.trackId && ctx.trackIds.includes(s.music.trackId) ? s.music.trackId : null, db: Math.max(-30, Math.min(-8, s.music.db)) },
     ...(ctx.plan.moves?.length ? { moves: s.moves } : {}),
     effects: s.effects,
+    captionPlace: s.captionPlace,
     ...(s.rhythmTouched ? { rhythm: { density: s.density, added: s.rhythmLog, zoomMoments: s.zoomMoments, longPause: s.pacing?.long_pause ?? 0.5, emphasis: s.emphasis } } : {}),
   };
 }
@@ -95,8 +100,8 @@ const COALESCE_MS = 1200;
 export type StudioUpdate = (fn: (s: StudioState) => StudioState, opts?: { coalesce?: string }) => void;
 
 /** Estado de la revisión con historial: cada cambio es un paso que se puede deshacer y rehacer. */
-export function useStudioState(plan: EditPlan) {
-  const [h, setH] = useState<History>(() => ({ past: [], present: initialStudioState(plan), future: [], key: null, at: 0 }));
+export function useStudioState(plan: EditPlan, wordCount?: number) {
+  const [h, setH] = useState<History>(() => ({ past: [], present: initialStudioState(plan, wordCount), future: [], key: null, at: 0 }));
 
   const update = useCallback<StudioUpdate>((fn, opts) => {
     setH((prev) => {

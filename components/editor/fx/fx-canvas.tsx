@@ -122,6 +122,7 @@ export function FxVideoLayer({
   images,
   reducedMotion,
   className,
+  onMovable,
 }: {
   spec: FxSpec;
   time: number;
@@ -135,8 +136,14 @@ export function FxVideoLayer({
   images: Record<string, HTMLImageElement | undefined>;
   reducedMotion: boolean;
   className?: string;
+  /** Caja de diseño del elemento movible del efecto (si tiene), en píxeles del video final: la usa el lienzo. */
+  onMovable?: (id: string, box: { x: number; y: number; w: number; h: number } | null) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const movableCb = useRef(onMovable);
+  useEffect(() => {
+    movableCb.current = onMovable;
+  }, [onMovable]);
   const frameRef = useRef<HTMLCanvasElement | null>(null);
   const maskRef = useRef<HTMLCanvasElement | null>(null);
   const fonts = useFxFonts();
@@ -192,7 +199,8 @@ export function FxVideoLayer({
         mx.drawImage(strip, index * tw, 0, tw, th, 0, 0, mask.width, mask.height);
       }
     }
-    renderer.render(ctx as unknown as FxCtx, spec, time, { frame, mask, images }, scale);
+    const drawn = renderer.render(ctx as unknown as FxCtx, spec, time, { frame, mask, images }, scale);
+    movableCb.current?.(spec.id, drawn.movable);
   }, [spec, time, video, fonts, renderer, strips, maskFps, images, sourceWidth, sourceHeight, offsetX, cw, ch, scale, seekTick]);
 
   return <canvas ref={canvas} width={cw} height={ch} className={cn("block h-full w-full", className)} aria-hidden />;

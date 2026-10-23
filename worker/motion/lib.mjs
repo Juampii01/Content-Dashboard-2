@@ -31,3 +31,33 @@ export function registerFonts(dir) {
   }
   return { inter: "Inter", montserrat: "Montserrat", body: "Inter" };
 }
+
+/** El motor de efectos (lib/video/fx/engine empaquetado en fx-engine.mjs). FX_ENGINE apunta a otro, para pruebas. */
+export async function loadFxEngine() {
+  const file = process.env.FX_ENGINE || join(here, "fx-engine.mjs");
+  return import(pathToFileURL(file).href);
+}
+
+const FX_FILES = {
+  "Instrument Serif": ["InstrumentSerif-Regular", "InstrumentSerif-Italic"],
+  "JetBrains Mono": ["JetBrainsMono-Medium", "JetBrainsMono-Bold"],
+  Caveat: ["Caveat"],
+  Anton: ["Anton-Regular"],
+};
+
+/** Registra las fuentes de los gráficos y las de los efectos (serif, mono, a mano y recortada). */
+export function registerFxFonts(dir) {
+  const fontsDir = dir || process.env.FONTS_DIR || join(here, "..", "fonts");
+  registerFonts(fontsDir);
+  const missing = [];
+  for (const [family, names] of Object.entries(FX_FILES)) {
+    const files = names.map((n) => join(fontsDir, `${n}.ttf`)).filter((f) => existsSync(f));
+    if (!files.length) {
+      missing.push(family);
+      continue;
+    }
+    const register = FontLibrary.use.bind(FontLibrary);
+    register(family, files);
+  }
+  if (missing.length) throw new Error(`Faltan las fuentes de los efectos (${missing.join(", ")}) en ${fontsDir}`);
+}

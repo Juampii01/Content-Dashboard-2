@@ -292,7 +292,7 @@ export function compileFx(input: {
 function fxPlace(item: FxItem): { place?: Place } {
   const movable = FX_MOVABLE[item.kind];
   if (!movable) return {};
-  const place = cleanPlace({ transform: item.transform, anim: item.anim }, { rotation: movable.rotation });
+  const place = cleanPlace({ transform: item.transform, anim: item.anim }, { rotation: movable.rotation, keepDefaultAnim: true });
   return place ? { place } : {};
 }
 

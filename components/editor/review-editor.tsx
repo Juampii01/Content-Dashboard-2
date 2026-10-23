@@ -36,6 +36,7 @@ import type { TrackItem } from "./music-manager";
 import { PhraseFixDialog, PhraseFixPanel, usePhraseFixes } from "./phrase-fix";
 import { captionCorrections } from "@/lib/video/phrase-fix";
 import { PreviewPlayer, type PreviewHandle } from "./preview-player";
+import { useCanvasEdits } from "./canvas/use-canvas-edits";
 import { TranscriptEditor, type BrollMark } from "./transcript-editor";
 import { DecisionsPanel } from "./director/decisions-panel";
 import { EditRequestCard } from "./director/edit-request";
@@ -178,6 +179,9 @@ export function ReviewEditor({
   }, [plan.proposed_removals, plan.removals]);
   const offScript = useMemo(() => new Set(plan.off_script), [plan.off_script]);
 
+  // Lienzo: tocar, mover y editar lo que se ve en la vista previa (components/editor/canvas).
+  const canvasEdits = useCanvasEdits({ canEdit, captions: plan.captions, brollItems, setBrollItems, fxItems, setFxItems, setCorrections, wordCount: words.length });
+
   const review = useMemo(
     () => ({
       removed: [...removed].sort((a, b) => a - b),
@@ -194,8 +198,9 @@ export function ReviewEditor({
       ...(plan.moves?.length ? { moves } : {}),
       effects: fxItems,
       ...(rhythmTouched ? { rhythm: { density, added: rhythmLog, zoomMoments, longPause: pacing?.long_pause ?? 0.5, emphasis } } : {}),
+      ...canvasEdits.review,
     }),
-    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks, moves, plan.moves, fxItems, rhythmTouched, density, rhythmLog, zoomMoments, pacing, emphasis],
+    [removed, selectedHook, preset, offsetX, corrections, brollItems, style, zoomsOn, emoji, sfx, studio, music, tracks, moves, plan.moves, fxItems, rhythmTouched, density, rhythmLog, zoomMoments, pacing, emphasis, canvasEdits.review],
   );
 
   const timeline = useMemo(
@@ -891,7 +896,7 @@ export function ReviewEditor({
               poster={posterUrl}
               clips={timeline.clips}
               duration={timeline.duration}
-              blocks={blocks}
+              blocks={canvasEdits.placeBlocks(blocks)}
               preset={preset}
               format={format}
               accent={accent}
@@ -911,7 +916,9 @@ export function ReviewEditor({
               fxStrips={fxStrips}
               fxMaskFps={masks?.fps ?? 10}
               fxImages={fxImages}
+              canvas={canvasEdits.canvas}
             />
+            {canvasEdits.controls}
             {canEdit && (() => {
               // Lo que se ve ahora en la vista previa, con su botón de editar (los efectos y gráficos se editan aquí).
               const t = outTime ?? 0;

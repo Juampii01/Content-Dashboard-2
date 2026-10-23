@@ -185,7 +185,7 @@ export function clampFx(item: FxItem): FxItem {
   if (item.why) out.why = item.why.slice(0, 300);
   if (item.source) out.source = item.source;
   const movable = FX_MOVABLE[item.kind];
-  const place = movable ? cleanPlace({ transform: item.transform, anim: item.anim }, { rotation: movable.rotation }) : undefined;
+  const place = movable ? cleanPlace({ transform: item.transform, anim: item.anim }, { rotation: movable.rotation, keepDefaultAnim: true }) : undefined;
   if (place?.transform) out.transform = place.transform;
   if (place?.anim) out.anim = place.anim;
   return out;

@@ -94,6 +94,7 @@ export function GraphicCanvas({
   scale = 0.5,
   className,
   label,
+  compiled,
 }: {
   spec: GraphicSpec | MotionScene;
   format: VideoFormat;
@@ -103,9 +104,12 @@ export function GraphicCanvas({
   scale?: number;
   className?: string;
   label?: string;
+  /** Escena ya compilada por quien la muestra (la vista previa la usa también para la caja del lienzo). */
+  compiled?: CompiledScene | null;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const scene = useMotionScene(spec, format, duration);
+  const own = useMotionScene(compiled ? null : spec, format, duration);
+  const scene = compiled ?? own;
   const reduced = usePrefersReducedMotion();
   const { width, height } = formatSize(format);
   const [loopTime, setLoopTime] = useState(0);

@@ -196,7 +196,7 @@ function placeAvoidingFace(f: FxFrame, h: number, preferTop: number, maxBottom: 
 }
 
 export function checklist(f: FxFrame): void {
-  const { ctx, spec, t, W, H, u } = f;
+  const { ctx, spec, W, H, u } = f;
   f.drawBase(ctx);
   const items = spec.items.length ? spec.items : ["Primer paso", "Segundo paso", "Tercer paso"];
   const w = W * (f.vertical ? 0.85 : 0.5);
@@ -376,7 +376,7 @@ function maskWith(target: Layer, shape: Layer): void {
 // ─── 06 Teléfono con tareas ───────────────────────────────────────────────
 
 export function phoneMockup(f: FxFrame): void {
-  const { ctx, spec, t, W, H, u } = f;
+  const { ctx, W, H, u } = f;
   f.drawBase(ctx);
   // ~230 px de ancho en la referencia (720 de ancho): 320 en 1080.
   const pw = 320 * u;
@@ -500,7 +500,7 @@ export function chartCurve(x: number): number {
 }
 
 export function chartGrow(f: FxFrame): void {
-  const { ctx, spec, t, W, H, u } = f;
+  const { ctx, t, W, H, u } = f;
   f.drawBase(ctx);
   const fade = easeOut(t / 0.2) * exitAlpha(f);
   ctx.fillStyle = `rgba(0,0,0,${0.6 * fade})`;

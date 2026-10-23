@@ -19,7 +19,7 @@ import { FxRenderer } from "../lib/video/fx/engine";
 import { clampFx, fxItemSchema } from "../lib/video/fx/schema";
 import { graphicWithPlace } from "../lib/video/motion-graphics";
 import { compileScene, measureWith, placedContentBox, renderFrame, toMotionScene, type MotionCanvas } from "../lib/video/motion";
-import { canvasDump } from "../scripts/canvas-dump.mts";
+import { canvasDump } from "../lib/video/canvas/dump";
 import type { CaptionBlock } from "../lib/video/types";
 
 const THEME = { bg: "#030A22", surface: "#07163F", text: "#DCE7F7", muted: "#A7B9D4", accent: "#0070F8", accentText: "#FFFFFF" };

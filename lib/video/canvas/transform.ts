@@ -95,18 +95,20 @@ export function cleanTransform(raw: unknown, opts: { rotation?: boolean } = {}):
 }
 
 /** Deja una animación válida; undefined si es la de siempre (aparecer 0,2 s / 0,2 s). */
-export function cleanAnim(raw: unknown): Anim | undefined {
+export function cleanAnim(raw: unknown, opts: { keepDefault?: boolean } = {}): Anim | undefined {
+  if (raw == null) return undefined;
   const parsed = animSchema.safeParse(raw);
   if (!parsed.success) return undefined;
   const a = { ...parsed.data, inDur: r4(parsed.data.inDur), outDur: r4(parsed.data.outDur) };
-  return sameAnim(a, DEFAULT_ANIM) ? undefined : a;
+  // En los efectos, "aparecer 0,2 s" no es lo de siempre (lo de siempre es su entrada propia): se guarda igual.
+  return !opts.keepDefault && sameAnim(a, DEFAULT_ANIM) ? undefined : a;
 }
 
 /** El lugar completo (transform y anim limpios) o undefined si no cambia nada. */
-export function cleanPlace(raw: { transform?: unknown; anim?: unknown } | null | undefined, opts: { rotation?: boolean; anim?: boolean } = {}): Place | undefined {
+export function cleanPlace(raw: { transform?: unknown; anim?: unknown } | null | undefined, opts: { rotation?: boolean; anim?: boolean; keepDefaultAnim?: boolean } = {}): Place | undefined {
   if (!raw) return undefined;
   const transform = cleanTransform(raw.transform, opts);
-  const anim = opts.anim === false ? undefined : cleanAnim(raw.anim);
+  const anim = opts.anim === false ? undefined : cleanAnim(raw.anim, { keepDefault: opts.keepDefaultAnim });
   if (!transform && !anim) return undefined;
   return { ...(transform ? { transform } : {}), ...(anim ? { anim } : {}) };
 }

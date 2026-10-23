@@ -7,7 +7,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { sentences } from "../lib/ai/prompts/editor";
-import type { DirectorWire } from "../lib/ai/prompts/director";
+import { criticWireSchema, directorApiSchema, directorFromApi, directorToApi, mapWireSchema, type DirectorWire } from "../lib/ai/prompts/director";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { costOf, imageTokens } from "../lib/ai/pricing";
 import { detectCandidates } from "../lib/video/candidates";
 import { directorZooms } from "../lib/video/effects";
@@ -409,5 +410,32 @@ describe("efectos de firma en el director", () => {
     assert.ok(issues.some((i) => i.kind === "tapa_importante" && i.note.includes("Checklist")));
     const fixed = safeFixes({ plan, words, duration, map, eyes, issues });
     assert.equal(fixed.plan.effects, undefined);
+  });
+});
+
+describe("formato que va a la API", () => {
+  test("los esquemas del director son chicos (la gramática de la salida estructurada tiene un tamaño máximo)", () => {
+    for (const [name, sch] of [["director", directorApiSchema], ["mapa", mapWireSchema], ["crítico", criticWireSchema]] as const) {
+      const size = JSON.stringify(zodOutputFormat(sch as never).schema).length;
+      assert.ok(size < 3500, `${name}: ${size} caracteres`);
+    }
+  });
+
+  test("ida y vuelta sin perder decisiones, y una acción rota se descarta", () => {
+    const wire = emptyWire({
+      summary: "s",
+      cuts: [{ from_word: 1, to_word: 3, reason: "retake", why: "x" }],
+      hooks: [{ from_word: 5, to_word: 9, score: 0.8, why: "g" }],
+      emphasis_words: [7],
+      zooms: [{ from_word: 10, to_word: 11, strength: "marcado", why: "z" }],
+      broll: [{ from_word: 12, to_word: 15, kind: "stock", query_en: "phone call", keywords: ["teléfono"], graphic: null, why: "b" }],
+      effects: [{ from_word: 0, to_word: 4, kind: "cover_story", text: "PORTADA", items: [], why: "e" }],
+      variants: [{ label: "30 s", why: "v", hook_from_word: -1, hook_to_word: -1, extra_cuts: [{ from_word: 20, to_word: 25 }], keep_broll: true }],
+    });
+    const api = directorToApi(wire);
+    assert.deepEqual(directorFromApi(api), wire);
+    const broken = directorFromApi({ ...api, actions: [...api.actions, { type: "cut", from_word: 1, to_word: 2, data: "{no json" }, { type: "zoom", from_word: 1, to_word: 2, data: JSON.stringify({ strength: "rarísimo" }) }] });
+    assert.equal(broken.cuts.length, 1, "un cut sin JSON válido se descarta");
+    assert.equal(broken.zooms.length, 1, "un zoom con valores fuera de la lista se descarta");
   });
 });

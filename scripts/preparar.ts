@@ -23,7 +23,7 @@ async function main() {
     return;
   }
 
-  const pool = new Pool({ connectionString: url, max: 1 });
+  const pool = new Pool({ connectionString: url.replace(/([?&])sslmode=(prefer|require|verify-ca)(?=&|$)/, "$1sslmode=verify-full"), max: 1 });
   await migrate(drizzle({ client: pool }), { migrationsFolder: "drizzle" });
   console.log("[preparar] Migraciones al día.");
 

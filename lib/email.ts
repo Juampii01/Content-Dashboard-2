@@ -43,6 +43,12 @@ ${actionUrl && actionLabel ? `<a href="${esc(actionUrl)}" style="display:inline-
   return { html, text };
 }
 
+/** Hay correo configurado (Resend). Sin esto, los avisos quedan solo en la app y Estado del sistema lo dice. */
+export function emailConfigured(): boolean {
+  const { RESEND_API_KEY, EMAIL_FROM } = env();
+  return Boolean(RESEND_API_KEY && EMAIL_FROM);
+}
+
 export async function sendEmail(email: Email): Promise<void> {
   const { RESEND_API_KEY, EMAIL_FROM, NODE_ENV } = env();
   if (!RESEND_API_KEY || !EMAIL_FROM) {

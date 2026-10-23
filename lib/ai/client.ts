@@ -116,11 +116,37 @@ export async function generateStructured<S extends z.ZodType>(input: {
   };
   // Razonamiento o mucha salida: por streaming (sin streaming, el SDK corta a los 2 minutos de este cliente).
   const long = Boolean(input.thinking) || (input.maxTokens ?? 4096) > 16_000 || (input.timeoutMs ?? 0) > 120_000;
-  let message;
+  const call = (p: typeof params | Omit<typeof params, "output_config">) =>
+    long || !("output_config" in p)
+      ? getClient().messages.stream(p as typeof params, { timeout: input.timeoutMs ?? 600_000 }).finalMessage()
+      : getClient().messages.parse(p as typeof params, input.timeoutMs ? { timeout: input.timeoutMs } : undefined);
+  let message: Awaited<ReturnType<typeof call>>;
+  let freeform = false;
   try {
-    message = long
-      ? await getClient().messages.stream(params, { timeout: input.timeoutMs ?? 600_000 }).finalMessage()
-      : await getClient().messages.parse(params, input.timeoutMs ? { timeout: input.timeoutMs } : undefined);
+    try {
+      message = await call(params);
+    } catch (error) {
+      // La salida estructurada compila el esquema a una gramática con tamaño máximo. Si un esquema la supera,
+      // se pide el mismo JSON como texto (con el JSON Schema en la tarea) y se valida con Zod acá.
+      if (!(error instanceof APIError && error.status === 400 && /grammar is too large|too many|schema.*too (large|complex)/i.test(error.message))) throw error;
+      console.warn(`[ia] ${input.feature}: esquema demasiado grande para la salida estructurada; se pide como texto.`);
+      const { output_config, ...rest } = params;
+      const jsonSchema = JSON.stringify(zodOutputFormat(input.schema).schema);
+      freeform = true;
+      message = await call({
+        ...rest,
+        ...(output_config.effort ? { output_config: { effort: output_config.effort } } : {}),
+        messages: [
+          {
+            role: "user" as const,
+            content: [
+              ...(Array.isArray(params.messages[0]!.content) ? params.messages[0]!.content : [{ type: "text" as const, text: params.messages[0]!.content }]),
+              { type: "text" as const, text: `FORMATO DE SALIDA: responde SOLO con un objeto JSON válido (sin texto antes ni después, sin bloques de código) que cumpla este JSON Schema:\n${jsonSchema}` },
+            ],
+          },
+        ],
+      } as Omit<typeof params, "output_config">);
+    }
   } catch (error) {
     if (error instanceof AiError) throw error;
     if (error instanceof APIError) {
@@ -155,6 +181,16 @@ export async function generateStructured<S extends z.ZodType>(input: {
 
   if (message.stop_reason === "refusal") throw new AiError("La IA no quiso generar ese contenido. Prueba con otra idea o redáctala distinto.", "refusal");
   if (message.stop_reason === "max_tokens") throw new AiError("El resultado salió demasiado largo. Prueba con un formato más corto.", "max_tokens");
-  if (message.parsed_output == null) throw new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", "sin parsed_output");
-  return message.parsed_output as z.infer<S>;
+  const parsedOutput = (message as { parsed_output?: unknown }).parsed_output;
+  if (parsedOutput != null && !freeform) return parsedOutput as z.infer<S>;
+  // Sin parsed_output (streaming o pedido como texto): se lee el JSON del texto y se valida con el esquema.
+  const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", "sin JSON en la respuesta");
+  try {
+    return input.schema.parse(JSON.parse(text.slice(start, end + 1))) as z.infer<S>;
+  } catch (error) {
+    throw new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", `JSON inválido: ${error instanceof Error ? error.message.slice(0, 300) : String(error)}`);
+  }
 }

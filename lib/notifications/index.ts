@@ -1,7 +1,7 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
-import { sendEmail } from "@/lib/email";
+import { emailConfigured, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 
 /**
@@ -35,7 +35,8 @@ export async function notify(input: NotificationInput): Promise<void> {
       .values({ key: input.key, userId: input.userId, tone: input.tone, title: input.title.slice(0, 140), body: input.body.slice(0, 400), href: input.href })
       .onConflictDoNothing({ target: schema.notifications.key })
       .returning({ id: schema.notifications.id });
-    if (!row || !input.email || !input.userId) return;
+    // Sin Resend, el aviso queda en la app (no es un error: Estado del sistema ya avisa que falta el correo).
+    if (!row || !input.email || !input.userId || (!emailConfigured() && process.env.NODE_ENV === "production")) return;
     const to = await emailOf(input.userId);
     if (!to) return;
     await sendEmail({

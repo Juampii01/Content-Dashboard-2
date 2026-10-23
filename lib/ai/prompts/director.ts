@@ -97,6 +97,18 @@ const GOAL_RULES: Record<BriefGoal, string> = {
 - Gancho fuerte al principio, nada de relleno, la idea central resaltada y un cierre claro.`,
 };
 
+export const DIRECTOR_FORMAT = `FORMATO DE RESPUESTA
+Cada decisión va como un elemento de "actions": {"type", "from_word", "to_word", "data"}, donde data es un texto con el JSON del resto de sus campos, en una línea:
+- cut: data {"reason": "retake" | "false_start" | "filler" | "off_topic" | "bad_take", "why"}
+- hook: data {"score": 0 a 1, "why"} (el primero que mandes es el que se usa)
+- move: data {"after_word": id o -1, "why"}
+- emphasis: una palabra (from_word = to_word = su id), data {}
+- zoom: data {"strength": "suave" | "marcado", "why"}
+- broll: data {"kind": "stock" | "graphic", "query_en", "keywords": [...], "graphic": escena o null, "why"}. La escena va como en las reglas de motion graphics ({"title", "mode", "position", "layers": [{"kind", "component", "spec"}]}); en las capas, spec puede ir como objeto.
+- caption_hide: data {"why"}
+- effect: data {"kind": nombre del efecto, "text", "items": [...], "why"}
+- variant: from_word y to_word son su gancho (-1 y -1 = el mismo gancho), data {"label", "why", "extra_cuts": [{"from_word", "to_word"}], "keep_broll": true | false}`;
+
 export const DIRECTOR_RULES = `Eres el director de edición de este creador: un editor humano senior que cobra por video y cuida que cada decisión tenga sentido para la historia. Ya miraste el video (MAPA) y conoces la marca. Decides TODA la edición junta, con una comprensión común de la historia: cortes, orden, gancho, b-roll, gráficos, palabras resaltadas, zooms, ritmo y versiones. Cada decisión lleva su "why" corto para la persona (qué ganas con eso).
 
 QUÉ DECIDES
@@ -121,6 +133,8 @@ REGLAS DURAS
 - La duración ideal para Reels y TikTok es de 30 a 90 s; para YouTube horizontal no hay apuro. No inventes cortes solo para llegar.
 
 ${FX_DIRECTOR_RULES}
+
+${DIRECTOR_FORMAT}
 
 ${IDIOMA}`;
 
@@ -171,6 +185,121 @@ export const directorWireSchema = z.object({
   changes: z.array(z.string()).describe("Solo al corregir: qué cambiaste, en frases cortas. Vacío la primera vez."),
 });
 export type DirectorWire = z.infer<typeof directorWireSchema>;
+
+// ─── Formato que viaja a la API ───────────────────────────────────────────
+//
+// La salida estructurada compila el esquema a una gramática con tamaño máximo: con 11 listas de objetos distintos
+// (y la escena de gráficos adentro) el director la superaba ("The compiled grammar is too large"). A la API va una
+// sola lista de acciones { type, from_word, to_word, data } con `data` en JSON; al volver se leen con los esquemas
+// de arriba (directorWireSchema) y la acción que no se entiende se descarta.
+
+const ACTION_TYPES = ["cut", "hook", "move", "emphasis", "zoom", "broll", "caption_hide", "effect", "variant"] as const;
+
+export const directorApiSchema = z.object({
+  summary: z.string().describe("Qué hiciste y por qué, en 2 o 3 frases para la persona."),
+  warning: z.string().describe("Algo que la persona debería revisar, o vacío."),
+  pace: z.enum(["calm", "normal", "fast"]),
+  actions: z
+    .array(
+      z.object({
+        type: z.enum(ACTION_TYPES),
+        from_word: z.number().int(),
+        to_word: z.number().int(),
+        data: z.string().describe("JSON en una línea con el resto de los campos de esa acción (ver FORMATO DE RESPUESTA)."),
+      }),
+    )
+    .describe("Todas las decisiones de la edición, una por elemento."),
+  changes: z.array(z.string()).describe("Solo al corregir: qué cambiaste, en frases cortas. Vacío la primera vez."),
+});
+export type DirectorApi = z.infer<typeof directorApiSchema>;
+
+
+const W = directorWireSchema.shape;
+
+function parseData(raw: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw || "{}") as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** En los gráficos, la capa puede traer spec como objeto: se pasa a texto como espera el formato de cable. */
+function normalizeGraphic(g: unknown): unknown {
+  if (!g || typeof g !== "object") return null;
+  const scene = g as { layers?: unknown };
+  if (!Array.isArray(scene.layers)) return g;
+  return { ...scene, layers: scene.layers.map((l) => (l && typeof l === "object" && typeof (l as { spec?: unknown }).spec === "object" ? { ...l, spec: JSON.stringify((l as { spec: unknown }).spec) } : l)) };
+}
+
+/** Respuesta de la API → plan del director (las acciones que no se entienden se descartan). */
+export function directorFromApi(api: DirectorApi): DirectorWire {
+  const out: DirectorWire = { summary: api.summary, warning: api.warning, pace: api.pace, cuts: [], hooks: [], moves: [], emphasis_words: [], zooms: [], broll: [], caption_hide: [], effects: [], variants: [], changes: api.changes ?? [] };
+  for (const a of api.actions ?? []) {
+    const d = parseData(a.data);
+    const range = { from_word: a.from_word, to_word: a.to_word };
+    const push = <T extends z.ZodType>(schema: T, list: z.infer<T>[], value: unknown) => {
+      const r = schema.safeParse(value);
+      if (r.success) list.push(r.data);
+    };
+    switch (a.type) {
+      case "cut":
+        push(W.cuts.element, out.cuts, { ...d, ...range, why: String(d.why ?? "") });
+        break;
+      case "hook":
+        push(W.hooks.element, out.hooks, { ...d, ...range, why: String(d.why ?? ""), score: Number(d.score ?? 0.5) });
+        break;
+      case "move":
+        push(W.moves.element, out.moves, { ...d, ...range, why: String(d.why ?? "") });
+        break;
+      case "emphasis":
+        if (Number.isInteger(a.from_word)) out.emphasis_words.push(a.from_word);
+        break;
+      case "zoom":
+        push(W.zooms.element, out.zooms, { ...d, ...range, why: String(d.why ?? "") });
+        break;
+      case "broll":
+        push(W.broll.element, out.broll, { query_en: "", keywords: [], why: "", ...d, ...range, graphic: d.kind === "graphic" ? normalizeGraphic(d.graphic) : null });
+        break;
+      case "caption_hide":
+        push(W.caption_hide.element, out.caption_hide, { ...range, why: String(d.why ?? "") });
+        break;
+      case "effect":
+        push(W.effects.element, out.effects, { text: "", items: [], why: "", ...d, ...range });
+        break;
+      case "variant":
+        push(W.variants.element, out.variants, { label: "", why: "", extra_cuts: [], keep_broll: true, ...d, hook_from_word: a.from_word, hook_to_word: a.to_word });
+        break;
+    }
+  }
+  return out;
+}
+
+/** Plan del director → formato de la API (para el simulador y las pruebas). */
+export function directorToApi(w: DirectorWire): DirectorApi {
+  const actions: DirectorApi["actions"] = [];
+  const add = (type: DirectorApi["actions"][number]["type"], from_word: number, to_word: number, data: Record<string, unknown>) => actions.push({ type, from_word, to_word, data: JSON.stringify(data) });
+  const strip = <T extends { from_word: number; to_word: number }>(x: T) => {
+    const { from_word: _f, to_word: _t, ...rest } = x;
+    void _f;
+    void _t;
+    return rest;
+  };
+  for (const c of w.cuts) add("cut", c.from_word, c.to_word, strip(c));
+  for (const h of w.hooks) add("hook", h.from_word, h.to_word, strip(h));
+  for (const m of w.moves) add("move", m.from_word, m.to_word, strip(m));
+  for (const id of w.emphasis_words) add("emphasis", id, id, {});
+  for (const z of w.zooms) add("zoom", z.from_word, z.to_word, strip(z));
+  for (const b of w.broll) add("broll", b.from_word, b.to_word, strip(b));
+  for (const c of w.caption_hide) add("caption_hide", c.from_word, c.to_word, strip(c));
+  for (const e of w.effects) add("effect", e.from_word, e.to_word, strip(e));
+  for (const v of w.variants) {
+    const { hook_from_word, hook_to_word, ...rest } = v;
+    add("variant", hook_from_word, hook_to_word, rest);
+  }
+  return { summary: w.summary, warning: w.warning, pace: w.pace, actions, changes: w.changes };
+}
 
 export type DirectorTaskInput = {
   format: string;

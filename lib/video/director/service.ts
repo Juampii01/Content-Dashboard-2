@@ -8,7 +8,9 @@ import {
   criticWireSchema,
   DIRECTOR_RULES,
   directorTask,
-  directorWireSchema,
+  directorApiSchema,
+  directorFromApi,
+  directorToApi,
   FINAL_RULES,
   goalRules,
   mapTask,
@@ -393,7 +395,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   const simInput = { words, duration, format, candidates, map, brief, broll: { ...limits, stock: stockReady }, mustKeep: keep, preset: ctx.project.captionPreset, base, issues, instruction, fx };
   let ai: DirectorWire | null = null;
   try {
-    ai = await generateStructured({
+    const api = await generateStructured({
       feature: mode ? "video.director.revisar" : "video.director.plan",
       model: effective.model,
       thinking: effective.effort ? { effort: effective.effort } : null,
@@ -426,11 +428,12 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
               }
             : null,
       })}`,
-      schema: directorWireSchema,
+      schema: directorApiSchema,
       maxTokens: 32000,
       timeoutMs: 600_000,
-      fake: () => simulateDirector(simInput),
+      fake: () => directorToApi(simulateDirector(simInput)),
     });
+    ai = directorFromApi(api);
   } catch (error) {
     console.error("[director] dirección sin IA:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
     if (!mode) {

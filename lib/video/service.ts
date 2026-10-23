@@ -380,6 +380,8 @@ export type Review = {
    * (id de la primera palabra del bloque). Sin el campo, se deja lo que ya tenía el plan.
    */
   captionPlace?: { transform?: unknown; lines?: unknown };
+  /** Tramos sin subtítulos tal como quedaron en la revisión (quitados por la persona o por el director). */
+  captionHide?: { from_word: number; to_word: number; why: string }[];
 };
 
 export function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
@@ -409,6 +411,22 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     ...(review.broll ? { broll: cleanBroll(review.broll, words.length) } : {}),
     ...(review.zooms != null && plan.style_id ? { zooms_enabled: review.zooms } : {}),
   };
+  if (review.captionHide) {
+    // Subtítulos quitados: tramos válidos, sin repetir y unidos si se pisan.
+    const spans = review.captionHide
+      .map((h) => ({ from_word: Math.min(h.from_word, h.to_word), to_word: Math.max(h.from_word, h.to_word), why: h.why.slice(0, 300) }))
+      .filter((h) => h.from_word >= 0 && h.to_word < words.length)
+      .sort((a, b) => a.from_word - b.from_word);
+    const merged: typeof spans = [];
+    for (const h of spans) {
+      const last = merged[merged.length - 1];
+      if (last && h.from_word <= last.to_word + 1) last.to_word = Math.max(last.to_word, h.to_word);
+      else merged.push({ ...h });
+    }
+    const { hide: _h, ...rest } = next.captions;
+    void _h;
+    next.captions = merged.length ? { ...rest, hide: merged.slice(0, 60) } : rest;
+  }
   if (review.captionPlace) {
     // Lienzo: lugar de los subtítulos, limpio (sin rotación, ids válidos, dentro de los límites).
     const place = cleanCaptionPlacement(review.captionPlace, words.length);

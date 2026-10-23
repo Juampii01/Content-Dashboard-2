@@ -76,7 +76,7 @@ export const planSchema = z.object({
     emphasis_words: z.array(z.number().int().min(0)).max(40),
     emoji: z.boolean().optional(),
     /** Tramos sin subtítulos (el director los oculta donde ya hay texto quemado en la misma franja). */
-    hide: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(30).optional(),
+    hide: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(60).optional(),
     /** Lugar y tamaño de todos los subtítulos (lienzo de la revisión). Sin esto, el del estilo. */
     transform: transformSchema.optional(),
     /** Lugar de una línea (bloque) por el id de su primera palabra; manda sobre el de todos. */

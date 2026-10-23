@@ -157,6 +157,8 @@ const reviewSchema = z.object({
   effects: fxListSchema.optional(),
   // Lugar de los subtítulos del lienzo (lo limpia applyReview con cleanCaptionPlacement).
   captionPlace: z.object({ transform: z.unknown().optional(), lines: z.unknown().optional() }).optional(),
+  // Tramos sin subtítulos (los que quitó la persona y los del director que siguen en pie).
+  captionHide: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(60).optional(),
   rhythm: z
     .object({
       density: z.enum(["sobria", "normal", "reels"]),

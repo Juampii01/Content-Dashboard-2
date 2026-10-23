@@ -146,7 +146,18 @@ export function Studio(props: StudioProps) {
     [words, s.removed, plan.removals, plan.hook_candidates, s.selectedHook, s.corrections, s.preset, s.emphasis, s.pacing, s.moves, duration],
   );
   const fxSegs = useMemo(() => fxSegments(timeline, s.effects), [timeline, s.effects]);
-  const hiddenCaptions = useMemo(() => (plan.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r)), [plan.captions.hide, timeline]);
+  // Tramos sin subtítulos (quitados por la persona o por el director), con su índice para poder volver a mostrarlos.
+  const captionHides = useMemo(
+    () =>
+      s.captionHide
+        .map((h, index) => {
+          const r = outputRange(timeline, h.from_word, h.to_word);
+          return r ? { ...r, index } : null;
+        })
+        .filter((r): r is { start: number; end: number; index: number } => Boolean(r)),
+    [s.captionHide, timeline],
+  );
+  const hiddenCaptions = useMemo(() => captionHides.map(({ start, end }) => ({ start, end })), [captionHides]);
   // Sin subtítulos donde el director los ocultó ni durante los efectos que llevan los suyos, igual que en el render.
   const captions = useMemo(() => (s.preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, s.preset, captionStyle), [...hiddenCaptions, ...fxCaptionHides(fxSegs)])), [timeline, s.preset, captionStyle, hiddenCaptions, fxSegs]);
   const capLook = useMemo(() => (isCaptionStyle(s.preset) ? captionLook(s.preset, { format: s.format, accent, brandFont: graphicLook.font, emoji: s.emoji }) : null), [s.preset, s.format, accent, graphicLook.font, s.emoji]);
@@ -525,6 +536,14 @@ export function Studio(props: StudioProps) {
     if (sel.kind === "broll") update((st) => ({ ...st, broll: st.broll.filter((b) => b.id !== sel.id) }));
     else if (sel.kind === "fx") update((st) => ({ ...st, effects: st.effects.filter((e) => e.id !== sel.id) }));
     else if (sel.kind === "zoom" && sel.index >= 0) update((st) => ({ ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.filter((_, i) => i !== sel.index) }));
+    else if (sel.kind === "caption") {
+      const block = captions[sel.index];
+      const first = block?.words[0];
+      const last = block?.words[block.words.length - 1];
+      if (!first || !last) return;
+      update((st) => ({ ...st, captionHide: [...st.captionHide, { from_word: first.id, to_word: last.id, why: "Lo quitaste tú." }] }));
+      toast.success("Subtítulo quitado. Para volver a mostrarlo, toca el tramo rayado en la pista de subtítulos o deshaz (Cmd+Z).");
+    }
     else if (sel.kind === "range") return cutSpan(sel);
     else if (sel.kind === "clip") {
       const clip = timeline.clips[sel.index];
@@ -1043,7 +1062,7 @@ export function Studio(props: StudioProps) {
           <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={split} title="Dividir lo elegido en el cabezal (S)">
             <span className="hidden xl:inline">Dividir</span>
           </Button>
-          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "caption" || selection.kind === "cut" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
+          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "cut" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
             <span className="hidden xl:inline">Quitar</span>
           </Button>
           {selection?.kind === "range" && (
@@ -1362,6 +1381,8 @@ export function Studio(props: StudioProps) {
                 sfx={sfxMarks}
                 music={musicTrack ? { label: `Música · ${musicTrack.title}` } : null}
                 hiddenCaptions={captionGaps}
+                captionHides={canEdit ? captionHides : []}
+                onShowCaptions={(index) => update((st) => ({ ...st, captionHide: st.captionHide.filter((_, i) => i !== index) }))}
                 selection={selection}
                 range={rangeSel}
                 obstacles={obstacles}

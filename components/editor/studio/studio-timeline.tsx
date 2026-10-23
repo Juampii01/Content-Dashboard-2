@@ -100,6 +100,8 @@ export function StudioTimeline({
   sfx,
   music,
   hiddenCaptions,
+  captionHides = [],
+  onShowCaptions,
   selection,
   range,
   obstacles,
@@ -124,6 +126,9 @@ export function StudioTimeline({
   sfx: { at: number }[];
   music: { label: string } | null;
   hiddenCaptions: { start: number; end: number }[];
+  /** Tramos sin subtítulos que se pueden volver a mostrar (los que quitó la persona o el director). */
+  captionHides?: { start: number; end: number; index: number }[];
+  onShowCaptions?: (index: number) => void;
   selection: StudioSelection | null;
   /** Tramo elegido en la pista de video (en segundos), si hay. */
   range: { start: number; end: number } | null;
@@ -393,6 +398,21 @@ export function StudioTimeline({
               >
                 {track.key === "captions" &&
                   hiddenCaptions.map((h, i) => <div key={`h${i}`} aria-hidden className="absolute inset-y-1 rounded bg-[repeating-linear-gradient(135deg,rgba(255,255,255,.06)_0_4px,transparent_4px_8px)]" style={{ left: x(h.start), width: Math.max(2, x(h.end - h.start)) }} title="Sin subtítulos aquí" />)}
+                {track.key === "captions" &&
+                  onShowCaptions &&
+                  captionHides.map((h) => (
+                    <button
+                      key={`s${h.index}`}
+                      type="button"
+                      onClick={() => onShowCaptions(h.index)}
+                      className="group/show absolute inset-y-1 z-[1] grid place-items-center overflow-hidden rounded border border-dashed border-white/20 text-[10px] font-semibold text-transparent transition hover:border-accent-hi hover:bg-accent/15 hover:text-accent-glow focus-visible:text-accent-glow focus-visible:outline-2 focus-visible:outline-accent-hi"
+                      style={{ left: x(h.start), width: Math.max(6, x(h.end - h.start)) }}
+                      title="Volver a mostrar los subtítulos aquí"
+                      aria-label={`Volver a mostrar los subtítulos de ${timeLabel(h.start)} a ${timeLabel(h.end)}`}
+                    >
+                      Mostrar
+                    </button>
+                  ))}
 
                 {byTrack[track.key].map((b) => {
                   const g = ghost?.key === b.key ? ghost : null;

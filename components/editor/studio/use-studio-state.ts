@@ -36,6 +36,8 @@ export type StudioState = {
   rhythmLog: RhythmAddition[];
   /** Lugar de los subtítulos movidos en el lienzo (todos y, si se pidió, por línea). */
   captionPlace: CaptionPlacement;
+  /** Tramos sin subtítulos (palabras): los que quitó la persona y los del director. */
+  captionHide: { from_word: number; to_word: number; why: string }[];
   /** Se tocó el ritmo (densidad, zooms del director o resaltados): se guarda el bloque `rhythm` de la revisión. */
   rhythmTouched: boolean;
 };
@@ -65,6 +67,7 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     emphasis: plan.captions.emphasis_words,
     rhythmLog: plan.rhythm?.added ?? [],
     rhythmTouched: false,
+    captionHide: plan.captions.hide ?? [],
     captionPlace: cleanCaptionPlacement({ transform: plan.captions.transform, lines: plan.captions.lines }, wordCount),
   };
 }
@@ -86,6 +89,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     ...(ctx.plan.moves?.length ? { moves: s.moves } : {}),
     effects: s.effects,
     captionPlace: s.captionPlace,
+    captionHide: s.captionHide,
     ...(s.rhythmTouched ? { rhythm: { density: s.density, added: s.rhythmLog, zoomMoments: s.zoomMoments, longPause: s.pacing?.long_pause ?? 0.5, emphasis: s.emphasis } } : {}),
   };
 }

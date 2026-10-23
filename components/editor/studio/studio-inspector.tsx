@@ -446,10 +446,29 @@ function CaptionInspector({ api, index, onClose }: { api: StudioApi; index: numb
             );
           })}
         </ul>
-        <Button size="sm" variant="ghost" className="self-start" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(block.start, true)}>
-          Escuchar
-        </Button>
-        <p className="text-xs text-muted">Para corregir una palabra en todas las veces que aparece, haz doble clic sobre ella en Transcripción.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(block.start, true)}>
+            Escuchar
+          </Button>
+          {props.canEdit && (
+            <Button size="sm" variant="subtle" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.removeSelection} title="Quitar este subtítulo (Supr)">
+              Quitar este subtítulo
+            </Button>
+          )}
+        </div>
+        {props.canEdit && (
+          <button
+            type="button"
+            className="self-start text-xs font-semibold text-muted underline-offset-4 hover:text-white hover:underline"
+            onClick={() => {
+              api.update((s) => ({ ...s, preset: "ninguno" }));
+              api.select(null);
+            }}
+          >
+            Quitar todos los subtítulos del video
+          </button>
+        )}
+        <p className="text-xs text-muted">Para corregir una palabra en todas las veces que aparece, haz doble clic sobre ella en Transcripción. Un subtítulo quitado deja un tramo rayado en su pista: tócalo para volver a mostrarlo.</p>
       </div>
       <TransformSlot api={api} sel={sel} />
     </>

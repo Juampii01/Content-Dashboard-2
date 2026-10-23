@@ -76,7 +76,8 @@ export function brollForbidden(words: Word[], removed: Set<number>, hook: HookCa
   const last = phrases.at(-1);
   if (last) out.push({ from: last.from, to: last.to, label: "llamado a la acción" });
   for (const b of map?.beats ?? []) if (b.role === "cta") out.push({ from: b.from, to: b.to, label: "llamado a la acción" });
-  for (const s of map?.shots ?? []) if (s.important) out.push({ from: s.from, to: s.to, label: `lo que se ve (${s.shows.slice(0, 40)})` });
+  // "A cámara" no se protege: tapar por momentos al creador que habla es justamente para qué sirve el b-roll.
+  for (const s of map?.shots ?? []) if (s.important && s.kind !== "a_camara") out.push({ from: s.from, to: s.to, label: `lo que se ve (${s.shows.slice(0, 40)})` });
   return out;
 }
 
@@ -219,7 +220,8 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
 
   // 6 bis. Efectos de la biblioteca (nunca sobre un b-roll, lo importante que se muestra ni una toma mala).
   const fxForbidden = [
-    ...(map?.shots ?? []).filter((s) => s.important).map((s) => ({ from: s.from, to: s.to, label: `lo que se ve (${s.shows.slice(0, 40)})` })),
+    // Los efectos se dibujan sobre la persona que habla: solo se protege lo que no es "a cámara" (producto, pantalla, gesto).
+    ...(map?.shots ?? []).filter((s) => s.important && s.kind !== "a_camara").map((s) => ({ from: s.from, to: s.to, label: `lo que se ve (${s.shows.slice(0, 40)})` })),
     ...(map?.badTakes ?? []).map((b) => ({ from: b.from, to: b.to, label: "una toma mala" })),
   ];
   const fx = input.fx

@@ -17,7 +17,7 @@ import { BAD_TAKE_KINDS, BEAT_ROLES, BRIEF_GOALS, ISSUE_KINDS, SHOT_KINDS, VIDEO
  */
 export const DIRECTOR_PROMPT_VERSION = 1;
 
-const IDIOMA = `IDIOMA: todo lo que escribes para la persona ("why", "summary", "note", "fix", "verdict", "changes") va corto, concreto y en español neutro con trato de "tú": sin voseo ni español de España, "video" sin tilde. Los textos que salen en pantalla (gráficos) van en el idioma de la marca (ver IDIOMA en la marca).`;
+const IDIOMA = `IDIOMA: todo lo que escribes para la persona ("why", "summary", "note", "fix", "verdict", "changes") va corto, concreto y en español neutro con trato de "tú": sin voseo ni español de España, "video" sin tilde. Los textos que salen en pantalla (gráficos) van en el idioma de la marca (ver IDIOMA en la marca). Lo que la persona DICE en el video es su forma de hablar (voseo, modismos de su país): nunca lo señales como problema ni lo menciones en warning; los subtítulos lo transcriben tal cual.`;
 
 // ─── 1. Mapa del video (visión) ───────────────────────────────────────────
 

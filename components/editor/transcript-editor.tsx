@@ -145,7 +145,9 @@ export function TranscriptEditor({
     el.setAttribute("data-playing", "");
     const box = root.getBoundingClientRect();
     const r = el.getBoundingClientRect();
-    if (r.top < box.top || r.bottom > box.bottom) el.scrollIntoView({ block: "nearest" });
+    // Solo se desplaza la caja de la transcripción (scrollIntoView movía también la página y sacaba el video de la vista).
+    if (r.top < box.top) root.scrollTop += r.top - box.top - 8;
+    else if (r.bottom > box.bottom) root.scrollTop += r.bottom - box.bottom + 8;
   }, [activeTime, words]);
 
   const selIds = selection ? ids(selection) : [];

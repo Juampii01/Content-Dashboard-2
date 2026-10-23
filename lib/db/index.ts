@@ -17,17 +17,20 @@ type Db = NodePgDatabase<typeof schema>;
 const globalForDb = globalThis as unknown as { db?: Db; pool?: Pool };
 
 /**
- * `sslmode=require` (el que trae Neon) hoy ya se trata como `verify-full` en pg, pero imprime un aviso de seguridad en
- * cada arranque. Se pide `verify-full` explícito: el mismo comportamiento, sin el aviso en los registros.
+ * Neon trae `sslmode=require`, que pg ya trata como `verify-full` pero avisa en cada arranque ("SECURITY WARNING").
+ * Se saca el parámetro de la URL y se pide TLS verificado en la configuración: mismo comportamiento, sin el aviso.
  */
-export function strictSsl(url: string): string {
-  return url.replace(/([?&])sslmode=(prefer|require|verify-ca)(?=&|$)/, "$1sslmode=verify-full");
+export function poolSsl(url: string): { connectionString: string; ssl?: { rejectUnauthorized: true } } {
+  const match = /[?&]sslmode=(prefer|require|verify-ca|verify-full)(?=&|$)/.exec(url);
+  if (!match) return { connectionString: url };
+  const connectionString = url.replace(/([?&])sslmode=[^&]*&?/, "$1").replace(/[?&]$/, "");
+  return { connectionString, ssl: { rejectUnauthorized: true } };
 }
 
 export function getDb(): Db {
   if (!globalForDb.db) {
     const pool = new Pool({
-      connectionString: strictSsl(env().DATABASE_URL),
+      ...poolSsl(env().DATABASE_URL),
       max: 5,
       idleTimeoutMillis: 5_000,
       connectionTimeoutMillis: 10_000,

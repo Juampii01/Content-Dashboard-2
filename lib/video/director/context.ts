@@ -136,6 +136,9 @@ export function planText(plan: EditPlan, words: Word[]): string {
           })
           .join("\n")}`
       : "- B-roll: ninguno",
+    plan.effects?.length
+      ? `- Efectos:\n${plan.effects.map((e) => `  ${e.kind} [${e.from_word}–${e.to_word}]${e.text ? ` "${e.text}"` : ""}${e.items?.length ? ` (${e.items.join(" / ")})` : ""} sobre "${textOf(words, e.from_word, e.to_word, c, 60)}"${e.source === "user" ? " (lo puso la persona: no lo quites salvo que lo pida)" : ""}`).join("\n")}`
+      : "- Efectos: ninguno",
     plan.zoom_moments?.length ? `- Zooms: ${plan.zoom_moments.map((z) => `[${z.from_word}–${z.to_word}] ×${z.scale.toFixed(2)}`).join(", ")}` : "",
     plan.captions.hide?.length ? `- Subtítulos ocultos: ${plan.captions.hide.map((h) => `[${h.from_word}–${h.to_word}]`).join(", ")}` : "",
     plan.captions.emphasis_words.length ? `- Palabras resaltadas: ${plan.captions.emphasis_words.map((id) => `${id}:${words[id]?.text ?? "?"}`).join(", ")}` : "",

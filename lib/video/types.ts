@@ -6,6 +6,7 @@
  * Los del timeline final ("out") están en segundos del video editado.
  */
 import type { BrollEditInput } from "./broll-edit";
+import type { FxItem } from "./fx/schema";
 import type { GraphicSpec } from "./graphics";
 import type { MotionScene } from "./motion/schema";
 import type { AudioPreviewMedia } from "./studio-audio";
@@ -46,7 +47,14 @@ export type MediaInfo = {
   posterKey?: string;
   /** Muestra de "Audio de estudio" (10 s: original, Suave y Fuerte), armada al analizar. */
   audioPreview?: AudioPreviewMedia;
+  /**
+   * Recorte de la persona para la vista previa de los efectos (trabajo VIDEO_FX), por encuadre: los segundos del
+   * original que ya tienen su tira de máscaras en `editor/<id>/fx/<clave>/m-NNNNN.png`.
+   */
+  fxMasks?: Record<string, FxMaskMedia>;
 };
+
+export type FxMaskMedia = { chunks: number[]; fps: number; tile: [number, number]; at: string };
 
 export type VideoFormat = "9:16" | "16:9";
 /**
@@ -95,6 +103,8 @@ export type EditPlan = {
   overlays: { text: string; from_word: number; to_word: number; position: "top" | "center" }[];
   /** Tomas de b-roll sobre rangos de palabras (las propone Claude; la persona las cambia en la revisión). */
   broll: BrollItem[];
+  /** Efectos "de firma" sobre rangos de palabras (lib/video/fx). Sin el campo (planes de antes), sin efectos. */
+  effects?: FxItem[];
   /** Zooms y punch-ins del estilo (se calculan en cada render a partir del timeline; aquí solo si van o no). */
   zooms_enabled?: boolean;
   /**

@@ -15,6 +15,8 @@ import { CAPTION_PRESETS } from "./captions";
 import { MUSIC_DB, SFX_LEVEL_LABELS, SFX_LEVELS, type SfxLevel } from "./sfx";
 import { STUDIO_LEVEL_LABELS, STUDIO_LEVELS, type StudioLevel } from "./studio-audio";
 import type { CaptionPresetKey, VideoFormat } from "./types";
+import { FX_FREQUENCY_LABELS } from "./fx/catalog";
+import { FX_FACTORY, fxSettingsSchema, readFxSettings, type FxSettings } from "./fx/schema";
 
 /** Estilos que sirven de valor por defecto: "Del estilo" necesita un video de referencia. */
 export const DEFAULT_CAPTION_OPTIONS = [...CAPTION_STYLE_KEYS, "clasico", "pop", "ninguno"] as const satisfies readonly CaptionPresetKey[];
@@ -30,6 +32,8 @@ export const editorDefaultsSchema = z.object({
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }),
   broll: z.enum(["auto", "off"]),
   format: z.enum(["9:16", "16:9"]),
+  /** Efectos de la biblioteca: cuáles puede elegir el director y con qué frecuencia. */
+  effects: fxSettingsSchema,
 });
 
 export type EditorDefaults = {
@@ -40,6 +44,7 @@ export type EditorDefaults = {
   music: { trackId: string | null; db: number };
   broll: "auto" | "off";
   format: VideoFormat;
+  effects: FxSettings;
 };
 
 /** Lo que sale si la persona nunca tocó nada: lo mismo que ya proponía el editor (Caja, Sutil, Suave, con b-roll). */
@@ -51,6 +56,7 @@ export const FACTORY_DEFAULTS: EditorDefaults = {
   music: { trackId: null, db: MUSIC_DB.default },
   broll: "auto",
   format: "9:16",
+  effects: FX_FACTORY,
 };
 
 const isCaption = (v: unknown): v is DefaultCaptionKey => typeof v === "string" && (DEFAULT_CAPTION_OPTIONS as readonly string[]).includes(v);
@@ -80,12 +86,13 @@ export function readEditorDefaults(brand: { editorDefaults?: unknown; subtitlePr
     music: pick("music"),
     broll: pick("broll"),
     format: pick("format"),
+    effects: raw.effects ? readFxSettings(raw.effects) : { ...FX_FACTORY, allowed: [...FX_FACTORY.allowed] },
   };
 }
 
 /** Lo que se guarda en la base: `editor_defaults` completo y `subtitle_preset` con el estilo (para lo que ya lo leía). */
 export function storedEditorDefaults(defaults: EditorDefaults): { editorDefaults: Record<string, unknown>; subtitlePreset: { preset: DefaultCaptionKey } } {
-  return { editorDefaults: { ...defaults, music: { ...defaults.music } }, subtitlePreset: { preset: defaults.captions } };
+  return { editorDefaults: { ...defaults, music: { ...defaults.music }, effects: { ...defaults.effects, allowed: [...defaults.effects.allowed] } }, subtitlePreset: { preset: defaults.captions } };
 }
 
 /** Frase corta con lo que va a usar "Hazlo por mí" (para mostrar al lado del interruptor). */
@@ -96,6 +103,7 @@ export function summarizeDefaults(d: EditorDefaults, musicTitle: string | null):
     `audio de estudio ${STUDIO_LEVEL_LABELS[d.studio].label}`,
     d.sfx === "off" ? "sin efectos" : `efectos ${SFX_LEVEL_LABELS[d.sfx].label}`,
     d.music.trackId && musicTitle ? `música «${musicTitle}»` : "sin música",
+    d.effects.frequency === "ninguno" || !d.effects.allowed.length ? "sin efectos de firma" : `efectos de firma: ${FX_FREQUENCY_LABELS[d.effects.frequency].label.toLowerCase()}`,
   ];
   return `Con tus valores por defecto: ${parts.join(", ")}.`;
 }

@@ -169,6 +169,8 @@ placeholder   #6f84a8
 
 **Audio de estudio:** ✅ Apagado / Suave / Fuerte en la revisión (nuevos en Suave) con muestra de 10 s antes y después: ruido fuera con DeepFilterNet3 en ONNX (CPU, MIT/Apache), quita de eco tardío y zumbido, ecualización de voz, de-esser y compresión; la voz queda alineada con el video (`worker/video/studio.py`, `lib/video/studio-audio.ts`, `docs/worker.md`).
 
+**Efectos de firma:** ✅ biblioteca de 17 efectos para reels (portada de revista, zoom digital, checklist, letras de vidrio, gráfico que crece, muro de titulares, giro 3D y 10 más) con un motor Canvas 2D único para la vista previa y el worker, recorte de la persona en CPU (MediaPipe Selfie en ONNX, elegido con datos), panel y galería en la revisión, frecuencia en Mi marca y el director que los elige y los acepta en "Edítalo así" (`lib/video/fx/`, `worker/video/fx.py`, `worker/video/fx_mask.py`, `docs/worker.md`).
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

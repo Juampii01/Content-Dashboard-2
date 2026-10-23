@@ -13,6 +13,7 @@ import { endsSentence } from "../text";
 import { buildTimeline, outputRange, removedIds, type Timeline } from "../timeline";
 import { FPS, type EditPlan, type VideoFormat, type Word } from "../types";
 import { textOf, wordsInSpan } from "./context";
+import { FX_INFO } from "../fx/catalog";
 import type { CriticIssue, Eyes, VideoMap } from "./types";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -47,6 +48,13 @@ export function checkPlan(input: { plan: EditPlan; words: Word[]; duration: numb
     if (shot) {
       add({ kind: "tapa_importante", severity: "alta", at: seg.start, note: `El ${seg.option.source === "graphic" ? "gráfico" : "b-roll"} ${label(item.id)} tapa ${shot.shows.toLowerCase()}.`, fix: `Quita el ${seg.option.source === "graphic" ? "gráfico" : "b-roll"} ${label(item.id)} (palabras ${item.from_word}–${item.to_word}): tapa ${shot.shows.toLowerCase()}.` });
     }
+  }
+
+  // Efectos sobre algo que se tiene que ver o sin la cara a cámara (los que te recortan).
+  for (const e of plan.effects ?? []) {
+    const shot = map?.shots.find((s) => s.important && s.from <= e.to_word && e.from_word <= s.to);
+    const r = outputRange(timeline, e.from_word, e.to_word);
+    if (shot && r) add({ kind: "tapa_importante", severity: "alta", at: r.start, note: `El efecto «${FX_INFO[e.kind].label}» tapa ${shot.shows.toLowerCase()}.`, fix: `Quita el efecto ${e.kind} (palabras ${e.from_word}–${e.to_word}): tapa ${shot.shows.toLowerCase()}.` });
   }
 
   // Frases cortadas por un corte (se cortó el final de una frase que sigue después).
@@ -169,6 +177,13 @@ export function safeFixes(input: { plan: EditPlan; words: Word[]; duration: numb
     plan = { ...plan, broll: plan.broll.filter((b) => !map.shots.some((s) => s.important && s.from <= b.to_word && b.from_word <= s.to)) };
     const n = before - plan.broll.length;
     if (n) changes.push(n === 1 ? "Quité un b-roll que tapaba lo que muestras." : `Quité ${n} b-roll que tapaban lo que muestras.`);
+    const fxBefore = plan.effects?.length ?? 0;
+    const effects = (plan.effects ?? []).filter((e) => !map.shots.some((s) => s.important && s.from <= e.to_word && e.from_word <= s.to));
+    if (effects.length !== fxBefore) {
+      plan = { ...plan, ...(effects.length ? { effects } : { effects: undefined }) };
+      if (!effects.length) delete plan.effects;
+      changes.push("Quité un efecto que tapaba lo que muestras.");
+    }
   }
   if (kinds.has("toma_mala") && map) {
     const removed = removedIds(plan, words.length);

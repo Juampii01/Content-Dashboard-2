@@ -1,0 +1,171 @@
+"""Efectos de firma: recorte de la persona (modelo, mosaico, suavizado, guided filter, caché, tiras) y composición
+(render de un efecto con el motor en Node y su capa en el grafo final). Video sintético con una persona real (la foto de
+la astronauta, dominio público) cuya máscara exacta conocemos."""
+
+from __future__ import annotations
+
+import json
+import math
+import subprocess
+import sys
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+
+from video import fx, fx_mask, render
+
+HERE = Path(__file__).resolve().parent
+FIXTURES = HERE / "fixtures"
+FONTS = HERE.parent / "fonts"
+sys.path.insert(0, str(HERE.parent / "scripts"))
+
+from make_fx_video import frames as synth_frames  # noqa: E402
+
+
+def _video(tmp: Path, seconds: float = 2.0, size=(540, 960)) -> tuple[Path, list[np.ndarray]]:
+    subject = cv2.imread(str(FIXTURES / "astronaut.jpg"))
+    alpha = cv2.imread(str(FIXTURES / "astronaut-alpha.png"), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255
+    out = tmp / "fx.mp4"
+    w, h = size
+    ff = subprocess.Popen(
+        ["ffmpeg", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", "30", "-i", "-", "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p", str(out)],
+        stdin=subprocess.PIPE,
+    )
+    gts = []
+    for frame, a in synth_frames(subject, alpha, size, seconds):
+        ff.stdin.write(frame.tobytes())  # type: ignore[union-attr]
+        gts.append(a)
+    ff.stdin.close()  # type: ignore[union-attr]
+    assert ff.wait() == 0
+    return out, gts
+
+
+# ─── Recorte ───────────────────────────────────────────────────────────────
+
+
+def test_framing_key_matches_the_app() -> None:
+    assert fx_mask.framing_key(1080, 1920, "9:16", 0.3) == f"9x16-op000-{fx_mask.MASK_VERSION}"
+    assert fx_mask.framing_key(1920, 1080, "9:16", -0.354) == f"9x16-om035-{fx_mask.MASK_VERSION}"
+    assert fx_mask.framing_key(1920, 1080, "9:16", 0.125) == f"9x16-op013-{fx_mask.MASK_VERSION}"  # como Math.round
+
+
+def test_framing_filter_is_the_render_crop() -> None:
+    # 16:9 → 9:16: mismo recorte que render.framing_graph (al tamaño pedido).
+    g = fx_mask.framing_filter(1920, 1080, "9:16", 0.0, 540, 960)
+    full, _, _ = render.framing_graph(1920, 1080, "9:16", 0.0, None, Path("."))
+    assert "crop=608:1080:656:0" in g and "crop=608:1080:656:0" in full
+
+
+def test_model_finds_the_person() -> None:
+    img = cv2.cvtColor(cv2.imread(str(FIXTURES / "astronaut.jpg")), cv2.COLOR_BGR2RGB)
+    gt = cv2.imread(str(FIXTURES / "astronaut-alpha.png"), cv2.IMREAD_GRAYSCALE) > 127
+    p = fx_mask.predict(img) > 0.5
+    iou = (p & gt).sum() / (p | gt).sum()
+    # En la foto original la astronauta sostiene un casco que el modelo cuenta como parte de ella (la máscara de
+    # referencia no): por eso 0,7 y no más. En el video (sin casco a la vista) se exige más abajo 0,9 por cuadro.
+    assert iou > 0.7, iou
+
+
+def test_masks_are_accurate_and_stable(tmp_path: Path) -> None:
+    video, gts = _video(tmp_path, 2.0)
+    key = fx_mask.ensure_chunks(video, (540, 960), 60, "9:16", 0.0, [0, 1], tmp_path / "cache")
+    preds = [cv2.resize(fx_mask.mask_at(tmp_path / "cache", key, i), (540, 960)).astype(np.float32) / 255 for i in range(60)]
+    gts = [cv2.resize(g, (540, 960)) for g in gts]
+    ious = [((p > 0.5) & (g > 0.5)).sum() / ((p > 0.5) | (g > 0.5)).sum() for p, g in zip(preds, gts)]
+    assert min(ious) > 0.9, min(ious)
+    # Parpadeo: lo que cambia la máscara entre cuadros, descontando lo que se movió de verdad (en el borde).
+    flicker = []
+    for i in range(1, 60):
+        b = cv2.dilate((gts[i] > 0.5).astype(np.uint8), np.ones((15, 15), np.uint8)) - cv2.erode((gts[i] > 0.5).astype(np.uint8), np.ones((15, 15), np.uint8))
+        flicker.append(np.abs((preds[i] - preds[i - 1]) - (gts[i] - gts[i - 1]))[b > 0].mean())
+    assert float(np.mean(flicker)) < 0.05, np.mean(flicker)
+    # La caché se reutiliza: un segundo pedido no recalcula.
+    mtime = fx_mask.chunk_path(tmp_path / "cache", key, 0).stat().st_mtime
+    fx_mask.ensure_chunks(video, (540, 960), 60, "9:16", 0.0, [0], tmp_path / "cache")
+    assert fx_mask.chunk_path(tmp_path / "cache", key, 0).stat().st_mtime == mtime
+
+
+def test_temporal_filter_keeps_real_motion() -> None:
+    # Un borde que se mueve de verdad no deja estela; un parpadeo aislado se apaga.
+    seq = [np.zeros((10, 10), np.float32) for _ in range(5)]
+    for k in range(2, 5):
+        seq[k][:, :] = 1.0
+    assert fx_mask.temporal(seq, 2)[0, 0] > 0.9
+    blink = [np.zeros((4, 4), np.float32) for _ in range(5)]
+    blink[2][:, :] = 0.3
+    assert fx_mask.temporal(blink, 2)[0, 0] < 0.3
+
+
+def test_preview_strip_is_white_with_alpha(tmp_path: Path) -> None:
+    arr = np.zeros((30, 960, 540), np.uint8)
+    arr[:, 200:700, 150:400] = 255
+    key = "9x16-op000-prueba"
+    (tmp_path / key).mkdir()
+    np.savez_compressed(fx_mask.chunk_path(tmp_path, key, 0), m=arr)
+    out = fx_mask.preview_strip(tmp_path, key, 0, "9:16", tmp_path / "tira.png")
+    img = cv2.imread(str(out), cv2.IMREAD_UNCHANGED)
+    assert img.shape == (320, 1800, 4)
+    assert img[..., :3].min() == 255
+    assert img[160, 90, 3] > 200 and img[10, 10, 3] == 0
+
+
+# ─── Composición ───────────────────────────────────────────────────────────
+
+needs_engine = [
+    pytest.mark.skipif(not (FONTS / "InstrumentSerif-Regular.ttf").exists(), reason="faltan las fuentes (scripts/fetch_fonts.sh)"),
+    pytest.mark.skipif(not fx.enabled(), reason="falta Node o skia-canvas (cd worker/motion && npm ci)"),
+]
+
+
+class _Ctx:
+    def check(self) -> None:
+        return None
+
+
+@pytest.mark.parametrize("kind", ["cover_story", "checklist", "zoom_cut"])
+def test_effect_renders_over_the_video(tmp_path: Path, kind: str) -> None:
+    for mark in needs_engine:
+        if mark.args[0]:
+            pytest.skip(mark.kwargs["reason"])
+    video, _ = _video(tmp_path, 1.0, (1080, 1920))
+    spec = json.loads((FIXTURES / "fx-specs.json").read_text(encoding="utf-8"))[kind]
+    item = {"spec": spec, "sourceFrames": list(range(18))}
+    out = fx.render_effects(_Ctx(), [item], joined=video, mezz=video, src_size=(1080, 1920), total_frames=30, fmt="9:16", offset_x=0.0, workdir=tmp_path, fonts_dir=FONTS)
+    assert len(out) == 1 and out[0]["path"].exists()
+    probe = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(out[0]["path"])], capture_output=True, check=True).stdout)
+    v = probe["streams"][0]
+    assert (int(v["width"]), int(v["height"])) == (1080, 1920)
+    assert int(v["nb_frames"]) == 18
+    # El efecto cambia el cuadro (no es el video tal cual).
+    cap = cv2.VideoCapture(str(out[0]["path"]))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 12)
+    ok, drawn = cap.read()
+    base = cv2.VideoCapture(str(video))
+    base.set(cv2.CAP_PROP_POS_FRAMES, 12)
+    _, orig = base.read()
+    assert ok and np.abs(drawn.astype(int) - orig.astype(int)).mean() > 2
+    # Caché: el segundo pedido no vuelve a dibujar.
+    again = fx.render_effects(_Ctx(), [item], joined=video, mezz=video, src_size=(1080, 1920), total_frames=30, fmt="9:16", offset_x=0.0, workdir=tmp_path, fonts_dir=FONTS)
+    assert again[0]["path"] == out[0]["path"] and again[0]["ms"] == 0
+
+
+def test_effect_layer_enters_without_fade() -> None:
+    from video.pipeline import FX_EDIT, fx_image_hosts
+
+    graph, _, _ = render.framing_graph(1080, 1920, "9:16", 0.0, None, Path("."), broll=[{"input": 2, "start": 1.0, "end": 3.0, "edit": FX_EDIT}])
+    assert "[2:v]format=yuva420p,setpts=PTS-STARTPTS+1.000/TB[br0]" in graph
+    assert "fade" not in graph
+    assert "overlay=x=0:y=0" in graph
+    assert fx_image_hosts("https://cliente.com") == ("cliente.com", "public.blob.vercel-storage.com")
+
+
+def test_invalid_items_are_refused() -> None:
+    from comunes.errors import JobError
+
+    with pytest.raises(JobError):
+        fx.validate({"spec": {"v": 2}})
+    with pytest.raises(JobError):
+        fx.validate({"spec": {"v": 1, "kind": "cover_story", "duration": 2, "mask": True}})
+    assert math.isclose(fx.validate({"spec": {"v": 1, "kind": "checklist", "duration": 2}})["spec"]["duration"], 2)

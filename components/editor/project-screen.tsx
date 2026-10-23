@@ -38,8 +38,10 @@ export function ProjectScreen({
   style = null,
   graphicLook,
   tracks = [],
+  fxContext = null,
 }: {
   project: View;
+  fxContext?: ComponentProps<typeof ReviewEditor>["fxContext"];
   tracks?: ComponentProps<typeof ReviewEditor>["tracks"];
   graphicLook: GraphicLook;
   signedBroll?: Record<string, SignedOption>;
@@ -83,6 +85,7 @@ export function ProjectScreen({
           tracks={tracks}
           audioPreview={project.audioPreview}
           director={project.director}
+          fxContext={fxContext}
         />
       )}
       {status === "DONE" && project.output && (

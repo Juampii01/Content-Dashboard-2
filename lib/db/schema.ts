@@ -933,6 +933,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "YOUTUBE_TRANSCRIPT", // subtítulos de un video publicado de YouTube con yt-dlp (input.contentItemId)
   "REEL_COPY", // "Copia este reel": bajar, transcribir y medir un reel ajeno; la app escribe la versión propia (input.reelCopyId)
   "VIDEO_PHRASE_CLIP", // tramo de una frase corregida (video + voz nueva) para la sincronía de labios (input.fixId)
+  "VIDEO_FX", // máscaras de la persona para la vista previa de los efectos del editor (input.projectId, input.chunks)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 

@@ -10,6 +10,7 @@ import { sentences } from "@/lib/ai/prompts/editor";
 import { confidentRemovals, type Candidate } from "./candidates";
 import { brollEditSchema } from "./broll-edit";
 import { brollGraphicSchema } from "./motion-graphics";
+import { fxIssues, fxListSchema } from "./fx/schema";
 import { buildTimeline, planSegments } from "./timeline";
 import { CAPTION_PRESET_KEYS, REMOVAL_REASONS, type CaptionPresetKey, type EditPlan, type HookCandidate, type Removal, type VideoFormat, type Word } from "./types";
 
@@ -78,6 +79,8 @@ export const planSchema = z.object({
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   overlays: z.array(z.object({ text: z.string().max(120), from_word: z.number().int(), to_word: z.number().int(), position: z.enum(["top", "center"]) })).max(20),
   broll: z.array(brollItemSchema).max(20),
+  /** Efectos de la biblioteca (opcional: los planes de antes no los tienen). */
+  effects: fxListSchema.optional(),
   zooms_enabled: z.boolean().optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
   zoom_moments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300) })).max(60).optional(),
@@ -134,6 +137,7 @@ export function planIssues(plan: EditPlan, wordCount: number): string[] {
     if (next && next.from_word <= m.to_word) issues.push(`Bloques movidos superpuestos (${m.from_word}–${m.to_word} y ${next.from_word}–${next.to_word}).`);
   });
   for (const z of plan.zoom_moments ?? []) check("Zoom", z.from_word, z.to_word);
+  issues.push(...fxIssues(plan.effects ?? [], wordCount, plan.broll.filter((b) => b.choice)));
   return issues;
 }
 

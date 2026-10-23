@@ -11,6 +11,9 @@ import type { CaptionStyle } from "@/lib/video/style";
 import { outputToSource } from "@/lib/video/timeline";
 import { FPS, type CaptionBlock, type CaptionPresetKey, type Clip, type VideoFormat } from "@/lib/video/types";
 import { BrollLayer, personStyle } from "./broll-layer";
+import { FxVideoLayer } from "./fx/fx-canvas";
+import { usePrefersReducedMotion } from "@/components/ui/hooks";
+import { FX_INFO, type FxSpec } from "@/lib/video/fx";
 import { CaptionOverlay } from "./caption-overlay";
 import { GraphicCanvas } from "./graphic-canvas";
 
@@ -70,10 +73,40 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   /** Colores de Mi marca para el b-roll: acento (duotono) y fondo (pantalla dividida). */
   brandAccent?: string;
   brandGround?: string;
+  /** Efectos de la biblioteca (el mismo spec que dibuja el worker) y lo que necesitan: tiras de máscaras y miniaturas. */
+  effects?: FxSpec[];
+  fxStrips?: Record<number, HTMLImageElement | undefined>;
+  fxMaskFps?: number;
+  fxImages?: Record<string, HTMLImageElement | undefined>;
 }>(function PreviewPlayer(
-  { src, poster, clips, duration, blocks, preset, format, accent, sourceWidth, sourceHeight, offsetX, onSourceTime, captionStyle = null, captionLook = null, broll = [], zooms = [], focusY = 0.42, brandAccent = "#0070f8", brandGround = "#030a22" },
+  {
+    src,
+    poster,
+    clips,
+    duration,
+    blocks,
+    preset,
+    format,
+    accent,
+    sourceWidth,
+    sourceHeight,
+    offsetX,
+    onSourceTime,
+    captionStyle = null,
+    captionLook = null,
+    broll = [],
+    zooms = [],
+    focusY = 0.42,
+    brandAccent = "#0070f8",
+    brandGround = "#030a22",
+    effects = [],
+    fxStrips = {},
+    fxMaskFps = 10,
+    fxImages = {},
+  },
   ref,
 ) {
+  const reducedMotion = usePrefersReducedMotion();
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const clipIndex = useRef(0);
@@ -216,6 +249,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   }
 
   const activeBroll = broll.find((b) => out >= b.start && out < b.end) ?? null;
+  const activeFx = activeBroll ? null : (effects.find((e) => out >= e.start && out < e.end) ?? null);
   // Igual que el render: durante un gráfico no se muestran subtítulos.
   const block = useMemo(() => (activeBroll?.graphic ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, activeBroll]);
   const pct = duration ? (out / duration) * 100 : 0;
@@ -305,7 +339,25 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
               videoRef={brollVideo}
             />
           ) : null)}
+        {activeFx && (
+          // El efecto se dibuja con el mismo motor que el render, sobre el cuadro del video (ya con su encuadre).
+          <div key={activeFx.id} className="pointer-events-none absolute inset-0">
+            <FxVideoLayer
+              spec={activeFx}
+              time={Math.max(0, out - activeFx.start)}
+              video={video.current}
+              sourceWidth={sourceWidth}
+              sourceHeight={sourceHeight}
+              offsetX={offsetX}
+              strips={fxStrips}
+              maskFps={fxMaskFps}
+              images={fxImages}
+              reducedMotion={reducedMotion}
+            />
+          </div>
+        )}
         {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeBroll.graphic ? "Gráfico" : "B-roll"}</span>}
+        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{FX_INFO[activeFx.kind].label}</span>}
         <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">

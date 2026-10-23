@@ -14,6 +14,8 @@ import { AudioPanel } from "./audio-panel";
 import { CaptionPicker } from "./caption-picker";
 import { saveEditorDefaultsAction } from "./defaults-actions";
 import type { TrackItem } from "./music-manager";
+import { SegmentedControl } from "@/components/ui/tabs";
+import { FX_FREQUENCIES, FX_FREQUENCY_LABELS, FX_GALLERY_ORDER, FX_INFO, type FxFrequency } from "@/lib/video/fx/catalog";
 
 const CAPTION_OPTIONS = CAPTION_PICKER_ORDER.filter((k): k is DefaultCaptionKey => (DEFAULT_CAPTION_OPTIONS as readonly string[]).includes(k));
 
@@ -143,6 +145,56 @@ export function EditorDefaultsForm({
             </p>
           )}
         </div>
+
+        <fieldset className="flex flex-col gap-3" disabled={!canEdit}>
+          <legend className="text-sm font-semibold text-white">Efectos de firma</legend>
+          <p className="-mt-1 text-xs text-muted">Cuáles puede elegir el director para tus videos y con qué frecuencia. En la revisión puedes agregar cualquiera de los 17.</p>
+          <div className="max-w-xl">
+            <SegmentedControl
+              label="Frecuencia de los efectos"
+              value={d.effects.frequency}
+              onValueChange={(v) => set({ effects: { ...d.effects, frequency: v as FxFrequency } })}
+              options={FX_FREQUENCIES.map((f) => ({ value: f, label: FX_FREQUENCY_LABELS[f].label }))}
+            />
+            <p className="mt-1.5 text-xs text-muted" aria-live="polite">
+              {FX_FREQUENCY_LABELS[d.effects.frequency].description}
+            </p>
+          </div>
+          {d.effects.frequency !== "ninguno" && (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-muted">
+                  {d.effects.allowed.length} de {FX_GALLERY_ORDER.length} permitidos ·
+                </span>
+                <button type="button" className="font-medium text-accent-hi hover:underline" onClick={() => set({ effects: { ...d.effects, allowed: [...FX_GALLERY_ORDER] } })}>
+                  Todos
+                </button>
+                <button type="button" className="font-medium text-accent-hi hover:underline" onClick={() => set({ effects: { ...d.effects, allowed: [] } })}>
+                  Ninguno
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Efectos que puede elegir el director">
+                {FX_GALLERY_ORDER.map((k) => {
+                  const on = d.effects.allowed.includes(k);
+                  return (
+                    <label key={k} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition", on ? "border-accent/60 bg-accent/10" : "border-white/10 hover:border-white/25")}>
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 flex-none accent-[#0070f8]"
+                        checked={on}
+                        onChange={(e) => set({ effects: { ...d.effects, allowed: e.target.checked ? [...d.effects.allowed, k] : d.effects.allowed.filter((x) => x !== k) } })}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-white">{FX_INFO[k].label}</span>
+                        <span className="line-clamp-2 text-xs text-muted">{FX_INFO[k].description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </fieldset>
 
         <p className="flex items-start gap-2 rounded-xl border border-line bg-white/[0.02] px-4 py-3 text-sm text-text" aria-live="polite">
           <Wand2 className="mt-0.5 h-4 w-4 flex-none text-accent-hi" aria-hidden />

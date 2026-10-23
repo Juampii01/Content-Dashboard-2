@@ -35,6 +35,8 @@ import { stylePreset } from "../styles";
 import { buildTimeline } from "../timeline";
 import type { CaptionPresetKey, EditPlan, MediaInfo, Transcript, VideoFormat, Word } from "../types";
 import { applyVariant, planFromDirector, type BrollLimits } from "./assemble";
+import { fxLimits, fxTaskText, parseFxRequest } from "../fx/director";
+import { readEditorDefaults } from "../defaults";
 import { checkPlan, safeFixes } from "./checks";
 import { briefText, mapText, planText, sentencesText, transcriptText, tramosText } from "./context";
 import { clampBudget, estimateRevise, estimateStage, planBudget, type BudgetPlan, type CostInput, type StagePlan } from "./cost";
@@ -116,6 +118,18 @@ async function load(projectId: string): Promise<Ctx> {
     brand,
     cap: clampBudget(project.aiBudgetUsd),
   };
+}
+
+/** Palabras dichas mientras se ve la cara (tramos de los ojos con cara en al menos el 60 % de los cuadros). Sin ojos, null. */
+function faceWordsOf(eyes: Eyes | null, words: Word[]): Set<number> | null {
+  if (!eyes?.tramos.length) return null;
+  const out = new Set<number>();
+  for (const w of words) {
+    const mid = (w.start + w.end) / 2;
+    const t = eyes.tramos.find((x) => mid >= x.start && mid <= x.end);
+    if (t && t.faceRatio >= 0.6) out.add(w.id);
+  }
+  return out;
 }
 
 export function readEyes(raw: unknown): Eyes | null {
@@ -369,7 +383,14 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     degraded.push("La dirección la hizo un modelo más económico para no pasar el tope.");
   }
 
-  const simInput = { words, duration, format, candidates, map, brief, broll: { ...limits, stock: stockReady }, mustKeep: keep, preset: ctx.project.captionPreset, base, issues, instruction };
+  // Efectos de la biblioteca: los que permite Mi marca, cuántos para este largo, y dónde se ve la cara (los que te
+  // recortan necesitan verte a cámara).
+  const fxAsk = instruction ? parseFxRequest(instruction) : null;
+  const baseFx = fxLimits(readEditorDefaults(ctx.brand).effects, duration * 0.85);
+  // Un efecto pedido en "Edítalo así" entra aunque se llegue al tope (uno más), siempre que Mi marca lo permita.
+  const fx = fxAsk && "kind" in fxAsk && baseFx.allowed.includes(fxAsk.kind) ? { ...baseFx, max: baseFx.max + 1 } : baseFx;
+  const faceWords = faceWordsOf(ctx.eyes, words);
+  const simInput = { words, duration, format, candidates, map, brief, broll: { ...limits, stock: stockReady }, mustKeep: keep, preset: ctx.project.captionPreset, base, issues, instruction, fx };
   let ai: DirectorWire | null = null;
   try {
     ai = await generateStructured({
@@ -395,6 +416,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
         broll: { ...limits, stock: stockReady, libraryTags: tags },
         style: style?.text ?? null,
         lessons: (await retentionLessons()) || "(ver TIPOS DE GANCHO y LO QUE YA FUNCIONÓ en la marca)",
+        effects: fxTaskText(fx),
         revise:
           mode && base
             ? {
@@ -437,6 +459,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     broll: { ...limits, stock: stockReady },
     base,
     keepOpening: ctx.project.origin === "clip",
+    fx: { limits: fx, faceWords, keepUser: !(fxAsk && "none" in fxAsk) },
   });
   let plan = base ? assembled.plan : await withEditorDefaults(assembled.plan, ctx.brand);
   if (assembled.dropped.length) console.info("[director] descartado:", assembled.dropped.slice(0, 4).join(" | "));

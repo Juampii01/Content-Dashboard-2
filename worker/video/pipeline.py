@@ -22,6 +22,7 @@ from comunes.runner import JobContext, register
 
 from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, music_gen, reference, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
+from . import compos as _compos  # noqa: F401 — registra VIDEO_COMPOS (animaciones pedidas desde el Estudio)
 from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
 
 log = logging.getLogger("worker.video")

@@ -31,6 +31,10 @@ from .style_job import LINK_ERROR, download_link
 log = logging.getLogger("worker.reference")
 
 MAX_FRAMES = 24
+# "Copiar edición": muchos más cuadros, densos alrededor de cada corte y de cada cambio visual (4 a 8 por segundo).
+DENSE_MAX_FRAMES = 108
+DENSE_FPS = 6.0
+DENSE_MAX_SHEETS = 6
 MAX_SECONDS = 10 * 60
 MAX_BYTES = 500 * 1024 * 1024
 
@@ -75,6 +79,74 @@ def moment_times(cuts: list[float], duration: float, max_frames: int = MAX_FRAME
     return out
 
 
+def motion_curve(video: Path, duration: float, fps: float = 8.0, width: int = 96) -> tuple[list[float], list[float]]:
+    """Cuánto cambia la imagen de un cuadro al siguiente (muestreado a `fps`): picos = algo se mueve o aparece."""
+    import cv2  # noqa: PLC0415
+
+    cap = cv2.VideoCapture(str(video))
+    times: list[float] = []
+    diffs: list[float] = []
+    prev = None
+    try:
+        t = 0.0
+        while t < duration:
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            h, w = frame.shape[:2]
+            small = cv2.cvtColor(cv2.resize(frame, (width, max(2, int(h * width / max(1, w))))), cv2.COLOR_BGR2GRAY).astype(np.float32)
+            diffs.append(float(np.abs(small - prev).mean()) if prev is not None else 0.0)
+            times.append(round(t, 3))
+            prev = small
+            t += 1.0 / fps
+    finally:
+        cap.release()
+    return times, diffs
+
+
+def dense_times(cuts: list[float], duration: float, curve: tuple[list[float], list[float]], max_frames: int = DENSE_MAX_FRAMES, fps: float = DENSE_FPS) -> list[float]:
+    """Instantes para copiar la edición: ventanas alrededor de cada corte y de cada pico de movimiento, a `fps`, más un
+    cuadro cada 1,5 s para no perder lo que pasa entre medio. Sin pasar del tope (se priorizan los cortes y los picos)."""
+    duration = max(0.5, duration)
+    times, diffs = curve
+    windows: list[tuple[float, float, float]] = []  # (inicio, fin, prioridad)
+    for c in cuts:
+        if 0 < c < duration:
+            windows.append((max(0.0, c - 0.25), min(duration, c + 0.6), 3.0))
+    if diffs:
+        arr = np.array(diffs)
+        thr = max(float(np.percentile(arr, 80)), float(arr.mean() + arr.std() * 0.8), 1.5)
+        for t, d in zip(times, diffs):
+            if d >= thr and not any(a <= t <= b for a, b, _ in windows):
+                windows.append((max(0.0, t - 0.3), min(duration, t + 0.5), 2.0 + min(1.0, d / (thr * 3))))
+    windows.append((0.0, min(duration, 1.2), 3.5))  # el gancho, siempre
+    chosen: dict[float, float] = {}
+    for a, b, prio in windows:
+        k = 0
+        while a + k / fps <= b:
+            t = round(a + k / fps, 2)
+            chosen[t] = max(chosen.get(t, 0.0), prio)
+            k += 1
+    t = 0.0
+    while t < duration:
+        chosen.setdefault(round(t, 2), 1.0)
+        t += 1.5
+    pts = sorted(chosen.items())
+    # Sin cuadros casi iguales (menos de 1/12 s).
+    dedup: list[tuple[float, float]] = []
+    for t, p in pts:
+        if dedup and t - dedup[-1][0] < 1 / 12:
+            if p > dedup[-1][1]:
+                dedup[-1] = (t, p)
+            continue
+        dedup.append((t, p))
+    if len(dedup) > max_frames:
+        keep = sorted(sorted(dedup, key=lambda x: -x[1])[:max_frames])
+        dedup = keep
+    return [t for t, _ in dedup if t < duration]
+
+
 def said_at(words: list[dict], t: float, span: float = 1.2) -> str:
     near = [w["text"] for w in words if w["end"] >= t - span / 2 and w["start"] <= t + span]
     return " ".join(near)[:180]
@@ -90,6 +162,7 @@ def analyze(
     stage: Callable[[str, float, float], None] | None = None,
     progress: Callable[[float], None] | None = None,
     max_frames: int = MAX_FRAMES,
+    dense: bool = False,
 ) -> tuple[dict[str, Any], list[tuple[Path, list[int]]]]:
     """Mide la referencia y arma sus hojas. Devuelve (lo que va a la app, hojas como (ruta, cuadros))."""
     stage = stage or (lambda name, a, b: None)
@@ -104,7 +177,7 @@ def analyze(
     stage("Mirando cada momento de la referencia", 0.8, 1.0)
     seconds = min(float(metrics["duration"]), style.MAX_SECONDS)
     cuts = [float(c) for c in metrics["cuts"].get("times") or []]
-    times = moment_times(cuts, seconds, max_frames)
+    times = dense_times(cuts, seconds, motion_curve(src, seconds)) if dense else moment_times(cuts, seconds, max_frames)
     width, height = int(metrics["width"]), int(metrics["height"])
     frames = eyes.frames_at(src, times, (width, height))
     try:
@@ -125,7 +198,7 @@ def analyze(
             progress(min(1.0, (i + 1) / max(1, len(times))))
     layout = eyes.layout_for(width, height)
     tiles = [(i + 1, t, eyes.fit_tile(f, layout)) for i, (t, f) in enumerate(zip(times, frames))]
-    sheets = eyes.save_sheets(tiles, layout, workdir / "hojas", fonts_dir, prefix="hoja", mark="R#")[:4]
+    sheets = eyes.save_sheets(tiles, layout, workdir / "hojas", fonts_dir, prefix="hoja", mark="R#")[: DENSE_MAX_SHEETS if dense else 4]
     transcript = " ".join(w["text"] for w in heard)[:4000]
     return {"metrics": metrics, "moments": moments, "transcript": transcript}, sheets
 
@@ -166,7 +239,10 @@ def ensure(ctx: JobContext, project: dict[str, Any], start: float, end: float) -
         def stage(name: str, a: float, b: float) -> None:
             ctx.stage("Mirando la referencia" if not name.startswith("Mirando") else name, start + span * (0.2 + a * 0.8), start + span * (0.2 + b * 0.8))
 
-        data, sheets = analyze(src, workdir, models_dir=ctx.config.models_dir, fonts_dir=ctx.config.fonts_dir, transcribe_fn=transcribe_fn, stage=stage, progress=ctx.progress)
+        # "Copiar edición": cuadros densos alrededor de cada corte y cambio visual.
+        dense = bool(((project.get("director") or {}).get("pending") or {}).get("copy"))
+        data, sheets = analyze(src, workdir, models_dir=ctx.config.models_dir, fonts_dir=ctx.config.fonts_dir, transcribe_fn=transcribe_fn, stage=stage, progress=ctx.progress, dense=dense)
+        data["dense"] = dense
         uploaded = []
         from PIL import Image  # noqa: PLC0415
 

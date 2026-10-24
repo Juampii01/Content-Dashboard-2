@@ -6,6 +6,7 @@ import { FX_INFO } from "./catalog";
 import { fxSegments, OUTPUT, sourceFramesOf } from "./compile";
 import type { Timeline } from "../timeline";
 import type { EditPlan, VideoFormat } from "../types";
+import { composSegments, needsMask } from "../compos/schema";
 
 /** Igual que MASK_VERSION en worker/video/fx_mask.py (las pruebas lo comparan). */
 export const FX_MASK_VERSION = "mp2";
@@ -20,8 +21,14 @@ export function fxMaskKey(srcW: number, srcH: number, format: VideoFormat, offse
 }
 
 /** Bloques (segundos del original) que usan los efectos con recorte del plan. */
-export function maskChunksFor(plan: Pick<EditPlan, "effects">, timeline: Pick<Timeline, "clips" | "words" | "duration">): number[] {
+export function maskChunksFor(plan: Pick<EditPlan, "effects" | "compositions">, timeline: Pick<Timeline, "clips" | "words" | "duration">): number[] {
   const out = new Set<number>();
+  // Las animaciones que dibujan a la persona recortada (detrás o con su silueta) también.
+  for (const seg of composSegments(timeline, plan.compositions ?? [])) {
+    if (!needsMask(seg.item.code)) continue;
+    const frames = Math.max(1, Math.round((seg.end - seg.start) * 30));
+    for (const f of sourceFramesOf(timeline, seg.start, frames)) out.add(Math.floor(f / FX_MASK_CHUNK));
+  }
   for (const seg of fxSegments(timeline, plan.effects ?? [])) {
     if (!FX_INFO[seg.item.kind].mask) continue;
     const frames = Math.max(1, Math.round((seg.end - seg.start) * 30));

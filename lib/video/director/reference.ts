@@ -36,10 +36,12 @@ export type DirectorReference = {
   moments?: ReferenceMoment[];
   transcript?: string;
   sheets?: ReferenceSheet[];
+  /** Medida con cuadros densos ("Copiar edición"). */
+  dense?: boolean;
   at: string;
 };
 
-const sheetSchema = z.object({ key: z.string().max(200), width: z.number().int().min(1).max(4000), height: z.number().int().min(1).max(4000), frames: z.array(z.number().int().min(1).max(500)).max(80) });
+const sheetSchema = z.object({ key: z.string().max(200), width: z.number().int().min(1).max(4000), height: z.number().int().min(1).max(4000), frames: z.array(z.number().int().min(1).max(500)).max(140) });
 
 export const referencePayloadSchema = z.object({
   id: z.string().regex(/^r[a-z0-9]{4,30}$/),
@@ -48,10 +50,12 @@ export const referencePayloadSchema = z.object({
   metrics: z.unknown().optional(),
   moments: z
     .array(z.object({ t: z.number().min(0).max(3600), frame: z.number().int().min(0).max(500), cut: z.boolean(), face: z.boolean(), text: z.string().max(160), said: z.string().max(200) }))
-    .max(80)
+    .max(140)
     .optional(),
   transcript: z.string().max(6000).optional(),
-  sheets: z.array(sheetSchema).max(4).optional(),
+  sheets: z.array(sheetSchema).max(6).optional(),
+  /** Cuadros densos para "Copiar edición" (alrededor de cada corte y cambio visual). */
+  dense: z.boolean().optional(),
 });
 export type ReferencePayload = z.infer<typeof referencePayloadSchema>;
 
@@ -67,6 +71,7 @@ export function referenceFromPayload(prev: DirectorReference, p: ReferencePayloa
     moments: p.moments ?? [],
     transcript: (p.transcript ?? "").slice(0, 4000),
     sheets: p.sheets ?? [],
+    dense: p.dense === true,
     at: new Date().toISOString(),
   };
 }

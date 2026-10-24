@@ -135,6 +135,18 @@ def run_node(payload: dict[str, Any], timeout: int = TIMEOUT) -> dict[str, Any]:
 def fetch_images(ctx: Any, item: dict[str, Any], cache: Path, hosts: tuple[str, ...]) -> dict[str, str]:
     """Baja las miniaturas de tus reels (si alguna falla, el motor dibuja una tarjeta con la marca)."""
     out: dict[str, str] = {}
+    # Imágenes de las composiciones (generadas con IA, guardadas en el almacenamiento del proyecto): por su clave.
+    pid = str(item.get("projectId") or "")
+    for key, skey in (item.get("imageKeys") or {}).items():
+        if not isinstance(skey, str) or not pid or not skey.startswith(f"editor/{pid}/compos/"):
+            continue
+        path = cache / f"img-{hashlib.sha1(skey.encode()).hexdigest()[:16]}{Path(skey).suffix[:5] or '.png'}"
+        try:
+            if not path.exists():
+                ctx.app.download(pid, skey, path)
+            out[str(key)] = str(path)
+        except JobError as e:  # noqa: PERF203
+            log.warning("no se pudo bajar la imagen %s: %s", key, e.detail or e)
     for key, url in (item.get("images") or {}).items():
         if not isinstance(url, str) or not url:
             continue
@@ -194,7 +206,7 @@ def render_effects(
         source_frames = [min(max(0, int(f)), max(0, total_frames - 1)) for f in (item.get("sourceFrames") or [])][:frames]
         while source_frames and len(source_frames) < frames:
             source_frames.append(source_frames[-1])
-        key_obj = {"spec": spec, "src": source_frames, "fmt": fmt, "off": round(offset_x, 3), "engine": engine_hash(), "mask": fx_mask.MASK_VERSION, "img": sorted((item.get("images") or {}).items())}
+        key_obj = {"spec": spec, "src": source_frames, "fmt": fmt, "off": round(offset_x, 3), "engine": engine_hash(), "mask": fx_mask.MASK_VERSION, "img": sorted((item.get("images") or {}).items()), "ik": sorted((item.get("imageKeys") or {}).items())}
         h = hashlib.sha1(json.dumps(key_obj, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
         final = cache / f"fx-{h}.mp4"
         mask_ms = 0
@@ -208,7 +220,7 @@ def render_effects(
                 mpath, mw, mh = mask_file(mask_cache, key, source_frames, cache / f"mask-{h}.raw")
                 mask_ms = round((time.monotonic() - t0) * 1000)
                 payload["mask"] = {"path": str(mpath), "width": mw, "height": mh}
-            if item.get("images"):
+            if item.get("images") or item.get("imageKeys"):
                 payload["images"] = fetch_images(ctx, item, cache, image_hosts)
             t0 = time.monotonic()
             try:
@@ -252,3 +264,51 @@ def preview_masks(ctx: Any, mezz: Path, src_size: tuple[int, int], total_frames:
             on_progress(0.85 + 0.15 * (i + 1) / max(1, len(chunks)))
     w, h = fx_mask.PREVIEW_SIZE[fmt]
     return {"key": key, "chunks": done, "fps": fx_mask.PREVIEW_FPS, "tile": [w, h]}
+
+
+def render_stills(
+    ctx: Any,
+    item: dict[str, Any],
+    times: list[float],
+    *,
+    joined: Path,
+    mezz: Path,
+    src_size: tuple[int, int],
+    total_frames: int,
+    fmt: str,
+    offset_x: float,
+    workdir: Path,
+    fonts_dir: Path,
+    image_hosts: tuple[str, ...] = (),
+    out_dir: Path,
+) -> list[Path | None]:
+    """Cuadros sueltos de un efecto o una animación (PNG del tamaño final) en los instantes pedidos (segundos del
+    efecto): para que Claude mire su animación sobre el video real. Mismo motor y mismas entradas que el render."""
+    if not enabled():
+        raise ComposFailed("El motor de efectos no está disponible.", retry=False)
+    item = validate(item)
+    spec = item["spec"]
+    start = float(spec["start"])
+    frames = max(1, round(float(spec["duration"]) * FPS))
+    cache = workdir / "fx"
+    cache.mkdir(exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    source_frames = [min(max(0, int(f)), max(0, total_frames - 1)) for f in (item.get("sourceFrames") or [])][:frames]
+    while source_frames and len(source_frames) < frames:
+        source_frames.append(source_frames[-1])
+    h = hashlib.sha1(json.dumps({"spec": spec, "src": source_frames, "fmt": fmt, "off": round(offset_x, 3)}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+    base = base_clip(joined, start, frames, src_size, fmt, offset_x, cache / f"base-{h}.mkv")
+    payload: dict[str, Any] = {"spec": spec, "base": str(base), "out": str(out_dir / "c"), "fps": FPS, "fontsDir": str(fonts_dir), "stills": [max(0.0, min(float(spec["duration"]) - 1 / FPS, t)) for t in times]}
+    try:
+        if spec.get("mask") and source_frames:
+            mask_cache = workdir / "fx-mask"
+            key = fx_mask.ensure_chunks(mezz, src_size, total_frames, fmt, offset_x, fx_mask.chunks_for_frames(source_frames), mask_cache, check=getattr(ctx, "check", None))
+            mpath, mw, mh = mask_file(mask_cache, key, source_frames, cache / f"mask-{h}.raw")
+            payload["mask"] = {"path": str(mpath), "width": mw, "height": mh}
+        if item.get("images") or item.get("imageKeys"):
+            payload["images"] = fetch_images(ctx, item, cache, image_hosts)
+        run_node(payload, timeout=300)
+    finally:
+        for tmp in (cache / f"base-{h}.mkv", cache / f"mask-{h}.raw"):
+            tmp.unlink(missing_ok=True)
+    return [p if (p := out_dir / f"c-{k}.png").exists() else None for k in range(len(times))]

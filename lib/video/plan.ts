@@ -12,6 +12,7 @@ import { brollEditSchema } from "./broll-edit";
 import { brollGraphicSchema } from "./motion-graphics";
 import { fxIssues, fxListSchema } from "./fx/schema";
 import { transitionListSchema } from "./fx/transitions";
+import { compositionListSchema } from "./compos/schema";
 import { musicGenSchema } from "./music-gen/spec";
 import { soundCueListSchema } from "./sfx";
 import { captionLinesSchema } from "./canvas/captions";
@@ -91,6 +92,7 @@ export const planSchema = z.object({
   /** Efectos de la biblioteca (opcional: los planes de antes no los tienen). */
   effects: fxListSchema.optional(),
   transitions: transitionListSchema.optional(),
+  compositions: compositionListSchema.optional(),
   zooms_enabled: z.boolean().optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
   zoom_moments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300) })).max(60).optional(),
@@ -156,6 +158,12 @@ export function planIssues(plan: EditPlan, wordCount: number): string[] {
   });
   for (const z of plan.zoom_moments ?? []) check("Zoom", z.from_word, z.to_word);
   issues.push(...fxIssues(plan.effects ?? [], wordCount, plan.broll.filter((b) => b.choice)));
+  const comps = [...(plan.compositions ?? [])].sort((a, b) => a.from_word - b.from_word);
+  comps.forEach((c, i) => {
+    check("Animación", c.from_word, c.to_word);
+    const next = comps[i + 1];
+    if (next && next.from_word <= c.to_word) issues.push(`Animaciones superpuestas (${c.from_word}–${c.to_word} y ${next.from_word}–${next.to_word}).`);
+  });
   for (const tr of plan.transitions ?? []) if (tr.at_word >= wordCount) issues.push(`Transición fuera de rango (${tr.at_word}).`);
   for (const c of plan.audio.cues ?? []) if (c.at_word >= wordCount) issues.push(`Sonido fuera de rango (${c.at_word}).`);
   return issues;

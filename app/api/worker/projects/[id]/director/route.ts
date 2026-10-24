@@ -18,7 +18,7 @@ const referenceSheet = z.object({
   key: z.string().regex(/^editor\/[0-9a-f-]{36}\/referencia\/[a-z0-9-]+\.jpg$/),
   width: z.number().int().min(1).max(4000),
   height: z.number().int().min(1).max(4000),
-  frames: z.array(z.number().int().min(1).max(500)).max(80),
+  frames: z.array(z.number().int().min(1).max(500)).max(140),
 });
 const bodySchema = z.discriminatedUnion("step", [
   z.object({ step: z.literal("start") }),
@@ -31,7 +31,27 @@ const bodySchema = z.discriminatedUnion("step", [
   z.object({ step: z.literal("critique"), round: z.number().int().min(1).max(6), sheets: z.array(sheet).max(8) }),
   z.object({ step: z.literal("final"), sheets: z.array(sheet).max(8), frames: z.array(z.object({ t: z.number().min(0), label: z.string().max(300) })).max(60) }),
   // La referencia de edición ya medida (o el aviso de que no se pudo bajar). Sus hojas van en editor/<id>/referencia/.
-  referencePayloadSchema.extend({ step: z.literal("reference"), sheets: z.array(referenceSheet).max(4).optional() }),
+  referencePayloadSchema.extend({ step: z.literal("reference"), sheets: z.array(referenceSheet).max(6).optional() }),
+  // Composiciones (lib/video/compos): receta, adaptación, taller, imágenes generadas y cuadros para la revisión.
+  z.object({ step: z.literal("recipe") }),
+  z.object({ step: z.literal("adapt") }),
+  z.object({ step: z.literal("compos") }),
+  z.object({
+    step: z.literal("compos-images-done"),
+    results: z
+      .array(
+        z.object({
+          taskId: z.string().max(40),
+          imageId: z.string().max(40),
+          key: z.string().regex(/^editor\/[0-9a-f-]{36}\/compos\/[a-z0-9-]+\.(png|jpg|webp)$/).optional(),
+          width: z.number().int().min(16).max(4096).optional(),
+          height: z.number().int().min(16).max(4096).optional(),
+          error: z.string().max(400).optional(),
+        }),
+      )
+      .max(20),
+  }),
+  z.object({ step: z.literal("compos-look"), sheets: z.array(sheet.extend({ taskId: z.string().max(40), times: z.array(z.number().min(0).max(60)).max(12).optional() })).max(30) }),
 ]);
 
 export async function POST(request: NextRequest, { params }: RouteContext<"/api/worker/projects/[id]/director">) {
@@ -43,6 +63,7 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
   const body = parsed.data as DirectorBody;
   const prefix = body.step === "reference" ? `editor/${id}/referencia/` : `editor/${id}/director/`;
   if ("sheets" in body && body.sheets?.some((s) => !s.key.startsWith(prefix))) return NextResponse.json({ error: "Hoja de otro proyecto.", retry: false }, { status: 400 });
+  if (body.step === "compos-images-done" && (body.results as { key?: string }[]).some((r) => r.key && !r.key.startsWith(`editor/${id}/compos/`))) return NextResponse.json({ error: "Imagen de otro proyecto.", retry: false }, { status: 400 });
   try {
     const result = await directorStep(id, body);
     return NextResponse.json({ ok: true, ...result });

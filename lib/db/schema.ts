@@ -1020,6 +1020,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "VIDEO_FX", // máscaras de la persona para la vista previa de los efectos del editor (input.projectId, input.chunks)
   "CAROUSEL_COPY", // "Copiar un carrusel": bajar y medir los slides de un carrusel ajeno; la app escribe tu versión (input.copyId)
   "CAROUSEL_ANIMATE", // video corto (MP4) de un slide con movimiento sutil (input.carouselId, input.slideId)
+  "VIDEO_COMPOS", // animaciones del Estudio: Claude escribe una composición (con imágenes generadas y revisión con cuadros) (input.projectId, input.requestId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 

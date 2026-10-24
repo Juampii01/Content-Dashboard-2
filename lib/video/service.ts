@@ -21,6 +21,7 @@ import { planDensity } from "./rhythm";
 import { transitionSounds, TRANSITION_SOUND_GAIN } from "./fx/transitions";
 import { isSfxName, type SfxName } from "./sfx-library";
 import { ensureFxMasks, fxForRender } from "./fx-service";
+import { composSegments } from "./compos/schema";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
 import { placeCaptionBlocks } from "./canvas/captions";
@@ -365,7 +366,7 @@ export async function saveReview(projectId: string, review: Review, format: Vide
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: review.preset }).where(eq(schema.videoProjects.id, projectId));
   // Efectos con recorte: el worker prepara la máscara de esos segundos para la vista previa (si falta).
-  if (next.effects?.length) {
+  if (next.effects?.length || next.compositions?.length) {
     const timeline = buildTimeline(transcript.words, next, media.duration || transcript.duration);
     await ensureFxMasks({ projectId, plan: next, timeline, media, userId: null }).catch((error) => console.error("[efectos] no se pudo pedir el recorte:", error instanceof Error ? error.message : error));
   }
@@ -423,13 +424,15 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   const preset: CaptionPresetKey = next.captions.preset === "estilo" && !captionStyle ? "clasico" : next.captions.preset;
   // B-roll: cada clip elegido se verifica contra su fuente (nunca se confía en lo que manda el navegador).
   const look = brandGraphicLook(brand);
-  const broll = await verifiedBroll(brollSegments(timeline, next.broll), look);
+  // En el tramo de una animación (composición) manda la animación: el b-roll que se pisa con ella no va.
+  const compSpans = composSegments(timeline, next.compositions ?? []);
+  const broll = await verifiedBroll(brollSegments(timeline, next.broll).filter((b) => !compSpans.some((c) => b.start < c.end && c.start < b.end)), look);
   // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea. Tampoco donde el director los ocultó (texto quemado).
   const graphicSpans = broll.filter((b) => b.option.source === "graphic" && graphicHidesCaptions(b.option.graphic));
   const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
   // Efectos de la biblioteca: lo que dibuja el worker (el mismo spec que la vista previa); algunos llevan sus propios
   // subtítulos y ninguno lleva zooms del estilo encima (traen su propia cámara).
-  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections, broll });
+  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections, broll, projectId, captionsVisible: preset !== "ninguno" });
   const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans, ...fx.hides]);
   const noZoom = [...broll, ...fx.avoid];
   const zooms =
@@ -473,6 +476,8 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     manual: [
       ...soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
       ...transitionSounds(fx.transitions).filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: TRANSITION_SOUND_GAIN })),
+      // Los sonidos de las animaciones (en sus momentos).
+      ...fx.sounds.filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: s.gain })),
     ],
   });
   // Música: una pista generada (la arma el worker con el mismo generador que la vista previa) o una pista lista de la

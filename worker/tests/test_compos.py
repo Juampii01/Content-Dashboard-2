@@ -74,3 +74,25 @@ def test_broken_compositions_are_skipped_and_the_render_goes_on(tmp_path: Path) 
 def test_invalid_composition_spec_is_refused() -> None:
     with pytest.raises(fx.ComposFailed):
         fx.validate({"spec": {"v": 1, "kind": "composition", "duration": 1, "compos": {"code": 3}}})
+
+
+def test_stills_of_a_composition(tmp_path: Path) -> None:
+    video = _video(tmp_path)
+    paths = fx.render_stills(_Ctx(), {"spec": _specs()["card3d_stat"], "sourceFrames": []}, [0.1, 0.3, 0.5], joined=video, mezz=video, src_size=(1080, 1920), total_frames=30, fmt="9:16", offset_x=0.0, workdir=tmp_path, fonts_dir=FONTS, out_dir=tmp_path / "cuadros")
+    assert len(paths) == 3 and all(p is not None and p.exists() for p in paths)
+    img = cv2.imread(str(paths[2]))
+    assert img.shape[:2] == (1920, 1080)
+
+
+def test_dense_reference_times_cluster_around_cuts_and_motion() -> None:
+    from video import reference
+
+    times = [i / 8 for i in range(80)]
+    diffs = [0.5] * 80
+    diffs[40] = 30.0  # algo aparece en el segundo 5
+    out = reference.dense_times([2.0, 7.5], 10.0, (times, diffs))
+    near = lambda c: [t for t in out if abs(t - c) <= 0.6]  # noqa: E731
+    # Varios cuadros por segundo alrededor de cada corte y del pico, y el gancho cubierto.
+    assert len(near(2.0)) >= 4 and len(near(7.5)) >= 4 and len(near(5.0)) >= 4
+    assert out[0] == 0.0 and len([t for t in out if t < 1.2]) >= 6
+    assert len(out) <= reference.DENSE_MAX_FRAMES and out == sorted(out)

@@ -170,7 +170,8 @@ for (let i = 0; i < frames; i++) {
   renderer.render(ctx, spec, i / fps, { frame: frameCanvas, mask: hasMask ? maskCanvas : null, images, compos }, 1);
   drawMs += Date.now() - t0;
   if (wantStill) {
-    await canvas.saveAs(`${out}-${wantStill.get(i)}.png`);
+    // toFile (saveAs es el nombre viejo y en skia-canvas 3 no espera a que se escriba el archivo).
+    await (canvas.toFile ?? canvas.saveAs).call(canvas, `${out}-${wantStill.get(i)}.png`);
     continue;
   }
   const data = ctx.getImageData(0, 0, W, H).data;

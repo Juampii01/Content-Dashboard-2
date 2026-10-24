@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Menu, Play, X } from "lucide-react";
+import { comingSoon } from "@/lib/coming-soon";
 import { navigation } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
@@ -110,6 +111,21 @@ export function SidebarView({
             {group.items.map(({ href, label, icon: Icon }) => {
               const active =
                 pathname === href || pathname.startsWith(`${href}/`);
+              if (comingSoon(href)) {
+                return (
+                  <li key={href}>
+                    <span
+                      aria-disabled="true"
+                      title="Próximamente"
+                      className="flex cursor-not-allowed items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-muted/50"
+                    >
+                      <Icon className="h-[18px] w-[18px]" aria-hidden />
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
+                      <span className="pill !px-1.5 !py-0 text-[10px]">Próximamente</span>
+                    </span>
+                  </li>
+                );
+              }
               return (
                 <li key={href}>
                   <Link

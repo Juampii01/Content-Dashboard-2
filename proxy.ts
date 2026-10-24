@@ -1,5 +1,6 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
+import { comingSoon } from "./lib/coming-soon";
 
 /**
  * Filtro rápido: quien no tiene cookie de sesión va al login.
@@ -22,6 +23,10 @@ const PUBLIC_PATHS = [
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  // Módulos en "Próximamente": sus endpoints no responden para nadie (las páginas muestran el aviso en su layout).
+  if (pathname.startsWith("/api/") && comingSoon(pathname.slice(4))) {
+    return NextResponse.json({ error: "Esta herramienta todavía no está disponible." }, { status: 404 });
+  }
   const isPublic = PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
   if (isPublic) return NextResponse.next();
 

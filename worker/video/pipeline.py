@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, reference, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
 from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
 
@@ -108,7 +108,9 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
     if ctx.input.get("mode") == "edit":
         # "Edítalo así" o un arreglo de la revisión final: el director corrige con el pedido y vuelve a mirar.
         try:
-            result = director.run(ctx, project, "start", 0.0, 1.0)
+            # Si el pedido trae una referencia (link o archivo), primero se mira; después dirige.
+            looked = reference.ensure(ctx, project, 0.0, 0.3)
+            result = director.run(ctx, project, "start", 0.3 if looked else 0.0, 1.0)
         except Cancelled:
             raise
         except JobError as exc:
@@ -156,8 +158,10 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
             log.warning("no se pudo armar la muestra de audio de %s", pid, exc_info=True)
 
     # Ojos y director de edición: mira el video, lo entiende, dirige la edición y la revisa antes de entregarla.
-    director.see(ctx, project, workdir, media, 0.67, 0.75)
-    result = director.run(ctx, project, "start", 0.75, 1.0)
+    director.see(ctx, project, workdir, media, 0.67, 0.73)
+    # Un link de referencia en el brief: el director lo mira antes de dirigir.
+    reference.ensure(ctx, project, 0.73, 0.77)
+    result = director.run(ctx, project, "start", 0.77, 1.0)
     return {"status": result.get("status")}
 
 

@@ -376,8 +376,8 @@ def fmt_time(t: float) -> str:
     return f"{int(m)}:{s:04.1f}"
 
 
-def make_sheet(tiles: list[tuple[int, float, np.ndarray]], layout: SheetLayout, fonts_dir: Path | None) -> Any:
-    """Una hoja: cada cuadro (BGR, ya al tamaño del cuadro) con una franja abajo: "#n · m:ss.s"."""
+def make_sheet(tiles: list[tuple[int, float, np.ndarray]], layout: SheetLayout, fonts_dir: Path | None, mark: str = "#") -> Any:
+    """Una hoja: cada cuadro (BGR, ya al tamaño del cuadro) con una franja abajo: "#n · m:ss.s" (o "R#n" en una referencia)."""
     from PIL import Image, ImageDraw, ImageFont  # noqa: PLC0415
 
     sheet = Image.new("RGB", layout.size, (8, 12, 28))
@@ -397,7 +397,7 @@ def make_sheet(tiles: list[tuple[int, float, np.ndarray]], layout: SheetLayout, 
             rgb = rgb.resize((layout.tile_w, layout.tile_h))
         sheet.paste(rgb, (x, y))
         draw.rectangle([x, y + layout.tile_h, x + layout.tile_w - 1, y + layout.tile_h + layout.label_h - 1], fill=(3, 10, 34))
-        draw.text((x + 6, y + layout.tile_h + 3), f"#{index}  {fmt_time(t)}", fill=(220, 231, 247), font=font)
+        draw.text((x + 6, y + layout.tile_h + 3), f"{mark}{index}  {fmt_time(t)}", fill=(220, 231, 247), font=font)
         # Línea fina entre cuadros (para que Claude no los confunda).
         draw.rectangle([x, y, x + layout.tile_w - 1, y + layout.tile_h + layout.label_h - 1], outline=(40, 70, 120))
     return sheet
@@ -417,12 +417,12 @@ def fit_tile(frame: np.ndarray, layout: SheetLayout) -> np.ndarray:
     return tile
 
 
-def save_sheets(tiles: list[tuple[int, float, np.ndarray]], layout: SheetLayout, out_dir: Path, fonts_dir: Path | None, prefix: str = "hoja") -> list[tuple[Path, list[int]]]:
+def save_sheets(tiles: list[tuple[int, float, np.ndarray]], layout: SheetLayout, out_dir: Path, fonts_dir: Path | None, prefix: str = "hoja", mark: str = "#") -> list[tuple[Path, list[int]]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     sheets = []
     for n, a in enumerate(range(0, len(tiles), layout.per_sheet)):
         chunk = tiles[a : a + layout.per_sheet]
-        img = make_sheet(chunk, layout, fonts_dir)
+        img = make_sheet(chunk, layout, fonts_dir, mark)
         path = out_dir / f"{prefix}-{n + 1:02d}.jpg"
         img.save(path, "JPEG", quality=80, optimize=True)
         sheets.append((path, [i for i, _, _ in chunk]))

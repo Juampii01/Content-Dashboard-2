@@ -90,6 +90,7 @@ export function briefText(b: Brief & { inferred?: (keyof Brief)[] }): string {
     `- Llamada a la acción: ${b.cta || "(sin definir)"}${mark("cta")}`,
     `- DEBE QUEDAR (no se corta): ${b.mustKeep || "(nada en especial)"}${mark("mustKeep")}`,
     b.notes ? `- Notas: ${b.notes}` : "",
+    b.reference ? "- Pasó un video de referencia: imita su edición (ver REFERENCIA)." : "",
   ]
     .filter(Boolean)
     .join("\n");

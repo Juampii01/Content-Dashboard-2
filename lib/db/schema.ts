@@ -602,7 +602,26 @@ export type CarouselSlide = {
   imageUrl?: string | null; // imagen del slide (foto subida o escena con IA), servida por /api/carruseles/archivos/…
   imageSource?: "upload" | "ai" | null; // de dónde salió la imagen
   scenePrompt?: string | null; // escena que propone la IA para la imagen (sin texto); editable
+  /** Sale el personaje de Mi marca (su cara) en la imagen de este slide. undefined = no se decidió (carruseles viejos). */
+  character?: boolean;
+  /** Pose, gesto y expresión del personaje en este slide (la sugiere la IA; editable). */
+  pose?: string | null;
+  /** Foto de Mi marca que se usa como referencia de la cara (`marca/fotos/…`); null = la elige la app según la pose. */
+  photoKey?: string | null;
+  /** Lo que tenía este slide en el carrusel copiado (solo texto: las imágenes del original no se guardan). */
+  original?: { text: string; visual: string; person: boolean } | null;
+  /** La imagen que tenía antes de la última generación o corrección (para volver a ella). */
+  prevImageUrl?: string | null;
+  prevImageSource?: "upload" | "ai" | null;
+  /** Video corto del slide animado (MP4), servido por /api/carruseles/archivos/…; null = sin video. */
+  videoUrl?: string | null;
+  videoFormat?: "4:5" | "9:16" | null;
+  /** Huella del slide cuando se animó: si cambia el texto, la imagen o el diseño, el video quedó viejo. */
+  videoHash?: string | null;
 };
+
+/** Una variación del caption para probar (otro gancho y otros 5 hashtags). */
+export type CaptionVariant = { hook: "dato" | "pregunta" | "problema" | "promesa" | "curiosidad"; caption: string; hashtags: string[] };
 
 /** Un carrusel de Instagram (1080×1350). Los slides son texto; la imagen final se dibuja con la plantilla. */
 export const carousels = pgTable(
@@ -617,6 +636,8 @@ export const carousels = pgTable(
     slides: jsonb("slides").$type<CarouselSlide[]>().notNull().default(sql`'[]'::jsonb`),
     caption: text("caption"),
     hashtags: text("hashtags").array().notNull().default(sql`'{}'::text[]`),
+    /** 5 variaciones del caption para probar cuál funciona mejor (ver lib/carousels/captions.ts). */
+    captionVariants: jsonb("caption_variants").$type<CaptionVariant[]>().notNull().default(sql`'[]'::jsonb`),
     ctaKeyword: text("cta_keyword"),
     sourceText: text("source_text"),
     scriptId: uuid("script_id").references(() => scripts.id, { onDelete: "set null" }),
@@ -655,6 +676,62 @@ export const carouselTemplates = pgTable(
   },
   (t) => [index("carousel_templates_updated_at_idx").on(t.updatedAt)],
 );
+
+/** Opciones de "Copiar un carrusel" (lo que elige la persona antes de leer el original). */
+export type CarouselCopyOptions = {
+  keyword: string | null; // palabra del CTA; null = la del original (traducida) o ninguna
+  character: "auto" | "siempre" | "nunca"; // auto = donde el original muestra a una persona (y al menos en el cierre)
+  design: "original" | "plantilla"; // original = plantilla nueva con el diseño de la referencia
+  template: string | null; // plantilla elegida cuando design = plantilla (de fábrica o custom:<uuid>)
+};
+
+/** Lo que Claude leyó del original (solo texto: nada de imágenes). */
+export type CarouselCopyReading = {
+  handle: string | null; // @ de la cuenta original, para avisar si se cuela en tu versión
+  language: string;
+  topic: string;
+  slides: { text: string; role: string; visual: string; person: boolean }[];
+};
+
+/**
+ * "Copiar un carrusel": pegar el link (o subir los slides) de un carrusel ajeno → el worker los baja y los mide →
+ * Claude con visión lee cada slide y escribe tu versión con tu marca (ficha) → queda un carrusel nuevo.
+ * Las imágenes del original se borran al terminar: solo se guarda su texto (para comprobar cifras) y el diseño.
+ */
+export const carouselCopies = pgTable(
+  "carousel_copies",
+  {
+    id: id(),
+    status: carouselTemplateStatusEnum("status").notNull().default("ANALYZING"),
+    source: text("source").notNull().default("link"), // upload | link
+    sourceUrl: text("source_url"),
+    referenceCount: integer("reference_count").notNull().default(0),
+    options: jsonb("options").$type<CarouselCopyOptions>().notNull(),
+    reading: jsonb("reading").$type<CarouselCopyReading>(),
+    templateId: uuid("template_id").references(() => carouselTemplates.id, { onDelete: "set null" }),
+    carouselId: uuid("carousel_id").references(() => carousels.id, { onDelete: "set null" }),
+    errorMessage: text("error_message"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("carousel_copies_updated_at_idx").on(t.updatedAt), index("carousel_copies_carousel_idx").on(t.carouselId)],
+);
+
+/**
+ * Cómo es cada foto del personaje (Mi marca): ángulo, expresión y encuadre, leídos una vez con Claude (visión).
+ * Sirve para elegir, por slide, la foto de referencia que mejor encaja con la pose pedida.
+ */
+export const characterPhotoTraits = pgTable("character_photo_traits", {
+  photoKey: text("photo_key").primaryKey(),
+  angle: text("angle").notNull().$type<"frontal" | "three_quarter" | "profile">(),
+  expression: text("expression").notNull().$type<"smile" | "serious" | "surprised" | "thinking" | "neutral">(),
+  framing: text("framing").notNull().$type<"close" | "medium" | "wide">(),
+  gaze: text("gaze").notNull().$type<"camera" | "away">(),
+  quality: real("quality").notNull().default(0.7), // 0 a 1: nitidez, luz y cara completa (mejor referencia)
+  notes: text("notes"),
+  createdAt: createdAt(),
+});
 
 // ─── Videos con clon (HeyGen) ──────────────────────────────────────────────
 
@@ -934,6 +1011,8 @@ export const jobTypeEnum = pgEnum("job_type", [
   "REEL_COPY", // "Copia este reel": bajar, transcribir y medir un reel ajeno; la app escribe la versión propia (input.reelCopyId)
   "VIDEO_PHRASE_CLIP", // tramo de una frase corregida (video + voz nueva) para la sincronía de labios (input.fixId)
   "VIDEO_FX", // máscaras de la persona para la vista previa de los efectos del editor (input.projectId, input.chunks)
+  "CAROUSEL_COPY", // "Copiar un carrusel": bajar y medir los slides de un carrusel ajeno; la app escribe tu versión (input.copyId)
+  "CAROUSEL_ANIMATE", // video corto (MP4) de un slide con movimiento sutil (input.carouselId, input.slideId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 

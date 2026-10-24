@@ -4,10 +4,11 @@ import { getOptionalUser } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 
 /**
- * GET /api/carruseles/trabajos/<id> — estado de un trabajo de Carruseles (plantilla, imágenes o conexión de ChatGPT),
+ * GET /api/carruseles/trabajos/<id> — estado de un trabajo de Carruseles (plantilla, copia, imágenes, video de un slide
+ * o conexión de ChatGPT),
  * para que la pantalla muestre el progreso real y se pueda salir y volver. Solo con sesión.
  */
-const TYPES = new Set(["CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CODEX_LOGIN"]);
+const TYPES = new Set(["CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CODEX_LOGIN", "CAROUSEL_COPY", "CAROUSEL_ANIMATE"]);
 
 export async function GET(_request: NextRequest, { params }: RouteContext<"/api/carruseles/trabajos/[id]">) {
   const user = await getOptionalUser();
@@ -23,7 +24,11 @@ export async function GET(_request: NextRequest, { params }: RouteContext<"/api/
       ? { url: output.url ?? null, code: output.code ?? null, label: output.label ?? null }
       : job.type === "CAROUSEL_IMAGES"
         ? { slides: Array.isArray(output.slides) ? output.slides : [], provider: (job.input as { provider?: string }).provider ?? null }
-        : { templateId: (job.input as { templateId?: string }).templateId ?? null };
+        : job.type === "CAROUSEL_COPY"
+          ? { copyId: (job.input as { copyId?: string }).copyId ?? null, carouselId: output.carouselId ?? null }
+          : job.type === "CAROUSEL_ANIMATE"
+            ? { slideId: (job.input as { slideId?: string }).slideId ?? null, url: output.url ?? null }
+            : { templateId: (job.input as { templateId?: string }).templateId ?? null };
   return NextResponse.json(
     {
       id: job.id,

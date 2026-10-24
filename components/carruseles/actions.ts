@@ -14,7 +14,8 @@ import { AiError } from "@/lib/ai/client";
 import { getDb, schema } from "@/lib/db";
 import type { CarouselSlide } from "@/lib/db/schema";
 import { CAROUSEL_OBJECTIVES, type CarouselObjective, type CarouselStatus } from "@/lib/carousels/labels";
-import { coverOptions, createCarousel, newCaption, rewriteSlide } from "@/lib/carousels/service";
+import { captionVariants, coverOptions, createCarousel, newCaption, rewriteSlide } from "@/lib/carousels/service";
+import type { CaptionVariant } from "@/lib/db/schema";
 import { customIdOf, FONTS, isTemplateRef, PALETTE_KEYS, type TemplateRef } from "@/lib/carousels/theme";
 import { copySlideImages, deleteCarouselFolder } from "@/lib/carousels/files";
 import { getTemplate } from "@/lib/carousels/templates";
@@ -102,6 +103,9 @@ export async function createCarouselAction(_prev: NewCarouselState, formData: Fo
   redirect(`/carruseles/${id}`);
 }
 
+const IMAGE_URL_RE = /^\/api\/carruseles\/archivos\/carruseles\/[0-9a-f-]{36}\/[a-z0-9-]+\.(jpg|png|webp)$/i;
+const variantSchema = z.object({ hook: z.enum(["dato", "pregunta", "problema", "promesa", "curiosidad"]), caption: z.string().max(5000), hashtags: z.array(z.string().trim().max(80)).max(10) });
+
 const slideSchema = z.object({
   id: z.string().min(1).max(40),
   type: z.enum(["cover", "item", "step", "data", "quote", "cta"]),
@@ -112,9 +116,19 @@ const slideSchema = z.object({
   cta: z.string().max(300),
   template: templateEnum.nullable().optional(),
   // Solo imágenes nuestras (subidas o generadas), servidas por la app con sesión.
-  imageUrl: z.string().max(400).regex(/^\/api\/carruseles\/archivos\/carruseles\/[0-9a-f-]{36}\/[a-z0-9-]+\.(jpg|png|webp)$/i, "Imagen no válida.").nullable().optional(),
+  imageUrl: z.string().max(400).regex(IMAGE_URL_RE, "Imagen no válida.").nullable().optional(),
   imageSource: z.enum(["upload", "ai"]).nullable().optional(),
   scenePrompt: z.string().max(600).nullable().optional(),
+  prevImageUrl: z.string().max(400).regex(IMAGE_URL_RE, "Imagen no válida.").nullable().optional(),
+  prevImageSource: z.enum(["upload", "ai"]).nullable().optional(),
+  // Tu personaje: si sale, su pose y la foto de referencia elegida a mano (null = automática).
+  character: z.boolean().optional(),
+  pose: z.string().max(300).nullable().optional(),
+  photoKey: z.string().max(80).regex(/^marca\/fotos\/[0-9a-f]{16}\.(jpg|png|webp)$/, "Foto no válida.").nullable().optional(),
+  original: z.object({ text: z.string().max(1500), visual: z.string().max(400), person: z.boolean() }).nullable().optional(),
+  videoUrl: z.string().max(400).regex(/^\/api\/carruseles\/archivos\/carruseles\/[0-9a-f-]{36}\/anim\/[a-z0-9]+-[0-9a-f]{8}\.mp4$/i, "Video no válido.").nullable().optional(),
+  videoFormat: z.enum(["4:5", "9:16"]).nullable().optional(),
+  videoHash: z.string().regex(/^[0-9a-f]{8}$/).nullable().optional(),
 });
 const slidesSchema = z.array(slideSchema).min(1, "El carrusel necesita al menos un slide.").max(20, "Máximo 20 slides.");
 
@@ -133,6 +147,7 @@ const saveSchema = z.object({
   slides: slidesSchema,
   caption: z.string().max(5000, "El caption es demasiado largo."),
   hashtags: z.array(z.string().trim().max(80)).max(30),
+  captionVariants: z.array(variantSchema).max(5).optional(),
 });
 export type CarouselDraft = Omit<z.infer<typeof saveSchema>, "slides"> & { slides: CarouselSlide[] };
 
@@ -145,7 +160,15 @@ export async function saveCarouselAction(id: string, draft: CarouselDraft): Prom
   const d = parsed.data;
   const res = await getDb()
     .update(schema.carousels)
-    .set({ title: d.title, template: d.template, theme: d.theme as Record<string, string>, slides: d.slides as CarouselSlide[], caption: d.caption, hashtags: d.hashtags.filter(Boolean) })
+    .set({
+      title: d.title,
+      template: d.template,
+      theme: d.theme as Record<string, string>,
+      slides: d.slides as CarouselSlide[],
+      caption: d.caption,
+      hashtags: d.hashtags.filter(Boolean),
+      ...(d.captionVariants ? { captionVariants: d.captionVariants } : {}),
+    })
     .where(eq(schema.carousels.id, id))
     .returning({ id: schema.carousels.id });
   if (!res.length) return { ok: false, error: "No encontramos ese carrusel." };
@@ -191,6 +214,20 @@ export async function captionAction(id: string, slides: CarouselSlide[]): Promis
   }
 }
 
+/** 5 variaciones del caption para probar (no se guardan hasta que la persona guarda el carrusel). */
+export async function captionVariantsAction(id: string, slides: CarouselSlide[], caption: string): Promise<ActionResult<CaptionVariant[]>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!(await withinAiLimit(user.id))) return { ok: false, error: AI_LIMIT };
+  const parsed = slidesSchema.safeParse(slides);
+  if (!uuid.safeParse(id).success || !parsed.success || typeof caption !== "string") return { ok: false, error: "No pudimos leer el carrusel. Recarga la página." };
+  try {
+    return { ok: true, data: await captionVariants(id, parsed.data as CarouselSlide[], caption.slice(0, 5000), user.id) };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 const statuses = ["DRAFT", "READY", "EXPORTED", "ARCHIVED"] as const satisfies readonly CarouselStatus[];
 
 export async function setCarouselStatusAction(id: string, status: CarouselStatus): Promise<ActionResult> {
@@ -217,6 +254,8 @@ export async function duplicateCarouselAction(id: string): Promise<ActionResult<
   if (!uuid.safeParse(id).success) return { ok: false, error: "Carrusel no válido." };
   const [row] = await getDb().select().from(schema.carousels).where(eq(schema.carousels.id, id)).limit(1);
   if (!row) return { ok: false, error: "No encontramos ese carrusel." };
+  // El video y la imagen anterior viven en la carpeta del original: la copia no los arrastra.
+  const slides: CarouselSlide[] = row.slides.map((s) => ({ ...s, videoUrl: null, videoHash: null, videoFormat: null, prevImageUrl: null, prevImageSource: null }));
   const [copy] = await getDb()
     .insert(schema.carousels)
     .values({
@@ -225,9 +264,10 @@ export async function duplicateCarouselAction(id: string): Promise<ActionResult<
       status: "DRAFT",
       template: row.template,
       theme: row.theme,
-      slides: row.slides,
+      slides,
       caption: row.caption,
       hashtags: row.hashtags,
+      captionVariants: row.captionVariants,
       ctaKeyword: row.ctaKeyword,
       sourceText: row.sourceText,
       scriptId: row.scriptId,
@@ -235,8 +275,8 @@ export async function duplicateCarouselAction(id: string): Promise<ActionResult<
     })
     .returning({ id: schema.carousels.id });
   // Las imágenes se copian a la carpeta de la copia (si no, borrar el original la dejaría sin ellas).
-  if (row.slides.some((s) => s.imageUrl)) {
-    await getDb().update(schema.carousels).set({ slides: await copySlideImages(row.slides, copy!.id) }).where(eq(schema.carousels.id, copy!.id));
+  if (slides.some((s) => s.imageUrl)) {
+    await getDb().update(schema.carousels).set({ slides: await copySlideImages(slides, copy!.id) }).where(eq(schema.carousels.id, copy!.id));
   }
   refresh();
   return { ok: true, data: copy!.id };

@@ -43,7 +43,7 @@ export async function captureSlide(node: HTMLElement, background: string): Promi
 
 export async function buildZip(
   nodes: HTMLElement[],
-  options: { background: string; captionText: string; onProgress?: (done: number, total: number) => void },
+  options: { background: string; captionText: string; extra?: Record<string, Uint8Array | string>; onProgress?: (done: number, total: number) => void },
 ): Promise<Blob> {
   const { zipSync, strToU8 } = await import("fflate");
   const files: Record<string, Uint8Array> = {};
@@ -52,6 +52,8 @@ export async function buildZip(
     options.onProgress?.(i + 1, nodes.length);
   }
   files["caption.txt"] = strToU8(options.captionText.replace(/\n/g, "\r\n"));
+  // Videos de slides animados (MP4) y variaciones del caption.
+  for (const [name, value] of Object.entries(options.extra ?? {})) files[name] = typeof value === "string" ? strToU8(value.replace(/\n/g, "\r\n")) : value;
   // Los JPG ya vienen comprimidos: se guardan sin volver a comprimir.
   const zip = zipSync(files, { level: 0 });
   return new Blob([zip as BlobPart], { type: "application/zip" });

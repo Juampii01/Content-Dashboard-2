@@ -9,7 +9,9 @@ import { proposeScenes } from "../service";
 import { layoutFor, parseSpec } from "../template-spec";
 import { customIdOf } from "../theme";
 import { IMAGE_PROVIDERS, providersStatus, type ImageProviderId } from ".";
-import { imagePrompt, type ImagePromptInput } from "./prompt";
+import { defaultPose, pickPhotos } from "../character";
+import { brandPhotoKeys, ensurePhotoTraits } from "../photos";
+import { correctionPrompt, imagePrompt, type ImagePromptInput } from "./prompt";
 
 /**
  * Imágenes con IA para los slides: encola el trabajo CAROUSEL_IMAGES (lo hace el worker), recibe cada imagen
@@ -52,11 +54,22 @@ async function placements(row: CarouselRow): Promise<(slide: CarouselSlide) => I
   };
 }
 
+/** Un pedido de imagen para el worker. Las fotos del personaje y la imagen a corregir van como claves del almacenamiento. */
+export type ImageJobItem = { slideId: string; prompt: string; characterKeys?: string[]; editKey?: string | null };
+
 /**
- * Encola la generación de imágenes de los slides elegidos. Los slides sin escena la reciben de la IA primero
- * (y se guarda). Devuelve el trabajo y las escenas, para que el editor las muestre.
+ * Encola la generación de imágenes de los slides elegidos. Los slides sin escena (o con personaje y sin pose) la
+ * reciben de la IA primero (y se guarda). En los slides con personaje se eligen sus fotos de referencia según la pose.
+ * Con `correction`, se edita la imagen actual de un slide con un único cambio (como `corregir` del Creator).
+ * Devuelve el trabajo y las escenas y poses, para que el editor las muestre.
  */
-export async function startImageJob(input: { carouselId: string; slideIds: string[]; provider: ImageProviderId | null; userId: string }) {
+export async function startImageJob(input: {
+  carouselId: string;
+  slideIds: string[];
+  provider: ImageProviderId | null;
+  userId: string;
+  correction?: { instruction: string } | null;
+}) {
   const status = await providersStatus();
   const providerId = input.provider && status[input.provider === "chatgpt" ? "chatgpt" : "openai"].configured ? input.provider : status.preferred;
   if (!providerId) throw new ImageJobError("Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes → Claves de servicios para generar imágenes.");
@@ -64,43 +77,75 @@ export async function startImageJob(input: { carouselId: string; slideIds: strin
   if (await activeImageJob(input.carouselId)) throw new ImageJobError("Ya hay imágenes generándose para este carrusel. Espera a que terminen.");
 
   const row = await loadCarousel(input.carouselId);
-  const wanted = input.slideIds.filter((id) => row.slides.some((s) => s.id === id)).slice(0, MAX_IMAGES_PER_JOB);
+  const wanted = input.slideIds.filter((id) => row.slides.some((s) => s.id === id)).slice(0, input.correction ? 1 : MAX_IMAGES_PER_JOB);
   if (!wanted.length) throw new ImageJobError("Elige al menos un slide.");
 
-  // Escenas que faltan: las propone la IA y quedan guardadas en el slide (editables).
-  const missing = wanted.filter((id) => !row.slides.find((s) => s.id === id)?.scenePrompt?.trim());
+  const photoKeys = await brandPhotoKeys();
+  const wantsCharacter = (s: CarouselSlide) => s.character === true && photoKeys.length > 0;
   let slides = row.slides;
-  if (missing.length) {
-    const scenes = await proposeScenes(row.id, row.slides, missing, input.userId);
-    slides = row.slides.map((s) => (scenes[s.id] ? { ...s, scenePrompt: scenes[s.id] } : s));
-    await getDb().update(schema.carousels).set({ slides }).where(eq(schema.carousels.id, row.id));
+
+  if (!input.correction) {
+    // Escenas (y poses) que faltan: las propone la IA y quedan guardadas en el slide (editables).
+    const missing = wanted.filter((id) => {
+      const s = slides.find((x) => x.id === id)!;
+      return !s.scenePrompt?.trim() || (wantsCharacter(s) && !s.pose?.trim());
+    });
+    if (missing.length) {
+      const scenes = await proposeScenes(row.id, row.slides, missing, input.userId);
+      slides = row.slides.map((s, i) => {
+        const hit = scenes[s.id];
+        if (!hit) return s;
+        return {
+          ...s,
+          scenePrompt: s.scenePrompt?.trim() ? s.scenePrompt : hit.scene,
+          ...(s.character && !s.pose?.trim() ? { pose: hit.pose || defaultPose(i) } : {}),
+        };
+      });
+      await getDb().update(schema.carousels).set({ slides }).where(eq(schema.carousels.id, row.id));
+    }
   }
 
+  const photos = wanted.some((id) => wantsCharacter(slides.find((s) => s.id === id)!)) ? await ensurePhotoTraits(input.userId) : [];
   const brand = await getBrand();
   const placementOf = await placements({ ...row, slides });
   // Consistencia: la primera imagen con IA del carrusel (que no se vaya a reemplazar) es la referencia de estilo.
-  const styleSlide = slides.find((s) => s.imageSource === "ai" && keyFromUrl(s.imageUrl) && !wanted.includes(s.id));
-  const items = wanted.map((id) => {
-    const slide = slides.find((s) => s.id === id)!;
+  const styleSlide = input.correction ? null : slides.find((s) => s.imageSource === "ai" && keyFromUrl(s.imageUrl) && !wanted.includes(s.id));
+  const items: ImageJobItem[] = wanted.map((id) => {
+    const index = slides.findIndex((s) => s.id === id);
+    const slide = slides[index]!;
+    const pose = slide.pose?.trim() || defaultPose(index);
+    const characterKeys = wantsCharacter(slide) && photos.length ? pickPhotos(photos, pose, index, slide.photoKey) : [];
+    if (input.correction) {
+      const editKey = keyFromUrl(slide.imageUrl);
+      if (!editKey) throw new ImageJobError("Este slide no tiene una imagen para corregir. Genera una primero.");
+      return { slideId: slide.id, prompt: correctionPrompt({ instruction: input.correction.instruction, character: characterKeys.length ? { photos: characterKeys.length } : null }), characterKeys, editKey };
+    }
     return {
       slideId: slide.id,
+      characterKeys,
       prompt: imagePrompt({
         scene: slide.scenePrompt?.trim() || slide.headline,
         slide,
         textPlacement: placementOf(slide),
         brand: { niche: brand?.niche ?? null, colors: brand?.colors ?? null },
         withReference: Boolean(styleSlide) || wanted.indexOf(id) > 0,
+        character: characterKeys.length ? { photos: characterKeys.length, pose } : null,
       }),
     };
   });
   const jobId = await enqueueJob({
     type: "CAROUSEL_IMAGES",
-    input: { carouselId: row.id, provider: providerId, items, styleRefKey: styleSlide ? keyFromUrl(styleSlide.imageUrl) : null },
+    input: { carouselId: row.id, provider: providerId, items, styleRefKey: styleSlide ? keyFromUrl(styleSlide.imageUrl) : null, correction: Boolean(input.correction) },
     createdBy: input.userId,
     maxAttempts: 2,
     stage: "En cola",
   });
-  return { jobId, provider: providerId, scenes: Object.fromEntries(slides.filter((s) => wanted.includes(s.id)).map((s) => [s.id, s.scenePrompt ?? ""])) };
+  const picked = Object.fromEntries(items.map((i) => [i.slideId, i.characterKeys?.[0] ?? null]));
+  return {
+    jobId,
+    provider: providerId,
+    scenes: Object.fromEntries(slides.filter((s) => wanted.includes(s.id)).map((s) => [s.id, { scene: s.scenePrompt ?? "", pose: s.pose ?? "", photo: picked[s.id] ?? null }])),
+  };
 }
 
 /** El worker avisa que una imagen está lista: se pone en su slide y se anota en la salida del trabajo. */
@@ -114,24 +159,28 @@ export async function attachGeneratedImage(job: { id: string; input: unknown }, 
     if (!row) return null;
     const slide = row.slides.find((s) => s.id === slideId);
     if (!slide) return null;
-    const previous = slide.imageSource === "ai" ? keyFromUrl(slide.imageUrl) : null;
-    const slides = row.slides.map((s) => (s.id === slideId ? { ...s, imageUrl: url, imageSource: "ai" as const } : s));
+    // La imagen anterior queda como "anterior" (para volver a ella si la nueva no gusta); la de antes se borra.
+    const previous = keyFromUrl(slide.imageUrl);
+    const older = keyFromUrl(slide.prevImageUrl);
+    const slides = row.slides.map((s) => (s.id === slideId ? { ...s, imageUrl: url, imageSource: "ai" as const, prevImageUrl: previous ? fileUrl(previous) : null, prevImageSource: previous ? (s.imageSource ?? null) : null } : s));
     await tx.update(schema.carousels).set({ slides }).where(eq(schema.carousels.id, input.carouselId!));
     // Salida parcial: el editor la lee mientras el trabajo sigue y pone cada imagen apenas sale.
     await tx.execute(sql`
       update jobs set output = jsonb_build_object(
         'provider', ${provider}::text,
-        'slides', coalesce(output->'slides', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('slideId', ${slideId}::text, 'url', ${url}::text))
+        'slides', coalesce(output->'slides', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('slideId', ${slideId}::text, 'url', ${url}::text, 'prev', ${previous ? fileUrl(previous) : null}::text))
       ) where id = ${job.id}`);
-    return { previous };
+    // Solo se borra si ningún otro slide la usa (al duplicar un slide, la imagen se comparte).
+    const used = (k: string) => slides.some((s) => keyFromUrl(s.imageUrl) === k || keyFromUrl(s.prevImageUrl) === k);
+    return { previous: older && older !== previous && !used(older) ? older : null, prev: previous ? fileUrl(previous) : null };
   });
   if (!old) {
     // El slide se borró mientras se generaba: la imagen no se usa.
     await deleteFiles([key]);
-    return { url: null };
+    return { url: null, prev: null };
   }
   if (old.previous && old.previous !== key) await deleteFiles([old.previous]);
-  return { url };
+  return { url, prev: old.prev };
 }
 
 /** Imágenes generadas en las últimas 24 h, por proveedor (para avisar antes de llegar al límite del plan). */

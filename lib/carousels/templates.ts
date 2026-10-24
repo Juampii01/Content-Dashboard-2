@@ -80,18 +80,15 @@ export async function latestStyleJob(templateId: string) {
 }
 
 /**
- * Lo llama el worker (con su trabajo en curso) con las medidas y las imágenes reducidas. Arma el borrador medido,
- * se lo pasa a Claude con las imágenes, valida el resultado y deja la plantilla lista. Borra las referencias.
+ * Plantilla a partir de las medidas y las imágenes reducidas de una referencia: borrador medido corregido por Claude
+ * (visión). Si la IA falla, el borrador medido ya es una plantilla usable. Lo usan "Copiar un estilo" y "Copiar un
+ * carrusel".
  */
-export async function finishStyle(job: { id: string; input: unknown; createdBy: string | null }, rawMeasurements: unknown, images: string[]): Promise<{ spec: TemplateSpec; usedAi: boolean }> {
-  const templateId = String((job.input as { templateId?: string }).templateId ?? "");
-  const [row] = await getDb().select().from(schema.carouselTemplates).where(eq(schema.carouselTemplates.id, templateId)).limit(1);
-  if (!row) throw new TemplateError("La plantilla ya no existe.");
+export async function buildSpec(job: { id: string; createdBy: string | null }, rawMeasurements: unknown, images: string[]) {
   const parsed = measurementsSchema.safeParse(rawMeasurements);
   if (!parsed.success) throw new TemplateError("Las medidas del carrusel llegaron incompletas.");
   const measurements = parsed.data;
   const draft = draftSpec(measurements);
-
   let spec = draft;
   let usedAi = false;
   try {
@@ -112,6 +109,18 @@ export async function finishStyle(job: { id: string; input: unknown; createdBy: 
     // Sin IA, el borrador medido ya es una plantilla usable: se guarda y se avisa en el log.
     console.error("[carruseles/estilo]", error instanceof AiError ? error.detail : error instanceof Error ? error.message : "error");
   }
+  return { spec, measurements, usedAi };
+}
+
+/**
+ * Lo llama el worker (con su trabajo en curso) con las medidas y las imágenes reducidas. Arma el borrador medido,
+ * se lo pasa a Claude con las imágenes, valida el resultado y deja la plantilla lista. Borra las referencias.
+ */
+export async function finishStyle(job: { id: string; input: unknown; createdBy: string | null }, rawMeasurements: unknown, images: string[]): Promise<{ spec: TemplateSpec; usedAi: boolean }> {
+  const templateId = String((job.input as { templateId?: string }).templateId ?? "");
+  const [row] = await getDb().select().from(schema.carouselTemplates).where(eq(schema.carouselTemplates.id, templateId)).limit(1);
+  if (!row) throw new TemplateError("La plantilla ya no existe.");
+  const { spec, measurements, usedAi } = await buildSpec(job, rawMeasurements, images);
   await getDb()
     .update(schema.carouselTemplates)
     .set({ status: "READY", spec, measurements: measurements as unknown as Record<string, unknown>, referenceCount: measurements.slides.length, errorMessage: null })

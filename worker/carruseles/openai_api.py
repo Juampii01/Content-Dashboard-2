@@ -1,8 +1,10 @@
 """Respaldo: API de imágenes de OpenAI con la API key del propio cliente.
 
 - Sin referencias: `POST /images/generations`.
-- Con referencias (la primera imagen del carrusel, para mantener el estilo): `POST /images/edits` con `images`
-  como data URLs (JSON). Los modelos GPT Image devuelven siempre `b64_json`.
+- Con referencias (fotos del personaje, la imagen a corregir o la primera imagen del carrusel, para mantener el
+  estilo): `POST /images/edits` con `images` como data URLs (JSON). Los modelos GPT Image devuelven siempre `b64_json`.
+- Si sale el personaje, se pide `input_fidelity: "high"` (conserva mejor la cara de las imágenes de entrada). Si el
+  modelo no acepta ese parámetro, se repite el pedido una vez sin él.
 Modelo, tamaño y calidad los manda la app (lib/carousels/images/openai.ts) junto con la clave.
 """
 
@@ -45,7 +47,34 @@ def _error(code: int, body: dict[str, Any]) -> JobError:
     return JobError("OpenAI no respondió. Vamos a reintentarlo.", retry=True, detail=f"openai {code}")
 
 
-def generate_image(creds: dict[str, Any], prompt: str, refs: list[Path], dest: Path, timeout: int = 240) -> Path:
+class _Rejected(Exception):
+    def __init__(self, code: int, body: dict[str, Any]) -> None:
+        super().__init__(code)
+        err = body.get("error") if isinstance(body.get("error"), dict) else {}
+        self.code, self.body, self.message = code, body, str(err.get("message") or "") + " " + str(err.get("param") or "")
+
+
+def _request(base: str, path: str, payload: dict[str, Any], creds: dict[str, Any], timeout: int) -> dict[str, Any]:
+    req = urllib.request.Request(
+        f"{base}{path}",
+        data=json.dumps(payload).encode(),
+        method="POST",
+        headers={"authorization": f"Bearer {creds['apiKey']}", "content-type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return json.loads(res.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            err_body = json.loads(exc.read() or b"{}")
+        except json.JSONDecodeError:
+            err_body = {}
+        raise _Rejected(exc.code, err_body) from exc
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        raise JobError("No pudimos comunicarnos con OpenAI. Vamos a reintentarlo.", retry=True, detail=f"openai red: {exc.__class__.__name__}") from exc
+
+
+def generate_image(creds: dict[str, Any], prompt: str, refs: list[Path], dest: Path, timeout: int = 240, keep_face: bool = False) -> Path:
     base = str(creds.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
     payload: dict[str, Any] = {
         "model": creds.get("model") or "gpt-image-2.5-flare",
@@ -59,23 +88,21 @@ def generate_image(creds: dict[str, Any], prompt: str, refs: list[Path], dest: P
     if refs:
         path = "/images/edits"
         payload["images"] = [{"image_url": _data_url(p)} for p in refs[:4]]
-    req = urllib.request.Request(
-        f"{base}{path}",
-        data=json.dumps(payload).encode(),
-        method="POST",
-        headers={"authorization": f"Bearer {creds['apiKey']}", "content-type": "application/json"},
-    )
+        if keep_face:
+            payload["input_fidelity"] = "high"
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as res:
-            body = json.loads(res.read() or b"{}")
-    except urllib.error.HTTPError as exc:
-        try:
-            err_body = json.loads(exc.read() or b"{}")
-        except json.JSONDecodeError:
-            err_body = {}
-        raise _error(exc.code, err_body) from exc
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-        raise JobError("No pudimos comunicarnos con OpenAI. Vamos a reintentarlo.", retry=True, detail=f"openai red: {exc.__class__.__name__}") from exc
+        body = _request(base, path, payload, creds, timeout)
+    except _Rejected as exc:
+        # El modelo no conoce input_fidelity: se repite sin él (la cara se parece algo menos).
+        if "input_fidelity" in payload and "input_fidelity" in exc.message:
+            log.warning("openai no acepta input_fidelity con este modelo; repito sin él")
+            payload.pop("input_fidelity")
+            try:
+                body = _request(base, path, payload, creds, timeout)
+            except _Rejected as again:
+                raise _error(again.code, again.body) from again
+        else:
+            raise _error(exc.code, exc.body) from exc
     data = (body.get("data") or [{}])[0]
     b64 = data.get("b64_json")
     if not b64:

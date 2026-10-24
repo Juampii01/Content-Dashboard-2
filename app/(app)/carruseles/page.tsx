@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
-import { GalleryHorizontalEnd, Palette, Plus } from "lucide-react";
+import { Copy, GalleryHorizontalEnd, Palette, Plus } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -54,13 +54,18 @@ async function CarouselList({ searchParams }: { searchParams: PageProps<"/carrus
           title={total === 0 ? "Todavía no tienes carruseles" : "No hay carruseles en este estado"}
           description={
             total === 0
-              ? "Parte de un tema, de uno de tus guiones o de un texto que ya escribiste. Te devolvemos cada slide listo para editar y lo descargas en 1080 × 1350."
+              ? "Parte de un tema, de uno de tus guiones o de un texto que ya escribiste, o copia un carrusel viral con tu marca y tu cara. Te devolvemos cada slide listo para editar y lo descargas en 1080 × 1350."
               : undefined
           }
           action={
-            <ButtonLink href="/carruseles/nuevo" icon={<Plus className="h-4 w-4" aria-hidden />}>
-              Nuevo carrusel
-            </ButtonLink>
+            <div className="flex flex-wrap justify-center gap-2">
+              <ButtonLink href="/carruseles/nuevo" icon={<Plus className="h-4 w-4" aria-hidden />}>
+                Nuevo carrusel
+              </ButtonLink>
+              <ButtonLink href="/carruseles/copiar" variant="ghost" icon={<Copy className="h-4 w-4" aria-hidden />}>
+                Copiar uno que funciona
+              </ButtonLink>
+            </div>
           }
         />
       ) : (
@@ -94,12 +99,15 @@ export default function CarruselesPage({ searchParams }: PageProps<"/carruseles"
       <PageHeader
         eyebrow="Carruseles"
         title="Carruseles listos para Instagram"
-        description="De un tema, un guion o un texto a slides de 1080 × 1350 con tu marca. Editas cada slide y descargas todo en un ZIP."
+        description="De un tema, un guion, un texto o un carrusel viral a slides de 1080 × 1350 con tu marca y tu cara. Editas cada slide y descargas todo en un ZIP."
         icon={<GalleryHorizontalEnd className="h-5 w-5" aria-hidden />}
         actions={
           <div className="flex flex-wrap gap-2">
             <ButtonLink href="/carruseles/plantillas" variant="ghost" icon={<Palette className="h-4 w-4" aria-hidden />}>
               Plantillas
+            </ButtonLink>
+            <ButtonLink href="/carruseles/copiar" variant="ghost" icon={<Copy className="h-4 w-4" aria-hidden />}>
+              Copiar un carrusel
             </ButtonLink>
             <ButtonLink href="/carruseles/nuevo" icon={<Plus className="h-4 w-4" aria-hidden />}>
               Nuevo carrusel

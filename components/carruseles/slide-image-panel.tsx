@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ImageOff, ImagePlus, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
+import { ImageOff, ImagePlus, Loader2, RefreshCw, Sparkles, Undo2, Upload, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Textarea } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
@@ -24,6 +24,7 @@ export function SlideImagePanel({
   onPatch,
   onGenerate,
   onUsePhotoTemplate,
+  onCorrect,
 }: {
   carouselId: string;
   slide: CarouselSlide;
@@ -38,6 +39,8 @@ export function SlideImagePanel({
   onPatch: (patch: Partial<CarouselSlide>) => void;
   onGenerate: () => void;
   onUsePhotoTemplate: () => void;
+  /** Corregir la imagen actual con un único cambio (1 imagen). */
+  onCorrect?: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -106,13 +109,19 @@ export function SlideImagePanel({
                 ? "Subiendo tu foto…"
                 : slide.imageUrl
                   ? slide.imageSource === "ai"
-                    ? "Generada con IA, sin texto."
+                    ? slide.character
+                      ? "Generada con IA con tu cara, sin texto."
+                      : "Generada con IA, sin texto."
                     : "Tu foto."
                   : "Todavía no tiene imagen. Genera una escena con IA o sube tu foto."}
           </p>
         </div>
       </div>
-      <Field label="Escena para la IA" htmlFor={`scene-${slide.id}`} hint="Qué se ve, sin textos ni logos. Si la dejas vacía, la IA la propone.">
+      <Field
+        label="Escena para la IA"
+        htmlFor={`scene-${slide.id}`}
+        hint={slide.character ? "Dónde estás y qué se ve alrededor, sin textos ni logos. Tu pose va arriba." : "Qué se ve, sin textos ni logos. Si la dejas vacía, la IA la propone."}
+      >
         <Textarea
           id={`scene-${slide.id}`}
           value={slide.scenePrompt ?? ""}
@@ -138,6 +147,30 @@ export function SlideImagePanel({
           <Button variant="ghost" size="sm" disabled={disabled || busy} onClick={() => input.current?.click()} icon={<Upload className="h-3.5 w-3.5" aria-hidden />}>
             Subir mi foto
           </Button>
+          {slide.imageUrl && onCorrect && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={disabled || busy || !providerReady}
+              onClick={onCorrect}
+              title={providerReady ? "Cambia una sola cosa de esta imagen (1 imagen)" : "Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes"}
+              icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />}
+            >
+              Corregir
+            </Button>
+          )}
+          {slide.prevImageUrl && (
+            <Button
+              variant="subtle"
+              size="sm"
+              disabled={disabled || busy}
+              onClick={() => onPatch({ imageUrl: slide.prevImageUrl, imageSource: slide.prevImageSource ?? "ai", prevImageUrl: slide.imageUrl ?? null, prevImageSource: slide.imageSource ?? null })}
+              title="Cambia entre esta imagen y la anterior"
+              icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />}
+            >
+              Volver a la anterior
+            </Button>
+          )}
           {slide.imageUrl && (
             <Button variant="subtle" size="sm" disabled={disabled || busy} onClick={() => onPatch({ imageUrl: null, imageSource: null })} icon={<ImageOff className="h-3.5 w-3.5" aria-hidden />}>
               Quitar

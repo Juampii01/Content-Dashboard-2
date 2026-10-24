@@ -7,7 +7,7 @@ import type { CarouselSlide } from "@/lib/db/schema";
 export type CarouselWarning = {
   /** null = aviso del carrusel completo (caption, hashtags). */
   slideId: string | null;
-  field: "headline" | "body" | "highlight" | "kicker" | "cta" | "caption" | "hashtags" | "slides";
+  field: "headline" | "body" | "highlight" | "kicker" | "cta" | "caption" | "hashtags" | "slides" | "character";
   message: string;
 };
 
@@ -102,6 +102,10 @@ export function validateCarousel(input: {
   bannedWords: string[];
   /** Texto de origen (tema, texto pegado o guion). Las cifras que no estén aquí se marcan. */
   sourceText: string | null;
+  /** Carrusel copiado de otro: el @ del original (no se puede colar) y si hay fotos del personaje en Mi marca. */
+  copy?: { handle: string | null } | null;
+  /** Fotos del personaje en Mi marca (para avisar si un slide lo pide y no hay ninguna). */
+  characterPhotos?: number;
 }): CarouselWarning[] {
   const warnings: CarouselWarning[] = [];
   const { slides } = input;
@@ -144,6 +148,26 @@ export function validateCarousel(input: {
     }
   }
 
+  // Tu personaje (portado de ficha.py: "el cliente tiene que dar la cara al menos una vez").
+  const decided = slides.filter((s) => s.character !== undefined);
+  if (input.copy && decided.length && !slides.some((s) => s.character)) {
+    warnings.push({ slideId: slides[slides.length - 1]!.id, field: "character", message: "Tu personaje no sale en ningún slide: actívalo al menos en el cierre para que tu marca dé la cara." });
+  }
+  if (input.characterPhotos === 0 && slides.some((s) => s.character)) {
+    warnings.push({ slideId: null, field: "character", message: "Hay slides con tu personaje pero no subiste fotos tuyas: sin fotos no se puede poner tu cara." });
+  }
+  for (const s of slides) {
+    if (s.original?.text && looksCopied(`${s.headline} ${s.body}`, s.original.text)) {
+      warnings.push({ slideId: s.id, field: "headline", message: "Se parece mucho al texto del original: reescríbelo con tus palabras." });
+    }
+  }
+  const handle = input.copy?.handle?.replace(/^@/, "").trim();
+  if (handle && handle.length >= 3) {
+    const re = new RegExp(`@?${handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i");
+    for (const s of slides) if (re.test(slideText(s))) warnings.push({ slideId: s.id, field: "headline", message: `Aparece la cuenta del original (@${handle}). Quítala.` });
+    if (re.test(input.caption)) warnings.push({ slideId: null, field: "caption", message: `El caption nombra la cuenta del original (@${handle}). Quítala.` });
+  }
+
   const caption = input.caption.trim();
   if (caption.length > LIMITS.caption) warnings.push({ slideId: null, field: "caption", message: `El caption tiene ${caption.length} caracteres: Instagram permite ${LIMITS.caption}.` });
   if (!caption) warnings.push({ slideId: null, field: "caption", message: "Falta el caption." });
@@ -156,6 +180,25 @@ export function validateCarousel(input: {
   if (captionFigures.length) warnings.push({ slideId: null, field: "caption", message: `El caption tiene cifras que no están en tu texto de origen: ${captionFigures.slice(0, 4).join(", ")}.` });
 
   return warnings;
+}
+
+function trigrams(text: string): string[] {
+  const words = fold(text).replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i + 2 < words.length; i++) out.push(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
+  return out;
+}
+
+/**
+ * El texto nuevo repite frases del original: más de la mitad de sus grupos de 3 palabras están en el original.
+ * Solo se mide si el texto nuevo tiene al menos 6 palabras (los titulares cortos con nombres propios no cuentan).
+ */
+export function looksCopied(text: string, original: string): boolean {
+  const mine = trigrams(text);
+  if (mine.length < 4) return false;
+  const theirs = new Set(trigrams(original));
+  if (!theirs.size) return false;
+  return mine.filter((t) => theirs.has(t)).length / mine.length > 0.5;
 }
 
 /** Normaliza un hashtag: sin espacios, con # adelante. */

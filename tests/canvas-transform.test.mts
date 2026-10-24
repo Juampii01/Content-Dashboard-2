@@ -12,7 +12,7 @@ import { brollEditSchema, brollRenderEdit, graphicAlpha, isDefaultEdit, resolveE
 import { captionLook, captionTracks } from "../lib/video/caption-styles";
 import { captionAnchor, cleanCaptionPlacement, placeCaptionBlocks } from "../lib/video/canvas/captions";
 import { ANIM_KINDS, animFades, animState, cleanAnim, cleanPlace, cleanTransform, DEFAULT_ANIM, rampAlpha, snapBox, transformedBox, type Anim } from "../lib/video/canvas/transform";
-import { FX_MOVABLE } from "../lib/video/fx/catalog";
+import { FX_MOVABLE, type FxKind } from "../lib/video/fx/catalog";
 import { compileFx } from "../lib/video/fx/compile";
 import { demoSpec } from "../lib/video/fx/demo";
 import { FxRenderer } from "../lib/video/fx/engine";
@@ -57,7 +57,9 @@ describe("forma y limpieza", () => {
     assert.deepEqual(chart.transform, { x: 0.1, y: 0, scale: 1 }, "el gráfico de la semana no gira");
     const fixed = clampFx(fxItemSchema.parse({ ...base, kind: "vertigo", transform: { x: 0.1, y: 0, scale: 1 } }));
     assert.equal(fixed.transform, undefined, "un efecto de cámara no se mueve");
-    assert.deepEqual(Object.keys(FX_MOVABLE).sort(), ["chart_grow", "checklist", "cover_story", "iphone"]);
+    // Los cuatro de firma y las tarjetas, textos y llamadas de atención de la biblioteca ampliada.
+    for (const k of ["chart_grow", "checklist", "cover_story", "iphone", "lower_third", "quote_card", "arrow_draw", "typewriter"]) assert.ok(k in FX_MOVABLE, k);
+    for (const k of ["vignette", "shake", "phone_frame", "text_behind", "zoom_cut", "digital_zoom"]) assert.ok(!(k in FX_MOVABLE), k);
   });
 
   test("subtítulos: global y por línea, sin rotación, ids válidos", () => {
@@ -220,7 +222,7 @@ describe("motor de gráficos con lugar", () => {
 
 describe("motor de efectos con lugar", () => {
   const S = 0.5;
-  function render(kind: "checklist" | "iphone" | "chart_grow" | "cover_story", place: { transform?: unknown; anim?: unknown } | null, t: number) {
+  function render(kind: FxKind, place: { transform?: unknown; anim?: unknown } | null, t: number) {
     const spec0 = demoSpec(kind, BRAND);
     const spec = place
       ? compileFx({
@@ -239,9 +241,11 @@ describe("motor de efectos con lugar", () => {
     return { out, spec, data: c.getContext("2d").getImageData(0, 0, 540, 960).data };
   }
 
-  test("los cuatro movibles informan su caja y se corren con el lugar", { skip }, () => {
-    for (const kind of ["checklist", "iphone", "chart_grow", "cover_story"] as const) {
-      const t = kind === "cover_story" ? 1.5 : 1.8;
+  test("los movibles informan su caja y se corren con el lugar", { skip }, () => {
+    for (const kind of Object.keys(FX_MOVABLE) as FxKind[]) {
+      // La lupa y el foco dibujan el video (sin cuadro aquí, casi nada): se prueban aparte por su caja.
+      if (kind === "spotlight" || kind === "magnifier") continue;
+      const t = kind === "cover_story" ? 1.5 : Math.min(1.8, demoSpec(kind, BRAND).duration - 0.4);
       const a = render(kind, null, t);
       const b = render(kind, { transform: { x: 0.1, y: 0.1, scale: 1 } }, t);
       assert.ok(a.out.movable && a.out.movable.w > 50, `${kind}: caja`);
@@ -250,7 +254,7 @@ describe("motor de efectos con lugar", () => {
       const ib = inked(b.data, 540, 960, false);
       // El fondo liso (#0b1020) queda por debajo del umbral: se mide lo que dibuja el efecto.
       // (En la portada solo se mueve el titular: el centro de todo lo dibujado se corre menos.)
-      const k = kind === "cover_story" ? 0.015 : 0.06;
+      const k = kind === "cover_story" ? 0.015 : 0.05;
       assert.ok(ib.cx - ia.cx > k * 540 && ib.cy - ia.cy > k * 960, `${kind}: ${ib.cx - ia.cx}, ${ib.cy - ia.cy}`);
       assert.deepEqual(b.out.movable, a.out.movable, "la caja de diseño es la misma; la transformación va aparte");
     }

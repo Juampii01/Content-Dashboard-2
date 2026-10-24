@@ -4,7 +4,7 @@
  * marca (qué efectos puede elegir el director y con qué frecuencia). Sin servidor.
  */
 import { z } from "zod";
-import { FX_FREQUENCIES, FX_INFO, FX_KINDS, FX_MOVABLE, type FxFrequency, type FxKind } from "./catalog";
+import { FX_FREQUENCIES, FX_INFO, FX_KINDS, FX_MOVABLE, SIGNATURE_FX_KINDS, type FxFrequency, type FxKind } from "./catalog";
 import { animSchema, cleanPlace, transformSchema } from "../canvas/transform";
 import { captionText, norm } from "../text";
 
@@ -16,9 +16,9 @@ export const fxItemSchema = z.object({
   from_word: z.number().int().min(0),
   to_word: z.number().int().min(0),
   /** Texto principal (palabra de portada, rótulo, comando…). */
-  text: z.string().max(60).optional(),
+  text: z.string().max(90).optional(),
   /** Lista de textos (tareas, titulares). */
-  items: z.array(z.string().max(60)).max(6).optional(),
+  items: z.array(z.string().max(80)).max(6).optional(),
   /** Rótulo chico (fecha y número de la portada, nombre de la ventana). */
   kicker: z.string().max(40).optional(),
   /** Zoom digital: ids de las palabras fuertes (dentro del tramo). */
@@ -36,24 +36,34 @@ export const fxItemSchema = z.object({
 });
 export type FxItem = z.infer<typeof fxItemSchema>;
 
-export const MAX_EFFECTS = 16;
+export const MAX_EFFECTS = 40;
 export const fxListSchema = z.array(fxItemSchema).max(MAX_EFFECTS);
 
 // ─── Mi marca: qué efectos puede usar el director ─────────────────────────
 
+/** Versión del catálogo: 2 = la biblioteca de 100. Lo guardado con la de 17 suma solo los efectos nuevos. */
+export const FX_CATALOG_VERSION = 2;
+
 export const fxSettingsSchema = z.object({
   allowed: z.array(z.enum(FX_KINDS)).max(FX_KINDS.length),
   frequency: z.enum(FX_FREQUENCIES),
+  v: z.number().int().optional(),
 });
-export type FxSettings = z.infer<typeof fxSettingsSchema>;
+export type FxSettings = { allowed: FxKind[]; frequency: FxFrequency; v?: number };
 
 /** De fábrica: todos permitidos, frecuencia normal. */
-export const FX_FACTORY: FxSettings = { allowed: [...FX_KINDS], frequency: "normal" };
+export const FX_FACTORY: FxSettings = { allowed: [...FX_KINDS], frequency: "normal", v: FX_CATALOG_VERSION };
 
 export function readFxSettings(raw: unknown): FxSettings {
-  const parsed = fxSettingsSchema.safeParse(raw);
-  if (!parsed.success) return { ...FX_FACTORY, allowed: [...FX_FACTORY.allowed] };
-  return { allowed: [...new Set(parsed.data.allowed)], frequency: parsed.data.frequency as FxFrequency };
+  // Lo guardado antes de la biblioteca de 100 trae nombres que existen: se lee igual (los desconocidos se ignoran).
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const allowedRaw = Array.isArray(obj?.allowed) ? obj.allowed.filter((k): k is FxKind => typeof k === "string" && (FX_KINDS as readonly string[]).includes(k)) : null;
+  const parsed = fxSettingsSchema.safeParse(obj ? { ...obj, allowed: allowedRaw ?? obj.allowed } : raw);
+  if (!parsed.success || (Array.isArray(obj?.allowed) && obj.allowed.length > 0 && allowedRaw?.length === 0)) return { ...FX_FACTORY, allowed: [...FX_FACTORY.allowed] };
+  const allowed = new Set(parsed.data.allowed as FxKind[]);
+  // Elegido con el catálogo de 17: los nuevos quedan permitidos (no existían cuando la persona eligió).
+  if ((parsed.data.v ?? 1) < FX_CATALOG_VERSION) for (const k of FX_KINDS) if (!(SIGNATURE_FX_KINDS as readonly string[]).includes(k)) allowed.add(k);
+  return { allowed: FX_KINDS.filter((k) => allowed.has(k)), frequency: parsed.data.frequency as FxFrequency, v: FX_CATALOG_VERSION };
 }
 
 // ─── Textos por defecto ───────────────────────────────────────────────────
@@ -138,8 +148,65 @@ export function defaultFx(kind: FxKind, words: SpokenWord[], now = new Date()): 
       out.words = strongWords(words, 3);
       break;
     default:
+      Object.assign(out, autoFx(kind, words));
       break;
   }
+  return out;
+}
+
+const EMOJI_HINTS: [RegExp, string][] = [
+  [/fuego|incre[ií]ble|brutal|explot/, "fuego"],
+  [/amo|amor|coraz[oó]n|quiero/, "corazón"],
+  [/crec|despeg|lanz|cohete|r[aá]pido/, "cohete"],
+  [/idea|truco|consejo|secreto/, "idea"],
+  [/mira|ojo|atenci[oó]n/, "ojos"],
+  [/dinero|plata|venta|factur|cobr|precio/, "dinero"],
+  [/risa|gracioso|chiste|jaja/, "risa"],
+];
+
+/** Textos por defecto de los efectos de la biblioteca ampliada (su ficha dice de dónde salen). */
+function autoFx(kind: FxKind, words: SpokenWord[]): Pick<FxItem, "text" | "items" | "kicker"> {
+  const info = FX_INFO[kind];
+  const auto = info.auto ?? {};
+  const out: Pick<FxItem, "text" | "items" | "kicker"> = {};
+  const said = words.map((w) => w.text).join(" ");
+  const sentence = captionText(said.split(/(?<=[.?!])\s+/)[0] ?? said);
+  const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
+  const cap = (s: string) => s.charAt(0).toLocaleUpperCase("es") + s.slice(1);
+  if (info.text) {
+    const max = info.text.max;
+    const a = auto.text;
+    let text = "";
+    if (typeof a === "object" && a) text = a.fixed;
+    else if (a === "key") text = keyWord(words).toLocaleLowerCase("es");
+    else if (a === "KEY") text = upper(keyWord(words));
+    else if (a === "phrase" || a === "lower-phrase") {
+      const p = phrasesOf(words, 1, max)[0] ?? cut(sentence, max);
+      text = a === "lower-phrase" ? p.toLocaleLowerCase("es").replace(/[.…]$/, "") : p;
+    } else if (a === "sentence") text = cut(cap(sentence), max);
+    else if (a === "number") text = (words.map((w) => captionText(w.text)).find((w) => /\d/.test(w)) ?? "").slice(0, max);
+    else if (a === "question") {
+      const q = said.match(/¿[^?]+\?/)?.[0] ?? said.split(/(?<=[.?!])\s+/).find((p) => p.includes("?"));
+      text = cut(q ? captionText(q) : cap(sentence), max);
+    } else if (a === "emoji") {
+      const low = said.toLowerCase();
+      text = EMOJI_HINTS.find(([re]) => re.test(low))?.[1] ?? "estrella";
+    } else if (a === "yesno") text = /\b(no|nunca|error|mal|jam[aá]s)\b/i.test(said) ? "NO" : "SÍ";
+    out.text = text.slice(0, max);
+  }
+  if (info.items) {
+    const { count, max } = info.items;
+    const a = auto.items;
+    let items: string[] = [];
+    if (typeof a === "object" && a) items = a.fixed;
+    else if (a === "words") {
+      const ids = strongWords(words, count);
+      items = ids.map((id) => upper(captionText(words.find((w) => w.id === id)?.text ?? "").replace(/[¿?¡!.,;:]/g, ""))).filter(Boolean);
+    } else if (a === "sentence") items = [cut(cap(sentence), max)];
+    else if (a === "phrases") items = phrasesOf(words, count, max);
+    out.items = items.map((x) => x.slice(0, max)).slice(0, count);
+  }
+  if (info.kicker) out.kicker = (auto.kicker ?? "").slice(0, info.kicker.max);
   return out;
 }
 

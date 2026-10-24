@@ -36,6 +36,11 @@ export function demoSpec(kind: FxKind, brand: FxBrand, override?: { text?: strin
   if (kind === "headline_wall") defaults.items = ["Nadie te lo dice", "El error de todos", "Lo que sí funciona", "Así empezó todo", "La verdad"];
   if (kind === "cover_story") defaults.items = ["La guía para", "crecer en 2026"];
   if (kind === "digital_zoom") defaults.words = [2, 7, 12];
+  // Biblioteca ampliada: los textos de muestra de su ficha.
+  const demo = FX_INFO[kind].demo;
+  if (demo?.text != null) defaults.text = demo.text;
+  if (demo?.items) defaults.items = demo.items;
+  if (demo?.kicker != null) defaults.kicker = demo.kicker;
   const item = { id: `demo-${kind}`, kind, from_word: 0, to_word: words.length - 1, ...defaults, ...(override ?? {}) };
   const spec = compileFx({
     segment: { id: item.id, start: 0, end: duration, item },

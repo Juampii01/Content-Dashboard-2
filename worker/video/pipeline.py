@@ -302,6 +302,7 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
     # como una capa a pantalla completa, sin fundido.
     fx_items = [e for e in data.get("effects") or [] if isinstance(e, dict)]
     fx_layers: list[dict[str, Any]] = []
+    fx_warnings: list[str] = []
     if fx_items:
         ctx.stage("Dibujando los efectos", *stages["fx"])
         fx_layers = fx.render_effects(
@@ -317,6 +318,7 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
             fonts_dir=ctx.config.fonts_dir,
             image_hosts=fx_image_hosts(ctx.config.app_url),
             on_progress=ctx.progress,
+            warnings=fx_warnings,
         )
         fx_layers = [f for f in fx_layers if f["start"] < expected]
 
@@ -357,6 +359,7 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         "broll_inputs": [*broll_inputs, *[f["path"] for f in fx_layers]],
         "broll_items": broll_items,
         "fx_layers": fx_layers,
+        "fx_warnings": fx_warnings,
         "image_inputs": [EMOJI_DIR / f"{n}.png" for n in emoji_files],
         "audio_info": audio_info,
         "fmt": fmt,
@@ -436,6 +439,7 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         "zooms": len(data.get("zooms") or []),
         "effects": [{"kind": f["kind"], "ms": f["ms"], "maskMs": f["maskMs"]} for f in built.get("fx_layers") or []],
         "qc": {"ok": qc["ok"], "checks": qc["checks"]},
+        **({"warnings": built["fx_warnings"][:10]} if built.get("fx_warnings") else {}),
         "audio": audio_info,
         "replaced": [k for k in data.get("previousKeys") or [] if k],
     }

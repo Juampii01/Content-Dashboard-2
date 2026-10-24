@@ -558,6 +558,143 @@ def loudness(path: Path) -> tuple[float, float]:
     return integrated, peak
 
 
+# Sincronía real: el audio del MP4 final se compara con el audio de origen en el lugar donde el timeline dice que
+# tiene que estar. Envolvente de energía cada 10 ms (8 kHz, raíz cuadrada para que las pausas y el ruido pesen menos
+# que la voz) y correlación normalizada en ventanas de 1,2 s dentro de un solo tramo, buscando hasta ±0,6 s.
+SYNC_RATE = 8000
+SYNC_HOP = 80  # 10 ms
+SYNC_WINDOW = 1.2
+SYNC_SEARCH = 0.6
+SYNC_POINTS = 16
+SYNC_TOLERANCE = 0.06  # Más de 60 ms de desfase en un punto confiable: el video sale mal.
+SYNC_CONFIDENT = 0.6  # Correlación mínima para que un punto cuente como medido.
+
+
+def _envelope(path: Path) -> Any:
+    import numpy as np
+
+    raw = _decode_audio(path, SYNC_RATE)
+    n = len(raw) // SYNC_HOP
+    if n == 0:
+        return np.zeros(0, dtype=np.float32)
+    x = raw[: n * SYNC_HOP].astype(np.float64)
+    # Sin continua ni graves (rumor, música de fondo grave): diferencia de primer orden, un pasa altos simple.
+    x = np.diff(x, prepend=x[0])
+    return np.sqrt(np.sqrt((x.reshape(n, SYNC_HOP) ** 2).mean(1))).astype(np.float32)
+
+
+def _decode_audio(path: Path, rate: int) -> Any:
+    """Audio mono como float32 a `rate` (lo decodifica ffmpeg; sirve para WAV, MKV o MP4)."""
+    import subprocess
+
+    import numpy as np
+
+    proc = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-i", str(path), "-map", "0:a:0", "-ac", "1", "-ar", str(rate), "-f", "f32le", "-"], capture_output=True, check=False)
+    if proc.returncode != 0:
+        raise JobError("No pudimos revisar la sincronía del audio.", detail=proc.stderr.decode(errors="replace")[-300:])
+    return np.frombuffer(proc.stdout, dtype="<f4")
+
+
+def output_map(clips: list[dict[str, Any]]) -> list[tuple[float, float, float]]:
+    """Tramos como (inicio en el final, fin en el final, inicio en el original), en segundos."""
+    out, acc = [], 0.0
+    for c in clips:
+        dur = (int(c["end"]) - int(c["start"])) / FPS
+        out.append((acc, acc + dur, int(c["start"]) / FPS))
+        acc += dur
+    return out
+
+
+def sync_offsets(final: Path, source: Path, clips: list[dict[str, Any]], points: int = SYNC_POINTS, window: float = SYNC_WINDOW, search: float = SYNC_SEARCH) -> list[dict[str, float]]:
+    """Desfase del audio final respecto del de origen en puntos repartidos por el video (dentro de un tramo, con voz).
+
+    Cada punto: `out` (segundo del final), `src` (segundo del original donde tendría que estar), `lag` (cuánto está
+    corrido: positivo = el audio final va adelantado respecto de lo esperado) y `r` (correlación, 0 a 1)."""
+    import numpy as np
+
+    fin, src = _envelope(final), _envelope(source)
+    fps_env = SYNC_RATE / SYNC_HOP
+    w = int(round(window * fps_env))
+    s = int(round(search * fps_env))
+    if len(fin) < w or len(src) < w:
+        return []
+    # Candidatos: cada 0,25 s dentro de cada tramo (con margen de 0,1 s en los bordes, donde está el fundido).
+    cands: list[tuple[float, float]] = []
+    for o0, o1, s0 in output_map(clips):
+        t = o0 + 0.1
+        while t + window <= o1 - 0.1:
+            cands.append((t, s0 + (t - o0)))
+            t += 0.25
+    scored = []
+    for t, st in cands:
+        a = int(round(t * fps_env))
+        b = int(round(st * fps_env))
+        seg = fin[a : a + w]
+        ref = src[b : b + w] if b + w <= len(src) else None
+        if len(seg) < w or ref is None or ref.std() < 1e-4:
+            continue
+        # Puntos con voz y con forma (no un tramo parejo): los que más varían.
+        scored.append((float(ref.std()), t, st))
+    if not scored:
+        return []
+    # Los más informativos, repartidos: se ordena por tiempo y se toma el mejor de cada porción del video.
+    scored.sort(key=lambda x: x[1])
+    buckets = max(1, min(points, len(scored)))
+    chosen = []
+    for k in range(buckets):
+        part = scored[k * len(scored) // buckets : (k + 1) * len(scored) // buckets]
+        if part:
+            chosen.append(max(part, key=lambda x: x[0]))
+    out = []
+    for _, t, st in chosen:
+        a = int(round(t * fps_env))
+        b = int(round(st * fps_env))
+        seg = fin[a : a + w].astype(np.float64)
+        seg = (seg - seg.mean()) / (seg.std() + 1e-9)
+        lo, hi = max(0, b - s), min(len(src) - w, b + s)
+        best_r, best_k = -1.0, b
+        for k in range(lo, hi + 1):
+            ref = src[k : k + w].astype(np.float64)
+            r = float(np.dot(seg, (ref - ref.mean()) / (ref.std() + 1e-9)) / w)
+            if r > best_r:
+                best_r, best_k = r, k
+        # Afinado por debajo de 10 ms con una parábola sobre los tres valores alrededor del máximo.
+        frac = 0.0
+        if lo < best_k < hi:
+            rs = []
+            for k in (best_k - 1, best_k + 1):
+                ref = src[k : k + w].astype(np.float64)
+                rs.append(float(np.dot(seg, (ref - ref.mean()) / (ref.std() + 1e-9)) / w))
+            den = rs[0] - 2 * best_r + rs[1]
+            if den < 0:
+                frac = max(-0.5, min(0.5, 0.5 * (rs[0] - rs[1]) / den))
+        lag = (best_k + frac - b) / fps_env
+        out.append({"out": round(t, 3), "src": round(st, 3), "lag": round(lag, 4), "r": round(max(0.0, best_r), 3)})
+    return out
+
+
+def sync_check(final: Path, source: Path, clips: list[dict[str, Any]], tolerance: float = SYNC_TOLERANCE) -> dict[str, Any]:
+    """Control de sincronía real para el control de calidad: ¿el audio del MP4 es el del original en el lugar que dice
+    el timeline? Falla si un punto medido con confianza está corrido más de `tolerance`, o si en la mayoría de los
+    puntos el audio no se parece al esperado (salió otro pedazo del video)."""
+    points = sync_offsets(final, source, clips)
+    if not points:
+        return {"name": "Sincronía con el original", "ok": True, "detail": "sin voz suficiente para medir", "points": []}
+    confident = [p for p in points if p["r"] >= SYNC_CONFIDENT]
+    off = [p for p in confident if abs(p["lag"]) > tolerance]
+    worst = max((abs(p["lag"]) for p in confident), default=0.0)
+    matched = len(confident) / len(points)
+    ok = not off and matched >= 0.5
+    if off:
+        p = max(off, key=lambda p: abs(p["lag"]))
+        detail = f"el audio está corrido {p['lag'] * 1000:+.0f} ms en el segundo {p['out']:.1f} ({len(off)} de {len(confident)} puntos)"
+    elif matched < 0.5:
+        detail = f"el audio no coincide con el original en {len(points) - len(confident)} de {len(points)} puntos"
+    else:
+        detail = f"{len(confident)} de {len(points)} puntos medidos, desfase máximo {worst * 1000:.0f} ms"
+    return {"name": "Sincronía con el original", "ok": ok, "detail": detail, "points": points}
+
+
 def quality_check(path: Path, expected: float, fmt: str, target: float = -14.0) -> dict[str, Any]:
     info = ffmpeg.probe(path)
     video = next(s for s in info["streams"] if s["codec_type"] == "video")

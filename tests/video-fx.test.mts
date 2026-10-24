@@ -3,6 +3,7 @@
  * así") y el motor dibujando los 17 en skia-canvas. Sin base ni red.
  *   pnpm test:video
  */
+import { OPENERS } from "../lib/video/fx/openers";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -253,11 +254,15 @@ describe("director", () => {
     assert.equal(simulateEffects({ words, limits, removed: new Set(), taken: [], instruction: "sin efectos" }).length, 0);
   });
 
-  test("simulador: portada al abrir y checklist cuando enumera pasos", () => {
+  test("simulador: un efecto de apertura que rota entre videos y checklist cuando enumera pasos", () => {
     const fx = simulateEffects({ words, limits: { ...limits, minGap: 0 }, removed: new Set(), taken: [] });
-    assert.equal(fx[0]!.kind, "cover_story");
+    assert.ok(OPENERS.includes(fx[0]!.kind), `abre con un efecto de apertura (${fx[0]!.kind})`);
+    assert.equal(fx[0]!.from_word, 0);
     assert.ok(fx.some((e) => e.kind === "checklist"));
     assert.ok(fx.length <= limits.max);
+    // Si la marca lo usó hace poco, no vuelve a abrir con el mismo.
+    const again = simulateEffects({ words, limits: { ...limits, minGap: 0, recent: { fx: [fx[0]!.kind], transitions: [] } }, removed: new Set(), taken: [] });
+    assert.notEqual(again[0]!.kind, fx[0]!.kind);
   });
 });
 

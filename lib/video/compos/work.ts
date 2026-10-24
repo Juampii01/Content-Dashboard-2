@@ -105,6 +105,8 @@ export type ComposWork = {
   /** Para el Estudio: qué pidió y en qué tramo. */
   request?: { instruction: string; from_word: number; to_word: number; replaceId: string | null } | null;
   finishedAt?: string;
+  /** El pedido de "Edítalo así" que lo abrió (para no repetir vueltas del director por lo mismo). */
+  editId?: string | null;
 };
 
 export type WorkerNext =

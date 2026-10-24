@@ -938,7 +938,7 @@ async function critique(projectId: string, round: number, sheets: { key: string;
   // Pedido: lo que el crítico vio de cada parte se junta con lo medido. Si falta algo que se puede arreglar y queda
   // tope, otra vuelta del director dirigida a eso (con lo que encontró el crítico).
   // En "Copiar edición" no hay otra vuelta del director por el pedido: ya se copió momento a momento.
-  const copying = readCopy(director)?.editId === active?.id;
+  const copying = Boolean(active?.id) && (readCopy(director)?.editId === active?.id || readWork(director)?.editId === active?.id);
   if (active && parsed?.items.length && !copying) {
     const entry = director.edits.find((e) => e.id === active.id);
     if (entry) {

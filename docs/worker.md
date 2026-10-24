@@ -387,6 +387,38 @@ pnpm test:video && pnpm test:director                              # plan, dibuj
 
 Límites conocidos: el recorte de MediaPipe es de selfie: con varias personas, cuerpo entero lejos de la cámara u objetos en la mano puede dejar partes afuera o adentro; el pelo suelto queda más suave que con un modelo de matting. El "vértigo" rellena el hueco que deja la persona con el fondo de los costados (sin inpainting): con fondos muy cargados puede verse una zona borrosa alrededor tuyo cuando el fondo se agranda.
 
+## Animaciones a medida y "Copiar edición" (composiciones)
+
+Claude **escribe** cada animación como un módulo JS chico (`export default { render(ctx, t, env) }`, API en
+`lib/video/compos/contract.ts`), no la elige de una lista. El mismo código se dibuja igual en la vista previa y en el
+render: el módulo corre en un sandbox y devuelve una **lista de dibujo** (datos) que pinta el motor de efectos.
+
+- **Sandbox en el worker** (`worker/motion/compos-engine.mjs`, generado por `pnpm motion:bundle`): hilo aparte con
+  memoria acotada (160 MB) + `node:vm` sin generación de código + tiempo por cuadro (400 ms). Al contexto no entra
+  ningún objeto de afuera (datos y lista viajan como JSON). Revisión estática con acorn antes de correrlo.
+- **Sandbox del navegador**: `public/compos-sandbox.js`, un Web Worker por animación con su propia CSP
+  (`default-src 'none'; script-src 'unsafe-eval'`): sin red ni nada de afuera.
+- **Si una animación falla en el render** (error, bucle, memoria), `fx.py` la descarta y el video sale sin ella; el
+  aviso queda en `output_meta.warnings`.
+- **Imágenes generadas** (`compos-images`): con la cuenta de ChatGPT del cliente (Codex) o su API key de OpenAI, las
+  mismas piezas que los carruseles; credencial por `POST /api/worker/projects/<id>/imagenes` mientras corre un
+  VIDEO_ANALYZE o VIDEO_COMPOS del proyecto. Se guardan en `editor/<id>/compos/` (biblioteca del proyecto).
+- **Revisión con cuadros** (`compos-stills`): el worker arma el video con los cortes y dibuja cada animación en 5
+  instantes (`fx.render_stills`); Claude los compara con la referencia (o con el pedido) y corrige.
+- **Copiar edición**: la referencia se mide con cuadros densos (6 por segundo alrededor de cada corte y pico de
+  movimiento, hasta 108 cuadros en 6 hojas, `reference.dense_times`). Después: receta (Opus mira las hojas) →
+  adaptación por función al guion nuevo → una animación por momento → informe "copié N de M".
+- **VIDEO_COMPOS** (migración `0028_composiciones.sql`): los pedidos del Estudio ("Pide una animación aquí", "Pídele un
+  cambio a esta animación"). El video sigue en revisión; el Estudio consulta el estado y agrega la animación al terminar.
+
+Probar sin worker: `node --require <stub de server-only> --import tsx --env-file=.env.local scripts/compos-sim.mts
+<proyecto> copiar|pedido|variedad` (con `AI_FAKE=1`) y `scripts/compos-worker-sim.mts` para los pedidos del Estudio.
+Hojas de cuadros de las muestras: `node --import tsx scripts/compos-stills.mts <carpeta>`.
+
+Costo típico de "Copiar edición" en un reel de 45–60 s con tope de USD 8: dirección y segunda mirada ~USD 1,2 +
+receta ~0,35 + adaptación ~0,20 + 9 animaciones × (programar ~0,30 + 1 vuelta de revisión ~0,16) ≈ **USD 6 a 6,5**.
+Con menos tope se hacen menos animaciones o sin vuelta de revisión (nunca se pasa del tope).
+
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 
 | Concepto | Costo |

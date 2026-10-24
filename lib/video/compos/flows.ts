@@ -351,7 +351,7 @@ export async function startEditRequest(projectId: string, instruction: string): 
   const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < ctx.words.length;
   const tasks = planned.tasks.filter((t) => valid(t.from_word) && valid(t.to_word) && t.from_word <= t.to_word).slice(0, 4).map((t) => newTask({ from_word: t.from_word, to_word: t.to_word, brief: t.brief.slice(0, 1500), source: "user", request: instruction }));
   if (!tasks.length) return false;
-  const work: ComposWork = { id: newWorkId(), mode: "edit", tasks, startedAt: new Date().toISOString(), spentAtStart: ctx.spent, lookRounds: ctx.cap - ctx.spent > 3 ? 2 : ctx.cap - ctx.spent > 1.5 ? 1 : 0, done: false, cannot: planned.cannot.slice(0, 400) };
+  const work: ComposWork = { id: newWorkId(), mode: "edit", tasks, startedAt: new Date().toISOString(), spentAtStart: ctx.spent, lookRounds: ctx.cap - ctx.spent > 3 ? 2 : ctx.cap - ctx.spent > 1.5 ? 1 : 0, done: false, cannot: planned.cannot.slice(0, 400), editId: ctx.director.active?.id ?? ctx.director.pending?.id ?? null };
   await saveDirectorExtra(projectId, ctx.director, { compos: work });
   return true;
 }

@@ -81,6 +81,18 @@ class CarouselApp:
         encoded = [base64.b64encode(p.read_bytes()).decode("ascii") for p in images]
         return self._post("estilo", {"measurements": measurements, "images": encoded}, timeout=330)
 
+    # ─── Copiar un carrusel ────────────────────────────────────────────────
+
+    def copy(self, measurements: dict[str, Any] | None, images: list[Path], post_text: str | None) -> dict[str, Any]:
+        """Manda los slides reducidos (y sus medidas) a la app, que escribe tu versión con Claude y arma el carrusel."""
+        encoded = [base64.b64encode(p.read_bytes()).decode("ascii") for p in images]
+        return self._post("copia", {"measurements": measurements, "images": encoded, "postText": post_text}, timeout=330)
+
+    # ─── Video de un slide ─────────────────────────────────────────────────
+
+    def slide_video(self, key: str) -> dict[str, Any]:
+        return self._post("video", {"key": key})
+
     # ─── Imágenes ──────────────────────────────────────────────────────────
 
     def credentials(self) -> dict[str, Any]:

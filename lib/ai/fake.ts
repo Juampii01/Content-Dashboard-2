@@ -215,7 +215,9 @@ export function fakeResponse(feature: string, task = ""): unknown {
     case "carruseles.escenas": {
       const indexes = (task.match(/slides: ([\d, ]+)\./)?.[1] ?? "1").split(/,\s*/).map(Number).filter(Boolean);
       const ideas = ["Escritorio ordenado con una planta y luz de ventana, vista cenital", "Taza de café humeante junto a una libreta abierta, luz cálida", "Ciudad al amanecer vista desde una terraza, tonos suaves", "Manos sosteniendo una brújula sobre un mapa, plano cercano"];
-      return { scenes: indexes.map((index, i) => ({ index, scenePrompt: ideas[i % ideas.length]! })) };
+      const people = (task.match(/En los slides ([\d, ]+) sale el creador/)?.[1] ?? "").split(/,\s*/).map(Number).filter(Boolean);
+      const poses = ["de frente, mirando a cámara con una sonrisa, señala con el índice hacia arriba", "tres cuartos, mano en la barbilla, pensativo", "de frente, brazos cruzados, expresión firme"];
+      return { scenes: indexes.map((index, i) => ({ index, scenePrompt: people.includes(index) ? `El creador en su escritorio, ${poses[i % poses.length]}, luz de ventana` : ideas[i % ideas.length]!, pose: people.includes(index) ? poses[i % poses.length]! : "" })) };
     }
     case "carruseles.estilo": {
       // Sin IA: devuelve el borrador medido tal cual (así la prueba de fidelidad mide el motor de medidas).

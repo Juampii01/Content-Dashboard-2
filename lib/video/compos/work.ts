@@ -29,6 +29,8 @@ import { COMPOS_LIMITS } from "./contract";
 import { compileComposition, composSegments, newComposId, type ComposImage, type Composition } from "./schema";
 import { codeHash, validateComposition } from "./validate";
 import { fakeCode, fakeImageLook, fakeLook, fakePlan } from "./fake";
+import { buildFromEffect, effectCandidates, EffectUseError, type PlaceCtx } from "./library-service";
+import { candidatesText } from "./library";
 
 /**
  * Taller de composiciones: una cola de animaciones por hacer en un video, que avanza un paso por llamada (cada paso,
@@ -88,6 +90,8 @@ export type ComposTask = {
   note?: string;
   sheet?: { key: string; width: number; height: number; times: number[] } | null;
   error?: string;
+  /** Efecto de Mis efectos que se reusó en lugar de escribir uno nuevo (más barato). */
+  reused?: { id: string; name: string; version: number } | null;
 };
 
 export type ComposWork = {
@@ -234,6 +238,19 @@ function cleanParams(params: { key: string; label: string; value: string }[]): C
   return out.slice(0, 12);
 }
 
+/** Lo que necesita Mis efectos para armar y validar una composición en este video. */
+export function placeCtxOf(ctx: WorkCtx): PlaceCtx {
+  return {
+    projectId: ctx.projectId,
+    timeline: ctx.timeline,
+    format: ctx.format,
+    brand: ctx.fx,
+    captionsVisible: ctx.plan.captions.preset !== "ninguno",
+    face: (s) => faceFor(ctx, s),
+    spoken: (from, to) => ctx.timeline.words.filter((w) => w.id >= from && w.id <= to).map((w) => ({ text: ctx.plan.corrections[String(w.id)] ?? w.text, emphasis: Boolean(w.emphasis) })),
+  };
+}
+
 function envFor(ctx: WorkCtx, item: Composition) {
   const s = span(ctx, item);
   if (!s) return null;
@@ -273,9 +290,11 @@ function refSheetsFor(ctx: WorkCtx, frames: number[] | undefined) {
  *   código + ~8 mil de razonamiento ≈ USD 0,25 (0,40 con margen para un reintento por validación).
  * - look: Opus con razonamiento medio: hoja de la animación + 2 de la referencia + el código (~9 mil) y el código
  *   corregido + razonamiento (~6 mil) ≈ USD 0,16 por vuelta.
+ * - reuse: reusar un efecto de Mis efectos no escribe código (solo el plan, que ya se contó): lo que se ahorra es la
+ *   etapa de código. Se registra en la tarea (`reused`) y en el reporte del taller.
  * La primera escritura de las reglas en caché (~USD 0,14 en Opus) se suma una vez por video.
  */
-export const STAGE_COST = { plan: 0.02, vision: 0.04, code: 0.4, look: 0.2 } as const;
+export const STAGE_COST = { plan: 0.02, vision: 0.04, code: 0.4, look: 0.2, reuse: 0 } as const;
 
 function remaining(ctx: WorkCtx): number {
   return ctx.cap - ctx.spent;
@@ -405,24 +424,53 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
   try {
     switch (task.status) {
       case "plan": {
-        if (remaining(ctx) < STAGE_COST.code + STAGE_COST.plan) {
+        // Sin tope para escribir, todavía se puede reusar un efecto guardado (solo cuesta el plan).
+        const onlyReuse = remaining(ctx) < STAGE_COST.code + STAGE_COST.plan;
+        if (remaining(ctx) < STAGE_COST.plan) {
           task.status = "failed";
           task.error = "No alcanzó el tope de IA de este video para escribir esta animación.";
           return `Animación ${of}`;
         }
         const status = await providersStatus().catch(() => null);
         const canImages = Boolean(status?.preferred);
+        // Mis efectos que encajan (rotación: lo que ya está en este video o en esta tanda no se ofrece otra vez).
+        // Un cambio sobre una animación existente siempre se escribe (es otra cosa).
+        const inUse = [...(ctx.plan.compositions ?? []).flatMap((c) => (c.lib_id ? [c.lib_id] : [])), ...work.tasks.flatMap((t) => (t.reused ? [t.reused.id] : []))];
+        const library = task.base ? [] : await effectCandidates({ brief, said: said(ctx, task), exclude: inUse, duration }).catch(() => []);
         const plan = await generateStructured({
           feature: "video.compos.plan",
           model: "main",
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
-          task: composPlanTask({ brief, said: said(ctx, task), duration, format: ctx.format, hasImages: canImages }),
+          task: composPlanTask({ brief, said: said(ctx, task), duration, format: ctx.format, hasImages: canImages, library: library.length ? candidatesText(library) : null, copy: work.mode === "copy" }),
           schema: composPlanWireSchema,
           maxTokens: 2000,
           videoProjectId: ctx.projectId,
-          fake: () => fakePlan(brief),
+          fake: () => fakePlan(brief, library),
         });
         task.approach = plan.approach.slice(0, 1200);
+        const pick = plan.reuse ? library.find((e) => e.id === plan.reuse.trim()) : null;
+        if (pick) {
+          try {
+            const params = pick.row.params.map((p) => {
+              const v = plan.reuse_params.find((x) => x.key === p.key)?.value;
+              return typeof v === "string" && v.trim() ? { ...p, value: v.trim().slice(0, 160) } : p;
+            });
+            const built = await buildFromEffect(placeCtxOf(ctx), pick.row, { from: task.from_word, to: task.to_word, params, source: task.source, compId: task.compId });
+            task.result = { ...built, ...(task.moment ? { moment: task.moment } : {}), ...(task.request ? { request: task.request.slice(0, 600) } : {}) };
+            task.reused = { id: pick.id, name: pick.name, version: pick.row.version };
+            task.note = [task.note, `Reusamos «${pick.name}» de Mis efectos.`].filter(Boolean).join(" ").slice(0, 300);
+            task.status = work.lookRounds > task.round && remaining(ctx) >= STAGE_COST.look ? "look" : "done";
+            return `Reusando «${pick.name}» de Mis efectos (${of})`;
+          } catch (error) {
+            // No funciona en este tramo: se escribe una nueva.
+            console.warn("[compos] no se pudo reusar un efecto:", error instanceof EffectUseError ? error.message : error);
+          }
+        }
+        if (onlyReuse) {
+          task.status = "failed";
+          task.error = "No alcanzó el tope de IA de este video para escribir esta animación (y ninguno de Mis efectos encajaba).";
+          return `Animación ${of}`;
+        }
         const wanted = plan.images.slice(0, 2);
         if (wanted.length && canImages) {
           task.images = wanted.map((im, i) => ({ id: `g${task.id.slice(1, 9)}${i}`, purpose: im.purpose.slice(0, 200), prompt: `${im.prompt.slice(0, 900)}\nNo text, no letters, no numbers, no watermark.`, aspect: im.aspect, status: "pending" as const }));
@@ -644,7 +692,9 @@ export function workView(work: ComposWork | null) {
     cannot: work.cannot ?? "",
     error: work.error ?? null,
     request: work.request ?? null,
-    tasks: work.tasks.map((t) => ({ id: t.id, compId: t.compId, from_word: t.from_word, to_word: t.to_word, brief: t.brief.slice(0, 200), status: t.status, score: t.score ?? null, note: t.note ?? "", error: t.error ?? "", moment: t.moment ?? null, images: t.images.map((i) => ({ status: i.status, error: i.error ?? "" })) })),
+    tasks: work.tasks.map((t) => ({ id: t.id, compId: t.compId, from_word: t.from_word, to_word: t.to_word, brief: t.brief.slice(0, 200), status: t.status, score: t.score ?? null, note: t.note ?? "", error: t.error ?? "", moment: t.moment ?? null, reused: t.reused ?? null, images: t.images.map((i) => ({ status: i.status, error: i.error ?? "" })) })),
+    /** Lo que se ahorró reusando Mis efectos (la etapa de código que no se pagó). */
+    savedUsd: Math.round(work.tasks.filter((t) => t.reused).length * STAGE_COST.code * 100) / 100,
   };
 }
 export type WorkView = NonNullable<ReturnType<typeof workView>>;

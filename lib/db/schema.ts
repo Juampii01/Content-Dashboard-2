@@ -1458,3 +1458,82 @@ export const videoPhraseFixes = pgTable(
   },
   (t) => [index("video_phrase_fixes_project_idx").on(t.projectId)],
 );
+
+// ─── Editor: Mis efectos (animaciones creadas que se guardan para reusar) ──
+
+/** Una imagen generada que usa un efecto guardado (copiada a `editor/efectos/<id>/`). */
+export type CreatedEffectImage = {
+  id: string;
+  key: string;
+  width: number;
+  height: number;
+  prompt: string;
+  focus?: { x: number; y: number; w: number; h: number; label?: string };
+  notes?: string;
+};
+
+/**
+ * Mis efectos: las animaciones (composiciones) que se crearon editando o copiando ediciones, guardadas para usarlas en
+ * otros videos. Se guardan solas al renderizar (las que pasaron la validación y siguen en el video) o a mano desde el
+ * inspector. Sin duplicados: `code_hash` es la huella del código normalizado (sin espacios ni comentarios); una
+ * animación que se cambió (misma de origen, otro código) queda como versión nueva de la misma familia (`root_id`).
+ * Borrar desde la Biblioteca la oculta (`removed_at`): así no vuelve a guardarse sola en el próximo render.
+ * El código se vuelve a validar en el sandbox cada vez que se usa (lib/video/compos/library-service.ts).
+ */
+export const createdEffects = pgTable(
+  "created_effects",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** Categoría para la Biblioteca (lib/video/compos/library.ts): texto, cifras, tarjetas, camara, imagen, otros. */
+    category: text("category").notNull().default("otros"),
+    code: text("code").notNull(),
+    codeHash: text("code_hash").notNull(),
+    /** Textos editables con su valor por defecto (los del video donde se creó). */
+    params: jsonb("params").$type<{ key: string; label: string; value: string }[]>().notNull().default(sql`'[]'::jsonb`),
+    sounds: jsonb("sounds").$type<{ at: number; name: string; gain: number }[]>().notNull().default(sql`'[]'::jsonb`),
+    hideCaptions: boolean("hide_captions").notNull().default(false),
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    /** Duración típica en segundos (la que tenía donde se creó). */
+    duration: real("duration").notNull(),
+    usesMask: boolean("uses_mask").notNull().default(false),
+    images: jsonb("images").$type<CreatedEffectImage[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Cuadro y muestra corta en bucle (los guarda el worker al renderizar un video con este efecto). */
+    posterKey: text("poster_key"),
+    sampleKey: text("sample_key"),
+    /** De dónde salió: video, animación dentro de ese video y si venía de "Copiar edición" (con su referencia). */
+    sourceProjectId: uuid("source_project_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    sourceCompId: text("source_comp_id"),
+    sourceKind: text("source_kind").notNull().default("director"),
+    sourceTitle: text("source_title"),
+    referenceUrl: text("reference_url"),
+    /** Familia de versiones: la primera versión es su propia raíz. */
+    rootId: uuid("root_id"),
+    version: integer("version").notNull().default(1),
+    savedBy: text("saved_by").notNull().default("auto"),
+    usedCount: integer("used_count").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    favorite: boolean("favorite").notNull().default(false),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("created_effects_code_hash_idx").on(t.codeHash), index("created_effects_root_idx").on(t.rootId), index("created_effects_created_at_idx").on(t.createdAt)],
+);
+
+/** En qué videos se usó cada efecto guardado (cuenta una vez por video, aunque se renderice varias veces). */
+export const createdEffectUses = pgTable(
+  "created_effect_uses",
+  {
+    effectId: uuid("effect_id")
+      .notNull()
+      .references(() => createdEffects.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => videoProjects.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("created_effect_uses_pk").on(t.effectId, t.projectId)],
+);

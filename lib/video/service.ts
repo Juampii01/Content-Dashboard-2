@@ -409,17 +409,24 @@ export async function startRender(projectId: string, review0: Review, format: Vi
   }
   // Revisión final del director: cuadros del MP4 en los momentos clave del plan (lib/video/director).
   const finalFrames = mergeFrames(keyFrames({ plan: next, words: transcript.words, timeline, eyes: null, max: 24 }), evenFrames(timeline.duration, 12), 30);
+  // Mis efectos: las animaciones que quedaron en el video se guardan solas (sin duplicados) y el worker saca su muestra
+  // de este mismo render. Si falla, el render sigue igual.
+  const { saveFromRender } = await import("./compos/library-service");
+  const lib = await saveFromRender({ id: project.id, title: project.title, director: project.director }, next, timeline).catch((error) => {
+    console.error("[mis-efectos] no se pudieron guardar las animaciones:", error instanceof Error ? error.message : error);
+    return { plan: next, samples: [] as { effectId: string; compId: string }[] };
+  });
 
   await getDb()
     .update(schema.videoProjects)
-    .set({ plan: next, format, captionPreset: preset, status: "RENDERING", errorMessage: null, ...(opts.manual ? { autoExport: false } : {}) })
+    .set({ plan: lib.plan, format, captionPreset: preset, status: "RENDERING", errorMessage: null, ...(opts.manual ? { autoExport: false } : {}) })
     .where(eq(schema.videoProjects.id, projectId));
   await enqueueJob({
     type: "VIDEO_RENDER",
     videoProjectId: projectId,
     createdBy: userId,
     stage: "En cola",
-    input: { ...input, finalFrames },
+    input: { ...input, finalFrames, ...(lib.samples.length ? { effectSamples: lib.samples } : {}) },
   });
 }
 

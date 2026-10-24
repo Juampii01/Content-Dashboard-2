@@ -88,7 +88,9 @@ export type LibraryDrop =
   | { type: "graphic"; template?: string }
   | { type: "zoom" }
   | { type: "transition"; kind: string }
-  | { type: "sound"; name: string };
+  | { type: "sound"; name: string }
+  /** Un efecto de Mis efectos (animación guardada): va a la pista Animaciones con su duración típica. */
+  | { type: "mine"; id: string; name: string; duration: number };
 export const LIBRARY_MIME = "application/x-content2-studio";
 
 /** Lo que se está arrastrando desde la Biblioteca (para dibujar su sombra mientras se arrastra: el navegador no deja leer los datos antes de soltar). */

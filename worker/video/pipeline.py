@@ -424,6 +424,16 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         credits.write_text(data["credits"], encoding="utf-8")
         ctx.app.upload(pid, data["creditsKey"], credits, "text/plain; charset=utf-8")
     ctx.check()
+    if data.get("effectSamples") and built.get("fx_layers"):
+        # Mis efectos: la muestra de las animaciones que se guardaron solas (sale de las capas de este render).
+        from . import efectos  # noqa: PLC0415
+
+        try:
+            efectos.save_samples(ctx, data["effectSamples"], built["fx_layers"], out_dir)
+        except Cancelled:
+            raise
+        except Exception:  # noqa: BLE001
+            log.warning("no se pudieron guardar las muestras de Mis efectos de %s", pid, exc_info=True)
     if data.get("finalFrames"):
         # Revisión final del director: cuadros del MP4 en los momentos clave. Si falla, el video igual queda listo.
         ctx.stage("Revisando el video final", 0.97, 1.0)

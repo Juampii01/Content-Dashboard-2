@@ -71,11 +71,19 @@ function adaptParams(sample: ComposSample, said: string): ComposSample["params"]
   });
 }
 
-export function fakePlan(brief: string) {
+/**
+ * Plan simulado. Con efectos guardados, reusa el primero que comparte una palabra con el pedido (o siempre, si el
+ * pedido menciona "mis efectos"): así se prueba el camino de reusar sin gastar.
+ */
+export function fakePlan(brief: string, library: { id: string; name: string; description: string; params: { key: string; value: string }[] }[] = []) {
   const wantsImage = /mapa|imagen|foto|ilustraci|pa[ií]s/i.test(brief);
+  const words = new Set(brief.toLowerCase().split(/[^a-záéíóúñ0-9]+/).filter((w) => w.length >= 5));
+  const hit = library.find((e) => /mis efectos/i.test(brief) || `${e.name} ${e.description}`.toLowerCase().split(/[^a-záéíóúñ0-9]+/).some((w) => words.has(w)));
   return {
-    approach: "Simulación: capas dibujadas con código sobre el video, entrada con resorte y salida propia.",
-    images: wantsImage ? [{ purpose: "Imagen de fondo de la animación", prompt: "A clean flat world map, dark navy background, no text", aspect: "vertical" as const }] : [],
+    approach: hit ? `Simulación: reuso «${hit.name}» de Mis efectos.` : "Simulación: capas dibujadas con código sobre el video, entrada con resorte y salida propia.",
+    images: !hit && wantsImage ? [{ purpose: "Imagen de fondo de la animación", prompt: "A clean flat world map, dark navy background, no text", aspect: "vertical" as const }] : [],
+    reuse: hit?.id ?? "",
+    reuse_params: hit ? hit.params.map((p) => ({ key: p.key, value: p.value })) : [],
   };
 }
 

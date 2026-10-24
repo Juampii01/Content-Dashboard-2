@@ -1,10 +1,10 @@
 import "server-only";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { del, head, issueSignedToken, list, parseStoreIdFromDelegationToken, presignUrl, type IssuedSignedToken } from "@vercel/blob";
+import { copy, del, head, issueSignedToken, list, parseStoreIdFromDelegationToken, presignUrl, type IssuedSignedToken } from "@vercel/blob";
 import { env } from "@/lib/env";
 
 /**
@@ -101,6 +101,8 @@ const CONTENT_TYPES: Record<string, string> = {
   m4v: "video/x-m4v",
   srt: "application/x-subrip",
   jpg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
   json: "application/json",
   txt: "text/plain; charset=utf-8",
   mp3: "audio/mpeg",
@@ -275,8 +277,8 @@ export async function fileInfo(key: string): Promise<{ size: number } | null> {
 
 /** Borra todos los archivos bajo un prefijo (por ejemplo `editor/<id>/`). */
 export async function deletePrefix(prefix: string): Promise<void> {
-  // `editor/<id>/`, `clon/<id>/` o, en el Editor, `editor/estilos/<id>/` y `editor/biblioteca/<id>/`.
-  if (!/^[a-z0-9_-]+\/((estilos|biblioteca)\/)?[0-9a-f-]{36}\/$/i.test(prefix)) throw new Error("Prefijo no válido.");
+  // `editor/<id>/`, `clon/<id>/` o, en el Editor, `editor/estilos/<id>/`, `editor/biblioteca/<id>/` y `editor/efectos/<id>/`.
+  if (!/^[a-z0-9_-]+\/((estilos|biblioteca|efectos)\/)?[0-9a-f-]{36}\/$/i.test(prefix)) throw new Error("Prefijo no válido.");
   if (fileDriver() === "blob") {
     let cursor: string | undefined;
     do {
@@ -287,6 +289,19 @@ export async function deletePrefix(prefix: string): Promise<void> {
     return;
   }
   await rm(path.join(LOCAL_ROOT, prefix), { recursive: true, force: true });
+}
+
+/** Copia un archivo a otra clave del mismo almacenamiento (las imágenes de Mis efectos entre proyectos). */
+export async function copyKey(from: string, to: string): Promise<void> {
+  assertKey(from);
+  assertKey(to);
+  if (from === to) return;
+  if (fileDriver() === "blob") {
+    await copy(from, to, { access: "private", token: blobToken(), addRandomSuffix: false, allowOverwrite: true, contentType: contentTypeFor(to) });
+    return;
+  }
+  await mkdir(path.dirname(localPath(to)), { recursive: true });
+  await copyFile(localPath(from), localPath(to));
 }
 
 /** Borra archivos sueltos (renders reemplazados). */

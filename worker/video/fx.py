@@ -252,7 +252,7 @@ def render_effects(
             for tmp in (cache / f"base-{h}.mkv", cache / f"mask-{h}.raw"):
                 tmp.unlink(missing_ok=True)
             log.info("efecto %s (%s): %s cuadros, máscara %s ms, dibujo %s ms", spec.get("id"), spec.get("kind"), frames, mask_ms, draw_ms)
-        out.append({"path": final, "start": start, "end": start + frames / FPS, "kind": spec.get("kind"), "ms": draw_ms, "maskMs": mask_ms, "z": layer_z(item)})
+        out.append({"path": final, "id": str(spec.get("id") or ""), "start": start, "end": start + frames / FPS, "kind": spec.get("kind"), "ms": draw_ms, "maskMs": mask_ms, "z": layer_z(item)})
         if on_progress:
             on_progress((n + 1) / len(items))
     return out

@@ -20,6 +20,7 @@ import { defaultFx, newFxId, type FxItem } from "@/lib/video/fx/schema";
 import { defaultGraphic, type GraphicTemplate } from "@/lib/video/graphics";
 import { compileComposition, composCaptionHides, composSegments, composSounds, type Composition } from "@/lib/video/compos/schema";
 import { useComposWork, type ComposRequest } from "../compos/use-compos-work";
+import { placeMyEffectAction } from "../my-effects-actions";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
 import { rangesFromIds } from "@/lib/video/plan";
@@ -1123,8 +1124,40 @@ export function Studio(props: StudioProps) {
       const start = Math.max(0, t - file.hit);
       return { track: "audio", start, end: Math.min(timeline.duration, start + Math.max(0.12, file.duration)), label: SFX_LIBRARY[item.name].label };
     }
+    if (item.type === "mine") {
+      const span = mineSpan(item, t);
+      const seg = span ? composSegments(timeline, [{ id: "drop", from_word: span.from, to_word: span.to, name: item.name, code: "x", params: [], source: "user" }])[0] : null;
+      return seg ? { track: "anim", start: seg.start, end: seg.end, label: item.name } : null;
+    }
     return null;
   };
+
+  /** Tramo de palabras para un efecto de Mis efectos soltado en `t`: lo más parecido a su duración típica. */
+  function mineSpan(item: { duration: number }, t: number) {
+    return spanAround(timeline, t, Math.max(0.8, Math.min(12, item.duration)));
+  }
+
+  /**
+   * Pone un efecto de Mis efectos en el tramo: el servidor adapta sus textos a lo que se dice ahí y vuelve a validar su
+   * código. Queda encima de lo que haya (en capas) y se puede deshacer.
+   */
+  async function addMine(item: { id: string; name: string; duration: number }, t: number) {
+    const span = mineSpan(item, t);
+    if (!span) return void toast.error("Este video todavía no tiene palabras donde ponerlo.");
+    const tid = toast.info(`Poniendo «${item.name}» y adaptando sus textos…`, { duration: 20000 });
+    const res = await placeMyEffectAction(projectId, item.id, { from_word: span.from, to_word: span.to });
+    toast.dismiss(tid);
+    if (!res.ok) return void toast.error(res.error);
+    const { comp, images } = res.data;
+    if (Object.keys(images).length) setComposImageUrls((prev) => ({ ...prev, ...images }));
+    const seg = composSegments(timeline, [comp])[0];
+    const top = seg ? layerOnTop(seg.start, seg.end, layerKey("compos", comp.id)) : { layer: undefined, under: [] };
+    const placed: Composition = { ...comp, ...(top.layer != null ? { layer: top.layer } : {}) };
+    update((st) => ({ ...st, compositions: [...st.compositions, placed].sort((a, b) => a.from_word - b.from_word) }));
+    setSelection({ kind: "compos", id: placed.id });
+    toast.success(`«${item.name}» ya está en tu video.`, { description: "Sus textos se adaptaron a lo que dices ahí: cámbialos en el panel de la derecha." });
+    notifyOnTop(top.under);
+  }
 
   /** Agrega algo de la Biblioteca en el segundo `at` (o en el cabezal). Si ahí ya hay algo, lo nuevo va encima (en capas). */
   function addFromLibrary(item: LibraryDrop, at?: number) {
@@ -1154,6 +1187,8 @@ export function Studio(props: StudioProps) {
     } else if (item.type === "sound") {
       if (!isSfxName(item.name)) return;
       placeSound(null, item.name, t);
+    } else if (item.type === "mine") {
+      void addMine(item, t);
     }
   }
 

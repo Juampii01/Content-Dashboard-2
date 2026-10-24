@@ -24,12 +24,12 @@ import { rangesFromIds } from "@/lib/video/plan";
 import { fillRhythm, rhythmScore, themeOfPlan, RHYTHM_TAG, type Density } from "@/lib/video/rhythm";
 import { hookEnd, newSoundCueId, SFX_FILES, sfxCues, soundCueTimes, SOUND_GAIN } from "@/lib/video/sfx";
 import { isSfxName, SFX_LIBRARY, type SfxName } from "@/lib/video/sfx-library";
-import { compileTransition, cutPoints, isTransitionKind, newTransitionId, TRANSITION_INFO, TRANSITION_SOUND_GAIN, transitionSegments, transitionSounds, type TransitionItem } from "@/lib/video/fx/transitions";
+import { compileTransition, cutPoints, freeAnchor, isFreeTransition, isTransitionKind, newTransitionId, TRANSITION_INFO, TRANSITION_SOUND_GAIN, transitionSegments, transitionSounds, type TransitionItem } from "@/lib/video/fx/transitions";
 import { musicGenLabel } from "@/lib/video/music-gen/catalog";
 import { useGeneratedMusic, useStudioSound } from "../sound/use-sound";
-import { clipOffsets, cutMarks, fitSpan, snapToWords, splitSpan, timeLabel, wordAt, type SnappedSpan, type WordSpan } from "@/lib/video/studio";
-import { buildTimeline, outputRange } from "@/lib/video/timeline";
-import { FPS, type BrollItem, type BrollOption, type EditPlan, type RemovalReason } from "@/lib/video/types";
+import { carveSpan, clipOffsets, cutMarks, replacedLabel, snapToWords, spanAround, splitSpan, timeLabel, wordAt, type SnappedSpan, type WordSpan } from "@/lib/video/studio";
+import { buildTimeline, longPauses, outputRange } from "@/lib/video/timeline";
+import { FPS, type BrollItem, type BrollOption, type EditPlan, type RemovalReason, type ZoomMoment } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { renderAction, saveReviewAction } from "../actions";
 import { BrollPicker, optionKey, type PickerTab, type SignedOption } from "../broll-panel";
@@ -48,7 +48,7 @@ import { StudioInspector } from "./studio-inspector";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
 import { StudioTimeline, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
-import { toReview, useStudioState, withCut, type StudioState } from "./use-studio-state";
+import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
 
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
@@ -132,23 +132,14 @@ export function Studio(props: StudioProps) {
 
   const review = useMemo(() => toReview(s, { plan, hasStyle: Boolean(style), trackIds }), [s, plan, style, trackIds]);
 
+  const { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves } = s;
   const timeline = useMemo(
-    () =>
-      buildTimeline(
-        words,
-        {
-          removals: rangesFromIds(s.removed, plan.removals),
-          hook_candidates: plan.hook_candidates,
-          selected_hook: s.selectedHook,
-          corrections: s.corrections,
-          captions: { preset: s.preset, emphasis_words: s.emphasis },
-          pacing: s.pacing,
-          moves: s.moves,
-        },
-        duration,
-      ),
-    [words, s.removed, plan.removals, plan.hook_candidates, s.selectedHook, s.corrections, s.preset, s.emphasis, s.pacing, s.moves, duration],
+    () => buildTimeline(words, studioTimelineInput(plan, { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves }), duration),
+    [words, plan, sRemoved, sHook, sCorrections, sPreset, sEmphasis, sPacing, sPauses, sMoves, duration],
   );
+  // Pausas largas entre palabras que quedan: las que se recortan y las que dejaste completas.
+  const pauseList = useMemo(() => longPauses(words, { removals: rangesFromIds(sRemoved, plan.removals), pacing: studioPacing({ pacing: sPacing, pauses: sPauses }) }), [words, sRemoved, plan.removals, sPacing, sPauses]);
+  const trimmedPauses = useMemo(() => pauseList.filter((p) => p.trimmed), [pauseList]);
   const fxSegs = useMemo(() => fxSegments(timeline, s.effects), [timeline, s.effects]);
   // Tramos sin subtítulos (quitados por la persona o por el director), con su índice para poder volver a mostrarlos.
   const captionHides = useMemo(
@@ -363,8 +354,9 @@ export function Studio(props: StudioProps) {
         at = m ? (outputRange(timeline, m.from_word, m.to_word)?.start ?? null) : null;
       } else if (sel.kind === "range") at = outputRange(timeline, sel.from, sel.to)?.start ?? null;
       else if (sel.kind === "transition") {
-        // Un poco antes del corte, para verla entrar.
-        const c = cutList.find((x) => x.word === sel.word);
+        // Un poco antes del corte (o del instante de una libre), para verla entrar.
+        const seg = sel.id ? trSegs.find((x) => x.item.id === sel.id) : null;
+        const c = seg ? { at: seg.cut } : cutList.find((x) => x.word === sel.word);
         at = c ? Math.max(0, c.at - 0.8) : null;
       } else if (sel.kind === "sound") {
         const cue = s.soundCues.find((x) => x.id === sel.id);
@@ -373,17 +365,114 @@ export function Studio(props: StudioProps) {
       }
       if (at != null && !playingNow) seek(at, false);
     },
-    [videoEl, segments, fxSegs, captions, s.zoomMoments, timeline, seek, cutList, s.soundCues],
+    [videoEl, segments, fxSegs, captions, s.zoomMoments, timeline, seek, cutList, s.soundCues, trSegs],
   );
 
   // ─── Acciones ───
   const cut = useCallback((ids: number[], on: boolean) => update((st) => withCut(st, ids, on)), [update]);
+  const pauseWords = useMemo(() => pauseList.map((p) => p.word), [pauseList]);
+  /** Deja completa (o vuelve a acortar) la pausa que va antes de la palabra `word`. */
+  const setPause = useCallback((word: number, keep: boolean) => update((st) => withPause(st, word, keep, pauseWords)), [update, pauseWords]);
+  /** "Sin recortes automáticos": el video como se grabó (todas las palabras y las pausas completas). */
+  const restoreAll = useCallback(() => {
+    update((st) => ({ ...st, removed: [], pauses: { keep: [], all: true } }));
+    setSelection(null);
+    toast.success("Sin recortes: el video queda como lo grabaste.", { description: "Vuelve a la propuesta o deshaz (Ctrl+Z) cuando quieras." });
+  }, [update]);
+  /** Todas las pausas completas (las palabras cortadas siguen cortadas). */
+  const restorePauses = useCallback(() => update((st) => ({ ...st, pauses: { keep: [], all: true } })), [update]);
+  /** Vuelve a la propuesta: los cortes que armó el editor y las pausas recortadas. */
+  const backToProposal = useCallback(() => {
+    update((st) => ({ ...st, removed: [...proposed].sort((a, b) => a - b), pauses: { keep: [], all: false } }));
+    setSelection(null);
+  }, [update, proposed]);
 
   function cutSpan(span: WordSpan) {
     const ids = Array.from({ length: span.to - span.from + 1 }, (_, k) => span.from + k);
     update((st) => withCut(st, ids, true));
     setSelection(null);
     toast.success("Tramo cortado.", { description: "Deshazlo con Ctrl+Z o restáuralo tocando la marca roja en la pista de video." });
+  }
+
+  // ─── Lo nuevo gana: lo que hay debajo se recorta o se quita (y Cmd+Z lo devuelve todo) ───
+  const outLen = useCallback((x: { from_word: number; to_word: number }) => {
+    const r = outputRange(timeline, x.from_word, x.to_word);
+    return r ? r.end - r.start : 0;
+  }, [timeline]);
+  const brollLabel = (b: BrollItem) => (b.choice?.source === "graphic" ? (b.choice.title ?? (b.choice.graphic ? graphicKindLabel(b.choice.graphic) : "Gráfico")) : b.choice?.source === "library" ? (b.choice.title ?? "Tu clip") : "B-roll");
+
+  /**
+   * Deja libre `range` (palabras) para algo nuevo: recorta o quita el b-roll (`broll`: todos, o solo los que tienen
+   * clip), los efectos, los zooms y las transiciones que caen ahí. `keep`: lo que se está moviendo (no se toca).
+   * Devuelve el estado nuevo y los nombres de lo reemplazado (para el aviso).
+   */
+  function clearUnder(st: StudioState, range: WordSpan, what: { broll?: "all" | "chosen"; fx?: boolean; zooms?: boolean; transitions?: boolean }, keep: { broll?: string; fx?: string; zoom?: ZoomMoment; transition?: string } = {}) {
+    const labels: string[] = [];
+    let next = st;
+    if (what.broll) {
+      const r = carveSpan(next.broll, range, {
+        skip: (b) => b.id === keep.broll || (what.broll === "chosen" && !b.choice),
+        reshape: (b, from, to, side) => {
+          // Un gráfico no se parte en dos (las dos copias mostrarían lo mismo): queda solo su primera parte.
+          if (side === "right" && b.choice?.source === "graphic") return { ...b, from_word: to + 1, to_word: to };
+          const edit = resolveEdit(b.edit);
+          const e = side === "left" ? { ...edit, end_delta: 0 } : { ...edit, start_delta: 0 };
+          const part: BrollItem = { ...b, id: side === "right" ? newBrollId() : b.id, from_word: from, to_word: to };
+          if (isDefaultEdit(e)) delete part.edit;
+          else part.edit = e;
+          return part;
+        },
+        valid: (b) => b.from_word <= b.to_word && outLen(b) >= 0.5,
+      });
+      labels.push(...r.replaced.map(brollLabel));
+      next = { ...next, broll: r.items };
+    }
+    if (what.fx) {
+      const r = carveSpan(next.effects, range, {
+        skip: (e) => e.id === keep.fx,
+        reshape: (e, from, to, side) => ({ ...e, id: side === "right" ? newFxId() : e.id, from_word: from, to_word: to, words: e.words?.filter((w) => w >= from && w <= to) }),
+        valid: (e) => outLen(e) >= FX_INFO[e.kind].duration.min - 0.2,
+      });
+      labels.push(...r.replaced.map((e) => FX_INFO[e.kind].label));
+      next = { ...next, effects: r.items };
+    }
+    if (what.zooms) {
+      const r = carveSpan(next.zoomMoments, range, { skip: (z) => z === keep.zoom, valid: (z) => outLen(z) >= 0.2 });
+      if (r.replaced.length) {
+        labels.push(...r.replaced.map(() => "Zoom"));
+        next = { ...next, rhythmTouched: true, zoomMoments: r.items };
+      }
+    }
+    if (what.transitions) {
+      // Las transiciones que se dibujarían encima (con un poco de margen: los bloques tienen aire en los bordes).
+      const out = outputRange(timeline, range.from, range.to);
+      if (out) {
+        const hit = new Set(transitionSegments(timeline, next.transitions).filter((t) => t.item.id !== keep.transition && t.start < out.end + 0.15 && out.start - 0.1 < t.end).map((t) => t.item.id));
+        if (hit.size) {
+          labels.push(...next.transitions.filter((t) => hit.has(t.id)).map((t) => TRANSITION_INFO[t.kind].label));
+          next = { ...next, transitions: next.transitions.filter((t) => !hit.has(t.id)) };
+        }
+      }
+    }
+    return { st: next, labels };
+  }
+
+  /**
+   * Un gráfico se queda en pantalla hasta su último elemento (aunque sus palabras terminen antes): si así todavía tapa
+   * el efecto nuevo, se quita entero (un tramo lleva b-roll o efecto, igual en la vista previa y en el render).
+   */
+  function clearBrollOverFx(st: StudioState, item: FxItem): { st: StudioState; labels: string[] } {
+    const seg = fxSegments(timeline, [item])[0];
+    if (!seg) return { st, labels: [] };
+    const hit = new Set(brollSegments(timeline, st.broll).filter((b) => b.start < seg.end && seg.start < b.end).map((b) => b.id));
+    if (!hit.size) return { st, labels: [] };
+    return { st: { ...st, broll: st.broll.filter((b) => !hit.has(b.id)) }, labels: st.broll.filter((b) => hit.has(b.id)).map(brollLabel) };
+  }
+
+  /** Aviso breve de lo que se reemplazó, con "Deshacer". */
+  function notifyReplaced(labels: string[]) {
+    if (!labels.length) return;
+    toast.info(`Reemplazó ${replacedLabel(labels)}`, { duration: 6000, action: { label: "Deshacer", onClick: undo } });
   }
 
   function addBroll(range: WordSpan, ask = false) {
@@ -393,30 +482,20 @@ export function Studio(props: StudioProps) {
       .filter((w) => w.length > 3)
       .slice(0, 4);
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: query.join(" ").slice(0, 100) || "b-roll", keywords: query.map((w) => w.toLowerCase()), choice: null, options: [] };
-    const hitsFx = s.effects.some((e) => range.from <= e.to_word && e.from_word <= range.to);
-    update((st) => ({
-      ...st,
-      broll: [...st.broll.filter((b) => !(range.from <= b.to_word && b.from_word <= range.to)), item].sort((a, b) => a.from_word - b.from_word),
-      effects: st.effects.filter((e) => !(range.from <= e.to_word && e.from_word <= range.to)),
-    }));
-    if (hitsFx) toast.info("Quitamos el efecto que estaba en esas palabras: un tramo lleva b-roll o un efecto, no los dos.");
+    const { st, labels } = clearUnder(s, range, { broll: "all", fx: true, transitions: true });
+    update(() => ({ ...st, broll: [...st.broll, item].sort((a, b) => a.from_word - b.from_word) }));
+    notifyReplaced(labels);
     setSelection({ kind: "broll", id: item.id });
     setPicking({ id: item.id, tab: ask ? "grafico" : undefined, ask });
   }
 
   /** Un gráfico de plantilla en un tramo (se abre el estudio de gráficos para ajustarlo). */
   function addGraphic(range: WordSpan, template: GraphicTemplate) {
-    if (s.effects.some((e) => range.from <= e.to_word && e.from_word <= range.to)) {
-      toast.error("Ahí ya hay un efecto. Mueve el cabezal a otro lugar: un tramo lleva b-roll o efecto, no los dos.");
-      return;
-    }
-    if (s.broll.some((b) => range.from <= b.to_word && b.from_word <= range.to)) {
-      toast.error("Ahí ya hay un b-roll o un gráfico. Mueve el cabezal a un lugar libre.");
-      return;
-    }
     const option = brollGraphicOption(defaultGraphic(textOf(range.from, range.to, 400), graphicLook, template));
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: "", keywords: [], choice: option, options: [option] };
-    update((st) => ({ ...st, broll: [...st.broll, item].sort((a, b) => a.from_word - b.from_word) }));
+    const { st, labels } = clearUnder(s, range, { broll: "all", fx: true, transitions: true });
+    update(() => ({ ...st, broll: [...st.broll, item].sort((a, b) => a.from_word - b.from_word) }));
+    notifyReplaced(labels);
     setSelection({ kind: "broll", id: item.id });
     const r = outputRange(timeline, range.from, range.to);
     if (r) seek(r.start);
@@ -424,31 +503,38 @@ export function Studio(props: StudioProps) {
     setPicking({ id: item.id, tab: "grafico" });
   }
 
-  function addFx(kind: FxKind, range: WordSpan, replace: string | null) {
-    if (s.broll.some((b) => b.choice && range.from <= b.to_word && b.from_word <= range.to)) {
-      toast.error("Ese tramo ya tiene b-roll. Quita el b-roll o elige otras palabras para el efecto.");
-      return;
-    }
+  /** Un tramo para un efecto: si pasa de lo que puede durar, se acorta a su máximo (en vez de rechazarlo). */
+  function fitFxSpan(kind: FxKind, range: WordSpan): WordSpan {
+    const r = outputRange(timeline, range.from, range.to);
+    const max = FX_INFO[kind].duration.max;
+    if (!r || r.end - r.start <= max + 0.25) return range;
+    const short = snapToWords(timeline, r.start, r.start + max);
+    return short ? { from: short.from, to: short.to } : range;
+  }
+
+  function addFx(kind: FxKind, rawRange: WordSpan, replace: string | null) {
+    const range = fitFxSpan(kind, rawRange);
     const spoken = words.slice(range.from, range.to + 1).map((w) => ({ id: w.id, text: s.corrections[String(w.id)] ?? w.text }));
     const item: FxItem = { id: replace ?? newFxId(), kind, from_word: range.from, to_word: range.to, ...defaultFx(kind, spoken), source: "user" };
-    update((st) => ({ ...st, effects: [...st.effects.filter((e) => e.id !== replace && !(range.from <= e.to_word && e.from_word <= range.to)), item].sort((a, b) => a.from_word - b.from_word) }));
+    const base = { ...s, effects: s.effects.filter((e) => e.id !== replace) };
+    const cleared = clearUnder(base, range, { broll: "chosen", fx: true, transitions: true });
+    const extra = clearBrollOverFx(cleared.st, item);
+    const st = extra.st;
+    update(() => ({ ...st, effects: [...st.effects, item].sort((a, b) => a.from_word - b.from_word) }));
+    notifyReplaced([...cleared.labels, ...extra.labels]);
     setSelection({ kind: "fx", id: item.id });
     const seg = fxSegments(timeline, [item])[0];
     if (seg) seek(seg.start, true);
   }
 
   function addZoom(range: WordSpan) {
-    if (styleZooms) {
-      toast.info("Tu estilo pone los zooms solo. Apágalos en «Zooms del estilo» para poner los tuyos.");
-      return;
-    }
-    if (s.zoomMoments.some((z) => range.from <= z.to_word && z.from_word <= range.to)) {
-      toast.error("Ahí ya hay un zoom. Elígelo en la línea de tiempo para cambiarlo.");
-      return;
-    }
     const moment = { from_word: range.from, to_word: range.to, scale: 1.15, why: `${USER_TAG} lo agregaste en la línea de tiempo.` };
-    const next = [...s.zoomMoments, moment].sort((a, b) => a.from_word - b.from_word);
-    update((st) => ({ ...st, rhythmTouched: true, zoomMoments: next }));
+    const { st, labels } = clearUnder(s, range, { zooms: true });
+    const next = [...st.zoomMoments, moment].sort((a, b) => a.from_word - b.from_word);
+    // Con los zooms automáticos del estilo puestos, el tuyo los reemplaza (se apagan; Deshacer los vuelve a poner).
+    update(() => ({ ...st, rhythmTouched: true, zoomMoments: next, zoomsOn: styleZooms ? false : st.zoomsOn }));
+    if (styleZooms) toast.info("Apagamos los zooms automáticos del estilo para poner el tuyo.", { duration: 6000, action: { label: "Deshacer", onClick: undo } });
+    else notifyReplaced(labels);
     setSelection({ kind: "zoom", index: next.indexOf(moment) });
   }
 
@@ -523,7 +609,7 @@ export function Studio(props: StudioProps) {
       broll: s.broll,
       effects: s.effects,
       zoom_moments: s.zoomMoments,
-      ...(s.pacing ? { pacing: s.pacing } : {}),
+      ...(studioPacing(s) ? { pacing: studioPacing(s) } : {}),
       captions: { ...plan.captions, preset: s.preset, emphasis_words: s.emphasis },
       moves: s.moves,
       rhythm: { density: s.density, added: s.rhythmLog },
@@ -538,7 +624,8 @@ export function Studio(props: StudioProps) {
       broll: filled.broll,
       effects: filled.effects ?? [],
       zoomMoments: filled.zoom_moments ?? [],
-      pacing: filled.pacing,
+      // Las pausas completas van aparte (en `pauses`): aquí solo la tolerancia del ritmo.
+      pacing: filled.pacing ? { long_pause: filled.pacing.long_pause } : undefined,
       emphasis: filled.captions.emphasis_words,
       rhythmLog: filled.rhythm?.added ?? [],
       removed: [...removed].sort((a, b) => a - b),
@@ -556,7 +643,7 @@ export function Studio(props: StudioProps) {
     if (sel.kind === "broll") return { ...st, broll: st.broll.map((b) => (b.id === sel.id && !b.id.startsWith("u") ? { ...b, id: `u${b.id}`.slice(0, 40), why: stripTag(b.why) || undefined } : b)) };
     if (sel.kind === "fx") return { ...st, effects: st.effects.map((e) => (e.id === sel.id ? { ...e, source: "user" as const, why: stripTag(e.why) || undefined } : e)) };
     if (sel.kind === "zoom") return { ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.map((z, i) => (i === sel.index ? { ...z, why: `${USER_TAG} ${stripTag(z.why)}`.slice(0, 300) } : z)) };
-    if (sel.kind === "transition") return { ...st, transitions: st.transitions.map((t) => (t.at_word === sel.word ? { ...t, source: "user" as const } : t)) };
+    if (sel.kind === "transition") return { ...st, transitions: st.transitions.map((t) => ((sel.id ? t.id === sel.id : t.at_word === sel.word && !isFreeTransition(t)) ? { ...t, source: "user" as const } : t)) };
     if (sel.kind === "sound") return { ...st, soundCues: st.soundCues.map((c) => (c.id === sel.id ? { ...c, source: "user" as const } : c)) };
     return st;
   }
@@ -573,7 +660,7 @@ export function Studio(props: StudioProps) {
     if (sel.kind === "broll") update((st) => ({ ...st, broll: st.broll.filter((b) => b.id !== sel.id) }));
     else if (sel.kind === "fx") update((st) => ({ ...st, effects: st.effects.filter((e) => e.id !== sel.id) }));
     else if (sel.kind === "zoom" && sel.index >= 0) update((st) => ({ ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.filter((_, i) => i !== sel.index) }));
-    else if (sel.kind === "transition") update((st) => ({ ...st, transitions: st.transitions.filter((t) => t.at_word !== sel.word) }));
+    else if (sel.kind === "transition") update((st) => ({ ...st, transitions: st.transitions.filter((t) => !(sel.id ? t.id === sel.id : t.at_word === sel.word && !isFreeTransition(t))) }));
     else if (sel.kind === "sound") update((st) => ({ ...st, soundCues: st.soundCues.filter((c) => c.id !== sel.id) }));
     else if (sel.kind === "caption") {
       const block = captions[sel.index];
@@ -713,16 +800,22 @@ export function Studio(props: StudioProps) {
     }
     for (const seg of trSegs) {
       const info = TRANSITION_INFO[seg.item.kind];
+      const free = isFreeTransition(seg.item);
       out.push({
-        key: `tr:${seg.item.at_word}`,
+        key: `tr:${seg.item.id}`,
         track: "fx",
         start: seg.start,
         end: seg.end,
         label: info.label,
-        detail: "Transición",
+        detail: free ? "Transición sobre el plano" : "Transición",
         tone: "border-[#f0a23a]/80 bg-[#f0a23a]/45",
         ai: seg.item.source === "director",
-        selection: { kind: "transition", word: seg.item.at_word },
+        // Se arrastra a cualquier punto (sin imán a las palabras); cerca de un corte, se pega al corte.
+        editable: true,
+        free: true,
+        min: seg.end - seg.start,
+        max: seg.end - seg.start,
+        selection: { kind: "transition", word: seg.item.at_word, ...(free ? { id: seg.item.id } : {}) },
       });
     }
     for (const { cue, hitAt } of soundCueTimes(timeline, s.soundCues)) {
@@ -767,24 +860,90 @@ export function Studio(props: StudioProps) {
     return out;
   }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues]);
 
-  // Cortes sin transición (y sin b-roll ni efecto encima) donde se puede poner una.
+  // Cortes sin transición donde se puede poner una con un toque (lo que haya encima se reemplaza).
   const transitionSlots = useMemo(() => {
-    const busy = [...segments, ...fxSegs];
-    const taken = new Set(s.transitions.map((t) => t.at_word));
-    // La misma regla que el dibujo: una transición de duración normal cabe sin pisar lo ocupado.
-    return cutList.filter((c) => !taken.has(c.word) && transitionSegments(timeline, [{ id: "probe", kind: "tr_whip", at_word: c.word }], busy).length > 0).map((c) => ({ at: c.at, word: c.word }));
-  }, [cutList, s.transitions, segments, fxSegs, timeline]);
+    const taken = new Set(s.transitions.filter((t) => !isFreeTransition(t)).map((t) => t.at_word));
+    return cutList.filter((c) => !taken.has(c.word)).map((c) => ({ at: c.at, word: c.word }));
+  }, [cutList, s.transitions]);
 
-  /** Pone, cambia o quita (kind null) la transición de un corte. */
-  function setTransition(word: number, patch: Partial<TransitionItem> | null) {
+  /**
+   * Libera el lugar de una transición (gana la transición): el b-roll y los efectos que la taparían se recortan por
+   * palabras y, si todavía la tocan, se quitan; las otras transiciones que se pisan, también.
+   */
+  function clearForTransition(st: StudioState, item: TransitionItem): { st: StudioState; labels: string[] } {
+    const seg = transitionSegments(timeline, [item])[0];
+    if (!seg) return { st, labels: [] };
+    const list = timeline.words;
+    // Palabras (en el orden del video final) que toca la transición; si cae en un silencio, la más cercana.
+    let a = list.findIndex((w) => w.end > seg.start - 0.05 && w.start < seg.end + 0.05);
+    let b = a;
+    if (a < 0) {
+      const near = wordAt(timeline, seg.cut);
+      a = b = near ? list.indexOf(near) : -1;
+    } else while (b + 1 < list.length && list[b + 1]!.start < seg.end + 0.05 && list[b + 1]!.id === list[b]!.id + 1) b++;
+    if (a < 0) return { st, labels: [] };
+    const over = (x: { start: number; end: number }) => x.start < seg.end && seg.start < x.end;
+    // Se recorta por palabras y, si el bloque todavía la tapa (tiene aire en los bordes), se abre una palabra más a cada
+    // lado (hasta tres); lo que siga tapándola se quita entero.
+    let next = st;
+    let labels: string[] = [];
+    for (let grow = 0; grow <= 3; grow++) {
+      const from = list[Math.max(0, a - grow)]!.id;
+      const to = list[Math.min(list.length - 1, b + grow)]!.id;
+      const r = clearUnder(st, { from: Math.min(from, to), to: Math.max(from, to) }, { broll: "chosen", fx: true });
+      next = r.st;
+      labels = r.labels;
+      if (!brollSegments(timeline, next.broll).some(over) && !fxSegments(timeline, next.effects).some(over)) break;
+    }
+    const brollHit = new Set(brollSegments(timeline, next.broll).filter(over).map((x) => x.id));
+    const fxHit = new Set(fxSegments(timeline, next.effects).filter(over).map((f) => f.id));
+    if (brollHit.size || fxHit.size) {
+      labels = [...labels, ...next.broll.filter((x) => brollHit.has(x.id)).map(brollLabel), ...next.effects.filter((e) => fxHit.has(e.id)).map((e) => FX_INFO[e.kind].label)];
+      next = { ...next, broll: next.broll.filter((x) => !brollHit.has(x.id)), effects: next.effects.filter((e) => !fxHit.has(e.id)) };
+    }
+    const others = new Set(transitionSegments(timeline, next.transitions.filter((t) => t.id !== item.id)).filter((t) => over(t)).map((t) => t.item.id));
+    if (others.size) {
+      labels = [...labels, ...next.transitions.filter((t) => others.has(t.id)).map((t) => TRANSITION_INFO[t.kind].label)];
+      next = { ...next, transitions: next.transitions.filter((t) => !others.has(t.id)) };
+    }
+    return { st: next, labels };
+  }
+
+  /**
+   * Pone, cambia o quita (patch null) una transición: la de un corte (por su palabra) o una libre (por su id). Al
+   * ponerla o moverla, lo que hay debajo se reemplaza.
+   */
+  function setTransition(word: number, patch: Partial<TransitionItem> | null, id?: string) {
     if (!canEdit) return;
-    update((st) => {
-      const cur = st.transitions.find((t) => t.at_word === word);
-      if (!patch) return cur ? { ...st, transitions: st.transitions.filter((t) => t.at_word !== word) } : st;
-      const next: TransitionItem = cur ? { ...cur, ...patch, source: "user" } : { id: newTransitionId(), kind: patch.kind ?? "tr_whip", at_word: word, source: "user", ...patch };
-      return { ...st, transitions: [...st.transitions.filter((t) => t.at_word !== word), next].sort((a, b) => a.at_word - b.at_word) };
-    }, { coalesce: `tr:${word}` });
-    setSelection({ kind: "transition", word });
+    const cur = id ? s.transitions.find((t) => t.id === id) : s.transitions.find((t) => t.at_word === word && !isFreeTransition(t));
+    if (!patch) {
+      if (cur) update((st) => ({ ...st, transitions: st.transitions.filter((t) => t.id !== cur.id) }));
+      setSelection(null);
+      return;
+    }
+    const next: TransitionItem = cur ? { ...cur, ...patch, source: "user" } : { id: newTransitionId(), kind: patch.kind ?? "tr_whip", at_word: word, source: "user", ...patch };
+    if (next.offset === undefined) delete next.offset;
+    const placed = { ...s, transitions: [...s.transitions.filter((t) => t.id !== next.id), next].sort((a, b) => a.at_word - b.at_word) };
+    // Solo al ponerla, moverla o alargarla se libera su lugar (cambiar el tipo o el sonido no toca lo demás).
+    const grows = !cur || cur.at_word !== next.at_word || cur.offset !== next.offset || (next.duration ?? 0) > (cur.duration ?? 0);
+    const { st, labels } = grows ? clearForTransition(placed, next) : { st: placed, labels: [] };
+    update(() => st, { coalesce: `tr:${next.id}` });
+    notifyReplaced(labels);
+    setSelection({ kind: "transition", word: next.at_word, ...(isFreeTransition(next) ? { id: next.id } : {}) });
+  }
+
+  /** Pone una transición en el segundo `t`: en el corte si cae justo ahí, o libre sobre el plano. */
+  function dropTransition(kind: TransitionItem["kind"], t: number, id?: string) {
+    const cutNear = [...cutList].sort((a, b) => Math.abs(a.at - t) - Math.abs(b.at - t))[0];
+    // Imán al corte: unos 6 px de la línea de tiempo (o 0,15 s), así un rombo se acierta fácil.
+    if (cutNear && Math.abs(cutNear.at - t) <= 0.15) {
+      if (id) setTransition(cutNear.word, { kind, at_word: cutNear.word, offset: undefined }, id);
+      else setTransition(cutNear.word, { kind });
+      return;
+    }
+    const anchor = freeAnchor(timeline, t);
+    if (!anchor) return void toast.error("Este video todavía no tiene palabras donde ponerla.");
+    setTransition(anchor.at_word, { kind, ...anchor }, id ?? newTransitionId());
   }
 
   const obstacles = useMemo<Partial<Record<TrackKey, { start: number; end: number; label: string }[]>>>(
@@ -805,19 +964,17 @@ export function Studio(props: StudioProps) {
     [timeline],
   );
 
-  /** Mueve o estira un b-roll, un efecto o un zoom a otro rango de palabras (con las reglas de cada pista). */
-  function moveTo(sel: StudioSelection, range: WordSpan, mode: "move" | "start" | "end"): boolean {
-    const over = (x: { from_word: number; to_word: number }) => range.from <= x.to_word && x.from_word <= range.to;
+  /**
+   * Mueve o estira un b-roll, un efecto o un zoom a otro rango de palabras. Si ahí hay otra cosa, gana lo que se mueve:
+   * lo de debajo se recorta o se quita (con aviso y Deshacer).
+   */
+  function moveTo(sel: StudioSelection, rawRange: WordSpan, mode: "move" | "start" | "end"): boolean {
     if (sel.kind === "broll") {
-      if (s.broll.some((b) => b.id !== sel.id && over(b))) {
-        toast.error("Ahí ya hay otro b-roll o gráfico.");
-        return false;
-      }
-      if (s.broll.find((b) => b.id === sel.id)?.choice && s.effects.some(over)) {
-        toast.error("Ahí hay un efecto: un tramo lleva b-roll o efecto, no los dos.");
-        return false;
-      }
-      update((st) => ({
+      const item = s.broll.find((b) => b.id === sel.id);
+      if (!item) return false;
+      const range = rawRange;
+      const { st, labels } = clearUnder(s, range, { broll: "all", fx: Boolean(item.choice), transitions: Boolean(item.choice) }, { broll: sel.id });
+      update(() => ({
         ...st,
         broll: st.broll
           .map((b) => {
@@ -832,30 +989,31 @@ export function Studio(props: StudioProps) {
           })
           .sort((a, b) => a.from_word - b.from_word),
       }));
+      notifyReplaced(labels);
       setSelection(sel);
       return true;
     }
     if (sel.kind === "fx") {
-      if (s.effects.some((e) => e.id !== sel.id && over(e))) {
-        toast.error("Ahí ya hay otro efecto.");
-        return false;
-      }
-      if (s.broll.some((b) => b.choice && over(b))) {
-        toast.error("Ahí hay b-roll: un tramo lleva b-roll o efecto, no los dos.");
-        return false;
-      }
-      update((st) => ({ ...st, effects: st.effects.map((e) => (e.id === sel.id ? { ...e, from_word: range.from, to_word: range.to, words: e.words?.filter((w) => w >= range.from && w <= range.to) } : e)).sort((a, b) => a.from_word - b.from_word) }));
+      const item = s.effects.find((e) => e.id === sel.id);
+      if (!item) return false;
+      const range = fitFxSpan(item.kind, rawRange);
+      const moved: FxItem = { ...item, from_word: range.from, to_word: range.to, words: item.words?.filter((w) => w >= range.from && w <= range.to) };
+      const cleared = clearUnder(s, range, { broll: "chosen", fx: true, transitions: true }, { fx: sel.id });
+      const extra = clearBrollOverFx(cleared.st, moved);
+      const st = extra.st;
+      update(() => ({ ...st, effects: st.effects.map((e) => (e.id === sel.id ? moved : e)).sort((a, b) => a.from_word - b.from_word) }));
+      notifyReplaced([...cleared.labels, ...extra.labels]);
       setSelection(sel);
       return true;
     }
     if (sel.kind === "zoom" && sel.index >= 0) {
-      if (s.zoomMoments.some((z, i) => i !== sel.index && over(z))) {
-        toast.error("Ahí ya hay otro zoom.");
-        return false;
-      }
-      const moved = { ...s.zoomMoments[sel.index]!, from_word: range.from, to_word: range.to };
-      const next = s.zoomMoments.map((z, i) => (i === sel.index ? moved : z)).sort((a, b) => a.from_word - b.from_word);
-      update((st) => ({ ...st, rhythmTouched: true, zoomMoments: next }));
+      const current = s.zoomMoments[sel.index];
+      if (!current) return false;
+      const moved = { ...current, from_word: rawRange.from, to_word: rawRange.to };
+      const { st, labels } = clearUnder({ ...s, zoomMoments: s.zoomMoments.filter((_, i) => i !== sel.index) }, rawRange, { zooms: true });
+      const next = [...st.zoomMoments, moved].sort((a, b) => a.from_word - b.from_word);
+      update(() => ({ ...st, rhythmTouched: true, zoomMoments: next }));
+      notifyReplaced(labels);
       setSelection({ kind: "zoom", index: next.indexOf(moved) });
       return true;
     }
@@ -872,6 +1030,13 @@ export function Studio(props: StudioProps) {
       placeSound(cue.id, cue.name, hit, cue.gain);
       return;
     }
+    if (sel.kind === "transition") {
+      // Una transición se suelta en cualquier punto: en un corte (si cae justo ahí) o sobre el plano.
+      const item = s.transitions.find((t) => t.id === sel.id) ?? s.transitions.find((t) => t.at_word === sel.word && !isFreeTransition(t));
+      if (!item) return;
+      dropTransition(item.kind, (span.start + span.end) / 2, item.id);
+      return;
+    }
     if (moveTo(sel, { from: span.from, to: span.to }, mode)) seek(span.start);
   }
 
@@ -885,37 +1050,31 @@ export function Studio(props: StudioProps) {
     setSelection({ kind: "sound", id: cueId });
   }
 
+  /** Agrega algo de la Biblioteca en el segundo `at` (o en el cabezal). Si ahí ya hay algo, lo nuevo lo reemplaza. */
   function addFromLibrary(item: LibraryDrop, at?: number) {
     if (!canEdit) return;
     const t = at ?? outRef.current;
-    const busy = "Ahí ya hay algo en esa pista. Mueve el cabezal a un lugar libre (o elige lo que hay para cambiarlo).";
+    const noWords = () => toast.error("Este video todavía no tiene palabras donde ponerlo.");
     if (item.type === "fx") {
       const info = FX_INFO[item.kind as FxKind];
       if (!info) return;
       const target = Math.min(info.duration.max, Math.max(info.duration.min, (info.duration.min + info.duration.max) / 2.5));
-      const span = fitSpan(timeline, t, target, info.duration.min, [...s.effects, ...s.broll.filter((b) => b.choice)]);
-      if (!span) return void toast.error(busy, { description: "Un tramo lleva b-roll o efecto, no los dos." });
+      const span = spanAround(timeline, t, target);
+      if (!span) return noWords();
       addFx(item.kind as FxKind, span, null);
     } else if (item.type === "graphic" || item.type === "broll") {
-      const span = fitSpan(timeline, t, 2.5, 0.8, [...s.broll, ...s.effects]);
-      if (!span) return void toast.error(busy, { description: "Un tramo lleva b-roll o efecto, no los dos." });
+      const span = spanAround(timeline, t, 2.5);
+      if (!span) return noWords();
       if (item.type === "graphic" && item.template) addGraphic(span, item.template as GraphicTemplate);
       else addBroll(span, item.type === "graphic");
     } else if (item.type === "zoom") {
-      const span = fitSpan(timeline, t, 1.2, 0.3, s.zoomMoments);
-      if (!span) return void toast.error(busy);
+      const span = spanAround(timeline, t, 1.2);
+      if (!span) return noWords();
       addZoom(span);
     } else if (item.type === "transition") {
       if (!isTransitionKind(item.kind)) return;
-      // El corte más cercano (hasta 2 s) que tenga lugar.
-      const near = [...cutList].sort((a, b) => Math.abs(a.at - t) - Math.abs(b.at - t)).find((c) => Math.abs(c.at - t) <= 2 && (s.transitions.some((x) => x.at_word === c.word) || transitionSlots.some((x) => x.word === c.word)));
-      if (!near) {
-        return void toast.error(cutList.length ? "No hay un corte libre cerca del cabezal." : "Este video no tiene cortes todavía.", {
-          description: cutList.length ? "Las transiciones van en un corte (los rombos de la pista de efectos), sin b-roll ni efecto encima." : "Las transiciones van entre dos tramos: corta algo primero.",
-        });
-      }
-      setTransition(near.word, { kind: item.kind });
-      seek(Math.max(0, near.at - 0.8));
+      dropTransition(item.kind, t);
+      seek(Math.max(0, t - 0.8));
     } else if (item.type === "sound") {
       if (!isSfxName(item.name)) return;
       placeSound(null, item.name, t);
@@ -1112,7 +1271,8 @@ export function Studio(props: StudioProps) {
 
   const rangeSel = selection?.kind === "range" ? outputRange(timeline, selection.from, selection.to) : null;
   const dirty = reviewKey !== savedKey;
-  const changedFromProposal = removedSet.size !== proposed.size || s.removed.some((id) => !proposed.has(id));
+  const changedFromProposal = removedSet.size !== proposed.size || s.removed.some((id) => !proposed.has(id)) || s.pauses.all || s.pauses.keep.length > 0;
+  const nothingTrimmed = removedSet.size === 0 && trimmedPauses.length === 0;
   const cuts = useMemo(() => cutMarks(timeline, removedSet), [timeline, removedSet]);
   // En la pista de subtítulos: dónde no se ven (los ocultó el director, un efecto lleva los suyos o un gráfico los tapa).
   const captionGaps = useMemo(
@@ -1152,6 +1312,8 @@ export function Studio(props: StudioProps) {
     maskMissing,
     masks: { pending: Boolean(masks?.pending), failed: Boolean(masks?.failed) },
     reasons,
+    pauses: pauseList,
+    changedFromProposal,
     styleZooms,
     showFraming,
     time: outTime,
@@ -1181,6 +1343,10 @@ export function Studio(props: StudioProps) {
       pickOption,
       setTransition,
       placeSound,
+      setPause,
+      restoreAll,
+      restorePauses,
+      backToProposal,
     },
   };
 
@@ -1203,7 +1369,7 @@ export function Studio(props: StudioProps) {
           <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={split} title="Dividir lo elegido en el cabezal (S)">
             <span className="hidden xl:inline">Dividir</span>
           </Button>
-          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "cut" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
+          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "cut" || selection.kind === "pause" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
             <span className="hidden xl:inline">Quitar</span>
           </Button>
           {selection?.kind === "range" && (
@@ -1315,21 +1481,22 @@ export function Studio(props: StudioProps) {
                     {leftTab === "texto" && (
                       <div className="flex flex-col gap-3 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs text-muted">
-                            {formatNumber(removedSet.size)} {removedSet.size === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}.
+                          <p className="text-xs text-muted" data-testid="trim-summary">
+                            {formatNumber(removedSet.size)} {removedSet.size === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}
+                            {pauseList.length > 0 && ` · ${formatNumber(trimmedPauses.length)} ${trimmedPauses.length === 1 ? "pausa acortada" : "pausas acortadas"}`}.
                           </p>
                           {canEdit && (
                             <div className="flex flex-wrap gap-1">
-                              {changedFromProposal && proposed.size > 0 && (
-                                <Button size="sm" variant="subtle" className="!px-2" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => update((st) => ({ ...st, removed: [...proposed].sort((a, b) => a - b) }))}>
+                              {changedFromProposal && (
+                                <Button size="sm" variant="subtle" className="!px-2" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={backToProposal}>
                                   Volver a la propuesta
                                 </Button>
                               )}
                               <Button size="sm" variant="subtle" className="!px-2" icon={proofreading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <SpellCheck className="h-3.5 w-3.5" aria-hidden />} onClick={proofread} disabled={proofreading}>
                                 {proofreading ? "Revisando…" : "Ortografía con IA"}
                               </Button>
-                              <Button size="sm" variant="subtle" className="!px-2" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => update((st) => ({ ...st, removed: [] }))} disabled={removedSet.size === 0}>
-                                Restaurar todo
+                              <Button size="sm" variant="subtle" className="!px-2" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={restoreAll} disabled={nothingTrimmed} title="Todas las palabras y las pausas completas, como lo grabaste">
+                                Sin recortes
                               </Button>
                             </div>
                           )}
@@ -1367,6 +1534,8 @@ export function Studio(props: StudioProps) {
                           activeTime={activeTime}
                           canEdit={canEdit}
                           onSetCut={cut}
+                          pauses={pauseList}
+                          onPause={canEdit ? setPause : undefined}
                           onCorrect={(id, text) =>
                             update((st) => {
                               const next = { ...st.corrections };
@@ -1392,11 +1561,9 @@ export function Studio(props: StudioProps) {
                                     <Button size="sm" variant="ghost" onClick={() => (setGallery({ range, replace: null }), clear())}>
                                       Poner un efecto aquí
                                     </Button>
-                                    {!styleZooms && (
-                                      <Button size="sm" variant="ghost" onClick={() => (addZoom(range), clear())}>
-                                        Zoom aquí
-                                      </Button>
-                                    )}
+                                    <Button size="sm" variant="ghost" onClick={() => (addZoom(range), clear())}>
+                                      Zoom aquí
+                                    </Button>
                                     <Button size="sm" variant="ghost" onClick={() => (setFixRange(range), clear())}>
                                       Corregir esta frase
                                     </Button>

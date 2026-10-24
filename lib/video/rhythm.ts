@@ -364,7 +364,8 @@ export function fillRhythm(plan0: EditPlan, input: FillInput): FillResult {
   // 1. Pausas y muletillas (la pausa máxima de la densidad; con Editor de reels, fuera muletillas y arranques en falso).
   const pause = Math.min(plan.pacing?.long_pause ?? t.pause, t.pause);
   if (!plan.pacing || plan.pacing.long_pause !== pause || input.replace) {
-    plan.pacing = { long_pause: input.replace ? t.pause : pause };
+    // Las pausas que la persona dejó completas se respetan con cualquier densidad.
+    plan.pacing = { ...plan.pacing, long_pause: input.replace ? t.pause : pause };
     added.push({ kind: "pausas", from_word: 0, to_word: Math.max(0, words.length - 1), why: `${RHYTHM_TAG} pausas de hasta ${String(plan.pacing.long_pause).replace(".", ",")} s entre palabras.` });
   }
   if (t.cutFillers && input.candidates?.length) {

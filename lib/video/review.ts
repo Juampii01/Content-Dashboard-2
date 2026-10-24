@@ -12,7 +12,7 @@ import { musicGenSchema } from "./music-gen/spec";
 import { brollItemSchema, rangesFromIds, withDerived } from "./plan";
 import { cleanSoundCues, MUSIC_DB, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
-import { buildTimeline, type Timeline } from "./timeline";
+import { buildTimeline, TIMING, type Timeline } from "./timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, PlanMove, Transcript, VideoFormat, ZoomMoment } from "./types";
 
 export type Review = {
@@ -53,6 +53,11 @@ export type Review = {
    * previa (punch-ins, pausa máxima y palabras resaltadas); los gráficos y efectos que agregó van en broll y effects.
    */
   rhythm?: { density: "sobria" | "normal" | "reels"; added: NonNullable<EditPlan["rhythm"]>["added"]; zoomMoments: ZoomMoment[]; longPause: number; emphasis: number[] };
+  /**
+   * Pausas largas que la persona dejó completas en la revisión (id de la palabra que sigue a cada pausa) o todas
+   * (`all`: "Sin recortes automáticos"). Sin el campo, se deja lo que ya tenía el plan.
+   */
+  pauses?: { keep: number[]; all: boolean };
   /**
    * Lugar y tamaño de los subtítulos desde el lienzo (lib/video/canvas/captions.ts): de todos y, opcional, por línea
    * (id de la primera palabra del bloque). Sin el campo, se deja lo que ya tenía el plan.
@@ -173,9 +178,17 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const zooms = review.rhythm.zoomMoments.filter((z) => valid(z.from_word) && valid(z.to_word) && z.from_word <= z.to_word).slice(0, 60).map((z) => ({ from_word: z.from_word, to_word: z.to_word, scale: Math.max(1, Math.min(1.4, z.scale)), why: String(z.why ?? "").slice(0, 300) }));
     if (zooms.length) next.zoom_moments = zooms;
     else delete next.zoom_moments;
-    next.pacing = { long_pause: Math.max(0.2, Math.min(1.2, review.rhythm.longPause)) };
+    next.pacing = { ...next.pacing, long_pause: Math.max(0.2, Math.min(1.2, review.rhythm.longPause)) };
     next.captions = { ...next.captions, emphasis_words: [...new Set(review.rhythm.emphasis.filter(valid))].slice(0, 40) };
     next.rhythm = { density: review.rhythm.density, added: review.rhythm.added.filter((a) => valid(a.from_word) && valid(a.to_word)).slice(-120).map((a) => ({ ...a, why: a.why.slice(0, 300) })) };
+  }
+  if (review.pauses) {
+    // Pausas completas: ids válidos, sin repetir (van con la tolerancia que quedó, la del plan o la del ritmo).
+    const keep = [...new Set(review.pauses.keep.filter((id) => Number.isInteger(id) && id > 0 && id < words.length))].sort((a, b) => a - b).slice(0, 5000);
+    const { keep: _k, keep_all: _a, ...pacing } = next.pacing ?? { long_pause: TIMING.longPause };
+    void _k;
+    void _a;
+    next.pacing = { ...pacing, ...(keep.length ? { keep } : {}), ...(review.pauses.all ? { keep_all: true } : {}) };
   }
   if (review.moves) {
     // Solo se pueden quitar bloques movidos (no inventar nuevos desde el navegador).

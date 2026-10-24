@@ -142,7 +142,11 @@ export type EditPlan = {
   /** Lo armó el director de edición (con ojos): ritmo elegido y versión del director. */
   director?: { version: 1; pace: "calm" | "normal" | "fast" };
   /** Pausa máxima que queda entre palabras (la tolerancia de silencios del estilo). Sin estilo, la de TIMING. */
-  pacing?: { long_pause: number };
+  /**
+   * Silencios: más largos que `long_pause` se recortan, salvo los que la persona dejó completos en la revisión
+   * (`keep`: id de la palabra que sigue a la pausa) o todos (`keep_all`, "Sin recortes automáticos").
+   */
+  pacing?: { long_pause: number; keep?: number[]; keep_all?: boolean };
   /** Estilo con el que se armó el plan (id de video_styles), si hay. */
   style_id?: string | null;
   /**

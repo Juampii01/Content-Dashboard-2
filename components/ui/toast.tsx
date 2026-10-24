@@ -12,8 +12,10 @@ import { cn } from "@/lib/utils";
  */
 
 type ToastKind = "success" | "error" | "info";
-type ToastItem = { id: number; kind: ToastKind; message: string; description?: string; duration: number };
-type ToastOptions = { description?: string; duration?: number };
+type ToastAction = { label: string; onClick: () => void };
+type ToastItem = { id: number; kind: ToastKind; message: string; description?: string; duration: number; action?: ToastAction };
+/** `action`: un botón en el aviso (por ejemplo "Deshacer"); al tocarlo, el aviso se cierra. */
+type ToastOptions = { description?: string; duration?: number; action?: ToastAction };
 
 const MAX_VISIBLE = 3;
 const DEFAULT_DURATION = 5000;
@@ -33,6 +35,7 @@ function push(kind: ToastKind, message: string, options?: ToastOptions) {
     kind,
     message,
     description: options?.description,
+    action: options?.action,
     // Los errores quedan un poco más: suelen pedir una acción.
     duration: options?.duration ?? (kind === "error" ? DEFAULT_DURATION + 3000 : DEFAULT_DURATION),
   };
@@ -130,6 +133,18 @@ function ToastCard({ item }: { item: ToastItem }) {
         </p>
         {item.description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{item.description}</p>}
       </div>
+      {item.action && (
+        <button
+          type="button"
+          onClick={() => {
+            item.action?.onClick();
+            dismiss(item.id);
+          }}
+          className="flex-none self-center rounded-lg border border-white/15 px-2.5 py-1 text-xs font-semibold text-accent-hi transition hover:border-accent-hi hover:text-white"
+        >
+          {item.action.label}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => dismiss(item.id)}

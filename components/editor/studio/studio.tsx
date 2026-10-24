@@ -18,6 +18,8 @@ import { compileFx, faceAnchor, fxBrandFromLook, fxCaptionHides, fxSegments, sou
 import { FX_MASK_CHUNK } from "@/lib/video/fx/masks";
 import { defaultFx, newFxId, type FxItem } from "@/lib/video/fx/schema";
 import { defaultGraphic, type GraphicTemplate } from "@/lib/video/graphics";
+import { compileComposition, composCaptionHides, composSegments, composSounds, type Composition } from "@/lib/video/compos/schema";
+import { useComposWork, type ComposRequest } from "../compos/use-compos-work";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
 import { rangesFromIds } from "@/lib/video/plan";
@@ -141,6 +143,8 @@ export function Studio(props: StudioProps) {
   const pauseList = useMemo(() => longPauses(words, { removals: rangesFromIds(sRemoved, plan.removals), pacing: studioPacing({ pacing: sPacing, pauses: sPauses }) }), [words, sRemoved, plan.removals, sPacing, sPauses]);
   const trimmedPauses = useMemo(() => pauseList.filter((p) => p.trimmed), [pauseList]);
   const fxSegs = useMemo(() => fxSegments(timeline, s.effects), [timeline, s.effects]);
+  // Animaciones a medida: en su tramo mandan sobre los efectos y el b-roll (igual que en el render).
+  const composSegs = useMemo(() => composSegments(timeline, s.compositions), [timeline, s.compositions]);
   // Tramos sin subtítulos (quitados por la persona o por el director), con su índice para poder volver a mostrarlos.
   const captionHides = useMemo(
     () =>
@@ -154,17 +158,17 @@ export function Studio(props: StudioProps) {
   );
   const hiddenCaptions = useMemo(() => captionHides.map(({ start, end }) => ({ start, end })), [captionHides]);
   // Sin subtítulos donde el director los ocultó ni durante los efectos que llevan los suyos, igual que en el render.
-  const captions = useMemo(() => (s.preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, s.preset, captionStyle), [...hiddenCaptions, ...fxCaptionHides(fxSegs)])), [timeline, s.preset, captionStyle, hiddenCaptions, fxSegs]);
+  const captions = useMemo(() => (s.preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, s.preset, captionStyle), [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...composCaptionHides(composSegs)])), [timeline, s.preset, captionStyle, hiddenCaptions, fxSegs, composSegs]);
   const capLook = useMemo(() => (isCaptionStyle(s.preset) ? captionLook(s.preset, { format: s.format, accent, brandFont: graphicLook.font, emoji: s.emoji }) : null), [s.preset, s.format, accent, graphicLook.font, s.emoji]);
   const segments = useMemo(() => brollSegments(timeline, s.broll), [timeline, s.broll]);
   // Transiciones en los cortes (no van encima de un b-roll ni de un efecto, que llevan su propia capa).
-  const trSegs = useMemo(() => transitionSegments(timeline, s.transitions, [...segments, ...fxSegs]), [timeline, s.transitions, segments, fxSegs]);
+  const trSegs = useMemo(() => transitionSegments(timeline, s.transitions, [...segments, ...fxSegs, ...composSegs]), [timeline, s.transitions, segments, fxSegs, composSegs]);
   const cutList = useMemo(() => cutPoints(timeline), [timeline]);
   const styleZooms = Boolean(style && style.zoom.enabled && s.zoomsOn);
   const zooms = useMemo(() => {
-    const avoid = [...segments, ...fxSegs, ...trSegs];
+    const avoid = [...segments, ...fxSegs, ...trSegs, ...composSegs];
     return style && style.zoom.enabled && s.zoomsOn ? computeZooms(timeline, style.zoom, { emphasis: s.emphasis, avoid }) : directorZooms(timeline, s.zoomMoments, avoid);
-  }, [style, s.zoomsOn, timeline, s.emphasis, s.zoomMoments, segments, fxSegs, trSegs]);
+  }, [style, s.zoomsOn, timeline, s.emphasis, s.zoomMoments, segments, fxSegs, trSegs, composSegs]);
   const entries = useMemo(() => graphicEntries(segments), [segments]);
   const rhythm = useMemo(() => rhythmScore({ timeline, broll: segments, zooms, effects: fxSegs.map((f) => ({ start: f.start, end: f.end, kind: f.item.kind })), entries, density: s.density }), [timeline, segments, zooms, fxSegs, entries, s.density]);
   const sfxMarks = useMemo(
@@ -181,9 +185,10 @@ export function Studio(props: StudioProps) {
         manual: [
           ...soundCueTimes(timeline, s.soundCues).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
           ...transitionSounds(trSegs).filter((x) => isSfxName(x.name)).map((x) => ({ name: x.name as SfxName, hitAt: x.hitAt, gain: TRANSITION_SOUND_GAIN })),
+          ...composSounds(composSegs).map((x) => ({ name: x.name, hitAt: x.hitAt, gain: x.gain })),
         ],
       }),
-    [s.sfx, timeline, segments, entries, fxSegs, zooms, s.density, s.soundCues, trSegs],
+    [s.sfx, timeline, segments, entries, fxSegs, zooms, s.density, s.soundCues, trSegs, composSegs],
   );
   const fxBrand = useMemo(() => fxBrandFromLook(graphicLook), [graphicLook]);
   const thumbs = useMemo(() => fxContext?.thumbs ?? [], [fxContext]);
@@ -195,12 +200,23 @@ export function Studio(props: StudioProps) {
       }),
     [fxSegs, fxContext, timeline, sourceWidth, sourceHeight, s.format, s.offsetX, fxBrand, thumbs],
   );
-  // Las transiciones se dibujan con el mismo motor que los efectos (la vista previa toma el spec del instante).
+  const composSpecs = useMemo(
+    () =>
+      composSegs.map((seg) => {
+        const face = faceAnchor(fxContext?.faces ?? [], sourceRangesOf(timeline, seg.start, seg.end), sourceWidth, sourceHeight, s.format, s.offsetX);
+        return compileComposition({ item: seg.item, start: seg.start, end: seg.end, timeline, format: s.format, brand: fxBrand, face, captionsVisible: s.preset !== "ninguno", thumbs });
+      }),
+    [composSegs, fxContext, timeline, sourceWidth, sourceHeight, s.format, s.offsetX, fxBrand, s.preset, thumbs],
+  );
+  // Las transiciones se dibujan con el mismo motor que los efectos (la vista previa toma el spec del instante). Las
+  // animaciones van primero: en su tramo mandan (la vista previa dibuja la primera que coincide).
   const previewSpecs = useMemo(() => {
     const tr = trSegs.map((segment) => compileTransition({ segment, format: s.format, brand: fxBrand, face: faceAnchor(fxContext?.faces ?? [], sourceRangesOf(timeline, segment.start, segment.end), sourceWidth, sourceHeight, s.format, s.offsetX) }));
-    return [...fxSpecs, ...tr].sort((a, b) => a.start - b.start);
-  }, [fxSpecs, trSegs, s.format, fxBrand, fxContext, timeline, sourceWidth, sourceHeight, s.offsetX]);
-  const fxImages = useImages(useMemo(() => Object.fromEntries(thumbs.map((t, i) => [`t${i}`, t.url])), [thumbs]));
+    return [...composSpecs, ...[...fxSpecs, ...tr].sort((a, b) => a.start - b.start)];
+  }, [composSpecs, fxSpecs, trSegs, s.format, fxBrand, fxContext, timeline, sourceWidth, sourceHeight, s.offsetX]);
+  // Imágenes generadas de las animaciones (las del plan y las que llegan de un pedido).
+  const [composImageUrls, setComposImageUrls] = useState<Record<string, string>>(() => fxContext?.composImages ?? {});
+  const fxImages = useImages(useMemo(() => ({ ...Object.fromEntries(thumbs.map((t, i) => [`t${i}`, t.url])), ...composImageUrls }), [thumbs, composImageUrls]));
   const stripImgs = useImages(useMemo(() => Object.fromEntries(Object.entries(masks?.urls ?? {})), [masks]));
   const fxStrips = useMemo(() => Object.fromEntries(Object.entries(stripImgs).map(([k, v]) => [Number(k), v])) as Record<number, HTMLImageElement | undefined>, [stripImgs]);
   const maskMissing = useMemo(() => {
@@ -348,6 +364,7 @@ export function Studio(props: StudioProps) {
       let at: number | null = null;
       if (sel.kind === "broll") at = segments.find((x) => x.id === sel.id)?.start ?? null;
       else if (sel.kind === "fx") at = fxSegs.find((x) => x.id === sel.id)?.start ?? null;
+      else if (sel.kind === "compos") at = composSegs.find((x) => x.id === sel.id)?.start ?? null;
       else if (sel.kind === "caption") at = captions[sel.index]?.start ?? null;
       else if (sel.kind === "zoom" && sel.index >= 0) {
         const m = s.zoomMoments[sel.index];
@@ -365,7 +382,7 @@ export function Studio(props: StudioProps) {
       }
       if (at != null && !playingNow) seek(at, false);
     },
-    [videoEl, segments, fxSegs, captions, s.zoomMoments, timeline, seek, cutList, s.soundCues, trSegs],
+    [videoEl, segments, fxSegs, composSegs, captions, s.zoomMoments, timeline, seek, cutList, s.soundCues, trSegs],
   );
 
   // ─── Acciones ───
@@ -406,7 +423,7 @@ export function Studio(props: StudioProps) {
    * clip), los efectos, los zooms y las transiciones que caen ahí. `keep`: lo que se está moviendo (no se toca).
    * Devuelve el estado nuevo y los nombres de lo reemplazado (para el aviso).
    */
-  function clearUnder(st: StudioState, range: WordSpan, what: { broll?: "all" | "chosen"; fx?: boolean; zooms?: boolean; transitions?: boolean }, keep: { broll?: string; fx?: string; zoom?: ZoomMoment; transition?: string } = {}) {
+  function clearUnder(st: StudioState, range: WordSpan, what: { broll?: "all" | "chosen"; fx?: boolean; zooms?: boolean; transitions?: boolean; compos?: boolean }, keep: { broll?: string; fx?: string; zoom?: ZoomMoment; transition?: string; compos?: string } = {}) {
     const labels: string[] = [];
     let next = st;
     if (what.broll) {
@@ -435,6 +452,18 @@ export function Studio(props: StudioProps) {
       });
       labels.push(...r.replaced.map((e) => FX_INFO[e.kind].label));
       next = { ...next, effects: r.items };
+    }
+    if (what.broll === "all" || what.fx || what.compos) {
+      // Lo nuevo gana también sobre las animaciones: se recortan (queda su parte de antes) o se quitan.
+      const r = carveSpan(next.compositions, range, {
+        skip: (c) => c.id === keep.compos,
+        reshape: (c, from, to, side) => (side === "right" ? { ...c, from_word: to + 1, to_word: to } : { ...c, from_word: from, to_word: to }),
+        valid: (c) => c.from_word <= c.to_word && outLen(c) >= 0.8,
+      });
+      if (r.replaced.length) {
+        labels.push(...r.replaced.map((c) => c.name));
+        next = { ...next, compositions: r.items };
+      }
     }
     if (what.zooms) {
       const r = carveSpan(next.zoomMoments, range, { skip: (z) => z === keep.zoom, valid: (z) => outLen(z) >= 0.2 });
@@ -645,6 +674,7 @@ export function Studio(props: StudioProps) {
     if (sel.kind === "zoom") return { ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.map((z, i) => (i === sel.index ? { ...z, why: `${USER_TAG} ${stripTag(z.why)}`.slice(0, 300) } : z)) };
     if (sel.kind === "transition") return { ...st, transitions: st.transitions.map((t) => ((sel.id ? t.id === sel.id : t.at_word === sel.word && !isFreeTransition(t)) ? { ...t, source: "user" as const } : t)) };
     if (sel.kind === "sound") return { ...st, soundCues: st.soundCues.map((c) => (c.id === sel.id ? { ...c, source: "user" as const } : c)) };
+    if (sel.kind === "compos") return { ...st, compositions: st.compositions.map((c) => (c.id === sel.id ? { ...c, source: "user" as const } : c)) };
     return st;
   }
   function acceptAll() {
@@ -659,6 +689,7 @@ export function Studio(props: StudioProps) {
     if (!sel || !canEdit) return;
     if (sel.kind === "broll") update((st) => ({ ...st, broll: st.broll.filter((b) => b.id !== sel.id) }));
     else if (sel.kind === "fx") update((st) => ({ ...st, effects: st.effects.filter((e) => e.id !== sel.id) }));
+    else if (sel.kind === "compos") update((st) => ({ ...st, compositions: st.compositions.filter((c) => c.id !== sel.id) }));
     else if (sel.kind === "zoom" && sel.index >= 0) update((st) => ({ ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === "transition") update((st) => ({ ...st, transitions: st.transitions.filter((t) => !(sel.id ? t.id === sel.id : t.at_word === sel.word && !isFreeTransition(t))) }));
     else if (sel.kind === "sound") update((st) => ({ ...st, soundCues: st.soundCues.filter((c) => c.id !== sel.id) }));
@@ -781,6 +812,22 @@ export function Studio(props: StudioProps) {
         thumb: graphic ? null : (signedOf(choice)?.thumbUrl ?? null),
       });
     }
+    for (const seg of composSegs) {
+      out.push({
+        key: `compos:${seg.id}`,
+        track: "anim",
+        start: seg.start,
+        end: seg.end,
+        label: seg.item.name,
+        detail: seg.item.match ? `${seg.item.match.score} % parecido` : undefined,
+        tone: "border-[#8b5cf6]/70 bg-[#8b5cf6]/50",
+        ai: seg.item.source !== "user",
+        editable: true,
+        min: 0.8,
+        max: 12,
+        selection: { kind: "compos", id: seg.id },
+      });
+    }
     for (const seg of fxSegs) {
       const info = FX_INFO[seg.item.kind];
       out.push({
@@ -858,7 +905,7 @@ export function Studio(props: StudioProps) {
         });
       });
     return out;
-  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues]);
+  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues]);
 
   // Cortes sin transición donde se puede poner una con un toque (lo que haya encima se reemplaza).
   const transitionSlots = useMemo(() => {
@@ -1003,6 +1050,16 @@ export function Studio(props: StudioProps) {
       const st = extra.st;
       update(() => ({ ...st, effects: st.effects.map((e) => (e.id === sel.id ? moved : e)).sort((a, b) => a.from_word - b.from_word) }));
       notifyReplaced([...cleared.labels, ...extra.labels]);
+      setSelection(sel);
+      return true;
+    }
+    if (sel.kind === "compos") {
+      const item = s.compositions.find((c) => c.id === sel.id);
+      if (!item) return false;
+      const moved: Composition = { ...item, from_word: rawRange.from, to_word: rawRange.to };
+      const { st, labels } = clearUnder(s, rawRange, { broll: "chosen", fx: true, transitions: true, compos: true }, { compos: sel.id });
+      update(() => ({ ...st, compositions: st.compositions.map((c) => (c.id === sel.id ? moved : c)).sort((a, b) => a.from_word - b.from_word) }));
+      notifyReplaced(labels);
       setSelection(sel);
       return true;
     }
@@ -1276,8 +1333,8 @@ export function Studio(props: StudioProps) {
   const cuts = useMemo(() => cutMarks(timeline, removedSet), [timeline, removedSet]);
   // En la pista de subtítulos: dónde no se ven (los ocultó el director, un efecto lleva los suyos o un gráfico los tapa).
   const captionGaps = useMemo(
-    () => [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...segments.filter((sg) => sg.option.source === "graphic" && graphicHidesCaptions(sg.option.graphic)).map((sg) => ({ start: sg.start, end: sg.end }))],
-    [hiddenCaptions, fxSegs, segments],
+    () => [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...composCaptionHides(composSegs), ...segments.filter((sg) => sg.option.source === "graphic" && graphicHidesCaptions(sg.option.graphic)).map((sg) => ({ start: sg.start, end: sg.end }))],
+    [hiddenCaptions, fxSegs, composSegs, segments],
   );
   const musicTrack = s.musicGen ? null : (tracks.find((t) => t.id === s.music.trackId) ?? null);
   // Sonidos y música también en la vista previa (los mismos archivos y el mismo generador que el render).
@@ -1292,6 +1349,39 @@ export function Studio(props: StudioProps) {
     duration: timeline.duration,
   });
 
+  // Pedidos de animaciones (Estudio): cuando el taller termina, la animación entra en la línea de tiempo (lo nuevo
+  // gana sobre lo que haya debajo) y se puede deshacer.
+  const composWork = useComposWork(projectId, (made, images, work) => {
+    if (Object.keys(images).length) setComposImageUrls((prev) => ({ ...prev, ...images }));
+    const task = work.tasks[0];
+    if (!made.length) {
+      toast.error(task?.error ? `No pudimos hacer la animación: ${task.error}` : "No pudimos hacer la animación. Prueba de nuevo con otras palabras.");
+      return;
+    }
+    let labels: string[] = [];
+    update((st) => {
+      let next = st;
+      for (const m of made) {
+        const cleared = clearUnder({ ...next, compositions: next.compositions.filter((c) => c.id !== m.id) }, { from: m.from_word, to: m.to_word }, { broll: "chosen", fx: true, transitions: true, compos: true });
+        labels = [...labels, ...cleared.labels];
+        next = { ...cleared.st, compositions: [...cleared.st.compositions, m].sort((a, b) => a.from_word - b.from_word) };
+      }
+      return next;
+    });
+    const first = made[0]!;
+    setSelection({ kind: "compos", id: first.id });
+    const r = outputRange(timeline, first.from_word, first.to_word);
+    if (r) seek(r.start);
+    toast.success(work.request?.replaceId ? `Listo: cambiamos «${first.name}».` : `Listo: «${first.name}» ya está en tu video.`, { description: [work.cannot, task?.note].filter(Boolean).join(" ") || undefined });
+    notifyReplaced(labels);
+  });
+  async function requestAnimation(req: ComposRequest): Promise<boolean> {
+    if (dirty) toast.info("Guardando tus cambios antes de pedir la animación…");
+    const ok = await composWork.request(req);
+    if (ok) toast.success("Estamos creando la animación. Puedes seguir editando: aparece sola cuando termina (1 a 3 minutos).");
+    return ok;
+  }
+
   const api: StudioApi = {
     props,
     state: s,
@@ -1302,6 +1392,8 @@ export function Studio(props: StudioProps) {
     timeline,
     segments,
     fxSegs,
+    composSegs,
+    compos: { work: composWork.work, running: composWork.running, error: composWork.error, request: requestAnimation, imageUrls: composImageUrls },
     trSegs,
     cutList,
     zooms,
@@ -1351,7 +1443,8 @@ export function Studio(props: StudioProps) {
   };
 
   // Lo que se ve ahora en la vista previa (para elegirlo con un toque).
-  const fxNow = fxSegs.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null;
+  const composNow = composSegs.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null;
+  const fxNow = composNow ? null : (fxSegs.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null);
   const brNow = fxNow ? null : (segments.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null);
   const pickedItem = picking ? s.broll.find((b) => b.id === picking.id) ?? null : null;
 
@@ -1658,7 +1751,17 @@ export function Studio(props: StudioProps) {
                 )}
               </div>
               <div className="mt-1 flex h-8 items-center justify-center">
-                {(fxNow || brNow) && (
+                {composNow && (
+                  <button
+                    type="button"
+                    onClick={() => select({ kind: "compos", id: composNow.id }, { seek: false })}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-muted transition hover:border-white/25 hover:text-white"
+                  >
+                    En pantalla: <span className="font-semibold text-white">Animación «{composNow.item.name}»</span>
+                    {canEdit && <span className="text-accent-hi">Editar</span>}
+                  </button>
+                )}
+                {!composNow && (fxNow || brNow) && (
                   <button
                     type="button"
                     onClick={() => (fxNow ? select({ kind: "fx", id: fxNow.id }, { seek: false }) : brNow && select({ kind: "broll", id: brNow.id }, { seek: false }))}

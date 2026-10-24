@@ -27,6 +27,7 @@ import { CaptionPicker } from "../caption-picker";
 import { FxEditorBody } from "../fx/fx-panel";
 import { reasonLabel } from "../labels";
 import { RhythmPanel } from "../rhythm-panel";
+import { AskAnimation, ComposInspectorBody } from "../compos/compos-inspector";
 import type { StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
@@ -129,6 +130,16 @@ function SelectionInspector({ api, sel }: { api: StudioApi; sel: StudioSelection
       return <BrollInspector api={api} id={sel.id} onClose={close} />;
     case "fx":
       return <FxInspector api={api} id={sel.id} onClose={close} />;
+    case "compos": {
+      const item = api.state.compositions.find((c) => c.id === sel.id);
+      if (!item) return <Gone onClose={close} />;
+      return (
+        <>
+          <Header eyebrow="Animación" title={item.name} onClose={close} />
+          <ComposInspectorBody api={api} item={item} />
+        </>
+      );
+    }
     case "zoom":
       return <ZoomInspector api={api} index={sel.index} onClose={close} />;
     case "caption":
@@ -651,6 +662,7 @@ function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: numb
             Escuchar desde aquí
           </Button>
         </div>
+        {edit && <AskAnimation api={api} from={from} to={to} />}
       </div>
     </>
   );

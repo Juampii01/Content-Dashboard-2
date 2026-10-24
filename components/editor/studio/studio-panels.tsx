@@ -12,6 +12,8 @@ import { GRAPHIC_TEMPLATES, GRAPHIC_TEMPLATE_KEYS } from "@/lib/video/graphics";
 import { cn } from "@/lib/utils";
 import { DecisionsPanel } from "../director/decisions-panel";
 import { EditRequestCard } from "../director/edit-request";
+import { CopyEditCard } from "../compos/copy-edit-card";
+import type { CopyReport } from "@/lib/video/compos/flows";
 import { UnderstandingPanel } from "../director/understanding-panel";
 import { VariantsPanel } from "../director/variants-panel";
 import { FxLibraryGrid, SearchBox, TransitionTile } from "../fx/fx-library";
@@ -33,6 +35,10 @@ export function aiItems(api: StudioApi): AiItem[] {
   for (const e of state.effects) {
     if (e.source === "user") continue;
     out.push({ key: `f${e.id}`, sel: { kind: "fx", id: e.id }, label: FX_INFO[e.kind].label, text: api.textOf(e.from_word, e.to_word, 50), at: api.fxSegs.find((s) => s.id === e.id)?.start ?? null });
+  }
+  for (const c of state.compositions) {
+    if (c.source === "user") continue;
+    out.push({ key: `c${c.id}`, sel: { kind: "compos", id: c.id }, label: `Animación «${c.name}»`, text: api.textOf(c.from_word, c.to_word, 50), at: api.composSegs.find((s) => s.id === c.id)?.start ?? null });
   }
   if (!api.styleZooms)
     state.zoomMoments.forEach((z, i) => {
@@ -141,6 +147,15 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
           {plan.hook_candidates.length === 0 && <p className="text-xs text-muted">No encontramos frases de 3 a 8 segundos que funcionen solas como gancho.</p>}
         </div>
       </section>
+
+      <CopyEditCard
+        projectId={props.projectId}
+        canEdit={props.canEdit}
+        dirty={dirty}
+        spent={props.director?.cost.totalUsd ?? 0}
+        cap={props.director?.budgetUsd ?? 8}
+        report={((props.director?.state as { copy?: { report?: CopyReport | null } } | undefined)?.copy?.report) ?? null}
+      />
 
       {props.canEdit && (
         <EditRequestCard

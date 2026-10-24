@@ -5,6 +5,7 @@ import { planDensity, type Density, type RhythmAddition } from "@/lib/video/rhyt
 import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
 import { studioLevel, type StudioLevel } from "@/lib/video/studio-audio";
 import type { FxItem } from "@/lib/video/fx/schema";
+import type { Composition } from "@/lib/video/compos/schema";
 import type { TransitionItem } from "@/lib/video/fx/transitions";
 import type { MusicGenSpec } from "@/lib/video/music-gen/spec";
 import type { SoundCue } from "@/lib/video/sfx";
@@ -51,6 +52,8 @@ export type StudioState = {
   soundCues: SoundCue[];
   /** Música generada elegida (manda sobre la pista subida). */
   musicGen: MusicGenSpec | null;
+  /** Animaciones a medida (composiciones que escribe Claude). */
+  compositions: Composition[];
   /**
    * Pausas largas que se dejan completas (no se recortan): `keep` son las palabras que siguen a cada pausa; `all`,
    * "Sin recortes automáticos" (ninguna pausa se recorta).
@@ -89,6 +92,7 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     soundCues: plan.audio.cues ?? [],
     musicGen: plan.audio.music_gen ?? null,
     pauses: { keep: [...(plan.pacing?.keep ?? [])].sort((a, b) => a - b), all: plan.pacing?.keep_all === true },
+    compositions: plan.compositions ?? [],
   };
 }
 
@@ -149,6 +153,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     soundCues: s.soundCues,
     ...(ctx.plan.moves?.length ? { moves: s.moves } : {}),
     effects: s.effects,
+    compositions: s.compositions,
     captionPlace: s.captionPlace,
     captionHide: s.captionHide,
     pauses: s.pauses,

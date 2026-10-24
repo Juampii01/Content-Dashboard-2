@@ -3,6 +3,9 @@ import type { DirectorView } from "@/lib/dal/video";
 import type { FxContext } from "@/lib/dal/video-fx";
 import type { OutputBroll, OutputZoom } from "@/lib/video/effects";
 import type { FxSegment, FxBrand } from "@/lib/video/fx/compile";
+import type { ComposSegment } from "@/lib/video/compos/schema";
+import type { WorkView } from "@/lib/video/compos/work";
+import type { ComposRequest } from "../compos/use-compos-work";
 import type { TransitionItem, TransitionSegment } from "@/lib/video/fx/transitions";
 import type { SfxName } from "@/lib/video/sfx-library";
 import type { FxKind } from "@/lib/video/fx/catalog";
@@ -77,6 +80,10 @@ export type StudioApi = {
   timeline: Timeline;
   segments: OutputBroll[];
   fxSegs: FxSegment[];
+  /** Animaciones a medida (composiciones) en el video final. */
+  composSegs: ComposSegment[];
+  /** Pedido de animación en curso (Estudio) y cómo pedir una. */
+  compos: { work: WorkView | null; running: boolean; error: string | null; request: (req: ComposRequest) => Promise<boolean>; imageUrls: Record<string, string> };
   /** Transiciones que se dibujan (en su corte) y todos los cortes del video final. */
   trSegs: TransitionSegment[];
   cutList: { at: number; word: number; index: number }[];

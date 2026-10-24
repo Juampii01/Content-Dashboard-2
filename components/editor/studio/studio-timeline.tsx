@@ -1,17 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { AudioLines, Captions, Clapperboard, Film, Pause, Scissors, Sparkles, ZoomIn } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Film, Pause, Scissors, Sparkles, WandSparkles, ZoomIn } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 import { clampDrag, secondsLabel, timeLabel, type CutMark, type SnappedSpan } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
 
-export type TrackKey = "video" | "captions" | "broll" | "fx" | "zoom" | "audio";
+export type TrackKey = "video" | "captions" | "broll" | "fx" | "anim" | "zoom" | "audio";
 
 /** Lo que está elegido en el Estudio (se abre en el inspector). */
 export type StudioSelection =
   | { kind: "broll"; id: string }
   | { kind: "fx"; id: string }
+  /** Una animación a medida (composición). */
+  | { kind: "compos"; id: string }
   | { kind: "zoom"; index: number }
   | { kind: "caption"; index: number }
   | { kind: "clip"; index: number }
@@ -30,6 +32,7 @@ export function selectionKey(sel: StudioSelection | null): string | null {
   switch (sel.kind) {
     case "broll":
     case "fx":
+    case "compos":
       return `${sel.kind}:${sel.id}`;
     case "zoom":
     case "caption":
@@ -90,6 +93,7 @@ const TRACKS: { key: TrackKey; label: string; icon: ReactNode; h: number }[] = [
   { key: "captions", label: "Subtítulos", icon: <Captions className="h-3.5 w-3.5" aria-hidden />, h: 26 },
   { key: "broll", label: "Gráficos y b-roll", icon: <Clapperboard className="h-3.5 w-3.5" aria-hidden />, h: 32 },
   { key: "fx", label: "Efectos", icon: <Sparkles className="h-3.5 w-3.5" aria-hidden />, h: 32 },
+  { key: "anim", label: "Animaciones", icon: <WandSparkles className="h-3.5 w-3.5" aria-hidden />, h: 32 },
   { key: "zoom", label: "Zooms", icon: <ZoomIn className="h-3.5 w-3.5" aria-hidden />, h: 24 },
   { key: "audio", label: "Sonido", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, h: 42 },
 ];
@@ -349,7 +353,7 @@ export function StudioTimeline({
   }, [pps, d]);
 
   const byTrack = useMemo(() => {
-    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], zoom: [], audio: [] };
+    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], audio: [] };
     for (const b of blocks) map[b.track].push(b);
     return map;
   }, [blocks]);

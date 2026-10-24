@@ -84,7 +84,8 @@ export type Removal = {
 export type HookCandidate = { from_word: number; to_word: number; score: number; why: string };
 
 export type PlanMove = { from_word: number; to_word: number; after_word: number; why: string };
-export type ZoomMoment = { from_word: number; to_word: number; scale: number; why: string };
+/** `layer`: con zooms que se pisan, manda el de capa más alta (lib/video/effects.ts `directorZooms`). */
+export type ZoomMoment = { from_word: number; to_word: number; scale: number; why: string; layer?: number };
 
 export type PlanSegment = { id: string; from_word: number; to_word: number; role: "hook" | "body" | "cta" };
 
@@ -210,6 +211,8 @@ export type BrollItem = {
    * antes), pantalla completa recortada al centro con fundido, como siempre.
    */
   edit?: BrollEditInput;
+  /** Capa (orden de dibujo con lo que se superpone): más alta, más arriba. Sin el campo, 0. */
+  layer?: number;
 };
 
 /** Un tramo del video original que queda en el video final, en cuadros de 30 fps. */

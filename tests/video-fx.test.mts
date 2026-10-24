@@ -120,13 +120,13 @@ describe("efectos en el plan", () => {
     assert.equal(c.text!.length, FX_INFO.glass_type.text!.max);
   });
 
-  test("validación: superpuestos, fuera de rango y pisando un b-roll", () => {
+  test("validación: fuera de rango; superpuestos y sobre un b-roll valen (van en capas)", () => {
     assert.deepEqual(fxIssues([item({})], words.length), []);
-    assert.ok(fxIssues([item({}), item({ id: "e2", from_word: 20, to_word: 30 })], words.length).some((m) => m.includes("superpuestos")));
+    assert.deepEqual(fxIssues([item({}), item({ id: "e2", from_word: 20, to_word: 30 })], words.length), []);
     assert.ok(fxIssues([item({ to_word: 999 })], words.length).some((m) => m.includes("fuera de rango")));
-    assert.ok(fxIssues([item({})], words.length, [{ from_word: 12, to_word: 14 }]).some((m) => m.includes("b-roll")));
-    const clean = cleanFx([item({}), item({ id: "e2", from_word: 20, to_word: 30 }), { kind: "nada" }, item({ id: "e3", from_word: 30, to_word: 33 })], words.length, [{ from_word: 31, to_word: 32 }]);
-    assert.deepEqual(clean.map((e) => e.id), ["e1"]);
+    assert.deepEqual(fxIssues([item({})], words.length, [{ from_word: 12, to_word: 14 }]), []);
+    const clean = cleanFx([item({}), item({ id: "e2", from_word: 20, to_word: 30, layer: 2 }), { kind: "nada" }, item({ id: "e3", from_word: 30, to_word: 33 })], words.length, [{ from_word: 31, to_word: 32 }]);
+    assert.deepEqual(clean.map((e) => [e.id, e.layer]), [["e1", undefined], ["e2", 2], ["e3", undefined]]);
   });
 
   test("el esquema del plan acepta efectos válidos y rechaza los que pisan un b-roll", () => {

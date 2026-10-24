@@ -12,7 +12,8 @@ import { outputRange, type Timeline } from "./timeline";
 import { FPS, type BrollItem, type BrollOption, type ZoomMoment } from "./types";
 
 export type OutputZoom = { start: number; end: number; scale: number; ramp: number; kind: "punch" | "smooth" };
-export type OutputBroll = { id: string; start: number; end: number; option: BrollOption; edit: BrollEdit };
+/** `layer`: capa del b-roll (lib/video/layers.ts); con otros encima o debajo, se dibujan en ese orden. */
+export type OutputBroll = { id: string; start: number; end: number; option: BrollOption; edit: BrollEdit; layer?: number };
 
 type Range = { start: number; end: number };
 
@@ -86,26 +87,53 @@ export function computeZooms(timeline: Timeline, zoom: StylePreset["zoom"] | nul
  * ni en el primer medio segundo. Se usan cuando no hay un estilo con sus propios zooms.
  */
 export function directorZooms(timeline: Timeline, moments: ZoomMoment[] | undefined, avoid: Range[] = []): OutputZoom[] {
+  // 1. Cada zoom en su tramo (sin entrar en un b-roll ni en un efecto, que llevan su propia cámara).
+  type Cand = { start: number; end: number; scale: number; layer: number; order: number };
+  const cands: Cand[] = [];
+  [...(moments ?? [])]
+    .map((m, i) => ({ m, i }))
+    .sort((a, b) => a.m.from_word - b.m.from_word || a.i - b.i)
+    .forEach(({ m }, order) => {
+      const range = outputRange(timeline, m.from_word, m.to_word);
+      if (!range) return;
+      // El punch-in cae en la palabra (dos cuadros antes, para que el corte de encuadre se sienta en la sílaba).
+      const start = Math.max(0.5, range.start - 0.06);
+      let end = Math.min(timeline.duration, range.end + 0.3, start + 3.5);
+      const nextBroll = avoid.filter((r) => r.end > start).sort((a, b) => a.start - b.start)[0];
+      if (nextBroll && nextBroll.start <= start + 0.2) return;
+      if (nextBroll) end = Math.min(end, nextBroll.start - 0.05);
+      if (end - start < 0.6) return;
+      cands.push({ start, end, scale: Math.max(1.04, Math.min(1.32, m.scale)), layer: m.layer ?? 0, order });
+    });
+  // 2. Superpuestos: en cada instante manda el de capa más alta (con la misma capa, el que empezó después). Debajo, el
+  // otro sigue antes y después. Así nunca se multiplican (la cara no se va de cuadro).
+  const cuts = [...new Set(cands.flatMap((c) => [c.start, c.end]))].sort((a, b) => a - b);
+  type Piece = { start: number; end: number; src: Cand };
+  const pieces: Piece[] = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const a = cuts[k]!;
+    const b = cuts[k + 1]!;
+    const top = cands.filter((c) => c.start <= a + 1e-6 && c.end >= b - 1e-6).sort((x, y) => y.layer - x.layer || y.start - x.start || y.order - x.order)[0];
+    if (!top) continue;
+    const last = pieces[pieces.length - 1];
+    if (last && last.src === top && Math.abs(last.end - a) < 1e-6) last.end = b;
+    else pieces.push({ start: a, end: b, src: top });
+  }
+  // 3. Como antes: dos zooms seguidos con la misma escala vuelven al plano normal un momento (o se saltea el segundo);
+  // con distinta escala son un cambio de encuadre y pueden ir pegados.
   const out: OutputZoom[] = [];
-  for (const m of [...(moments ?? [])].sort((a, b) => a.from_word - b.from_word)) {
-    const range = outputRange(timeline, m.from_word, m.to_word);
-    if (!range) continue;
-    // El punch-in cae en la palabra (dos cuadros antes, para que el corte de encuadre se sienta en la sílaba).
-    let start = Math.max(0.5, range.start - 0.06);
-    let end = Math.min(timeline.duration, range.end + 0.3, start + 3.5);
-    const nextBroll = avoid.filter((r) => r.end > start).sort((a, b) => a.start - b.start)[0];
-    if (nextBroll && nextBroll.start <= start + 0.2) continue;
-    if (nextBroll) end = Math.min(end, nextBroll.start - 0.05);
-    const scale = Math.max(1.04, Math.min(1.32, m.scale));
+  for (const p of pieces) {
     const prev = out[out.length - 1];
-    // Dos zooms seguidos con distinta escala son un cambio de encuadre (1,15 → 1,3): pueden ir pegados. Con la misma
-    // escala, tiene que volver al plano normal un momento entre los dos.
-    if (prev && Math.abs(prev.scale - scale) > 0.02 && start < prev.end && start > prev.start + 0.6) prev.end = round3(start);
-    else if (prev && start < prev.end + (Math.abs(prev.scale - scale) > 0.02 ? 0 : 0.4)) continue;
-    if (end - start < 0.6) continue;
-    start = Math.max(start, prev?.end ?? 0);
-    const kind: OutputZoom["kind"] = scale >= 1.12 ? "punch" : "smooth";
-    out.push({ start: round3(start), end: round3(end), scale, ramp: kind === "smooth" ? 0.35 : 0, kind });
+    const sameScale = prev ? Math.abs(prev.scale - p.src.scale) <= 0.02 : false;
+    if (prev && sameScale && p.start < prev.end + 0.4) {
+      if (p.start <= prev.end + 1e-6) prev.end = round3(Math.max(prev.end, p.end));
+      continue;
+    }
+    if (p.end - p.start < 0.2) continue;
+    const kind: OutputZoom["kind"] = p.src.scale >= 1.12 ? "punch" : "smooth";
+    // La rampa suave solo al empezar el zoom (un pedazo que sigue a otro entra de golpe: es un cambio de encuadre).
+    const fresh = Math.abs(p.start - p.src.start) < 1e-6 && !(prev && Math.abs(prev.end - p.start) < 1e-6);
+    out.push({ start: round3(p.start), end: round3(p.end), scale: p.src.scale, ramp: kind === "smooth" && fresh ? 0.35 : 0, kind });
   }
   return out;
 }
@@ -127,10 +155,9 @@ export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBro
     const range = ranges[i];
     if (!range) continue;
     const edit = resolveEdit(item.edit);
-    let start = Math.max(0, range.start + edit.start_delta);
+    const start = Math.max(0, range.start + edit.start_delta);
     let end = Math.min(timeline.duration, range.end + edit.end_delta);
-    const prev = out[out.length - 1];
-    if (prev && start < prev.end) start = prev.end;
+    // Se pueden superponer (capas): cada uno queda en su tramo, sin recortar al anterior.
     let option = item.choice!;
     if (option.source === "graphic" && isV2Scene(option.graphic)) {
       // Un gráfico dura lo que dura lo que se dice: si su último elemento suena casi al final, se estira para que se
@@ -139,7 +166,8 @@ export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBro
       const lastAt = last >= 0 ? timeline.words.find((w) => w.id === last) : undefined;
       const next = ranges.slice(i + 1).find(Boolean);
       const hold = lastAt ? Math.max(lastAt.end + 0.9, lastAt.start + 1.4) : 0;
-      if (lastAt && hold > end) end = Math.min(timeline.duration, hold, next ? next.start - 0.05 : Infinity);
+      // Sin pisar el b-roll siguiente que empieza después (uno que ya se superpone no lo acorta).
+      if (lastAt && hold > end) end = Math.max(end, Math.min(timeline.duration, hold, next && next.start > end ? next.start - 0.05 : Infinity));
       option = { ...option, graphic: resolveSceneCues(option.graphic, timeline.words, start, end) };
     }
     // Lugar y animación del lienzo de la revisión: van con el gráfico (los dibuja el motor, igual en la vista previa y el render).
@@ -147,7 +175,7 @@ export function brollSegments(timeline: Timeline, items: BrollItem[]): OutputBro
     // Un b-roll de menos de 0,8 s parpadea: se estira un poco (sin pasarse del final).
     if (end - start < 0.8) end = Math.min(start + 1.2, timeline.duration);
     if (end - start < 0.5) continue;
-    out.push({ id: item.id, start: round3(start), end: round3(end), option, edit });
+    out.push({ id: item.id, start: round3(start), end: round3(end), option, edit, layer: item.layer ?? 0 });
   }
   return out;
 }

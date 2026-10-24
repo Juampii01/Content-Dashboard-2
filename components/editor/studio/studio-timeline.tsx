@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { AudioLines, Captions, Clapperboard, Film, Pause, Scissors, Sparkles, WandSparkles, ZoomIn } from "lucide-react";
 import { formatDuration } from "@/lib/format";
+import { laneLayout } from "@/lib/video/layers";
 import { clampDrag, secondsLabel, timeLabel, type CutMark, type SnappedSpan } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +75,8 @@ export type TimelineBlock = {
   empty?: boolean;
   /** Se mueve en segundos, sin imán a las palabras (una transición en cualquier punto). */
   free?: boolean;
+  /** Orden de dibujo (más alto = encima): con bloques superpuestos, define el carril (arriba = encima). */
+  z?: number;
   selection: StudioSelection;
   thumb?: string | null;
 };
@@ -88,25 +91,44 @@ export type LibraryDrop =
   | { type: "sound"; name: string };
 export const LIBRARY_MIME = "application/x-content2-studio";
 
-const TRACKS: { key: TrackKey; label: string; icon: ReactNode; h: number }[] = [
-  { key: "video", label: "Video", icon: <Film className="h-3.5 w-3.5" aria-hidden />, h: 40 },
-  { key: "captions", label: "Subtítulos", icon: <Captions className="h-3.5 w-3.5" aria-hidden />, h: 26 },
-  { key: "broll", label: "Gráficos y b-roll", icon: <Clapperboard className="h-3.5 w-3.5" aria-hidden />, h: 32 },
-  { key: "fx", label: "Efectos", icon: <Sparkles className="h-3.5 w-3.5" aria-hidden />, h: 32 },
-  { key: "anim", label: "Animaciones", icon: <WandSparkles className="h-3.5 w-3.5" aria-hidden />, h: 32 },
-  { key: "zoom", label: "Zooms", icon: <ZoomIn className="h-3.5 w-3.5" aria-hidden />, h: 24 },
-  { key: "audio", label: "Sonido", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, h: 42 },
+/** Lo que se está arrastrando desde la Biblioteca (para dibujar su sombra mientras se arrastra: el navegador no deja leer los datos antes de soltar). */
+let libraryDragging: LibraryDrop | null = null;
+
+/** Empieza a arrastrar algo de la Biblioteca hacia la línea de tiempo. */
+export function startLibraryDrag(e: DragEvent<Element> | { dataTransfer: DataTransfer }, item: LibraryDrop) {
+  e.dataTransfer.setData(LIBRARY_MIME, JSON.stringify(item));
+  e.dataTransfer.effectAllowed = "copy";
+  libraryDragging = item;
+}
+
+/** Sombra de lo que se va a soltar: en qué pista, de dónde a dónde (ya ajustado a palabras) y su nombre. */
+export type DropPreview = { track: TrackKey; start: number; end: number; label: string };
+
+/**
+ * Pistas. `lane`: alto de cada carril (con bloques superpuestos la pista crece: un carril por capa, arriba lo que se
+ * dibuja encima); `extra`: lo fijo de abajo (la música y los puntos de los sonidos automáticos).
+ */
+const TRACKS: { key: TrackKey; label: string; icon: ReactNode; lane: number; extra: number; lanes: boolean }[] = [
+  { key: "video", label: "Video", icon: <Film className="h-3.5 w-3.5" aria-hidden />, lane: 40, extra: 0, lanes: false },
+  { key: "captions", label: "Subtítulos", icon: <Captions className="h-3.5 w-3.5" aria-hidden />, lane: 26, extra: 0, lanes: false },
+  { key: "broll", label: "Gráficos y b-roll", icon: <Clapperboard className="h-3.5 w-3.5" aria-hidden />, lane: 32, extra: 0, lanes: true },
+  { key: "fx", label: "Efectos", icon: <Sparkles className="h-3.5 w-3.5" aria-hidden />, lane: 32, extra: 0, lanes: true },
+  { key: "anim", label: "Animaciones", icon: <WandSparkles className="h-3.5 w-3.5" aria-hidden />, lane: 32, extra: 0, lanes: true },
+  { key: "zoom", label: "Zooms", icon: <ZoomIn className="h-3.5 w-3.5" aria-hidden />, lane: 24, extra: 0, lanes: true },
+  { key: "audio", label: "Sonido", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, lane: 28, extra: 14, lanes: true },
 ];
 
 type Drag = {
   block: TimelineBlock;
   mode: "move" | "start" | "end";
   x0: number;
+  y0: number;
   moved: boolean;
   pointer: number;
 };
 
-type Ghost = { key: string; start: number; end: number; span: SnappedSpan | null; note: string | null };
+/** `lane`: carril donde va a caer (0 = arriba); `order`: lugar entre los que se le superponen (0 = encima de todos). */
+type Ghost = { key: string; start: number; end: number; span: SnappedSpan | null; note: string | null; lane: number; order: number };
 
 /**
  * Línea de tiempo del Estudio, en segundos del video final: cabezal que se arrastra, pistas con bloques que se eligen,
@@ -139,6 +161,7 @@ export function StudioTimeline({
   onDrop,
   toolbar,
   transitionSlots = [],
+  dropPreview,
 }: {
   duration: number;
   time: number;
@@ -158,7 +181,7 @@ export function StudioTimeline({
   /** Tramo elegido en la pista de video (en segundos), si hay. */
   range: { start: number; end: number } | null;
   /**
-   * Lo que hay en otras pistas y se reemplaza si se suelta algo encima (un tramo lleva b-roll o efecto): no bloquea,
+   * Lo que hay en otras pistas en el mismo tramo (convive en capas): no bloquea ni se quita,
    * solo se avisa en la etiqueta del arrastre.
    */
   obstacles: Partial<Record<TrackKey, { start: number; end: number; label: string }[]>>;
@@ -169,12 +192,15 @@ export function StudioTimeline({
   notes?: Partial<Record<TrackKey, string>>;
   onSeek: (t: number) => void;
   onSelect: (sel: StudioSelection | null, block?: TimelineBlock) => void;
-  onCommit: (block: TimelineBlock, span: SnappedSpan, mode: "move" | "start" | "end") => void;
+  /** `order`: dónde quedó entre los bloques de su pista que se le superponen (0 = encima de todos). */
+  onCommit: (block: TimelineBlock, span: SnappedSpan, mode: "move" | "start" | "end", order: number) => void;
   onRange: (span: SnappedSpan) => void;
   onDrop: (item: LibraryDrop, t: number) => void;
   toolbar: ReactNode;
   /** Cortes sin transición donde se puede poner una (un rombo chico en la pista de efectos). */
   transitionSlots?: { at: number; word: number }[];
+  /** La sombra de lo que se arrastra desde la Biblioteca en el segundo `t` (con su largo real), o null. */
+  dropPreview?: (item: LibraryDrop, t: number) => DropPreview | null;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
@@ -185,6 +211,17 @@ export function StudioTimeline({
   const [rangeGhost, setRangeGhost] = useState<{ start: number; end: number } | null>(null);
   const drag = useRef<Drag | null>(null);
   const selKey = selectionKey(selection);
+  const byTrack = useMemo(() => {
+    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], audio: [] };
+    for (const b of blocks) map[b.track].push(b);
+    return map;
+  }, [blocks]);
+  // Carriles: con bloques superpuestos, uno por capa (arriba = lo que se dibuja encima).
+  const layout = useMemo(() => {
+    const out = {} as Record<TrackKey, { lanes: Map<string, number>; count: number }>;
+    for (const t of TRACKS) out[t.key] = t.lanes ? laneLayout(byTrack[t.key].map((b) => ({ key: b.key, start: b.start, end: b.end, z: b.z ?? 0 }))) : { lanes: new Map(), count: 1 };
+    return out;
+  }, [byTrack]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -260,36 +297,47 @@ export function StudioTimeline({
   function onBlockDown(e: ReactPointerEvent<HTMLElement>, block: TimelineBlock, mode: Drag["mode"]) {
     if (e.button !== 0) return;
     e.stopPropagation();
-    drag.current = { block, mode, x0: e.clientX, moved: false, pointer: e.pointerId };
+    drag.current = { block, mode, x0: e.clientX, y0: e.clientY, moved: false, pointer: e.pointerId };
     e.currentTarget.setPointerCapture(e.pointerId);
   }
   function onBlockMove(e: ReactPointerEvent<HTMLElement>) {
     const dr = drag.current;
     if (!dr || dr.pointer !== e.pointerId) return;
     const dx = e.clientX - dr.x0;
-    if (!dr.moved && Math.abs(dx) < 4) return;
+    // Hacia un lado o hacia arriba/abajo (cambiar de carril) cuenta como arrastre.
+    if (!dr.moved && Math.abs(dx) < 4 && Math.abs(e.clientY - dr.y0) < 6) return;
     dr.moved = true;
     if (!canEdit || !dr.block.editable) return;
-    // Se suelta en cualquier lado: lo que queda debajo se reemplaza (el Estudio lo recorta o lo quita, con Deshacer).
+    // Se suelta en cualquier lado y convive con lo que haya (en capas). Arrastrar hacia arriba o abajo cambia el carril.
+    const track = TRACKS.find((t) => t.key === dr.block.track)!;
     const own = blocks.filter((b) => b.track === dr.block.track && b.key !== dr.block.key);
     const cross = obstacles[dr.block.track] ?? [];
     const raw = clampDrag({ mode: dr.mode, start: dr.block.start, end: dr.block.end, delta: dx / pps, duration: d, obstacles: [], min: dr.block.min, max: dr.block.max });
     const span = dr.block.free ? { from: 0, to: 0, start: raw.start, end: raw.end } : snap(raw.start, raw.end, dr.block);
-    const under = span ? [...own.filter((o) => o.track !== "audio"), ...cross].filter((o) => span.start < o.end - 0.02 && o.start < span.end - 0.02) : [];
-    const names = [...new Set(under.map((o) => o.label))];
-    setGhost({
-      key: dr.block.key,
-      start: span?.start ?? raw.start,
-      end: span?.end ?? raw.end,
-      span,
-      note: !span ? "No se puede poner ahí." : names.length ? `Reemplaza ${names.length > 2 ? `«${names[0]}» y ${names.length - 1} más` : names.map((n) => `«${n}»`).join(" y ")}` : null,
-    });
+    const lanes = layout[dr.block.track];
+    const myLane = lanes.lanes.get(dr.block.key) ?? 0;
+    const lane = track.lanes && dr.block.track !== "audio" ? Math.max(0, Math.min(lanes.count, myLane + Math.round((e.clientY - dr.y0) / track.lane))) : myLane;
+    const at = span ?? raw;
+    const over = own.filter((o) => o.track !== "audio" && at.start < o.end - 0.02 && o.start < at.end - 0.02).sort((a, b) => (b.z ?? 0) - (a.z ?? 0));
+    // Lugar entre los que se superponen: los que están en un carril de arriba del de destino quedan encima.
+    const order = over.filter((o) => (lanes.lanes.get(o.key) ?? 0) < lane).length;
+    const crossOver = cross.filter((o) => at.start < o.end - 0.02 && o.start < at.end - 0.02).map((o) => o.label);
+    const note = !span
+      ? "No se puede poner ahí."
+      : over.length
+        ? order === 0
+          ? `Encima de «${over[0]!.label}»`
+          : `Debajo de «${over[order - 1]!.label}»`
+        : crossOver.length
+          ? `Junto con «${crossOver[0]}»`
+          : null;
+    setGhost({ key: dr.block.key, start: at.start, end: at.end, span, note, lane: over.length ? order : lane, order });
   }
   function onBlockUp(e: ReactPointerEvent<HTMLElement>) {
     const dr = drag.current;
     if (!dr || dr.pointer !== e.pointerId) return;
     drag.current = null;
-    if (dr.moved && ghost?.key === dr.block.key && ghost.span) onCommit(dr.block, ghost.span, dr.mode);
+    if (dr.moved && ghost?.key === dr.block.key && ghost.span) onCommit(dr.block, ghost.span, dr.mode, ghost.order);
     else if (!dr.moved) onSelect(dr.block.selection, dr.block);
     setGhost(null);
   }
@@ -327,13 +375,50 @@ export function StudioTimeline({
     if (clip) onSelect(clip.selection, clip);
   }
 
-  // ─── Biblioteca: soltar un efecto o un gráfico ───
+  // ─── Biblioteca: soltar un efecto o un gráfico (con su sombra del largo real mientras se arrastra) ───
+  const [dropGhost, setDropGhost] = useState<DropPreview | null>(null);
+  useEffect(() => {
+    // Lo que se arrastra desde cualquier lugar de la Biblioteca (en dragstart sí se pueden leer los datos).
+    const start = (e: globalThis.DragEvent) => {
+      const raw = e.dataTransfer?.getData(LIBRARY_MIME);
+      if (!raw) return;
+      try {
+        libraryDragging = JSON.parse(raw) as LibraryDrop;
+      } catch {
+        libraryDragging = null;
+      }
+    };
+    const end = () => {
+      libraryDragging = null;
+      setDropGhost(null);
+    };
+    document.addEventListener("dragstart", start);
+    document.addEventListener("dragend", end);
+    return () => {
+      document.removeEventListener("dragstart", start);
+      document.removeEventListener("dragend", end);
+    };
+  }, []);
+  const ghostRaf = useRef(0);
   function onDragOver(e: DragEvent<HTMLDivElement>) {
     if (!canEdit || !e.dataTransfer.types.includes(LIBRARY_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
+    const item = libraryDragging;
+    if (!item || !dropPreview) return;
+    const t = timeAt(e.clientX);
+    cancelAnimationFrame(ghostRaf.current);
+    ghostRaf.current = requestAnimationFrame(() => setDropGhost(dropPreview(item, t)));
+  }
+  function onDragLeave(e: DragEvent<HTMLDivElement>) {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    cancelAnimationFrame(ghostRaf.current);
+    setDropGhost(null);
   }
   function onDropItem(e: DragEvent<HTMLDivElement>) {
+    cancelAnimationFrame(ghostRaf.current);
+    setDropGhost(null);
+    libraryDragging = null;
     const raw = e.dataTransfer.getData(LIBRARY_MIME);
     if (!raw) return;
     e.preventDefault();
@@ -352,11 +437,6 @@ export function StudioTimeline({
     return { step, list: out };
   }, [pps, d]);
 
-  const byTrack = useMemo(() => {
-    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], audio: [] };
-    for (const b of blocks) map[b.track].push(b);
-    return map;
-  }, [blocks]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -370,6 +450,7 @@ export function StudioTimeline({
           onZoom(Math.max(1, Math.min(40, zoom * (e.deltaY < 0 ? 1.25 : 0.8))));
         }}
         onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
         onDrop={onDropItem}
         data-testid="studio-timeline"
       >
@@ -404,8 +485,11 @@ export function StudioTimeline({
             </div>
           </div>
 
-          {TRACKS.map((track) => (
-            <div key={track.key} className="flex border-b border-white/[0.06]" style={{ height: track.h }}>
+          {TRACKS.map((track) => {
+            const lanes = layout[track.key].count + (ghost && track.lanes && blocks.find((b) => b.key === ghost.key)?.track === track.key && ghost.lane >= layout[track.key].count ? 1 : 0);
+            const h = lanes * track.lane + track.extra;
+            return (
+            <div key={track.key} className="flex border-b border-white/[0.06]" style={{ height: h }} data-lanes={layout[track.key].count}>
               <div className="sticky left-0 z-20 flex flex-none items-center gap-1.5 border-r border-white/10 bg-[#040d2c] px-2.5 text-[11px] font-semibold text-muted" style={{ width: LABEL_W }} title={notes?.[track.key]}>
                 <span className="text-accent-hi">{track.icon}</span>
                 <span className="truncate">{track.label}</span>
@@ -444,10 +528,13 @@ export function StudioTimeline({
                     </button>
                   ))}
 
+                {lanes > 1 &&
+                  Array.from({ length: lanes - 1 }, (_, k) => <div key={`lane${k}`} aria-hidden className="pointer-events-none absolute inset-x-0 border-t border-dashed border-white/[0.06]" style={{ top: (k + 1) * track.lane }} />)}
                 {byTrack[track.key].map((b) => {
                   const g = ghost?.key === b.key ? ghost : null;
                   const s = g ? g.start : b.start;
                   const e = g ? g.end : b.end;
+                  const lane = g && track.lanes && track.key !== "audio" ? g.lane : (layout[track.key].lanes.get(b.key) ?? 0);
                   const w = Math.max(3, x(e - s));
                   const selected = selKey === selectionKey(b.selection);
                   const handles = canEdit && b.editable && w >= 18;
@@ -461,8 +548,7 @@ export function StudioTimeline({
                       aria-label={`${b.label}${b.detail ? `: ${b.detail}` : ""}, de ${timeLabel(b.start)} a ${timeLabel(b.end)}${b.ai ? ". Lo puso la IA" : ""}`}
                       title={`${b.label}${b.detail ? ` · ${b.detail}` : ""}`}
                       className={cn(
-                        "group absolute top-[3px] flex touch-none items-center overflow-hidden rounded-md border text-left text-[11px] leading-tight font-semibold text-white outline-none select-none focus-visible:ring-2 focus-visible:ring-accent-hi",
-                        b.track === "audio" ? "bottom-[17px]" : "bottom-[3px]",
+                        "group absolute flex touch-none items-center overflow-hidden rounded-md border text-left text-[11px] leading-tight font-semibold text-white outline-none select-none focus-visible:ring-2 focus-visible:ring-accent-hi",
                         b.tone,
                         b.empty && "border-dashed bg-transparent text-warning",
                         b.track !== "video" && b.track !== "captions" && canEdit && b.editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
@@ -470,7 +556,8 @@ export function StudioTimeline({
                         g && "z-20 opacity-90 shadow-[0_6px_18px_rgba(0,0,0,.45)]",
                         g && !g.span && "ring-2 ring-danger",
                       )}
-                      style={{ left: x(s), width: w }}
+                      style={{ left: x(s), width: w, top: lane * track.lane + 3, height: track.lane - 6 }}
+                      data-lane={lane}
                       onPointerDown={(ev) => {
                         if (b.track === "video") return; // la pista de video elige tramos
                         onBlockDown(ev, b, "move");
@@ -617,13 +704,35 @@ export function StudioTimeline({
                     <span key={`s${i}`} aria-hidden className="pointer-events-none absolute top-[12px] z-10 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-warning/80" style={{ left: x(c.at) }} />
                   ))}
                 {notes?.[track.key] && byTrack[track.key].length === 0 && !(track.key === "audio" && (music || sfx.length)) && (
-                  <span className="pointer-events-none sticky inline-block px-2 text-[10px] text-placeholder" style={{ lineHeight: `${track.h}px`, left: LABEL_W + 8 }}>
+                  <span className="pointer-events-none sticky inline-block px-2 text-[10px] text-placeholder" style={{ lineHeight: `${track.lane}px`, left: LABEL_W + 8 }}>
                     {notes[track.key]}
+                  </span>
+                )}
+                {dropGhost && dropGhost.track === track.key && (
+                  // Sombra de lo que se va a soltar: su largo real (ajustado a palabras), arriba (va encima de lo que haya).
+                  <div
+                    aria-hidden
+                    data-testid="drop-ghost"
+                    title={`${dropGhost.label} · ${secondsLabel(dropGhost.end - dropGhost.start)}`}
+                    className="pointer-events-none absolute z-30 rounded-md border border-dashed border-accent-glow/80 bg-accent-hi/25 shadow-[0_0_14px_rgba(77,163,255,.45)] backdrop-blur-[2px]"
+                    style={{ left: x(dropGhost.start), width: Math.max(3, x(dropGhost.end - dropGhost.start)), top: 3, height: track.lane - 6 }}
+                  >
+                  </div>
+                )}
+                {dropGhost && dropGhost.track === track.key && (
+                  // Su nombre y cuánto dura, siempre a la vista (aunque el bloque sea angosto).
+                  <span
+                    data-testid="drop-ghost-label"
+                    className="pointer-events-none absolute z-40 rounded-md border border-accent-hi/60 bg-[#081a4a] px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap text-white shadow-lg"
+                    style={{ left: x(dropGhost.start), top: -18 }}
+                  >
+                    {dropGhost.label} · {secondsLabel(dropGhost.end - dropGhost.start)}
                   </span>
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {/* Cabezal */}
           <div ref={playhead} aria-hidden className="pointer-events-none absolute top-0 bottom-0 left-0 z-40 w-0" style={{ transform: `translateX(${LABEL_W + time * pps}px)` }}>

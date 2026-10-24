@@ -600,13 +600,32 @@ function familiesToAvoid(ctx: WorkCtx, task: ComposTask): string | null {
 
 const overlapsW = (a: { from_word: number; to_word: number }, b: { from_word: number; to_word: number }) => a.from_word <= b.to_word && b.from_word <= a.to_word;
 
-/** Pone las animaciones hechas en el plan (reemplazan a las que se pisan con ellas) y cierra el taller. */
+type Spanned = { from_word: number; to_word: number; layer?: number };
+
+/**
+ * Capa para una animación nueva: encima de todo lo que se le pisa (b-roll, efectos y otras animaciones). Nada se
+ * reemplaza: lo de abajo sigue ahí y se ve cuando la animación termina o si deja partes sin pintar.
+ */
+export function layerOnTop(plan: Pick<EditPlan, "broll" | "effects" | "compositions">, x: { from_word: number; to_word: number }, also: Spanned[] = []): number {
+  const under: Spanned[] = [...plan.broll.filter((b) => b.choice), ...(plan.effects ?? []), ...(plan.compositions ?? []), ...also];
+  const hit = under.filter((u) => overlapsW(u, x));
+  return hit.length ? Math.min(999, Math.max(...hit.map((u) => u.layer ?? 0)) + 1) : 0;
+}
+
+/** Pone las animaciones hechas en el plan encima de lo que se pisa con ellas (en capas, sin quitar nada) y cierra el taller. */
 async function finishWork(ctx: WorkCtx, work: ComposWork): Promise<void> {
   const made = work.tasks.filter((t) => t.status === "done" && t.result).map((t) => t.result!);
   let plan = ctx.plan;
   if (made.length) {
-    const keep = (plan.compositions ?? []).filter((c) => !made.some((m) => m.id === c.id || overlapsW(m, c)));
-    const next: EditPlan = { ...plan, compositions: [...keep, ...made].sort((a, b) => a.from_word - b.from_word).slice(0, 24) };
+    // Una tarea que rehace una animación existente (mismo id) la cambia en su lugar y conserva su capa.
+    const keep = (plan.compositions ?? []).filter((c) => !made.some((m) => m.id === c.id));
+    const base = { ...plan, compositions: keep };
+    const placed: Composition[] = [];
+    for (const m of [...made].sort((a, b) => a.from_word - b.from_word)) {
+      const old = (plan.compositions ?? []).find((c) => c.id === m.id);
+      placed.push({ ...m, layer: m.layer ?? old?.layer ?? layerOnTop(base, m, placed) });
+    }
+    const next: EditPlan = { ...plan, compositions: [...keep, ...placed].sort((a, b) => a.from_word - b.from_word).slice(0, 24) };
     if (planSchemaFor(ctx.words.length).safeParse(next).success) plan = next;
     else console.error("[compos] el plan con las animaciones no pasó la validación");
   }

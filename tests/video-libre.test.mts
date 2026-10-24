@@ -1,17 +1,20 @@
 /**
- * El Estudio sin bloqueos: reemplazar lo que hay debajo (gana lo nuevo) y transiciones en cualquier punto (ancladas a
- * una palabra + desfase), iguales en la vista previa y en el render (applyReview limpia lo mismo que se ve).
+ * El Estudio sin bloqueos: lo que se superpone va en capas (lo nuevo encima, nada se recorta ni se quita) y
+ * transiciones en cualquier punto (ancladas a una palabra + desfase), iguales en la vista previa y en el render.
  *   node --import tsx --test tests/video-libre.test.mts
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { initialStudioState, studioTimelineInput, toReview } from "../components/editor/studio/use-studio-state";
 import { applyReview } from "../lib/video/review";
-import { carveSpan, replacedLabel } from "../lib/video/studio";
+import { replacedLabel } from "../lib/video/studio";
+import { laneLayout, restack, stackSort } from "../lib/video/layers";
+import { brollSegments, directorZooms } from "../lib/video/effects";
+import { fxSegments } from "../lib/video/fx/compile";
 import { buildTimeline } from "../lib/video/timeline";
 import { cleanTransitions, compileTransition, cutPoints, freeAnchor, transitionCenter, transitionSegments, type TransitionItem } from "../lib/video/fx/transitions";
 import { transitionsFromWire } from "../lib/video/fx/director";
-import { syncPlan, syncWords, SYNC_DURATION } from "./video-sync-case";
+import { syncPlan, syncRenderInput, syncWords, SYNC_DURATION } from "./video-sync-case";
 import type { Word } from "../lib/video/types";
 
 function speak(text: string): Word[] {
@@ -31,29 +34,91 @@ const plan = (removed: number[] = []) => ({
   captions: { preset: "clasico" as const, emphasis_words: [] },
 });
 
-describe("lo nuevo reemplaza lo que hay debajo", () => {
-  const items = [
-    { id: "a", from_word: 0, to_word: 3 },
-    { id: "b", from_word: 5, to_word: 12 },
-    { id: "c", from_word: 14, to_word: 15 },
-  ];
-  test("lo de adentro se quita, lo que pisa se recorta y lo que cruza se parte en dos", () => {
-    const r = carveSpan(items, { from: 2, to: 8 }, { reshape: (it, from, to, side) => ({ ...it, id: side === "right" ? `${it.id}2` : it.id, from_word: from, to_word: to }) });
-    assert.deepEqual(r.items, [
-      { id: "a", from_word: 0, to_word: 1 },
-      { id: "b2", from_word: 9, to_word: 12 },
-      { id: "c", from_word: 14, to_word: 15 },
+describe("capas: lo nuevo convive con lo que había y se dibuja encima", () => {
+  test("orden de dibujo: por capa; con la misma capa, b-roll < efecto < transición y después por inicio", () => {
+    const order = stackSort([
+      { key: "f:a", kind: "fx", layer: 1, start: 2 },
+      { key: "b:g", kind: "broll", layer: 2, start: 1 },
+      { key: "t:x", kind: "transition", start: 0 },
+      { key: "b:h", kind: "broll", start: 3 },
     ]);
-    assert.deepEqual(r.replaced.map((x) => x.id), ["a", "b"]);
-    const inside = carveSpan(items, { from: 6, to: 9 }, { reshape: (it, from, to, side) => ({ ...it, id: `${it.id}-${side}`, from_word: from, to_word: to }) });
-    assert.deepEqual(inside.items.map((x) => [x.id, x.from_word, x.to_word]), [["a", 0, 3], ["b-left", 5, 5], ["b-right", 10, 12], ["c", 14, 15]]);
+    assert.deepEqual(order.map((x) => x.key), ["b:h", "t:x", "f:a", "b:g"]);
   });
-  test("los pedazos que no valen (muy cortos) se quitan y lo que se mueve no se toca", () => {
-    const r = carveSpan(items, { from: 1, to: 14 }, { skip: (x) => x.id === "c", valid: (x) => x.to_word - x.from_word >= 1 });
-    assert.deepEqual(r.items.map((x) => x.id), ["c"]);
-    assert.deepEqual(r.replaced.map((x) => x.id), ["a", "b"]);
+  test("carriles: arriba lo que se dibuja encima; lo que no se superpone queda en el de arriba", () => {
+    const { lanes, count } = laneLayout([
+      { key: "a", start: 0, end: 4, z: 0 },
+      { key: "b", start: 1, end: 2, z: 2 },
+      { key: "c", start: 1.5, end: 3, z: 1 },
+      { key: "d", start: 5, end: 6, z: 0 },
+    ]);
+    assert.equal(count, 3);
+    assert.deepEqual([lanes.get("b"), lanes.get("c"), lanes.get("a"), lanes.get("d")], [0, 1, 2, 0]);
   });
-  test("el aviso nombra lo reemplazado", () => {
+  test("cambiar de carril cambia el orden de capas (enteros desde 0)", () => {
+    const items = [
+      { key: "b:g", kind: "broll" as const, start: 0 },
+      { key: "f:a", kind: "fx" as const, layer: 1, start: 1 },
+      { key: "f:b", kind: "fx" as const, layer: 2, start: 1.5 },
+    ];
+    const down = restack(items, "f:b", null);
+    assert.deepEqual([down.get("f:b"), down.get("b:g"), down.get("f:a")], [0, 1, 2]);
+    const mid = restack(items, "b:g", "f:a");
+    assert.deepEqual([mid.get("f:a"), mid.get("b:g"), mid.get("f:b")], [0, 1, 2]);
+  });
+  const tl = buildTimeline(words, plan(), 7);
+  test("efectos y b-roll superpuestos no se recortan entre sí y llevan su capa", () => {
+    const fx = fxSegments(tl, [
+      { id: "e1", kind: "glitch", from_word: 0, to_word: 6 },
+      { id: "e2", kind: "glitch", from_word: 3, to_word: 6, layer: 3 },
+    ]);
+    assert.equal(fx.length, 2);
+    assert.ok(fx[1]!.start < fx[0]!.end, "el segundo empieza encima del primero");
+    assert.equal(fx[1]!.layer, 3);
+  });
+  test("zooms superpuestos: manda el de capa más alta y el de abajo sigue antes y después", () => {
+    const zs = directorZooms(tl, [
+      { from_word: 2, to_word: 9, scale: 1.1, why: "abajo" },
+      { from_word: 4, to_word: 5, scale: 1.3, why: "arriba", layer: 1 },
+    ]);
+    const t = tl.words.find((w) => w.id === 4)!.start + 0.1;
+    const now = zs.find((z) => t >= z.start && t < z.end);
+    assert.equal(now?.scale, 1.3);
+    assert.ok(zs.some((z) => z.scale === 1.1 && z.end <= now!.start + 1e-6), "el de abajo antes");
+    assert.ok(zs.some((z) => z.scale === 1.1 && z.start >= now!.end - 1e-6), "y después");
+    for (let i = 1; i < zs.length; i++) assert.ok(zs[i]!.start >= zs[i - 1]!.end - 1e-6, "sin superponerse en la salida");
+    // Con el de abajo en una capa más alta, manda ese durante todo su tramo.
+    const flip = directorZooms(tl, [
+      { from_word: 2, to_word: 9, scale: 1.1, why: "abajo", layer: 2 },
+      { from_word: 4, to_word: 5, scale: 1.3, why: "arriba", layer: 1 },
+    ]);
+    assert.ok(!flip.some((z) => z.scale === 1.3));
+  });
+  test("la revisión guarda las capas y el render las manda en el mismo orden que la vista previa", () => {
+    const ws = syncWords();
+    const base = syncPlan();
+    const s0 = initialStudioState(base, ws.length);
+    const [b0] = s0.broll.filter((b) => b.choice);
+    assert.ok(b0);
+    // Un efecto encima del b-roll y otro debajo, todo superpuesto.
+    const s = {
+      ...s0,
+      effects: [
+        ...s0.effects,
+        { id: "encima", kind: "glitch" as const, from_word: b0.from_word, to_word: b0.to_word, layer: 5, source: "user" as const },
+        { id: "debajo", kind: "glitch" as const, from_word: b0.from_word, to_word: b0.to_word, source: "user" as const },
+      ],
+      broll: s0.broll.map((b) => (b.id === b0.id ? { ...b, layer: 2 } : b)),
+    };
+    const next = applyReview(base, toReview(s, { plan: base, hasStyle: false, trackIds: [] }), ws, SYNC_DURATION, "9:16");
+    assert.equal(next.effects?.find((e) => e.id === "encima")?.layer, 5);
+    assert.equal(next.broll.find((b) => b.id === b0.id)?.layer, 2);
+    assert.equal(initialStudioState(next, ws.length).effects.find((e) => e.id === "encima")?.layer, 5);
+    const { input } = syncRenderInput(ws, next);
+    const zB = (input.broll as { start: number; z: number }[]).find((b) => Math.abs(b.start - brollSegments(buildTimeline(ws, next, SYNC_DURATION), next.broll).find((x) => x.id === b0.id)!.start) < 1e-6)!.z;
+    const zFx = (id: string) => (input.effects as { spec: { id: string }; z: number }[]).find((e) => e.spec.id === id)!.z;
+    assert.ok(zFx("debajo") < zB && zB < zFx("encima"), `debajo ${zFx("debajo")} < b-roll ${zB} < encima ${zFx("encima")}`);
+  });
+  test("el aviso nombra lo que quedó debajo", () => {
     assert.equal(replacedLabel(["Barrido"]), "«Barrido»");
     assert.equal(replacedLabel(["Barrido", "B-roll", "B-roll"]), "«Barrido» y «B-roll»");
     assert.equal(replacedLabel(["A", "B", "C", "D"]), "«A», «B» y 2 más");

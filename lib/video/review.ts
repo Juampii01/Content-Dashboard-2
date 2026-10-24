@@ -175,7 +175,7 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
   if (review.rhythm) {
     // Densidad elegida en la revisión: los punch-ins, la pausa máxima y los resaltados que ya se veían en la vista previa.
     const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < words.length;
-    const zooms = review.rhythm.zoomMoments.filter((z) => valid(z.from_word) && valid(z.to_word) && z.from_word <= z.to_word).slice(0, 60).map((z) => ({ from_word: z.from_word, to_word: z.to_word, scale: Math.max(1, Math.min(1.4, z.scale)), why: String(z.why ?? "").slice(0, 300) }));
+    const zooms = review.rhythm.zoomMoments.filter((z) => valid(z.from_word) && valid(z.to_word) && z.from_word <= z.to_word).slice(0, 60).map((z) => ({ from_word: z.from_word, to_word: z.to_word, scale: Math.max(1, Math.min(1.4, z.scale)), why: String(z.why ?? "").slice(0, 300), ...(z.layer != null && Number.isInteger(z.layer) && z.layer >= 0 ? { layer: Math.min(999, z.layer) } : {}) }));
     if (zooms.length) next.zoom_moments = zooms;
     else delete next.zoom_moments;
     next.pacing = { ...next.pacing, long_pause: Math.max(0.2, Math.min(1.2, review.rhythm.longPause)) };
@@ -199,7 +199,7 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
   return withDerived(next, words, duration);
 }
 
-/** B-roll que manda el navegador: forma válida, ids dentro de la transcripción, sin superponerse. */
+/** B-roll que manda el navegador: forma válida, ids dentro de la transcripción (se pueden superponer: van en capas). */
 function cleanBroll(items: BrollItem[], wordCount: number): BrollItem[] {
   const out: BrollItem[] = [];
   for (const raw of [...items].sort((a, b) => a.from_word - b.from_word).slice(0, 20)) {
@@ -207,7 +207,6 @@ function cleanBroll(items: BrollItem[], wordCount: number): BrollItem[] {
     if (!parsed.success) continue;
     const b = parsed.data as BrollItem;
     if (b.from_word > b.to_word || b.to_word >= wordCount) continue;
-    if (out.some((o) => b.from_word <= o.to_word && o.from_word <= b.to_word)) continue;
     out.push(cleanBrollPlace(b));
   }
   return out;

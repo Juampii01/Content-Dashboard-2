@@ -97,6 +97,8 @@ export type StudioApi = {
   reasons: Map<number, RemovalReason>;
   /** Pausas largas entre palabras que quedan (las acortadas y las que quedan completas). */
   pauses: PauseInfo[];
+  /** ¿Lo elegido (b-roll, efecto o transición) se superpone con otra cosa visual? */
+  overlaps: (sel: StudioSelection) => boolean;
   /** ¿Lo cortado (palabras o pausas) es distinto de la propuesta? */
   changedFromProposal: boolean;
   styleZooms: boolean;
@@ -131,7 +133,7 @@ export type StudioApi = {
     pickOption: (id: string, option: SignedOption | BrollOption) => void;
     /**
      * Pone, cambia o quita (null) una transición: la de un corte (primera palabra del tramo que entra) o, con `id`, una
-     * libre (en cualquier punto). Lo que la tapa se reemplaza.
+     * libre (en cualquier punto). Va encima de lo que haya (en capas).
      */
     setTransition: (word: number, patch: Partial<TransitionItem> | null, id?: string) => void;
     /** Pone o mueve un sonido para que su punto fuerte caiga en `hit` (segundos del video final). */
@@ -144,6 +146,8 @@ export type StudioApi = {
     restorePauses: () => void;
     /** Vuelve a lo que propuso el editor (cortes y pausas). */
     backToProposal: () => void;
+    /** Lleva lo elegido al frente o atrás entre lo que se le superpone (orden de capas). */
+    restack: (sel: StudioSelection, where: "front" | "back") => void;
   };
 };
 

@@ -19,7 +19,7 @@ import { VariantsPanel } from "../director/variants-panel";
 import { FxLibraryGrid, SearchBox, TransitionTile } from "../fx/fx-library";
 import { LibraryMusic } from "./library-music";
 import { LibrarySounds } from "./library-sounds";
-import { LIBRARY_MIME, type LibraryDrop, type StudioSelection } from "./studio-timeline";
+import { startLibraryDrag, type LibraryDrop, type StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
 type AiItem = { key: string; sel: StudioSelection; label: string; text: string; at: number | null };
@@ -207,8 +207,7 @@ function dragProps(item: LibraryDrop, enabled: boolean) {
   return {
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
-      e.dataTransfer.setData(LIBRARY_MIME, JSON.stringify(item));
-      e.dataTransfer.effectAllowed = "copy";
+      startLibraryDrag(e, item);
     },
   };
 }
@@ -217,7 +216,7 @@ type LibTab = "efectos" | "transiciones" | "graficos" | "broll" | "musica" | "so
 
 /**
  * Pestaña Biblioteca: 100 efectos en categorías con buscador, 20 transiciones, gráficos, b-roll, música (generada, tuya
- * y de catálogo) y 40 sonidos. Tocar agrega en el cabezal (si ahí hay algo, lo nuevo lo reemplaza); también se
+ * y de catálogo) y 40 sonidos. Tocar agrega en el cabezal (si ahí hay algo, lo nuevo va encima, en capas); también se
  * arrastran a la línea de tiempo.
  */
 export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: LibraryDrop) => void }) {
@@ -270,8 +269,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
                   onPick={edit ? () => onAdd({ type: "transition", kind }) : undefined}
                   draggable={edit}
                   onDragStart={(e) => {
-                    e.dataTransfer.setData(LIBRARY_MIME, JSON.stringify({ type: "transition", kind } satisfies LibraryDrop));
-                    e.dataTransfer.effectAllowed = "copy";
+                    startLibraryDrag(e, { type: "transition", kind });
                   }}
                 />
               ))}

@@ -4,6 +4,7 @@
  *
  *   node --import tsx --test tests/compos.test.mts
  */
+import { layerKey, stackIndex } from "../lib/video/layers";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import vm from "node:vm";
@@ -166,9 +167,22 @@ test("plan: tramos, recorte, limpieza y spec de una composición", () => {
   assert.equal(spec.kind, "composition");
   assert.equal(spec.mask, true);
   assert.equal(spec.compos!.env.params.word, "ENFOQUE");
-  // Se pisan: queda la primera. Fuera de la transcripción: se descarta.
-  const clean = cleanCompositions([item, { ...item, id: "c2", from_word: 3, to_word: 5 }, { ...item, id: "c3", from_word: 9, to_word: 12 }], 6);
-  assert.deepEqual(clean.map((c) => c.id), ["c1"]);
+  // Se pisan: conviven en capas (la capa se conserva). Fuera de la transcripción: se descarta.
+  const clean = cleanCompositions([item, { ...item, id: "c2", from_word: 3, to_word: 5, layer: 2 }, { ...item, id: "c3", from_word: 9, to_word: 12 }], 6);
+  assert.deepEqual(clean.map((c) => c.id), ["c1", "c2"]);
+  assert.equal(clean[1]!.layer, 2);
+  const both = composSegments(tl, clean);
+  assert.equal(both.length, 2);
+  assert.ok(both[1]!.start < both[0]!.end, "los tramos se superponen, sin recortarse");
+  assert.equal(both[1]!.layer, 2);
+  // El orden de dibujo: con la misma capa, la composición va sobre el efecto y bajo la transición.
+  const order = stackIndex([
+    { key: layerKey("transition", "t"), kind: "transition", start: 1 },
+    { key: layerKey("compos", "c"), kind: "compos", start: 1 },
+    { key: layerKey("fx", "f"), kind: "fx", start: 1 },
+    { key: layerKey("broll", "b"), kind: "broll", start: 1, layer: 1 },
+  ]);
+  assert.deepEqual([...order.entries()].sort((a, b) => a[1] - b[1]).map(([k]) => k), ["f:f", "c:c", "t:t", "b:b"]);
   assert.equal(codeHash("a"), codeHash("a"));
   assert.notEqual(codeHash("a"), codeHash("b"));
 });

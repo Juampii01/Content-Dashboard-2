@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { AudioLines, Bot, Check, ChevronDown, Clapperboard, Headphones, Mic, Palette, PenLine, RefreshCcw, RotateCcw, Scissors, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Wand2, WandSparkles, X, ZoomIn } from "lucide-react";
+import { AudioLines, Bot, BringToFront, SendToBack, Check, ChevronDown, Clapperboard, Headphones, Mic, Palette, PenLine, RefreshCcw, RotateCcw, Scissors, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Wand2, WandSparkles, X, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
@@ -99,6 +99,25 @@ function AiNote({ api, why, sel }: { api: StudioApi; why?: string | null; sel: S
   );
 }
 
+/**
+ * Orden de capas de lo elegido con lo que se le superpone: al frente (se dibuja encima) o atrás. Solo aparece si hay
+ * algo superpuesto. En la línea de tiempo, el carril de arriba es el de adelante.
+ */
+function LayerButtons({ api, sel }: { api: StudioApi; sel: StudioSelection }) {
+  if (!api.props.canEdit || !api.overlaps(sel)) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white/[0.04] px-3 py-2" data-testid="layer-buttons">
+      <span className="text-xs text-muted">Se superpone con otra cosa:</span>
+      <Button size="sm" variant="subtle" icon={<BringToFront className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.restack(sel, "front")}>
+        Traer al frente
+      </Button>
+      <Button size="sm" variant="subtle" icon={<SendToBack className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.restack(sel, "back")}>
+        Enviar atrás
+      </Button>
+    </div>
+  );
+}
+
 function Spoken({ text, start, end }: { text: string; start?: number; end?: number }) {
   return (
     <div className="rounded-xl bg-white/[0.04] px-3 py-2 text-sm">
@@ -136,6 +155,7 @@ function SelectionInspector({ api, sel }: { api: StudioApi; sel: StudioSelection
       return (
         <>
           <Header eyebrow="Animación" title={item.name} onClose={close} />
+          <LayerButtons api={api} sel={sel} />
           <ComposInspectorBody api={api} item={item} />
         </>
       );
@@ -203,6 +223,7 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
           </Notice>
         )}
         {ai && <AiNote api={api} why={item.why} sel={sel} />}
+        <LayerButtons api={api} sel={sel} />
         {!ai && item.why && <p className="text-xs text-muted">{api.humanize(item.why)}</p>}
         {props.canEdit && (
           <div className="flex flex-wrap gap-2">
@@ -317,6 +338,7 @@ function FxInspector({ api, id, onClose }: { api: StudioApi; id: string; onClose
           <p className="text-xs text-warning">Cae sobre palabras cortadas: no se ve en el video.</p>
         )}
         {ai && <AiNote api={api} why={item.why} sel={sel} />}
+        <LayerButtons api={api} sel={sel} />
         {props.canEdit && (
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="ghost" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.openGallery({ from: item.from_word, to: item.to_word }, id)}>
@@ -696,6 +718,7 @@ function TransitionInspector({ api, word, id, onClose }: { api: StudioApi; word:
       </Header>
       <div className="flex flex-col gap-3 p-4">
         {item && item.source === "director" && <AiNote api={api} why={item.why} sel={selNow} />}
+        {item && <LayerButtons api={api} sel={selNow} />}
         {item && !drawn && <Notice tone="warning">Esta transición no se ve ahora: arrástrala un poco o vuelve a elegirla para que reemplace lo que la tapa.</Notice>}
         <p className="text-xs text-muted">
           {free ? "Va centrada en ese instante, encima del plano: arrástrala en la pista de efectos para moverla a cualquier punto." : "La transición tapa el corte con imagen: tu voz no se corre ni se pisa."}

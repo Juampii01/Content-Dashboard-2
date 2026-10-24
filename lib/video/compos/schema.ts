@@ -46,6 +46,8 @@ export const compositionSchema = z.object({
   /** Oculta los subtítulos mientras dura (la composición ya muestra el texto). */
   hide_captions: z.boolean().optional(),
   why: z.string().max(300).optional(),
+  /** Capa (orden de dibujo): más alta, más arriba. Sin el campo, 0. Ver lib/video/layers.ts. */
+  layer: z.number().int().min(0).max(999).optional(),
   source: z.enum(["copy", "director", "user"]),
   /** Momento de la receta de la referencia que copia (si viene de "Copiar edición"). */
   moment: z.string().max(40).optional(),
@@ -66,12 +68,13 @@ export const compositionListSchema = z.array(compositionSchema).max(MAX_COMPOSIT
 
 // ─── Tramos ──────────────────────────────────────────────────────────────
 
-export type ComposSegment = { id: string; start: number; end: number; item: Composition };
+/** `layer`: capa de la composición (lib/video/layers.ts). */
+export type ComposSegment = { id: string; start: number; end: number; item: Composition; layer?: number };
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const snap = (t: number) => Math.round(t * FPS) / FPS;
 
-/** Tramos de las composiciones en el video final (como los efectos: dentro del video, sin pisarse entre sí). */
+/** Tramos de las composiciones en el video final (como los efectos: dentro del video; se pueden pisar, van en capas). */
 export function composSegments(timeline: Pick<Timeline, "words" | "duration">, items: Composition[]): ComposSegment[] {
   const out: ComposSegment[] = [];
   const placed = items
@@ -83,12 +86,10 @@ export function composSegments(timeline: Pick<Timeline, "words" | "duration">, i
     let end = Math.min(timeline.duration, range.end + 0.15);
     if (end - start > COMPOS_LIMITS.maxSeconds) end = start + COMPOS_LIMITS.maxSeconds;
     if (end - start < 0.8) end = Math.min(timeline.duration, start + 0.8);
-    const prev = out[out.length - 1];
-    if (prev && start < prev.end) start = prev.end;
     start = snap(start);
     end = snap(end);
     if (end - start < COMPOS_LIMITS.minSeconds) continue;
-    out.push({ id: item.id, start: round3(start), end: round3(end), item });
+    out.push({ id: item.id, start: round3(start), end: round3(end), item, layer: item.layer ?? 0 });
   }
   return out;
 }
@@ -194,7 +195,7 @@ export const composCaptionHides = (segments: ComposSegment[]) => segments.filter
 /** Sonidos de las composiciones en segundos del video final (su punto fuerte cae en `at`). */
 export const composSounds = (segments: ComposSegment[]) => segments.flatMap((s) => (s.item.sounds ?? []).filter((x) => x.at <= s.end - s.start).map((x) => ({ name: x.name, hitAt: round3(s.start + x.at), gain: x.gain })));
 
-/** Composiciones que manda el navegador: forma válida, dentro de la transcripción, sin pisarse entre sí. */
+/** Composiciones que manda el navegador: forma válida y dentro de la transcripción (se pueden pisar: van en capas). */
 export function cleanCompositions(raw: unknown[], wordCount: number): Composition[] {
   const out: Composition[] = [];
   const parsed = raw.map((r) => compositionSchema.safeParse(r)).flatMap((p) => (p.success ? [p.data] : []));
@@ -202,7 +203,6 @@ export function cleanCompositions(raw: unknown[], wordCount: number): Compositio
     const from = Math.min(c.from_word, c.to_word);
     const to = Math.max(c.from_word, c.to_word);
     if (to >= wordCount) continue;
-    if (out.some((o) => from <= o.to_word && o.from_word <= to)) continue;
     out.push({ ...c, from_word: from, to_word: to });
   }
   return out;

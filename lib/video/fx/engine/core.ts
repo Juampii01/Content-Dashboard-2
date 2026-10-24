@@ -7,6 +7,7 @@
  * mismo cuadro.
  */
 import type { FxSpec } from "../compile";
+import type { ComposFrame } from "../../compos/contract";
 import { animState, applyAnimGeometry, applyTransform, type Box as PlaceBox } from "../../canvas/place-math";
 
 export type ImageLike = { width: number; height: number };
@@ -74,6 +75,8 @@ export type FxSources = {
   mask: ImageLike | null;
   /** Imágenes por clave (miniaturas de tus reels: "t0", "t1"…). */
   images?: Record<string, ImageLike | undefined>;
+  /** Composiciones: la lista de dibujo de este instante (la arma el sandbox). */
+  compos?: ComposFrame | null;
 };
 
 export type FxHost = {

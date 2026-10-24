@@ -18,6 +18,9 @@ const eslintConfig = defineConfig([
     "worker/motion/engine.mjs",
     "worker/motion/fx-engine.mjs",
     "worker/motion/music-engine.mjs",
+    "worker/motion/compos-engine.mjs",
+    "public/compos-sandbox.js",
+    "lib/video/compos/runtime-source.ts",
     "worker/motion/node_modules/**",
   ]),
 ]);

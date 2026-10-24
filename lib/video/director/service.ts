@@ -54,7 +54,8 @@ import { newReferenceId, referenceFromPayload, referenceSettings, referenceSumma
 import { applyRequest, checkCompliance, enforceRequest, findLinks, isReferenceLink, mergeCompliance, missingKey, missingOf, parseRequest, planBaseline, requestOverrides, requestText, settingsFromRequest, type ParsedRequest } from "./request";
 import { diffPlans } from "./diff";
 import { advanceWork, readWork } from "../compos/work";
-import { adaptStep, asksForAnimation, finishCopy, readCopy, recipeStep, startCopy, startEditRequest, startVariety, wantsCopy } from "../compos/flows";
+import { adaptStep, asksForAnimation, finishCopy, readCopy, recentUsage, recipeStep, startCopy, startEditRequest, startVariety, wantsCopy } from "../compos/flows";
+import type { FxKind } from "../fx/catalog";
 import { keyFrames, type KeyFrame } from "./keyframes";
 import { mapFromMeasures, mapFromWire, mustKeepRanges } from "./map";
 import { mapToWire, simulateCritic, simulateDirector, simulateRequestCheck } from "./simulate";
@@ -522,7 +523,10 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
         ? { ...baseFx, max: baseFx.max + 1 }
         : baseFx;
   // Transiciones: el pedido manda sobre Mi marca ("sin transiciones" o "pon transiciones", aunque la frecuencia sea ninguno).
-  const fx = overrides.transitions === "off" ? { ...fx0, transitions: 0 } : overrides.transitions === "more" ? { ...fx0, transitions: Math.max(fx0.transitions ?? 0, 2) + overrides.transitionKinds.length } : fx0;
+  const fxT = overrides.transitions === "off" ? { ...fx0, transitions: 0 } : overrides.transitions === "more" ? { ...fx0, transitions: Math.max(fx0.transitions ?? 0, 2) + overrides.transitionKinds.length } : fx0;
+  // Variedad entre videos: lo que la marca usó en sus últimos videos (el director y el relleno de ritmo lo rotan).
+  const recent = await recentUsage(projectId).catch(() => ({ fx: [] as FxKind[], transitions: [] as string[], families: [] as string[] }));
+  const fx = { ...fxT, recent: { fx: recent.fx, transitions: recent.transitions } };
   const faceWords = faceWordsOf(ctx.eyes, words);
   // Palabras mal transcritas ("desancado" → "estancado"): solo en la primera dirección, en paralelo con el director.
   const proofread = !mode && !base ? proofreadTranscript({ words, brandCtx: ctx.brandCtx, script }) : Promise.resolve({} as Record<string, string>);
@@ -662,6 +666,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     faceWords,
     candidates,
     mustKeep: [...keep, ...protect],
+    recentFx: recent.fx,
   });
   plan = filled.plan;
   if (filled.added.length) console.info(`[director] ritmo (${density}): ${filled.added.length} agregados`);

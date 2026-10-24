@@ -172,3 +172,14 @@ test("plan: tramos, recorte, limpieza y spec de una composición", () => {
   assert.equal(codeHash("a"), codeHash("a"));
   assert.notEqual(codeHash("a"), codeHash("b"));
 });
+
+test("variedad: la apertura rota entre videos y deja al final lo que la marca usó hace poco", async () => {
+  const { openerOrder, OPENERS } = await import("../lib/video/fx/openers");
+  const a = openerOrder([{ text: "Hoy" }, { text: "te" }, { text: "cuento" }]);
+  const b = openerOrder([{ text: "Tres" }, { text: "errores" }, { text: "que" }]);
+  assert.equal(a.length, OPENERS.length);
+  assert.notDeepEqual(a, b, "dos videos distintos no abren en el mismo orden");
+  const recent = openerOrder([{ text: "Hoy" }], ["cover_story", "glass_type"]);
+  assert.equal(recent.at(-1), "cover_story");
+  assert.equal(recent.at(-2), "glass_type");
+});

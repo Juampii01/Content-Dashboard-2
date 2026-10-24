@@ -57,7 +57,23 @@ const nextConfig: NextConfig = {
     },
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      // Todo menos el sandbox de las animaciones, que lleva su propia política (abajo).
+      { source: "/((?!compos-sandbox\\.js$).*)", headers: securityHeaders },
+      /**
+       * Sandbox de las animaciones (lib/video/compos/sandbox-browser-worker.ts): un Web Worker que corre el código que
+       * escribe Claude. Sin red ni scripts de afuera (`default-src 'none'`); solo puede evaluar el código que le llega
+       * por mensaje ('unsafe-eval' vale solo dentro de este worker, no en la app).
+       */
+      {
+        source: "/compos-sandbox.js",
+        headers: [
+          { key: "Content-Security-Policy", value: "default-src 'none'; script-src 'unsafe-eval'" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+        ],
+      },
+    ];
   },
 };
 

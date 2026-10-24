@@ -145,7 +145,7 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
         <EditRequestCard
           projectId={props.projectId}
           canEdit={props.canEdit}
-          estimate={props.director?.editEstimate ?? 0}
+          estimate={props.director?.editEstimate ?? null}
           spent={props.director?.cost.totalUsd ?? 0}
           cap={props.director?.budgetUsd ?? 5}
           edits={props.director?.state.edits ?? []}

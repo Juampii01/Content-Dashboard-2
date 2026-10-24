@@ -4,6 +4,7 @@ import { brandContext, getBrand } from "@/lib/ai/brand-context";
 import { AiError, aiConfigured, generateStructured, withAiScope } from "@/lib/ai/client";
 import {
   CRITIC_RULES,
+  criticEditWireSchema,
   criticTask,
   criticWireSchema,
   DIRECTOR_RULES,
@@ -22,7 +23,7 @@ import {
 import { MOTION_RULES } from "@/lib/ai/prompts/motion";
 import { getDb, schema } from "@/lib/db";
 import { enqueueJob } from "@/lib/jobs";
-import { readBytes } from "@/lib/storage";
+import { deleteKeys, fileInfo, readBytes, VIDEO_EXTENSIONS, VIDEO_TYPES } from "@/lib/storage";
 import { brollSourcesReady, libraryTags, searchOptions } from "../broll";
 import { detectCandidates } from "../candidates";
 import { brandGraphicLook, GRAPHIC_MAX_SECONDS } from "../graphics";
@@ -43,16 +44,19 @@ import { readEditorDefaults } from "../defaults";
 import { checkPlan, safeFixes } from "./checks";
 import { enforceLocks, guardIssues, hasLocks, locksText, parseLocks, type RequestLocks } from "./locks";
 import { coverForbidden, protectedZones } from "./protect";
-import { densityFor, DENSITY_TARGETS, fillRhythm, planRhythm, rhythmTaskText, rhythmText, syncGraphics, type Density } from "../rhythm";
+import { DENSITY_LABELS, densityFor, DENSITY_TARGETS, fillRhythm, planRhythm, rhythmTaskText, rhythmText, syncGraphics, type Density } from "../rhythm";
 import { motionTheme } from "../motion-graphics";
 import { removedIds } from "../timeline";
 import { briefText, mapText, planText, sentencesText, transcriptText, tramosText } from "./context";
-import { clampBudget, estimateRevise, estimateStage, planBudget, type BudgetPlan, type CostInput, type StagePlan } from "./cost";
+import { clampBudget, estimateRevise, estimateStage, MAX_EDIT_ROUNDS, planBudget, planEdit, type BudgetPlan, type CostInput, type EditEstimate, type StagePlan } from "./cost";
+export type { EditEstimate } from "./cost";
+import { newReferenceId, referenceFromPayload, referenceSettings, referenceSummary, referenceText, type DirectorReference, type ReferencePayload, type ReferenceSource } from "./reference";
+import { applyRequest, checkCompliance, enforceRequest, findLinks, isReferenceLink, mergeCompliance, missingOf, parseRequest, planBaseline, requestOverrides, requestText, settingsFromRequest, type ParsedRequest } from "./request";
 import { diffPlans } from "./diff";
 import { keyFrames, type KeyFrame } from "./keyframes";
 import { mapFromMeasures, mapFromWire, mustKeepRanges } from "./map";
-import { mapToWire, simulateCritic, simulateDirector } from "./simulate";
-import { effectiveBrief, readBrief, readDirector, type Brief, type CriticIssue, type CriticRound, type DirectorState, type Eyes, type FinalReview, type VideoMap } from "./types";
+import { mapToWire, simulateCritic, simulateDirector, simulateRequestCheck } from "./simulate";
+import { BUDGET, effectiveBrief, readBrief, readDirector, type Brief, type CriticIssue, type CriticRound, type DirectorState, type EditRequest, type Eyes, type FinalReview, type PendingRequest, type VideoMap } from "./types";
 
 /**
  * Director de edición (servidor). Una máquina de estados que maneja el worker paso a paso
@@ -68,7 +72,7 @@ import { effectiveBrief, readBrief, readDirector, type Brief, type CriticIssue, 
  */
 
 export type DirectorNext =
-  | { step: "understand" | "direct" | "revise" | "finalize" | "edit" }
+  | { step: "understand" | "direct" | "revise" | "finalize" | "edit"; label?: string }
   | { step: "preview"; round: number; render: Record<string, unknown>; frames: KeyFrame[] }
   | null;
 
@@ -81,6 +85,7 @@ export type DirectorBody =
   | { step: "finalize" }
   | { step: "edit" }
   | { step: "abort"; error?: string }
+  | ({ step: "reference" } & ReferencePayload)
   | { step: "final"; sheets: { key: string; width: number; height: number }[]; frames: KeyFrame[] };
 
 const STAGE_LABEL: Record<string, string> = {
@@ -256,6 +261,8 @@ export async function directorStep(projectId: string, body: DirectorBody): Promi
         return finalize(projectId);
       case "abort":
         return abort(projectId, body.error ?? null);
+      case "reference":
+        return saveReference(projectId, body);
       case "final":
         await finalReview(projectId, body.sheets, body.frames);
         return { next: null, status: "DONE" };
@@ -292,10 +299,10 @@ function budgetOf(d: DirectorState): BudgetPlan | null {
   return d.budget ?? null;
 }
 
-/** Vueltas de segunda mirada del ciclo: las del tope en el análisis; una en un pedido de la persona. */
+/** Vueltas de segunda mirada del ciclo: las del tope en el análisis; una en un pedido de la persona (si su plan la tiene). */
 function roundLimit(d: DirectorState): number {
-  const rounds = d.budget?.critic?.rounds ?? 0;
-  return d.cycle === "edit" ? Math.min(1, rounds) : rounds;
+  if (d.cycle === "edit") return d.active ? (d.active.critic ? 1 : 0) : Math.min(1, d.budget?.critic?.rounds ?? 0);
+  return d.budget?.critic?.rounds ?? 0;
 }
 
 async function understand(projectId: string): Promise<{ next: DirectorNext; status: string }> {
@@ -352,14 +359,53 @@ async function understand(projectId: string): Promise<{ next: DirectorNext; stat
   return { next: { step: "direct" }, status: "PROCESSING" };
 }
 
+/** La referencia lista para este ciclo: la del pedido en curso o la del brief. */
+function activeReference(ctx: Ctx, mode: "revise" | "edit" | null): DirectorReference | null {
+  const ref = ctx.director.reference;
+  if (!ref || ref.status !== "ready") return null;
+  if (mode === "edit") return ctx.director.pending?.reference?.id === ref.id ? ref : null;
+  if (mode === "revise") return ctx.director.active?.referenceId === ref.id ? ref : null;
+  const brief = ctx.own?.reference;
+  return brief && ref.source.kind === "link" && ref.source.url === brief ? ref : null;
+}
+
+/** El pedido en curso en partes (en "Edítalo así") o el del último pedido (al corregir con la segunda mirada). */
+function requestOf(director: DirectorState, mode: "revise" | "edit" | null): ParsedRequest | null {
+  if (mode === "edit" && director.pending) {
+    const link = director.pending.reference?.source.kind === "link" ? [director.pending.reference.source.url] : [];
+    const parsed = parseRequest(director.pending.instruction, link);
+    // Un archivo subido como referencia también es una parte del pedido.
+    if (director.pending.reference && !parsed.items.some((i) => i.kind === "referencia")) parsed.items.push({ n: parsed.items.length + 1, kind: "referencia", quote: "como el video que subí", label: "Editar como la referencia" });
+    return parsed;
+  }
+  if (mode === "revise") return director.request?.parsed ?? null;
+  return null;
+}
+
+/** Una pista de la biblioteca de música lista (para "con música"). */
+async function firstTrack(): Promise<string | null> {
+  const [row] = await getDb()
+    .select({ id: schema.musicTracks.id })
+    .from(schema.musicTracks)
+    .where(eq(schema.musicTracks.status, "READY"))
+    .orderBy(desc(schema.musicTracks.createdAt))
+    .limit(1)
+    .catch(() => []);
+  return row?.id ?? null;
+}
+
 /**
  * Dirige (primera vez), corrige con lo que encontró la segunda mirada (`revise`) o aplica un pedido de la persona
  * (`edit`, "Edítalo así"). Arma el plan con las reglas duras, resuelve gráficos y stock, y pide la vista previa.
+ *
+ * En un pedido: el pedido en partes manda sobre los topes (b-roll, efectos de Mi marca, densidad); después de armar se
+ * aplican los ajustes (subtítulos, audio, formato…) y el piso sin IA (enforceRequest), se mide qué se cumplió de cada
+ * parte y, si algo no se cumplió y queda tope, otra vuelta dirigida a eso (hasta MAX_EDIT_ROUNDS).
  */
 async function direct(projectId: string, mode: "revise" | "edit" | null): Promise<{ next: DirectorNext; status: string }> {
   const ctx = await load(projectId);
   if (ctx.project.status !== "PROCESSING") return { next: null, status: ctx.project.status };
-  const { words, duration, format, director } = ctx;
+  const { words, duration, director } = ctx;
   const base = (ctx.project.plan as EditPlan | null) ?? null;
   const map = director.map ?? mapFromMeasures(ctx.eyes, words);
   const brief = effectiveBrief(ctx.own, map.inferredBrief);
@@ -367,12 +413,27 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   const alignment = script ? alignScript(words, script) : null;
   const candidates = detectCandidates(words, { script });
   const style = await styleFor(ctx.project);
+  const pending = mode === "edit" ? director.pending : null;
+  const parsed = requestOf(director, mode);
+  const overrides = requestOverrides(parsed);
+  const reference = activeReference(ctx, mode);
+  const wantsReference = !mode || Boolean(parsed?.items.some((i) => i.kind === "referencia"));
+  const refCopy = reference && wantsReference ? referenceSettings(reference.metrics, (parsed && settingsFromRequest(parsed).format) || ctx.format, (base?.captions.preset ?? ctx.project.captionPreset) as CaptionPresetKey) : null;
   // Lo que pidió la persona en "Edítalo así" (o en el pedido anterior, al corregir) no se deshace.
-  const locks: RequestLocks | null = mode === "edit" && director.pending ? parseLocks(director.pending.instruction) : (director.request ?? null);
-  const density = densityOf(ctx, base, locks);
-  const limits = brollLimits(ctx, style?.every ?? null, density);
+  const locks: RequestLocks | null = pending ? { ...parseLocks(pending.instruction), parsed } : (director.request ?? null);
+  const format: VideoFormat = (parsed && settingsFromRequest(parsed).format) || ctx.format;
+  // Densidad: la que pide la persona, la de la referencia (si la pidió o está en el brief), la del plan o la de Mi marca.
+  const density = overrides.density ?? (wantsReference ? (refCopy?.density ?? null) : null) ?? densityOf(ctx, base, locks);
+  // B-roll: el pedido manda sobre el tope de la densidad (y sobre "sin b-roll automático" del proyecto).
+  const baseLimits = brollLimits(overrides.brollExtra && ctx.project.brollMode !== "auto" ? { ...ctx, project: { ...ctx.project, brollMode: "auto" } } : ctx, style?.every ?? null, density);
+  const limits: BrollLimits & { count: number } = {
+    ...baseLimits,
+    count: overrides.noBroll && overrides.noGraphics ? 0 : overrides.fewerBroll ? Math.max(0, Math.round(baseLimits.count / 2)) : baseLimits.count + overrides.brollExtra,
+    graphics: baseLimits.graphics && !overrides.noGraphics,
+    stock: baseLimits.stock && !overrides.noBroll,
+  };
   const tags = limits.count ? await libraryTags() : [];
-  const stockReady = brollSourcesReady().stock || tags.length > 0;
+  const stockReady = (brollSourcesReady().stock || tags.length > 0) && !overrides.noBroll;
   const look = brandGraphicLook(ctx.brand);
   const keep = [...mustKeepRanges(brief.mustKeep, words)];
   // La CTA siempre queda; en anuncios y ventas también la oferta y lo que se muestra (producto, pantalla).
@@ -381,47 +442,66 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     for (const b of map.beats) if (b.role === "oferta") protect.push({ from: b.from, to: b.to, label: "la oferta" });
     for (const s of map.shots) if (s.important) protect.push({ from: s.from, to: s.to, label: s.shows.toLowerCase() });
   }
-  const instruction = mode === "edit" ? (director.pending?.instruction ?? "") : null;
+  const instruction = pending ? pending.instruction : null;
   if (instruction) keep.push(...mustKeepRanges(instruction.match(/no (?:cortes|quites|saques)[^.]*/i)?.[0] ?? "", words));
   const lastRound = director.rounds.at(-1);
   const issues = mode === "revise" ? guardIssues(lastRound?.issues ?? [], locks).kept : [];
   const budget = budgetOf(director);
-  const stage: StagePlan = budget?.director ?? { model: "deep", effort: "high" };
-  const remaining = ctx.cap - (await spentUsd(projectId));
+  const spent = await spentUsd(projectId);
+  const remaining = ctx.cap - spent;
   const degraded = [...director.degraded];
-  const est = mode ? estimateRevise(stage, costInput(ctx, limits.count)) : estimateStage("director", stage, costInput(ctx, limits.count));
-  let effective = stage;
-  if (remaining < est) {
-    effective = { model: "main", effort: null };
-    if (remaining < estimateStage("director", effective, costInput(ctx, limits.count)) * 0.5 && mode) {
-      // Sin presupuesto para corregir: se quedan los arreglos seguros (sin IA).
-      degraded.push(mode === "edit" ? "No quedó presupuesto de IA para este pedido: se aplicaron solo arreglos automáticos." : "No quedó presupuesto para otra corrección con IA.");
-      await saveDirector(projectId, { ...director, degraded, pending: null });
-      return { next: { step: "finalize" }, status: "PROCESSING" };
+  const refSheets = reference?.sheets ?? [];
+  const input = { ...costInput(ctx, limits.count), refSheets: refSheets.length };
+
+  // Modelo y razonamiento: en un pedido, el máximo que entra en lo que queda del tope (planEdit); al dirigir y al
+  // corregir, el del plan de costo del análisis. Solo baja si de verdad no alcanza.
+  const editBudget = pending ? planEdit({ ...input, remaining }) : null;
+  let stage: StagePlan = editBudget?.director ?? budget?.director ?? { model: "deep", effort: "xhigh" };
+  if (!editBudget) {
+    const est = mode ? estimateRevise(stage, input) : estimateStage("director", stage, input);
+    if (remaining < est) {
+      const cheaper: StagePlan[] = [{ model: "deep", effort: "high" }, { model: "deep", effort: "medium" }, { model: "main", effort: null }];
+      stage = cheaper.find((s) => (mode ? estimateRevise(s, input) : estimateStage("director", s, input)) <= remaining) ?? { model: "main", effort: null };
+      degraded.push(stage.model === "main" ? "La dirección la hizo un modelo más económico para no pasar el tope." : "La dirección razonó menos para no pasar el tope.");
     }
-    degraded.push("La dirección la hizo un modelo más económico para no pasar el tope.");
   }
+  if (mode && remaining < estimateRevise({ model: "main", effort: null }, input) * 0.5) {
+    // Sin presupuesto para corregir con IA: lo que se puede hacer con reglas (el piso del pedido) y nada más.
+    if (pending && base) return applyWithoutAi(ctx, base, parsed, locks, degraded, "No quedó presupuesto de IA para este pedido: apliqué lo que se puede hacer sin IA.");
+    degraded.push("No quedó presupuesto para otra corrección con IA.");
+    await saveDirector(projectId, { ...director, degraded, pending: null });
+    return { next: { step: "finalize" }, status: "PROCESSING" };
+  }
+  if (editBudget) for (const d of editBudget.degraded) if (!degraded.includes(d)) degraded.push(d);
 
   // Efectos de la biblioteca: los que permite Mi marca, cuántos para este largo, y dónde se ve la cara (los que te
-  // recortan necesitan verte a cámara).
+  // recortan necesitan verte a cámara). Un efecto pedido entra aunque Mi marca no lo tenga o ya se llegue al tope.
   const fxAsk = instruction ? parseFxRequest(instruction) : null;
   const fxSettings = fxLimits(readEditorDefaults(ctx.brand).effects, duration * 0.85);
-  // La densidad multiplica la cantidad de efectos de Mi marca (Editor de reels: más, y más seguidos).
   const factor = DENSITY_TARGETS[density].fxFactor;
   const baseFx = fxSettings.max > 0 ? { ...fxSettings, max: Math.max(1, Math.round(fxSettings.max * factor)), minGap: Math.max(2, fxSettings.minGap / factor) } : fxSettings;
-  // Un efecto pedido en "Edítalo así" entra aunque se llegue al tope (uno más), siempre que Mi marca lo permita.
-  const fx = fxAsk && "kind" in fxAsk && baseFx.allowed.includes(fxAsk.kind) ? { ...baseFx, max: baseFx.max + 1 } : baseFx;
+  const askedFx = overrides.fx.map((f) => f.kind);
+  const fx = overrides.noFx
+    ? { ...baseFx, allowed: [], max: 0 }
+    : askedFx.length
+      ? { ...baseFx, allowed: [...new Set([...baseFx.allowed, ...askedFx])], max: baseFx.max + askedFx.length, minGap: Math.min(baseFx.minGap, 3), frequency: baseFx.frequency === "ninguno" ? ("pocos" as const) : baseFx.frequency }
+      : fxAsk && "kind" in fxAsk && baseFx.allowed.includes(fxAsk.kind)
+        ? { ...baseFx, max: baseFx.max + 1 }
+        : baseFx;
   const faceWords = faceWordsOf(ctx.eyes, words);
   // Palabras mal transcritas ("desancado" → "estancado"): solo en la primera dirección, en paralelo con el director.
-  // Después las correcciones viajan en el plan (y la persona las ajusta en la revisión).
   const proofread = !mode && !base ? proofreadTranscript({ words, brandCtx: ctx.brandCtx, script }) : Promise.resolve({} as Record<string, string>);
-  const simInput = { words, duration, format, candidates, map, brief, broll: { ...limits, stock: stockReady }, mustKeep: keep, preset: ctx.project.captionPreset, base, issues, instruction, fx };
+  const limitsText = parsed?.items.length
+    ? `TOPES DE ESTE PEDIDO (ya ajustados a lo que pide): hasta ${limits.count} b-roll y gráficos${limits.graphics ? "" : " (sin gráficos)"}${limits.stock ? "" : " (sin b-roll de video)"}; ${fxTaskText(fx)}; densidad «${DENSITY_LABELS[density].label}».`
+    : "";
+  const simInput = { words, duration, format, candidates, map, brief, broll: { ...limits, stock: stockReady }, mustKeep: keep, preset: ctx.project.captionPreset, base, issues, instruction, fx, request: parsed, reference: reference?.metrics ?? null };
+  const images = refSheets.length ? await sheetImages(refSheets) : [];
   let ai: DirectorWire | null = null;
   try {
     const api = await generateStructured({
       feature: mode ? "video.director.revisar" : "video.director.plan",
-      model: effective.model,
-      thinking: effective.effort ? { effort: effective.effort } : null,
+      model: stage.model,
+      thinking: stage.effort ? { effort: stage.effort } : null,
       // Estable entre videos (va en la caché): reglas del director, de motion graphics y la marca.
       context: `${DIRECTOR_RULES}\n\n${MOTION_RULES}\n\n${ctx.brandCtx}`,
       task: `${goalRules(brief.goal)}\n\n${directorTask({
@@ -443,15 +523,19 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
         effects: fxTaskText(fx),
         rhythm: rhythmTaskText(density, duration * 0.85),
         locks: locksText(locks),
+        request: requestText(parsed, { limits: limitsText, focus: pending?.focus }),
+        reference: reference && wantsReference ? referenceText(reference) : "",
         revise:
           mode && base
             ? {
-                plan: planText(base, words),
+                plan: `${planText(base, words)}\n${settingsText(base)}`,
                 issues: issues.map((i) => `- [${i.kind}, ${i.severity}, segundo ${i.at.toFixed(1)}] ${i.note} → ${i.fix}`).join("\n"),
                 instruction,
               }
             : null,
       })}`,
+      images,
+      imageSizes: refSheets.map((s) => ({ width: s.width, height: s.height })),
       schema: directorApiSchema,
       maxTokens: 32000,
       timeoutMs: 600_000,
@@ -466,6 +550,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
       await saveDirector(projectId, { ...director, degraded: [...degraded, "El director no respondió: el plan se armó con el editor de antes."], steps: [...director.steps, "direct"] }, { plan });
       return { next: { step: "finalize" }, status: "PROCESSING" };
     }
+    if (pending && base) return applyWithoutAi(ctx, base, parsed, locks, degraded, "La IA no respondió: apliqué lo que se puede hacer sin IA.");
     await saveDirector(projectId, { ...director, degraded: [...degraded, "No pudimos aplicar la corrección con IA."], pending: null });
     return { next: { step: "finalize" }, status: "PROCESSING" };
   }
@@ -487,7 +572,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     broll: { ...limits, stock: stockReady },
     base,
     keepOpening: ctx.project.origin === "clip",
-    fx: { limits: fx, faceWords, keepUser: !(fxAsk && "none" in fxAsk) },
+    fx: { limits: fx, faceWords, keepUser: !overrides.noFx && !(fxAsk && "none" in fxAsk) },
     density,
   });
   let plan = base ? assembled.plan : await withEditorDefaults(assembled.plan, ctx.brand);
@@ -549,22 +634,65 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   plan = locked.plan;
   if (zones.trimmed.length) plan = { ...plan, warning: [plan.warning, "Había demasiado marcado como intocable: protegí solo lo que se muestra más importante."].filter(Boolean).join(" ").slice(0, 1000) };
 
-  const parsed = planSchemaFor(words.length).safeParse(plan);
-  if (!parsed.success) {
-    console.error("[director] plan inválido:", parsed.error.issues[0]?.message);
+  // Ajustes (subtítulos, audio, formato, densidad, zooms, cómo se ven gráficos y efectos) y el piso del pedido.
+  const applied = applyRequest(plan, parsed, {
+    ai: ai.settings ?? null,
+    reference: refCopy && wantsReference ? refCopy.settings : null,
+    words,
+    duration,
+    forbidden: zones.zones,
+    mustKeep: [...keep, ...protect],
+    faceWords,
+    candidates,
+    musicTrack: parsed?.items.some((i) => i.kind === "musica" && i.on !== false) || ai.settings?.audio?.music || refCopy?.settings.audio?.music ? await firstTrack() : null,
+    base,
+  });
+  plan = applied.plan;
+  if (refCopy && wantsReference && !mode && refCopy.pace === "fast") plan = { ...plan, pacing: { long_pause: Math.min(plan.pacing?.long_pause ?? 0.3, 0.3) }, director: { version: 1, pace: "fast" } };
+
+  const parsedPlan = planSchemaFor(words.length).safeParse(plan);
+  if (!parsedPlan.success) {
+    console.error("[director] plan inválido:", parsedPlan.error.issues[0]?.message);
     if (!mode) {
       const fallback = await legacyPlan(ctx.project);
       await saveDirector(projectId, { ...director, degraded: [...degraded, "El plan del director no pasó la validación: se usó el editor de antes."], steps: [...director.steps, "direct"] }, { plan: fallback });
       return { next: { step: "finalize" }, status: "PROCESSING" };
     }
+    if (pending && base) return applyWithoutAi(ctx, base, parsed, locks, degraded, "El plan de la IA no pasó la validación: apliqué lo que se puede hacer sin IA.");
     await saveDirector(projectId, { ...director, degraded, pending: null });
     return { next: { step: "finalize" }, status: "PROCESSING" };
   }
 
-  const edits = [...director.edits];
-  if (mode === "edit" && base && director.pending) {
-    const changes = [...diffPlans(base, plan, words, duration), ...locked.restored];
-    edits.push({ at: new Date().toISOString(), instruction: director.pending.instruction, changes, note: ai.warning.slice(0, 400), source: director.pending.kind === "fix" ? "arreglo" : "persona" });
+  let edits = [...director.edits];
+  let active = director.active ?? null;
+  let nextPending: DirectorState["pending"] = null;
+  if (pending && base) {
+    const attempt = pending.attempt ?? 0;
+    const id = pending.id ?? newEditId();
+    const baseline = pending.baseline ?? planBaseline(base, words, duration);
+    const changes = mergeChanges(pending.changes ?? [], [...diffPlans(base, plan, words, duration).filter((c) => c !== "No hizo falta cambiar nada."), ...applied.notes, ...locked.restored]);
+    const refInfo = pending.reference ? referenceInfo(director.reference, pending.reference.id) : null;
+    const compliance = parsed?.items.length ? checkCompliance(parsed, { before: baseline, after: plan, words, duration, reference: refInfo, answers: ai.answers, failed: applied.failed }) : [];
+    const entry: EditRequest = {
+      at: new Date().toISOString(),
+      instruction: pending.instruction,
+      changes: changes.length ? changes : ["No hizo falta cambiar nada."],
+      note: [ai.warning, ...applied.failed].filter(Boolean).join(" ").slice(0, 400),
+      source: pending.kind === "fix" ? "arreglo" : "persona",
+      id,
+      compliance,
+      rounds: attempt + 1,
+      costUsd: Math.max(0, spent - (pending.spentAtStart ?? spent)),
+      reference: refInfo,
+    };
+    edits = upsertEdit(edits, entry);
+    active = { id, baseline, attempt, spentAtStart: pending.spentAtStart ?? spent, referenceId: pending.reference?.id ?? null, critic: editBudget?.critic ?? null };
+    // ¿Otra vuelta? Si una parte no se cumplió, otra vuelta lo puede arreglar y queda tope para hacerla.
+    const missing = missingOf(compliance);
+    const nextCost = estimateRevise(stage, input);
+    if (missing.length && attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= nextCost + (editBudget?.estimate.critic ?? 0)) {
+      nextPending = { ...pending, id, attempt: attempt + 1, focus: missing, baseline, changes, spentAtStart: active.spentAtStart };
+    }
   }
   const variants = mode === "revise" ? director.variants : assembled.variants;
   const next: DirectorState = {
@@ -573,19 +701,84 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     edits: edits.slice(-20),
     variants,
     degraded,
-    pending: null,
-    ...(mode === "edit" ? { request: hasLocks(locks) ? locks : null } : {}),
+    pending: nextPending,
+    active,
+    ...(pending ? { request: hasLocks(locks) || parsed?.items.length ? locks : null } : {}),
     steps: [...director.steps, mode ?? "direct"],
     // Un pedido empieza un ciclo nuevo de segunda mirada.
-    ...(mode === "edit" ? { cycle: "edit" as const, rounds: [] } : {}),
+    ...(pending ? { cycle: "edit" as const, rounds: [] } : {}),
   };
-  await saveDirector(projectId, next, { plan });
+  await saveDirector(projectId, next, { plan, ...(format !== ctx.format ? { format } : {}) });
+  if (nextPending) return { next: { step: "edit", label: `Aplicando tus cambios (vuelta ${(nextPending.attempt ?? 0) + 1})` }, status: "PROCESSING" };
 
   // ¿Segunda mirada? Mientras queden vueltas en este ciclo; si no, verificaciones y arreglos seguros al cerrar.
-  if (budget?.critic && next.rounds.length < roundLimit(next)) {
+  if (next.rounds.length < roundLimit(next)) {
     return { next: await previewNext(ctx.project, plan, words, duration, next.rounds.length + 1, ctx.eyes), status: "PROCESSING" };
   }
   return { next: { step: "finalize" }, status: "PROCESSING" };
+}
+
+/** Un pedido sin IA (sin tope, la IA no respondió o su plan no sirvió): se aplica lo que se puede con reglas. */
+async function applyWithoutAi(ctx: Ctx, base: EditPlan, parsed: ParsedRequest | null, locks: RequestLocks | null, degraded: string[], note: string): Promise<{ next: DirectorNext; status: string }> {
+  const { words, duration, director } = ctx;
+  const pending = director.pending!;
+  const map = director.map ?? mapFromMeasures(ctx.eyes, words);
+  const zones = protectedZones(map, words);
+  const applied = applyRequest(base, parsed, {
+    ai: null,
+    reference: null,
+    words,
+    duration,
+    forbidden: zones.zones,
+    mustKeep: mustKeepRanges(effectiveBrief(ctx.own, map.inferredBrief).mustKeep, words),
+    faceWords: faceWordsOf(ctx.eyes, words),
+    candidates: detectCandidates(words, {}),
+    musicTrack: parsed?.items.some((i) => i.kind === "musica" && i.on !== false) ? await firstTrack() : null,
+    base,
+  });
+  const locked = enforceLocks(applied.plan, base, locks, zones.zones);
+  const plan = planSchemaFor(words.length).safeParse(locked.plan).success ? locked.plan : base;
+  const baseline = pending.baseline ?? planBaseline(base, words, duration);
+  const id = pending.id ?? newEditId();
+  const refInfo = pending.reference ? referenceInfo(director.reference, pending.reference.id) : null;
+  const compliance = parsed?.items.length ? checkCompliance(parsed, { before: baseline, after: plan, words, duration, reference: refInfo, failed: applied.failed }).map((c) => (c.status === "revisar" ? { ...c, status: "no" as const, detail: "Sin IA no se pudo: vuelve a pedirlo cuando haya tope." } : c)) : [];
+  const changes = mergeChanges(pending.changes ?? [], [...diffPlans(base, plan, words, duration).filter((c) => c !== "No hizo falta cambiar nada."), ...applied.notes]);
+  const spent = await spentUsd(ctx.project.id);
+  const entry: EditRequest = { at: new Date().toISOString(), instruction: pending.instruction, changes: changes.length ? changes : ["No hizo falta cambiar nada."], note, source: pending.kind === "fix" ? "arreglo" : "persona", id, compliance, rounds: (pending.attempt ?? 0) + 1, costUsd: Math.max(0, spent - (pending.spentAtStart ?? spent)), reference: refInfo };
+  await saveDirector(ctx.project.id, { ...director, degraded: [...degraded, note], pending: null, active: null, edits: upsertEdit(director.edits, entry).slice(-20), request: hasLocks(locks) || parsed?.items.length ? locks : director.request ?? null }, { plan });
+  return { next: { step: "finalize" }, status: "PROCESSING" };
+}
+
+let editCounter = 0;
+const newEditId = () => `e${Date.now().toString(36)}${(editCounter++).toString(36)}`;
+
+/** Las vueltas de un mismo pedido actualizan su entrada (no se apilan). */
+function upsertEdit(edits: EditRequest[], entry: EditRequest): EditRequest[] {
+  const i = edits.findIndex((e) => e.id && e.id === entry.id);
+  if (i < 0) return [...edits, entry];
+  const out = [...edits];
+  out[i] = entry;
+  return out;
+}
+
+function mergeChanges(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])].slice(0, 12);
+}
+
+function referenceInfo(ref: DirectorReference | null | undefined, id: string): EditRequest["reference"] {
+  if (!ref || ref.id !== id) return { ok: false, summary: "", error: "No llegamos a mirar la referencia." };
+  if (ref.status !== "ready") return { ok: false, summary: "", error: ref.error ?? "No pudimos mirar la referencia." };
+  return { ok: true, summary: referenceSummary(ref.metrics), error: null };
+}
+
+/** Los ajustes actuales del plan en texto (para corregir: el director ve qué tiene). */
+function settingsText(plan: EditPlan): string {
+  const t = plan.captions.transform;
+  return [
+    `- Subtítulos: estilo ${plan.captions.preset}${t ? ` · tamaño ${Math.round(t.scale * 100)} % · corrimiento vertical ${t.y.toFixed(2)}` : ""}${plan.captions.emoji ? " · con emojis" : ""}`,
+    `- Audio: ${plan.audio.music_asset_id ? `con música (${plan.audio.music_db} dB)` : "sin música"} · efectos de sonido ${plan.audio.sfx ?? "off"} · audio de estudio ${plan.audio.studio ?? "off"}`,
+    `- Formato ${plan.format} · densidad ${plan.rhythm?.density ?? "según el formato"}${plan.zooms_enabled === false ? " · zooms apagados" : ""}`,
+  ].join("\n");
 }
 
 /** Lo prohibido para el director, en texto (con medida: ver protect.ts). */
@@ -617,14 +810,19 @@ async function critique(projectId: string, round: number, sheets: { key: string;
   const timeline = buildTimeline(words, plan, duration);
   const frames = keyFrames({ plan, words, timeline, eyes: ctx.eyes, max: 36 });
   const budget = budgetOf(director);
-  const stage: StagePlan = budget?.critic ?? { model: "main", effort: null };
+  const active = director.cycle === "edit" ? (director.active ?? null) : null;
+  const stage: StagePlan = active?.critic ?? budget?.critic ?? { model: "main", effort: null };
   const brief = effectiveBrief(ctx.own, map?.inferredBrief ?? null);
   const remaining = ctx.cap - (await spentUsd(projectId));
+  // En un pedido: el crítico también mira si cada parte se cumplió (y la referencia, si la hay, va al final).
+  const parsed = active ? (director.request?.parsed ?? null) : null;
+  const reference = active?.referenceId && director.reference?.id === active.referenceId && director.reference.status === "ready" ? director.reference : null;
+  const refSheets = reference?.sheets ?? [];
   let wire: CriticWire | null = null;
   const degraded = [...director.degraded];
-  if (remaining >= estimateStage("round", stage, costInput(ctx, 0)) * 0.6) {
+  if (remaining >= estimateStage("round", stage, { ...costInput(ctx, 0), refSheets: refSheets.length }) * 0.6) {
     try {
-      wire = await generateStructured({
+      const common = {
         feature: "video.director.critica",
         model: stage.model,
         thinking: stage.effort ? { effort: stage.effort } : null,
@@ -639,14 +837,17 @@ async function critique(projectId: string, round: number, sheets: { key: string;
           duration: timeline.duration,
           rhythm: rhythmText(planRhythm(plan, words, duration)),
           locks: locksText(director.request),
+          request: parsed ? requestText(parsed) : undefined,
+          reference: reference ? referenceText(reference, sheets.length) : undefined,
         }),
-        images: await sheetImages(sheets),
-        imageSizes: sheets.map((s) => ({ width: s.width, height: s.height })),
-        schema: criticWireSchema,
+        images: [...(await sheetImages(sheets)), ...(await sheetImages(refSheets))],
+        imageSizes: [...sheets, ...refSheets].map((s) => ({ width: s.width, height: s.height })),
         maxTokens: 12000,
         timeoutMs: 280_000,
-        fake: () => simulateCritic(rules, frames),
-      });
+      };
+      wire = parsed?.items.length
+        ? await generateStructured({ ...common, schema: criticEditWireSchema, fake: () => ({ ...simulateCritic(rules, frames), request: simulateRequestCheck(parsed, director.edits.find((e) => e.id === active?.id)?.compliance ?? []) }) })
+        : await generateStructured({ ...common, schema: criticWireSchema, fake: () => simulateCritic(rules, frames) });
     } catch (error) {
       console.error("[director] crítica sin IA:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
     }
@@ -673,6 +874,26 @@ async function critique(projectId: string, round: number, sheets: { key: string;
     at: new Date().toISOString(),
   };
   const rounds = [...director.rounds, record];
+  // Pedido: lo que el crítico vio de cada parte se junta con lo medido. Si falta algo que se puede arreglar y queda
+  // tope, otra vuelta del director dirigida a eso (con lo que encontró el crítico).
+  if (active && parsed?.items.length) {
+    const entry = director.edits.find((e) => e.id === active.id);
+    if (entry) {
+      const compliance = mergeCompliance(entry.compliance ?? [], wire?.request ?? null);
+      const edits = upsertEdit(director.edits, { ...entry, compliance });
+      const missing = missingOf(compliance);
+      const input = { ...costInput(ctx, 6), refSheets: refSheets.length };
+      const again = planEdit({ ...input, remaining: ctx.cap - (await spentUsd(projectId)) });
+      if (missing.length && active.attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= estimateRevise(again.director, input)) {
+        const focus = [...missing, ...issues.filter((i) => i.severity !== "baja").slice(0, 3).map((i) => `${i.note} → ${i.fix}`)];
+        const pending: PendingRequest = { kind: entry.source === "arreglo" ? "fix" : "edit", instruction: entry.instruction, id: entry.id, attempt: active.attempt + 1, focus, baseline: active.baseline, changes: entry.changes.filter((c) => c !== "No hizo falta cambiar nada."), spentAtStart: active.spentAtStart, reference: active.referenceId && director.reference?.id === active.referenceId ? { id: active.referenceId, source: director.reference.source } : null };
+        record.fixed = true;
+        await saveDirector(projectId, { ...director, rounds, degraded, edits, pending });
+        return { next: { step: "edit", label: `Corrigiendo lo que faltó de tu pedido (vuelta ${active.attempt + 2})` }, status: "PROCESSING" };
+      }
+      director.edits = edits;
+    }
+  }
   const serious = issues.some((i) => i.severity !== "baja");
   const revisions = director.rounds.filter((r) => r.fixed).length;
   if (serious && score < 90 && revisions < roundLimit(director)) {
@@ -699,10 +920,31 @@ async function finalize(projectId: string): Promise<{ next: DirectorNext; status
   // Lo que pidió la persona vuelve si un arreglo lo quitó (salvo que tape el producto o la pantalla).
   const locked = enforceLocks(plan, project.plan as EditPlan, director.request, protectedZones(director.map, transcript.words).zones);
   if (locked.restored.length && planSchemaFor(transcript.words.length).safeParse(locked.plan).success) plan = locked.plan;
+  // El piso del pedido otra vez (un arreglo seguro no puede deshacer lo que pidió la persona).
+  const parsed = director.request?.parsed ?? null;
+  if (parsed?.items.length && fixed.changes.length) {
+    const words = transcript.words;
+    const kept = enforceRequest(plan, parsed, { words, duration, forbidden: protectedZones(director.map, words).zones, mustKeep: [], faceWords: faceWordsOf(readEyes(project.eyes), words) });
+    if (planSchemaFor(words.length).safeParse(kept.plan).success) plan = kept.plan;
+  }
   const rounds = [...director.rounds];
   const last = rounds.at(-1);
   if (last && fixed.changes.length) rounds[rounds.length - 1] = { ...last, fixed: true, verdict: `${last.verdict} ${fixed.changes.join(" ")}`.slice(0, 600) };
-  await saveDirector(projectId, { ...director, rounds, pending: null, steps: [...director.steps, "finalize"] }, { plan, status: "AWAITING_REVIEW", errorMessage: null });
+  // Cierre del pedido: lo que se cumplió medido sobre el plan final y lo que costó.
+  let edits = director.edits;
+  const active = director.active;
+  if (active) {
+    const entry = edits.find((e) => e.id === active.id);
+    if (entry && parsed?.items.length) {
+      const words = transcript.words;
+      const rules = checkCompliance(parsed, { before: active.baseline, after: plan, words, duration, reference: entry.reference ?? null, answers: (entry.compliance ?? []).filter((c) => c.by === "ai").map((c) => ({ item: c.n, status: c.status === "revisar" ? "hecho" : c.status, note: c.detail })) });
+      const byN = new Map((entry.compliance ?? []).map((c) => [c.n, c]));
+      // Lo que ya juzgó la IA (y no se mide) se queda como estaba; lo medible se vuelve a medir.
+      const compliance = rules.map((r) => (r.by === "ai" || r.status === "revisar" ? (byN.get(r.n) ?? r) : r));
+      edits = upsertEdit(edits, { ...entry, compliance, costUsd: Math.max(0, (await spentUsd(projectId)) - active.spentAtStart) });
+    }
+  }
+  await saveDirector(projectId, { ...director, rounds, edits, pending: null, active: null, steps: [...director.steps, "finalize"] }, { plan, status: "AWAITING_REVIEW", errorMessage: null });
   // "Hazlo por mí" (y los clips con "Exportar directo"): se exporta apenas está el plan.
   const { maybeAutoExport } = await import("../auto-export");
   await maybeAutoExport(projectId);
@@ -779,7 +1021,7 @@ async function finalReview(projectId: string, sheets: { key: string; width: numb
  * "Edítalo así" (y "Arreglarlo" de la revisión final): el pedido pasa por el director con todo el contexto. El video
  * vuelve a "procesando" un momento (el worker arma la vista previa para la segunda mirada) y después a la revisión.
  */
-export async function requestEdit(projectId: string, instruction: string, kind: "edit" | "fix", userId: string | null): Promise<void> {
+export async function requestEdit(projectId: string, instruction: string, kind: "edit" | "fix", userId: string | null, attach: { link?: string | null; upload?: boolean } = {}): Promise<void> {
   const project = await loadProject(projectId);
   if (!project) throw new VideoError("No encontramos ese proyecto.");
   if (!project.plan || !project.transcript) throw new VideoError("Este video todavía no está listo para editar.");
@@ -787,16 +1029,76 @@ export async function requestEdit(projectId: string, instruction: string, kind: 
   const clean = instruction.trim().slice(0, 600);
   if (clean.length < 3) throw new VideoError("Escribe qué quieres cambiar.");
   const director = readDirector(project.director);
+  // Referencia: el link adjunto, uno pegado en el texto o el archivo que se acaba de subir.
+  let source: ReferenceSource | null = null;
+  const link = attach.link?.trim() || findLinks(clean)[0] || null;
+  if (attach.upload) {
+    const up = director.refUpload;
+    if (!up) throw new VideoError("No encontramos el video de referencia. Vuelve a subirlo.");
+    const info = await fileInfo(up.key);
+    if (!info || info.size === 0) throw new VideoError("La subida de la referencia no terminó. Vuelve a elegir el archivo.");
+    source = { kind: "upload", key: up.key, name: up.name };
+  } else if (link) {
+    if (!isReferenceLink(link)) throw new VideoError("Ese link no es de Instagram, TikTok ni YouTube. Pega otro o sube el video.");
+    source = { kind: "link", url: link };
+  }
+  const reference = source ? { id: newReferenceId(), source } : null;
+  const transcript = project.transcript as Transcript;
+  const duration = ((project.media ?? {}) as MediaInfo).duration || transcript.duration;
+  const pending: PendingRequest = { kind, instruction: clean, id: newEditId(), attempt: 0, baseline: planBaseline(project.plan as EditPlan, transcript.words, duration), changes: [], spentAtStart: await spentUsd(projectId), reference };
   await getDb()
     .update(schema.videoProjects)
     .set({
       status: "PROCESSING",
       errorMessage: null,
       autoExport: false,
-      director: { ...director, pending: { kind, instruction: clean }, updatedAt: new Date().toISOString() } as unknown as Record<string, unknown>,
+      director: {
+        ...director,
+        pending,
+        active: null,
+        ...(reference ? { reference: { id: reference.id, source: reference.source, status: "pending", at: new Date().toISOString() } satisfies DirectorReference } : {}),
+        ...(attach.upload ? { refUpload: null } : {}),
+        updatedAt: new Date().toISOString(),
+      } as unknown as Record<string, unknown>,
     })
     .where(and(eq(schema.videoProjects.id, projectId), sql`${schema.videoProjects.status} in ('AWAITING_REVIEW', 'DONE')`));
   await enqueueJob({ type: "VIDEO_ANALYZE", videoProjectId: projectId, createdBy: userId, stage: "En cola", input: { projectId, sourceKey: project.sourceKey, mode: "edit" } });
+}
+
+/** Reserva la ruta para subir un video de referencia desde el Estudio (va directo del navegador al almacenamiento). */
+export async function reserveReferenceUpload(projectId: string, file: { fileName: string; fileType: string; fileSize: number }): Promise<{ key: string }> {
+  const project = await loadProject(projectId);
+  if (!project) throw new VideoError("No encontramos ese proyecto.");
+  if (project.status !== "AWAITING_REVIEW" && project.status !== "DONE") throw new VideoError("Espera a que termine lo que se está procesando.");
+  const ext = VIDEO_TYPES[file.fileType.toLowerCase()] ?? file.fileName.toLowerCase().match(/\.[a-z0-9]+$/)?.[0]?.slice(1);
+  if (!ext || !VIDEO_EXTENSIONS.includes(`.${ext}`)) throw new VideoError("Ese formato no es compatible. Sube un video MP4, MOV, WEBM o MKV.");
+  if (file.fileSize <= 0) throw new VideoError("El archivo está vacío.");
+  if (file.fileSize > REFERENCE_MAX_BYTES) throw new VideoError("La referencia pesa más de 500 MB. Usa un reel o un video corto.");
+  const key = `editor/${projectId}/referencia/subida-${Date.now().toString(36)}.${ext}`;
+  const director = readDirector(project.director);
+  await saveDirector(projectId, { ...director, refUpload: { key, bytes: file.fileSize, name: file.fileName.slice(0, 120), at: new Date().toISOString() } });
+  return { key };
+}
+
+/** Tamaño máximo de un video de referencia subido desde el Estudio. */
+export const REFERENCE_MAX_BYTES = 500 * 1024 * 1024;
+
+/** El worker terminó de mirar la referencia (o no pudo): se guarda y se borra el archivo subido. */
+async function saveReference(projectId: string, body: ReferencePayload): Promise<{ next: DirectorNext; status: string }> {
+  const project = await loadProject(projectId);
+  if (!project) throw new VideoError("No encontramos ese proyecto.");
+  const director = readDirector(project.director);
+  const brief = readBrief(project.brief);
+  const prev: DirectorReference =
+    director.reference?.id === body.id
+      ? director.reference
+      : { id: body.id, source: director.pending?.reference?.id === body.id ? director.pending.reference.source : { kind: "link", url: brief?.reference ?? "" }, status: "pending", at: new Date().toISOString() };
+  // Las hojas tienen que ser de este proyecto.
+  const sheets = (body.sheets ?? []).filter((s) => s.key.startsWith(`editor/${projectId}/referencia/`));
+  const next = referenceFromPayload(prev, { ...body, sheets });
+  if (prev.source.kind === "upload") await deleteKeys([prev.source.key]).catch(() => undefined);
+  await saveDirector(projectId, { ...director, reference: next });
+  return { next: null, status: project.status };
 }
 
 /** Cambia a una de las versiones propuestas (la actual queda como "Versión anterior"). */
@@ -825,13 +1127,12 @@ export async function saveBrief(projectId: string, brief: Brief, budgetUsd: numb
 }
 
 /** Estimación del costo de un "Edítalo así" (corrección + una segunda mirada), para mostrarla antes de pedirlo. */
-export function editEstimate(project: Pick<Project, "director" | "transcript" | "eyes" | "brollMode" | "format">): number {
+export function editEstimate(project: Pick<Project, "director" | "transcript" | "eyes" | "brollMode" | "format">, remaining: number = BUDGET.max): EditEstimate {
   const words = (project.transcript as Transcript | null)?.words.length ?? 0;
   const eyes = readEyes(project.eyes);
   const sheet = eyes?.sheets[0] ?? { width: 1296, height: 1218 };
   const input: CostInput = { words, sheets: eyes?.sheets.length ?? 0, sheet: { width: sheet.width, height: sheet.height }, broll: project.brollMode === "auto" ? 6 : 0 };
-  const budget = budgetOf(readDirector(project.director));
-  const director = budget?.director ?? { model: "deep" as const, effort: "high" as const };
-  const critic = budget?.critic ?? null;
-  return estimateRevise(director, input) + (critic ? estimateStage("round", critic, input) : 0);
+  const plan = planEdit({ ...input, remaining });
+  const withRef = planEdit({ ...input, refSheets: 2, remaining });
+  return { usd: plan.estimate.first + plan.estimate.critic, max: plan.estimate.total, withReference: withRef.estimate.first + withRef.estimate.critic, model: plan.director.model === "deep" ? "Opus" : "Sonnet", rounds: 1 + plan.extraRounds, degraded: plan.degraded };
 }

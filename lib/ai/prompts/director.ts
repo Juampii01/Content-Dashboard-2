@@ -3,6 +3,8 @@ import { sceneWireSchema } from "@/lib/ai/prompts/motion";
 import { FX_KINDS } from "@/lib/video/fx/catalog";
 import { FX_DIRECTOR_RULES } from "@/lib/video/fx/director";
 import { BAD_TAKE_KINDS, BEAT_ROLES, BRIEF_GOALS, ISSUE_KINDS, SHOT_KINDS, VIDEO_KINDS, type BriefGoal } from "@/lib/video/director/types";
+import type { PlanSettings } from "@/lib/video/director/request";
+import { CAPTION_PRESET_KEYS } from "@/lib/video/types";
 
 /**
  * Prompts del director de edición (lib/video/director), versión 1.
@@ -15,7 +17,7 @@ import { BAD_TAKE_KINDS, BEAT_ROLES, BRIEF_GOALS, ISSUE_KINDS, SHOT_KINDS, VIDEO
  * Los esquemas que van a la API son chicos y planos (la salida estructurada compila una gramática con tamaño máximo):
  * los gráficos viajan en el formato de cable de motion.ts y todo lo demás se valida y se arma después en el servidor.
  */
-export const DIRECTOR_PROMPT_VERSION = 1;
+export const DIRECTOR_PROMPT_VERSION = 2;
 
 const IDIOMA = `IDIOMA: todo lo que escribes para la persona ("why", "summary", "note", "fix", "verdict", "changes") va corto, concreto y en español neutro con trato de "tú": sin voseo ni español de España, "video" sin tilde. Los textos que salen en pantalla (gráficos) van en el idioma de la marca (ver IDIOMA en la marca). Lo que la persona DICE en el video es su forma de hablar (voseo, modismos de su país): nunca lo señales como problema ni lo menciones en warning; los subtítulos lo transcriben tal cual. Quien lee esos textos es un creador o un editor, no un programador: para señalar un momento cita la frase entre comillas o di el segundo (por ejemplo "en «este video es para vos», 0:12"); NUNCA escribas números de palabra ("palabras 67–87", "de 235 a 254"), ids de bloques o candidatos ("B4", "C3", "S2") ni valores internos en inglés ("fast", "calm", "keyword", "quote"): di "ritmo rápido", "pausado", "palabra clave", "frase fuerte".`;
 
@@ -108,7 +110,13 @@ Cada decisión va como un elemento de "actions": {"type", "from_word", "to_word"
 - broll: data {"kind": "stock" | "graphic", "query_en", "keywords": [...], "graphic": escena o null, "why"}. La escena va como en las reglas de motion graphics ({"title", "mode", "position", "layers": [{"kind", "component", "spec"}]}); en las capas, spec puede ir como objeto.
 - caption_hide: data {"why"}
 - effect: data {"kind": nombre del efecto, "text", "items": [...], "why"}
-- variant: from_word y to_word son su gancho (-1 y -1 = el mismo gancho), data {"label", "why", "extra_cuts": [{"from_word", "to_word"}], "keep_broll": true | false}`;
+- variant: from_word y to_word son su gancho (-1 y -1 = el mismo gancho), data {"label", "why", "extra_cuts": [{"from_word", "to_word"}], "keep_broll": true | false}
+AJUSTES (los mismos que la persona puede tocar a mano en el Estudio; úsalos para cumplir un pedido de la persona o imitar una REFERENCIA, casi nunca en la primera dirección):
+- captions (from_word = to_word = -1): data {"preset": "caja" | "hormozi" | "karaoke" | "palabra" | "minimal" | "resaltador" | "clasico" | "pop" | "ninguno", "size": 0.6 a 2 (multiplica el tamaño actual: 1.3 = 30 % más grandes), "position": "arriba" | "centro" | "abajo", "emoji": true | false}. Todos los campos son opcionales: manda solo lo que cambia.
+- audio (-1, -1): data {"music": "on" | "off", "volume": "mas_alto" | "mas_bajo", "sfx": "off" | "subtle" | "strong", "studio": "off" | "soft" | "strong"} (studio = audio de estudio: quita ruido y eco).
+- look: from_word y to_word = el tramo (-1 y -1 = todos), data {"target": "graficos" | "broll" | "efectos", "layout": "full" | "split" | "card" | "side" (side solo en 16:9), "filter": "none" | "bw" | "duotone" | "warm" | "cool", "size": 0.5 a 2, "y": -0.4 a 0.4 (negativo = más arriba), "anim_in" y "anim_out": "aparecer" | "deslizar_arriba" | "deslizar_lado" | "pop" | "escribir" | "ninguna"}
+- settings (-1, -1): data {"density": "sobria" | "normal" | "reels", "format": "9:16" | "16:9", "zooms": "off"} (zooms "off" = sin ningún zoom en todo el video).
+ANSWERS: cuando hay un PEDIDO DE LA PERSONA EN PARTES, "answers" lleva una respuesta por parte: {"item": su número, "status": "hecho" | "parcial" | "no", "note": qué hiciste o, si no se pudo del todo, por qué, en una frase para la persona}. Sin pedido, answers va vacío.`;
 
 export const DIRECTOR_RULES = `Eres el director de edición de este creador: un editor humano senior que cobra por video y cuida que cada decisión tenga sentido para la historia. Ya miraste el video (MAPA) y conoces la marca. Decides TODA la edición junta, con una comprensión común de la historia: cortes, orden, gancho, b-roll, gráficos, palabras resaltadas, zooms, ritmo y versiones. Cada decisión lleva su "why" corto para la persona (qué ganas con eso).
 
@@ -193,7 +201,8 @@ export const directorWireSchema = z.object({
   ),
   changes: z.array(z.string()).describe("Solo al corregir: qué cambiaste, en frases cortas. Vacío la primera vez."),
 });
-export type DirectorWire = z.infer<typeof directorWireSchema>;
+/** El plan del director con los ajustes y las respuestas al pedido (lo que no viaja en directorWireSchema). */
+export type DirectorWire = z.infer<typeof directorWireSchema> & { settings?: PlanSettings | null; answers?: z.infer<typeof answerSchema>[] };
 
 // ─── Formato que viaja a la API ───────────────────────────────────────────
 //
@@ -202,7 +211,26 @@ export type DirectorWire = z.infer<typeof directorWireSchema>;
 // sola lista de acciones { type, from_word, to_word, data } con `data` en JSON; al volver se leen con los esquemas
 // de arriba (directorWireSchema) y la acción que no se entiende se descarta.
 
-const ACTION_TYPES = ["cut", "hook", "move", "emphasis", "zoom", "broll", "caption_hide", "effect", "variant"] as const;
+const ACTION_TYPES = ["cut", "hook", "move", "emphasis", "zoom", "broll", "caption_hide", "effect", "variant", "captions", "audio", "look", "settings"] as const;
+
+const ANIM = z.enum(["aparecer", "deslizar_arriba", "deslizar_lado", "pop", "escribir", "ninguna"]);
+/** Los ajustes que llegan en las acciones captions, audio, look y settings (se validan aquí y se aplican en request.ts). */
+export const settingsActionSchemas = {
+  captions: z.object({ preset: z.enum(CAPTION_PRESET_KEYS).optional(), size: z.number().min(0.4).max(2.5).optional(), position: z.enum(["arriba", "centro", "abajo"]).optional(), emoji: z.boolean().optional() }),
+  audio: z.object({ music: z.enum(["on", "off"]).optional(), volume: z.enum(["mas_alto", "mas_bajo"]).optional(), sfx: z.enum(["off", "subtle", "strong"]).optional(), studio: z.enum(["off", "soft", "strong"]).optional() }),
+  look: z.object({
+    target: z.enum(["graficos", "broll", "efectos"]),
+    layout: z.enum(["full", "split", "card", "side"]).optional(),
+    filter: z.enum(["none", "bw", "duotone", "warm", "cool"]).optional(),
+    size: z.number().min(0.3).max(2.5).optional(),
+    y: z.number().min(-0.5).max(0.5).optional(),
+    anim_in: ANIM.optional(),
+    anim_out: ANIM.optional(),
+  }),
+  settings: z.object({ density: z.enum(["sobria", "normal", "reels"]).optional(), format: z.enum(["9:16", "16:9"]).optional(), zooms: z.enum(["off"]).optional() }),
+};
+
+export const answerSchema = z.object({ item: z.number().int(), status: z.enum(["hecho", "parcial", "no"]), note: z.string() });
 
 export const directorApiSchema = z.object({
   summary: z.string().describe("Qué hiciste y por qué, en 2 o 3 frases para la persona."),
@@ -219,6 +247,7 @@ export const directorApiSchema = z.object({
     )
     .describe("Todas las decisiones de la edición, una por elemento."),
   changes: z.array(z.string()).describe("Solo al corregir: qué cambiaste, en frases cortas. Vacío la primera vez."),
+  answers: z.array(answerSchema).describe("Una por cada parte del PEDIDO DE LA PERSONA (vacío si no hay pedido)."),
 });
 export type DirectorApi = z.infer<typeof directorApiSchema>;
 
@@ -245,6 +274,9 @@ function normalizeGraphic(g: unknown): unknown {
 /** Respuesta de la API → plan del director (las acciones que no se entienden se descartan). */
 export function directorFromApi(api: DirectorApi): DirectorWire {
   const out: DirectorWire = { summary: api.summary, warning: api.warning, pace: api.pace, cuts: [], hooks: [], moves: [], emphasis_words: [], zooms: [], broll: [], caption_hide: [], effects: [], variants: [], changes: api.changes ?? [] };
+  const answers = (api.answers ?? []).filter((a) => answerSchema.safeParse(a).success);
+  if (answers.length) out.answers = answers;
+  const settings: PlanSettings = {};
   for (const a of api.actions ?? []) {
     const d = parseData(a.data);
     const range = { from_word: a.from_word, to_word: a.to_word };
@@ -280,8 +312,35 @@ export function directorFromApi(api: DirectorApi): DirectorWire {
       case "variant":
         push(W.variants.element, out.variants, { label: "", why: "", extra_cuts: [], keep_broll: true, ...d, hook_from_word: a.from_word, hook_to_word: a.to_word });
         break;
+      case "captions": {
+        const r = settingsActionSchemas.captions.safeParse(d);
+        if (r.success) {
+          const { size, preset, ...rest } = r.data;
+          settings.captions = { ...settings.captions, ...rest, ...(size != null ? { scale: size } : {}), ...(preset === "ninguno" ? { off: true } : preset ? { preset } : {}) };
+        }
+        break;
+      }
+      case "audio": {
+        const r = settingsActionSchemas.audio.safeParse(d);
+        if (r.success) settings.audio = { ...settings.audio, ...(r.data.music ? { music: r.data.music === "on" } : {}), ...(r.data.volume ? { music: true, louder: r.data.volume === "mas_alto" } : {}), ...(r.data.sfx ? { sfx: r.data.sfx } : {}), ...(r.data.studio ? { studio: r.data.studio } : {}) };
+        break;
+      }
+      case "look": {
+        const r = settingsActionSchemas.look.safeParse(d);
+        if (r.success) {
+          const { anim_in, anim_out, ...rest } = r.data;
+          settings.look = [...(settings.look ?? []), { ...rest, ...(a.from_word >= 0 && a.to_word >= 0 ? { from: a.from_word, to: a.to_word } : {}), ...(anim_in ? { animIn: anim_in } : {}), ...(anim_out ? { animOut: anim_out } : {}) }];
+        }
+        break;
+      }
+      case "settings": {
+        const r = settingsActionSchemas.settings.safeParse(d);
+        if (r.success) Object.assign(settings, r.data);
+        break;
+      }
     }
   }
+  if (Object.keys(settings).length) out.settings = settings;
   return out;
 }
 
@@ -307,7 +366,18 @@ export function directorToApi(w: DirectorWire): DirectorApi {
     const { hook_from_word, hook_to_word, ...rest } = v;
     add("variant", hook_from_word, hook_to_word, rest);
   }
-  return { summary: w.summary, warning: w.warning, pace: w.pace, actions, changes: w.changes };
+  const s = w.settings;
+  if (s?.captions) {
+    const { scale, off, preset, ...rest } = s.captions;
+    add("captions", -1, -1, { ...rest, ...(scale != null ? { size: scale } : {}), ...(off ? { preset: "ninguno" } : preset ? { preset } : {}) });
+  }
+  if (s?.audio) add("audio", -1, -1, { ...(s.audio.music != null ? { music: s.audio.music ? "on" : "off" } : {}), ...(s.audio.louder != null ? { volume: s.audio.louder ? "mas_alto" : "mas_bajo" } : {}), ...(s.audio.sfx ? { sfx: s.audio.sfx } : {}), ...(s.audio.studio ? { studio: s.audio.studio } : {}) });
+  for (const l of s?.look ?? []) {
+    const { from, to, animIn, animOut, ...rest } = l;
+    add("look", from ?? -1, to ?? -1, { ...rest, ...(animIn ? { anim_in: animIn } : {}), ...(animOut ? { anim_out: animOut } : {}) });
+  }
+  if (s && (s.density || s.format || s.zooms)) add("settings", -1, -1, { ...(s.density ? { density: s.density } : {}), ...(s.format ? { format: s.format } : {}), ...(s.zooms ? { zooms: s.zooms } : {}) });
+  return { summary: w.summary, warning: w.warning, pace: w.pace, actions, changes: w.changes, answers: w.answers ?? [] };
 }
 
 export type DirectorTaskInput = {
@@ -330,6 +400,10 @@ export type DirectorTaskInput = {
   locks?: string;
   /** Al corregir: el plan actual y lo que hay que cambiar. */
   revise?: { plan: string; issues: string; instruction: string | null } | null;
+  /** El pedido de la persona en partes, con los topes ya ajustados y lo que faltó en la vuelta anterior. */
+  request?: string;
+  /** Una referencia de edición (medidas y qué pasa en cada momento; sus hojas van en las imágenes). */
+  reference?: string;
 };
 
 export function directorTask(input: DirectorTaskInput): string {
@@ -343,7 +417,7 @@ DATOS
 ${input.forbidden}
 - ${input.effects}
 - ${input.rhythm}
-${input.locks ? `\n${input.locks}\n` : ""}
+${input.locks ? `\n${input.locks}\n` : ""}${input.request ? `\n${input.request}\n` : ""}${input.reference ? `\n${input.reference}\n` : ""}
 BRIEF
 ${input.brief}
 
@@ -370,7 +444,7 @@ PLAN ACTUAL
 ${input.revise.plan}
 ${input.revise.issues ? `\nPROBLEMAS QUE ENCONTRÓ LA REVISIÓN (arréglalos sin romper lo que está bien)\n${input.revise.issues}\n` : ""}${
         input.revise.instruction
-          ? `\nLO QUE PIDE LA PERSONA ("Edítalo así")\n<pedido>\n${input.revise.instruction}\n</pedido>\nHaz lo que pide mientras no rompa las REGLAS DURAS; si algo no se puede, dilo en warning. En changes, lista lo que cambiaste.\n`
+          ? `\nLO QUE PIDE LA PERSONA ("Edítalo así")\n<pedido>\n${input.revise.instruction}\n</pedido>\nHaz TODO lo que pide, al máximo: el pedido manda sobre la densidad, Mi marca y los topes de b-roll y efectos (ver PEDIDO DE LA PERSONA, EN PARTES). Solo las REGLAS DURAS técnicas lo frenan; si algo no se puede del todo, hazlo lo más cerca posible y explícalo en answers. Para lo que no es corte, gancho, b-roll, efecto ni zoom (subtítulos, música, sonido, formato, densidad, cómo se ven los gráficos) usa los AJUSTES. En changes, lista lo que cambiaste.\n`
           : ""
       }
 Devuelve el plan completo corregido (no solo lo que cambia). Lo que no hace falta cambiar, déjalo igual.`
@@ -401,6 +475,7 @@ CÓMO RESPONDES
 - Lo que pidió la persona (PEDIDO DE LA PERSONA) y la densidad elegida son obligatorios: nunca pidas quitar un efecto o gráfico pedido, bajar el ritmo, alargar las pausas ni "calmar" la edición. Sobre eso solo marcas problemas técnicos (una frase cortada, algo que tapa el producto o la pantalla, texto encima de texto).
 - Tapar por momentos a la persona que habla a cámara (con un efecto, un gráfico o un b-roll) no es un problema: es edición. Solo es "tapa_importante" si tapa algo que se muestra (producto, pantalla, una cifra escrita).
 - ritmo: con la densidad "Editor de reels", lo malo es lo lento (un tramo largo sin cambios), no lo rápido. Usa el RITMO MEDIDO.
+- Si hay un PEDIDO DE LA PERSONA EN PARTES, revisa en los cuadros si cada parte se cumplió de verdad y respóndela en "request" (item, status hecho | parcial | no, y en note qué ves o qué falta). Si hay una REFERENCIA, compara el ritmo, los gráficos y los subtítulos de los cuadros con los de la referencia (sus cuadros R#n van al final): si no se parece, dilo en la parte de la referencia y en un issue de ritmo con el fix concreto.
 ${IDIOMA}`;
 
 export const criticWireSchema = z.object({
@@ -408,16 +483,21 @@ export const criticWireSchema = z.object({
   verdict: z.string().describe("Una o dos frases para la persona."),
   issues: z.array(z.object({ kind: z.enum(ISSUE_KINDS), severity: z.enum(["alta", "media", "baja"]), frame: z.number().int(), note: z.string(), fix: z.string() })),
 });
-export type CriticWire = z.infer<typeof criticWireSchema>;
+export type CriticWire = z.infer<typeof criticWireSchema> & { request?: z.infer<typeof answerSchema>[] };
 
-export function criticTask(input: { round: number; brief: string; map: string; plan: string; frames: string; checks: string; duration: number; final?: boolean; rhythm?: string; locks?: string }): string {
+/** Segunda mirada de un pedido de "Edítalo así": además, cómo quedó cada parte del pedido mirando los cuadros. */
+export const criticEditWireSchema = criticWireSchema.extend({
+  request: z.array(answerSchema).describe("Una por cada parte del PEDIDO DE LA PERSONA, mirando los cuadros."),
+});
+
+export function criticTask(input: { round: number; brief: string; map: string; plan: string; frames: string; checks: string; duration: number; final?: boolean; rhythm?: string; locks?: string; request?: string; reference?: string }): string {
   return `${input.final ? "Revisa el video final ya exportado." : `Revisa esta edición antes de exportar (vuelta ${input.round}).`}
 
 - Duración final: ${input.duration.toFixed(1)} s
 
 BRIEF
 ${input.brief}
-${input.locks ? `\n${input.locks}\n` : ""}${input.rhythm ? `\nRITMO MEDIDO\n${input.rhythm}\n` : ""}
+${input.locks ? `\n${input.locks}\n` : ""}${input.request ? `\n${input.request}\n` : ""}${input.reference ? `\n${input.reference}\n` : ""}${input.rhythm ? `\nRITMO MEDIDO\n${input.rhythm}\n` : ""}
 MAPA DEL VIDEO ORIGINAL
 ${input.map}
 

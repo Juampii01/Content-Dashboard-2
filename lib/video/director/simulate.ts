@@ -17,6 +17,8 @@ import { wordsInSpan } from "./context";
 import type { KeyFrame } from "./keyframes";
 import type { Brief, CriticIssue, VideoMap } from "./types";
 import { simulateEffects, type FxLimits } from "../fx/director";
+import type { StyleMetrics } from "../style";
+import { settingsFromRequest, type ComplianceItem, type ParsedRequest, type PlanSettings } from "./request";
 
 const overlaps = (a: { from: number; to: number }, b: { from: number; to: number }) => a.from <= b.to && b.from <= a.to;
 
@@ -117,6 +119,10 @@ export type SimDirectorInput = {
   instruction?: string | null;
   /** Efectos permitidos (Mi marca). Sin el campo, sin efectos. */
   fx?: FxLimits | null;
+  /** El pedido en partes (para responder cada parte y los ajustes). */
+  request?: ParsedRequest | null;
+  /** Medidas de una referencia de edición, si la hay. */
+  reference?: StyleMetrics | null;
 };
 
 export function simulateDirector(input: SimDirectorInput): DirectorWire {
@@ -227,9 +233,17 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
     .filter((f) => NUMBER_WORD.test(f.text) && !broll.some((b) => overlaps({ from: b.from_word, to: b.to_word }, { from: f.from, to: f.to })) && !removed.has(f.from))
     .slice(0, 4)
     .map((f) => ({ from_word: f.from, to_word: Math.min(f.to, f.from + 3), strength: pace === "fast" ? "marcado" : "suave", why: "Énfasis en el dato." }));
-  if (/sin zoom|quita el zoom|menos zoom|saca el zoom/.test(instruction)) {
+  if (/sin zoom|quita el zoom|menos zoom|saca el zoom|quita (todos )?los zooms|saca (todos )?los zooms/.test(instruction)) {
     zooms.length = 0;
     changes.push("Sin zooms.");
+  } else if (/m[aá]s zoom/.test(instruction)) {
+    // Uno por frase (fuera de los b-roll), alternando la fuerza.
+    zooms.length = 0;
+    for (const f of phrases) {
+      if (removed.has(f.from) || broll.some((b) => overlaps({ from: b.from_word, to: b.to_word }, { from: f.from, to: f.to }))) continue;
+      zooms.push({ from_word: f.from, to_word: Math.min(f.to, f.from + 2), strength: zooms.length % 2 ? "suave" : "marcado", why: "Más zooms, como pediste." });
+    }
+    changes.push("Más zooms.");
   }
   const emphasis = words.filter((w) => NUMBER_WORD.test(w.text) && !removed.has(w.id)).map((w) => w.id).slice(0, 8);
 
@@ -277,7 +291,16 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
   if (fxAsked) changes.push(effects.length ? "Ajusté los efectos como pediste." : "Quité los efectos.");
 
   const goal = brief.goal ?? "otro";
+  // Ajustes y respuestas a cada parte del pedido (lo que haría Claude con las acciones de ajustes).
+  const settings: PlanSettings = { ...settingsFromRequest(input.request) };
+  const answers = (input.request?.items ?? []).map((i) => ({
+    item: i.n,
+    status: (i.kind === "otro" ? "parcial" : "hecho") as "hecho" | "parcial",
+    note: i.kind === "otro" ? "Lo tuve en cuenta como pude: revisa si quedó como querías." : i.kind === "referencia" ? (input.reference ? "Copié su ritmo de cortes, sus subtítulos y la frecuencia de sus gráficos." : "No llegó la referencia.") : `${i.label}: hecho.`,
+  }));
   return {
+    ...(Object.keys(settings).length ? { settings } : {}),
+    ...(answers.length ? { answers } : {}),
     summary: `${map ? `Vi ${map.kind === "anuncio" ? "un anuncio" : "tu video"}${map.shots.some((s) => s.important) ? " con partes que muestran algo importante (no las tapé)" : ""}${map.badTakes.length ? ` y ${map.badTakes.length === 1 ? "una toma mala que corté" : `${map.badTakes.length} tomas malas que corté`}` : ""}. ` : ""}Dejé ${goal === "anuncio" ? "el gancho en los primeros segundos, ritmo alto y la CTA clara al final" : "un gancho fuerte, el contenido completo y un cierre claro"}.`,
     warning: "",
     pace,
@@ -310,4 +333,13 @@ export function simulateCritic(issues: CriticIssue[], frames: KeyFrame[]): Criti
     verdict: issues.length ? `Encontré ${issues.length === 1 ? "un detalle" : `${issues.length} detalles`} para corregir antes de exportar.` : "Se ve bien: el gancho abre fuerte, no hay tomas malas y nada importante queda tapado.",
     issues: issues.map((i) => ({ kind: i.kind, severity: i.severity, frame: frames.length ? nearest(i.at) : 0, note: i.note, fix: i.fix })),
   };
+}
+
+/** Crítico simulado en un pedido: confirma lo medido y, lo que no se mide, lo da por visto en los cuadros. */
+export function simulateRequestCheck(req: ParsedRequest, compliance: ComplianceItem[]): { item: number; status: "hecho" | "parcial" | "no"; note: string }[] {
+  return req.items.map((i) => {
+    const c = compliance.find((x) => x.n === i.n);
+    if (!c || c.status === "revisar") return { item: i.n, status: "hecho" as const, note: "Se ve en los cuadros." };
+    return { item: i.n, status: c.status, note: c.detail };
+  });
 }

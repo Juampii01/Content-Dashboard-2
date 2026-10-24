@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { formatRelative, formatUsd } from "@/lib/format";
 import type { EditRequest } from "@/lib/video/director/types";
+import type { EditEstimate } from "@/lib/video/director/cost";
 import { editAction } from "../director-actions";
 import { useHumanize } from "../studio/humanize";
 
@@ -27,7 +28,7 @@ export function EditRequestCard({
 }: {
   projectId: string;
   canEdit: boolean;
-  estimate: number;
+  estimate: EditEstimate | null;
   spent: number;
   cap: number;
   edits: EditRequest[];
@@ -37,7 +38,7 @@ export function EditRequestCard({
   const [text, setText] = useState("");
   const h = useHumanize();
   const [pending, start] = useTransition();
-  const over = spent + estimate > cap;
+  const over = spent + (estimate?.usd ?? 0) > cap;
   const last = edits.at(-1);
 
   function send() {
@@ -96,7 +97,7 @@ export function EditRequestCard({
             {pending ? "Enviando…" : "Aplicar cambios"}
           </Button>
           <p className={over ? "text-xs text-warning" : "text-xs text-muted"}>
-            Costo estimado: {formatUsd(estimate)} · llevas {formatUsd(spent)} de {formatUsd(cap)}.
+            Costo estimado: {formatUsd(estimate?.usd ?? 0)} · llevas {formatUsd(spent)} de {formatUsd(cap)}.
             {over ? " Se pasa del tope: se hará con menos vueltas de revisión." : ""}
             {dirty ? " Esperando a que se guarden tus cambios…" : ""}
           </p>

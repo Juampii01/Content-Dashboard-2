@@ -14,7 +14,7 @@ import { MODELS, type ModelKey } from "@/lib/ai/models";
 import { costOf, imageTokens } from "@/lib/ai/pricing";
 import { BUDGET } from "./types";
 
-export type Effort = "low" | "medium" | "high";
+export type Effort = "low" | "medium" | "high" | "xhigh";
 export type StagePlan = { model: ModelKey; effort: Effort | null };
 
 export type BudgetPlan = {
@@ -34,9 +34,11 @@ export type CostInput = {
   sheet: { width: number; height: number };
   /** Cuántos b-roll como mucho (cada gráfico es salida larga). */
   broll: number;
+  /** Hojas de una referencia de edición (van como imágenes a la dirección y al crítico). */
+  refSheets?: number;
 };
 
-const OUT_MULT: Record<Effort, number> = { low: 1.3, medium: 2, high: 3 };
+const OUT_MULT: Record<Effort, number> = { low: 1.3, medium: 2, high: 3, xhigh: 4 };
 
 /** Tokens de las reglas en caché (reglas + motion + marca), aproximados. */
 const RULES = { map: 2500, director: 9000, critic: 2500 } as const;
@@ -54,10 +56,10 @@ export function estimateStage(stage: "map" | "director" | "round" | "final", pla
       return costOf(model, { input: words * 9 + 600 + sheets * img, output: Math.round((1500 + words * 1.2) * mult), cacheRead: 0, cacheWrite: RULES.map + BRAND });
     }
     case "director":
-      return costOf(model, { input: words * 12 + 3000, output: Math.round((1800 + words * 0.9 + input.broll * 380) * mult), cacheRead: 0, cacheWrite: RULES.director + BRAND });
+      return costOf(model, { input: words * 12 + 3000 + (input.refSheets ?? 0) * (img + 400), output: Math.round((1800 + words * 0.9 + input.broll * 380) * mult), cacheRead: 0, cacheWrite: RULES.director + BRAND });
     case "round": {
       // Crítico (2 o 3 hojas de cuadros clave) + la corrección del director.
-      const critic = costOf(model, { input: 3500 + words * 2 + 3 * img, output: Math.round(1200 * mult), cacheRead: 0, cacheWrite: RULES.critic });
+      const critic = costOf(model, { input: 3500 + words * 2 + (3 + (input.refSheets ?? 0)) * img, output: Math.round(1200 * mult), cacheRead: 0, cacheWrite: RULES.critic });
       return critic;
     }
     case "final":
@@ -81,7 +83,7 @@ export function planBudget(input: CostInput & { capUsd: number; spentUsd: number
   const remaining = Math.max(0, input.capUsd - input.spentUsd);
   const plan: BudgetPlan = {
     map: { model: "deep", effort: "medium", sheets: "all" },
-    director: { model: "deep", effort: "high" },
+    director: { model: "deep", effort: "xhigh" },
     critic: { model: "deep", effort: "medium", rounds: 2 },
     final: { model: "deep", effort: "low" },
     degraded: [],
@@ -101,6 +103,7 @@ export function planBudget(input: CostInput & { capUsd: number; spentUsd: number
     ["La revisión final la hace un modelo más económico.", () => (plan.final = plan.final && { model: "main", effort: null })],
     ["Una sola vuelta de segunda mirada (en lugar de dos).", () => plan.critic && (plan.critic.rounds = 1)],
     ["El mapa del video mira la mitad de los cuadros.", () => (plan.map.sheets = "half")],
+    ["La dirección razona un poco menos.", () => (plan.director = { model: "deep", effort: "high" })],
     ["La segunda mirada la hace un modelo más económico.", () => plan.critic && (plan.critic = { model: "main", effort: null, rounds: plan.critic.rounds })],
     ["El mapa del video lo arma un modelo más económico.", () => (plan.map = { model: "main", effort: null, sheets: plan.map.sheets })],
     ["Sin revisión final con IA (solo las verificaciones automáticas).", () => (plan.final = null)],
@@ -115,6 +118,48 @@ export function planBudget(input: CostInput & { capUsd: number; spentUsd: number
     plan.degraded.push(note);
     total = compute();
   }
+  return plan;
+}
+
+/**
+ * Plan de costo de un pedido de "Edítalo así": Opus con el máximo razonamiento que entra en lo que queda del tope,
+ * un crítico con visión (cuadros del resultado y de la referencia) y hasta 2 vueltas más si una parte del pedido no se
+ * cumplió. Solo baja de modelo si de verdad no alcanza.
+ */
+export type EditBudget = { director: StagePlan; critic: StagePlan | null; extraRounds: number; estimate: { first: number; critic: number; round: number; total: number }; degraded: string[] };
+
+const EDIT_DIRECTORS: StagePlan[] = [
+  { model: "deep", effort: "xhigh" },
+  { model: "deep", effort: "high" },
+  { model: "deep", effort: "medium" },
+  { model: "main", effort: "high" },
+  { model: "main", effort: null },
+];
+const EDIT_CRITICS: (StagePlan | null)[] = [{ model: "deep", effort: "medium" }, { model: "main", effort: null }, null];
+export const MAX_EDIT_ROUNDS = 2;
+
+/** Lo que se muestra antes de pedir un cambio: cuánto cuesta la primera vuelta (con y sin referencia), el tope con todas las vueltas y con qué modelo. */
+export type EditEstimate = { usd: number; max: number; withReference: number; model: "Opus" | "Sonnet"; rounds: number; degraded: string[] };
+
+export function planEdit(input: CostInput & { remaining: number }): EditBudget {
+  const remaining = Math.max(0, input.remaining);
+  let pick: EditBudget | null = null;
+  outer: for (const director of EDIT_DIRECTORS) {
+    for (const critic of EDIT_CRITICS) {
+      const first = estimateRevise(director, input);
+      const crit = critic ? estimateStage("round", critic, input) : 0;
+      if (first + crit <= remaining || (director === EDIT_DIRECTORS.at(-1) && critic === null)) {
+        const round = first;
+        const extraRounds = Math.max(0, Math.min(MAX_EDIT_ROUNDS, Math.floor((remaining - first - crit) / Math.max(1e-6, round + crit))));
+        pick = { director, critic, extraRounds, estimate: { first: r4(first), critic: r4(crit), round: r4(round + crit), total: r4(first + crit + extraRounds * (round + crit)) }, degraded: [] };
+        break outer;
+      }
+    }
+  }
+  const plan = pick!;
+  if (plan.director.model !== "deep") plan.degraded.push("Este pedido lo dirigió un modelo más económico: no alcanzaba el tope para Opus.");
+  else if (plan.director.effort !== "xhigh") plan.degraded.push("Este pedido se dirigió con menos razonamiento para no pasar el tope.");
+  if (!plan.critic) plan.degraded.push("Sin segunda mirada con IA en este pedido (solo verificaciones automáticas).");
   return plan;
 }
 

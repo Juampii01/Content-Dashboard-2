@@ -8,7 +8,7 @@ cada slide. Aquí no hay ajustes a mano: el movimiento es del slide entero y sie
 - latido: crece y vuelve, como si respirara (cada 2 s; en bucle).
 
 Formatos: 4:5 (1080×1350, el slide tal cual) o 9:16 (1080×1920, el slide al centro sobre su propio fondo difuminado
-y oscurecido). Cada cuadro se dibuja con Pillow (transformación afín con interpolación bicúbica: el movimiento es
+y oscurecido). Cada cuadro se dibuja con Pillow (transformación afín con interpolación bilineal: el movimiento es
 suave aunque sea de medio píxel) y va por un pipe a ffmpeg (H.264, yuv420p, +faststart, sin sonido).
 """
 
@@ -54,18 +54,26 @@ def background(slide: Image.Image, size: tuple[int, int]) -> Image.Image:
 
 
 def frame(slide: Image.Image, bg: Image.Image | None, size: tuple[int, int], scale: float, dx: float, dy: float) -> Image.Image:
+    """Un cuadro: el slide escalado y desplazado (con decimales) sobre el lienzo.
+
+    Pillow pide la transformación inversa (lienzo → slide). Con escalas cerca de 1 la interpolación bilineal se ve
+    igual que la bicúbica y cuesta la mitad. En 9:16 solo se transforma el rectángulo del slide (bordes hacia adentro,
+    se pierde menos de un píxel del borde) y se pega sobre el fondo ya hecho.
+    """
     w, h = size
-    # Centro del slide en el lienzo, más el desplazamiento. Pillow pide la transformación inversa (lienzo → slide).
     cx, cy = w / 2 + dx, h / 2 + dy
     sx, sy = slide.width / 2, slide.height / 2
     inv = 1.0 / scale
-    coeffs = (inv, 0.0, sx - cx * inv, 0.0, inv, sy - cy * inv)
     if bg is None:
-        return slide.transform(size, Image.Transform.AFFINE, coeffs, resample=Image.Resampling.BICUBIC, fillcolor=slide.getpixel((0, 0)))
-    layer = slide.convert("RGBA").transform(size, Image.Transform.AFFINE, coeffs, resample=Image.Resampling.BICUBIC, fillcolor=(0, 0, 0, 0))
-    out = bg.convert("RGBA")
-    out.alpha_composite(layer)
-    return out.convert("RGB")
+        coeffs = (inv, 0.0, sx - cx * inv, 0.0, inv, sy - cy * inv)
+        return slide.transform(size, Image.Transform.AFFINE, coeffs, resample=Image.Resampling.BILINEAR)
+    x0, y0 = max(0, math.ceil(cx - sx * scale)), max(0, math.ceil(cy - sy * scale))
+    x1, y1 = min(w, math.floor(cx + sx * scale)), min(h, math.floor(cy + sy * scale))
+    coeffs = (inv, 0.0, (x0 - cx) * inv + sx, 0.0, inv, (y0 - cy) * inv + sy)
+    region = slide.transform((x1 - x0, y1 - y0), Image.Transform.AFFINE, coeffs, resample=Image.Resampling.BILINEAR)
+    out = bg.copy()
+    out.paste(region, (x0, y0))
+    return out
 
 
 def ffmpeg_bin() -> str:
@@ -86,13 +94,13 @@ def render(source: Path, dest: Path, *, motion: str, fmt: str, seconds: float, f
     if slide.size != (SLIDE_W, SLIDE_H):
         slide = ImageOps.fit(slide, (SLIDE_W, SLIDE_H), Image.Resampling.BICUBIC)
     size = FORMATS[fmt]
-    bg = background(slide, size) if fmt == "9:16" else None
+    bg = background(slide, size).convert("RGB") if fmt == "9:16" else None
     total = int(round(seconds * fps))
     dest.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         ffmpeg_bin(), "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}", "-r", str(fps), "-i", "-",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an",
         str(dest),
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)

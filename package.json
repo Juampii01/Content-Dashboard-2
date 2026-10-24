@@ -23,6 +23,7 @@
     "test:clon": "node --conditions=react-server --import tsx --test tests/heygen-translation.test.mts",
     "test:score": "node --import tsx --test tests/score.test.mts",
     "test:copia": "node --conditions=react-server --import tsx --test tests/reel-copy.test.mts",
+    "test:carruseles": "node --import tsx --test tests/carruseles-creator.test.mts",
     "test:sistema": "node --import tsx --test tests/onboarding.test.mts tests/system-status.test.mts",
     "test:estratega": "node --conditions=react-server --import tsx --test tests/estratega.test.mts",
     "test:jugo": "node --conditions=react-server --experimental-test-module-mocks --import tsx --test tests/jugo-autopiloto.test.mts",

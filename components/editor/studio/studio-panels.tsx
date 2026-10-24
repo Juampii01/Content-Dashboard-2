@@ -19,6 +19,7 @@ import { VariantsPanel } from "../director/variants-panel";
 import { FxLibraryGrid, SearchBox, TransitionTile } from "../fx/fx-library";
 import { LibraryMusic } from "./library-music";
 import { LibrarySounds } from "./library-sounds";
+import { MyEffectsSection } from "./library-mine";
 import { startLibraryDrag, type LibraryDrop, type StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
@@ -253,6 +254,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
       </div>
       <p className="text-xs text-muted">{edit ? (tab === "transiciones" ? "Toca una para ponerla donde está el cabezal, o arrástrala a cualquier punto de la línea de tiempo. Si la sueltas sobre un rombo, va en ese corte." : tab === "musica" ? "Elige la música de fondo: va debajo de tu voz y baja sola cuando hablas." : "Toca para agregarlo donde está el cabezal, o arrástralo a la línea de tiempo.") : "Solo lectura: tu usuario no puede editar."}</p>
 
+      {tab === "efectos" && <MyEffectsSection canEdit={edit} onAdd={onAdd} />}
       {tab === "efectos" && <FxLibraryGrid brand={api.fxBrand} onPick={edit ? (kind) => onAdd({ type: "fx", kind }) : null} dragData={edit ? (kind) => JSON.stringify({ type: "fx", kind } satisfies LibraryDrop) : undefined} />}
 
       {tab === "transiciones" && (

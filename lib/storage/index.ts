@@ -13,6 +13,7 @@ import { env } from "@/lib/env";
 export {
   AUDIO_EXTENSIONS,
   AUDIO_TYPES,
+  copyKey,
   deleteKeys,
   deletePrefix,
   fileDriver,

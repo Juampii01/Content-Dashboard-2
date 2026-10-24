@@ -147,13 +147,43 @@ export const composPlanWireSchema = z.object({
     )
     .max(2)
     .describe("Imágenes que hay que generar con IA (mapas, objetos, lugares, ilustraciones). Vacío si todo se dibuja con código o con el video."),
+  reuse: z.string().describe('Id de un efecto de MIS EFECTOS que hace JUSTO lo que se pide (se usa tal cual, sin escribir código nuevo). Vacío "" si ninguno encaja de verdad.'),
+  reuse_params: z.array(z.object({ key: z.string(), value: z.string() })).describe("Si reusas: sus textos editables con lo que dice la persona en este tramo (mismas claves). Vacío si no reusas."),
 });
 
-export function composPlanTask(input: { brief: string; said: string; duration: number; format: string; hasImages: boolean }): string {
+export function composPlanTask(input: { brief: string; said: string; duration: number; format: string; hasImages: boolean; library?: string | null; copy?: boolean }): string {
   return `ANIMACIÓN A CONSTRUIR (${input.duration.toFixed(1)} s, ${input.format}): ${input.brief}
 LO QUE DICE LA PERSONA EN ESE TRAMO: «${input.said}»
 ${input.hasImages ? "Hay un generador de imágenes disponible (cuenta del cliente): pide imágenes SOLO si la animación muestra algo que no se puede dibujar bien con formas y texto (un mapa real, un objeto, un lugar, una ilustración)." : "No hay generador de imágenes conectado: todo se dibuja con código y el video."}
+${
+  input.library
+    ? `MIS EFECTOS (animaciones que la marca ya creó y guardó; reusar una cuesta mucho menos que escribir otra):
+${input.library}
+Reúsala SOLO si hace lo que se pide${input.copy ? " y se parece de verdad al momento de la referencia (si la referencia hace otra cosa, escribe una nueva)" : ""}: mismo tipo de movimiento y de composición. No la fuerces. Si reusas, pon su id en "reuse", sus textos adaptados en "reuse_params" y deja "images" vacío.`
+    : 'No hay efectos guardados que encajen: deja "reuse" vacío.'
+}
 Decide el enfoque y si necesitas imágenes.`;
+}
+
+// ─── Textos de un efecto guardado en otro tramo ──────────────────────────
+
+export const EFFECT_PARAMS_RULES = `Adaptas los textos de una animación ya hecha a lo que dice una persona en un video corto (reels de una marca personal).
+Reglas:
+- Cada texto conserva su función y su largo aproximado: una palabra sigue siendo una palabra, una cifra sigue siendo una cifra, un título sigue siendo un título corto.
+- Usa las palabras de la persona; no inventes cifras ni datos: si no dice ninguna cifra, deja la cifra original.
+- Español neutro (trato de tú, sin voseo ni España). Mismas mayúsculas que el original.
+- Devuelve todas las claves, en el mismo orden.`;
+
+export const effectParamsWireSchema = z.object({
+  params: z.array(z.object({ key: z.string(), value: z.string() })),
+});
+
+export function effectParamsTask(input: { name: string; description: string; params: { key: string; label: string; value: string }[]; said: string }): string {
+  return `ANIMACIÓN: «${input.name}». ${input.description}
+TEXTOS ACTUALES:
+${input.params.map((p) => `- ${p.key} (${p.label}): «${p.value}»`).join("\n")}
+LO QUE DICE LA PERSONA EN ESE TRAMO: «${input.said.slice(0, 600)}»
+Escribe los textos nuevos.`;
 }
 
 // ─── Mirar las imágenes generadas ────────────────────────────────────────

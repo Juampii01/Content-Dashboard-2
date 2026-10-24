@@ -62,6 +62,9 @@ export type CopyReport = {
   missed: number;
   moments: { id: string; label: string; t0: number; status: "copiado" | "aproximado" | "no"; score: number | null; how: string; note: string }[];
   costUsd: number;
+  /** Animaciones reusadas de Mis efectos (en lugar de escribirlas) y lo que eso ahorró del tope. */
+  reused?: number;
+  savedUsd?: number;
   at: string;
 };
 
@@ -299,7 +302,7 @@ export async function finishCopy(projectId: string): Promise<CopyReport | null> 
     const label = `${FUNCTION_LABEL[m.function] ?? m.function} · ${KIND_LABEL[m.kind] ?? m.kind}`;
     if (task?.status === "done" && task.result) {
       const score = task.score ?? null;
-      return { id: m.id, label, t0: m.t0, status: (score == null || score >= 70 ? "copiado" : "aproximado") as "copiado" | "aproximado", score, how: `animación «${task.result.name}»`, note: task.note ?? "" };
+      return { id: m.id, label, t0: m.t0, status: (score == null || score >= 70 ? "copiado" : "aproximado") as "copiado" | "aproximado", score, how: task.reused ? `«${task.result.name}» de Mis efectos` : `animación «${task.result.name}»`, note: task.note ?? "" };
     }
     if (map?.plan === "catalog") {
       // Ritmo, subtítulos y zooms los copia el director; un efecto de la biblioteca, si coincidía.
@@ -314,6 +317,8 @@ export async function finishCopy(projectId: string): Promise<CopyReport | null> 
     missed: moments.filter((m) => m.status === "no").length,
     moments,
     costUsd: Math.max(0, ctx.spent - (work?.spentAtStart ?? ctx.spent)),
+    reused: work?.tasks.filter((t) => t.reused && t.status === "done").length ?? 0,
+    savedUsd: Math.round((work?.tasks.filter((t) => t.reused && t.status === "done").length ?? 0) * STAGE_COST.code * 100) / 100,
     at: new Date().toISOString(),
   };
   await saveDirectorExtra(projectId, ctx.director, { copy: { ...copy, status: "done", report } });

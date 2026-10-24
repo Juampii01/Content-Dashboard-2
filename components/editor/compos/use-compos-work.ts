@@ -60,7 +60,7 @@ export function useComposWork(projectId: string, onDone: (made: Composition[], i
         return false;
       }
       watching.current = r.workId;
-      setWork({ id: r.workId, mode: "request", done: false, cannot: "", error: null, request: { instruction: req.instruction, from_word: req.from_word, to_word: req.to_word, replaceId: req.replace?.id ?? null }, tasks: [] });
+      setWork({ id: r.workId, mode: "request", done: false, cannot: "", error: null, request: { instruction: req.instruction, from_word: req.from_word, to_word: req.to_word, replaceId: req.replace?.id ?? null }, tasks: [], savedUsd: 0 });
       return true;
     },
     [projectId],

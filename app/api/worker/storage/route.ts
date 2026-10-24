@@ -7,6 +7,7 @@ import { loadClip } from "@/lib/video/library";
 import { loadTrack } from "@/lib/video/music";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
+import { loadEffect } from "@/lib/video/compos/library-service";
 
 /**
  * POST /api/worker/storage — solo para el worker (Bearer WORKER_SECRET).
@@ -19,6 +20,7 @@ import { loadStyle } from "@/lib/video/styles";
  * - longVideoId: `editor/largos/<id>/…` (el video largo: se lee, y si vino de un link el worker lo guarda una vez;
  *   las vistas previas y pósters de sus clips).
  * - trackId: `editor/musica/<id>/…` (la pista de música, solo lectura).
+ * - effectId: `editor/efectos/<id>/…` (Mis efectos: sus imágenes se leen; se escriben solo su cuadro y su muestra).
  */
 const body = z
   .object({
@@ -27,11 +29,12 @@ const body = z
     clipId: z.uuid().optional(),
     longVideoId: z.uuid().optional(),
     trackId: z.uuid().optional(),
+    effectId: z.uuid().optional(),
     key: z.string().min(3).max(1000),
     op: z.enum(["get", "put"]),
     contentType: z.string().max(100).optional(),
   })
-  .refine((b) => [b.projectId, b.styleId, b.clipId, b.longVideoId, b.trackId].filter(Boolean).length === 1);
+  .refine((b) => [b.projectId, b.styleId, b.clipId, b.longVideoId, b.trackId, b.effectId].filter(Boolean).length === 1);
 
 const denied = () => NextResponse.json({ error: "Ese archivo no es de este trabajo." }, { status: 403 });
 
@@ -39,7 +42,7 @@ export async function POST(request: NextRequest) {
   if (!workerAuthorized(request)) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Pedido no válido." }, { status: 400 });
-  const { projectId, styleId, clipId, longVideoId, trackId, key, op, contentType } = parsed.data;
+  const { projectId, styleId, clipId, longVideoId, trackId, effectId, key, op, contentType } = parsed.data;
   if (!fileDriver()) return NextResponse.json({ error: "Falta configurar el almacenamiento de videos." }, { status: 503 });
 
   if (projectId) {
@@ -74,6 +77,11 @@ export async function POST(request: NextRequest) {
     const track = await loadTrack(trackId);
     if (!track || track.status !== "READY") return NextResponse.json({ error: "Esa pista ya no existe." }, { status: 404 });
     if (op !== "get" || key !== track.fileKey) return denied();
+  } else if (effectId) {
+    const effect = await loadEffect(effectId);
+    if (!effect) return NextResponse.json({ error: "Ese efecto ya no existe." }, { status: 404 });
+    if (!key.startsWith(`editor/efectos/${effectId}/`)) return denied();
+    if (op === "put" && key !== `editor/efectos/${effectId}/poster.jpg` && key !== `editor/efectos/${effectId}/muestra.webm`) return denied();
   }
   try {
     return NextResponse.json(await workerTransfer(key, op, contentType));

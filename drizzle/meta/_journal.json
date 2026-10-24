@@ -204,6 +204,13 @@
       "when": 1792863182188,
       "tag": "0028_composiciones",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792871457565,
+      "tag": "0029_mis-efectos",
+      "breakpoints": true
     }
   ]
 }

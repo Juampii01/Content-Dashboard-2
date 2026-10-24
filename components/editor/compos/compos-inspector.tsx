@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, PenLine, Trash2, Wand2, WandSparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, PenLine, Trash2, Wand2, WandSparkles } from "lucide-react";
+import { toast } from "@/components/ui/toast";
+import { myEffectStateAction, removeMyEffectAction, renameMyEffectAction, saveToMyEffectsAction } from "../my-effects-actions";
+import { myEffectsChanged } from "../studio/library-mine";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { secondsLabel, timeLabel } from "@/lib/video/studio";
@@ -116,6 +119,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
             </p>
           )}
         </div>
+        {props.canEdit && <MyEffectControls api={api} item={item} />}
         {props.canEdit && (
           <div className="flex flex-wrap gap-2">
             {item.source !== "user" && (
@@ -166,5 +170,102 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * "Guardar en mis efectos" / "Quitar de mis efectos" y renombrar. Lo que se guarda es la animación tal como quedó
+ * guardada en el video (el servidor toma su código del plan, nunca del navegador).
+ */
+function MyEffectControls({ api, item }: { api: StudioApi; item: Composition }) {
+  const [state, setState] = useState<{ id: string; saved: boolean; name: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
+  const libId = item.lib_id ?? null;
+  useEffect(() => {
+    let alive = true;
+    if (!libId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sin efecto guardado no hay nada que consultar
+      setState(null);
+      return;
+    }
+    void myEffectStateAction(libId).then((r) => {
+      if (!alive || !r.ok) return;
+      setState(r.data ? { id: libId, ...r.data } : null);
+      setName(r.data?.name ?? "");
+    });
+    return () => {
+      alive = false;
+    };
+  }, [libId]);
+
+  async function save() {
+    setBusy(true);
+    // Si el último cambio todavía no se guardó, se espera al guardado automático (1,2 s) y se reintenta.
+    let res = await saveToMyEffectsAction(api.props.projectId, item.id);
+    for (let i = 0; i < 3 && !res.ok && /prueba de nuevo en un segundo/.test(res.error); i++) {
+      await new Promise((r) => setTimeout(r, 1600));
+      res = await saveToMyEffectsAction(api.props.projectId, item.id);
+    }
+    setBusy(false);
+    if (!res.ok) return void toast.error(res.error);
+    const { id, status, name: saved, version } = res.data;
+    api.update((s) => ({ ...s, compositions: s.compositions.map((c) => (c.id === item.id ? { ...c, lib_id: id } : c)) }));
+    setState({ id, saved: true, name: saved });
+    setName(saved);
+    myEffectsChanged();
+    toast.success(status === "exists" ? `«${saved}» ya estaba en Mis efectos.` : status === "version" ? `Guardada como versión ${version} de «${saved}».` : `Guardamos «${saved}» en Mis efectos.`, { description: "La encuentras arriba de todo en Biblioteca → Efectos, para usarla en otros videos." });
+  }
+  async function remove() {
+    if (!state) return;
+    setBusy(true);
+    const res = await removeMyEffectAction(state.id);
+    setBusy(false);
+    if (!res.ok) return void toast.error(res.error);
+    setState({ ...state, saved: false });
+    myEffectsChanged();
+    toast.success(`Quitamos «${state.name}» de Mis efectos.`, { description: "Sigue en este video. No se vuelve a guardar sola al renderizar." });
+  }
+  async function rename() {
+    if (!state || !name.trim() || name.trim() === state.name) return;
+    const res = await renameMyEffectAction(state.id, name);
+    if (!res.ok) return void toast.error(res.error);
+    const clean = name.replace(/\s+/g, " ").trim().slice(0, 60);
+    setState({ ...state, name: clean });
+    api.update((s) => ({ ...s, compositions: s.compositions.map((c) => (c.id === item.id ? { ...c, name: clean } : c)) }));
+    myEffectsChanged();
+    toast.success("Nombre guardado.");
+  }
+
+  if (state?.saved)
+    return (
+      <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3" data-testid="my-effect-saved">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-[#c4b5fd]">
+          <BookmarkPlus className="h-3.5 w-3.5" aria-hidden /> Está en Mis efectos
+        </p>
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void rename();
+          }}
+        >
+          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} aria-label="Nombre en Mis efectos" className="!h-8 text-xs" />
+          <Button size="sm" variant="ghost" type="submit" disabled={!name.trim() || name.trim() === state.name}>
+            Renombrar
+          </Button>
+        </form>
+        <Button size="sm" variant="subtle" icon={<BookmarkMinus className="h-3.5 w-3.5" aria-hidden />} onClick={() => void remove()} disabled={busy}>
+          Quitar de mis efectos
+        </Button>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-1">
+      <Button size="sm" variant="ghost" icon={busy ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <BookmarkPlus className="h-3.5 w-3.5" aria-hidden />} onClick={() => void save()} disabled={busy}>
+        Guardar en mis efectos
+      </Button>
+      <p className="text-[11px] text-muted">{state && !state.saved ? "La quitaste de Mis efectos: guárdala de nuevo si la quieres usar en otros videos." : "Se guarda sola al renderizar; guárdala ahora para usarla ya en otro video."}</p>
+    </div>
   );
 }

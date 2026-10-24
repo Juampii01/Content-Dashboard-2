@@ -139,7 +139,10 @@ export function CopyReportView({ report }: { report: CopyReport }) {
         {report.approx ? <span className="font-normal text-text"> · {report.approx} parecidos</span> : null}
         {report.missed ? <span className="font-normal text-text"> · {report.missed} sin copiar</span> : null}
       </p>
-      <p className="text-muted">Costó {formatUsd(report.costUsd)} de IA.</p>
+      <p className="text-muted">
+        Costó {formatUsd(report.costUsd)} de IA.
+        {report.reused ? ` Reusamos ${report.reused === 1 ? "1 animación" : `${report.reused} animaciones`} de Mis efectos (ahorró unos ${formatUsd(report.savedUsd ?? 0)}).` : ""}
+      </p>
       <details>
         <summary className="cursor-pointer text-muted hover:text-text">Momento a momento</summary>
         <ul className="mt-2 flex flex-col gap-1.5">

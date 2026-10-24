@@ -263,8 +263,17 @@ function refSheetsFor(ctx: WorkCtx, frames: number[] | undefined) {
 
 // ─── Costo ───────────────────────────────────────────────────────────────
 
-/** Estimaciones gruesas por etapa (USD), para no pasarse del tope. */
-export const STAGE_COST = { plan: 0.05, vision: 0.06, code: 0.55, look: 0.35 } as const;
+/**
+ * Estimaciones por etapa (USD, precios de oct-2026 en lib/ai/pricing.ts), para no pasarse del tope:
+ * - plan: Sonnet, reglas en caché (~17 mil tokens leídos) + ~600 de tarea → ~500 de salida ≈ USD 0,01.
+ * - vision: Sonnet con 1 o 2 imágenes (~1.600 tokens c/u) ≈ USD 0,03.
+ * - code: Opus con razonamiento alto: reglas en caché, tarea + 2 hojas de la referencia (~5.500 tokens) y ~3 mil de
+ *   código + ~8 mil de razonamiento ≈ USD 0,25 (0,40 con margen para un reintento por validación).
+ * - look: Opus con razonamiento medio: hoja de la animación + 2 de la referencia + el código (~9 mil) y el código
+ *   corregido + razonamiento (~6 mil) ≈ USD 0,16 por vuelta.
+ * La primera escritura de las reglas en caché (~USD 0,14 en Opus) se suma una vez por video.
+ */
+export const STAGE_COST = { plan: 0.02, vision: 0.04, code: 0.4, look: 0.2 } as const;
 
 function remaining(ctx: WorkCtx): number {
   return ctx.cap - ctx.spent;

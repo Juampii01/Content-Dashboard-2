@@ -786,36 +786,29 @@ export default {
   params: { label: "El mejor país del mundo" },
   render(ctx, t, env) {
     const { W, H, u, ease } = env;
+    // La imagen generada; sin ella (no hay generador conectado), el mismo movimiento sobre el video (foco en la cara).
     const img = env.assets.find((a) => a.kind === "image");
-    const iw = img ? img.width : 1536;
-    const ih = img ? img.height : 1024;
+    const src = img || env.video;
+    const iw = img ? img.width : W;
+    const ih = img ? img.height : H;
+    const F = img ? FOCUS : { x: env.face.x / W, y: env.face.y / H, w: env.face.w / W, h: env.face.h / H };
     // Encuadre: de la imagen entera (cubriendo el cuadro) a la zona, centrada un poco arriba.
     const cover = Math.max(W / iw, H / ih);
-    const zoomTo = Math.min(4.2, (Math.min(W, H) * 0.42) / (Math.max(FOCUS.w * iw, FOCUS.h * ih) * cover));
+    const zoomTo = Math.min(4.2, (Math.min(W, H) * 0.42) / (Math.max(F.w * iw, F.h * ih) * cover));
     const p = ease.inOutCubic(env.progress(t, 0.15, 1.1));
     const out = ease.inCubic(env.progress(t, env.duration - 0.35, 0.35));
     const z = cover * env.lerp(1, zoomTo, p);
-    const fx = (FOCUS.x + FOCUS.w / 2) * iw;
-    const fy = (FOCUS.y + FOCUS.h / 2) * ih;
+    const fx = (F.x + F.w / 2) * iw;
+    const fy = (F.y + F.h / 2) * ih;
     const tx = env.lerp(W / 2 - (iw / 2) * z, W / 2 - fx * z, p);
     const ty = env.lerp(H / 2 - (ih / 2) * z, H * 0.44 - fy * z, p);
-    const drawImg = (c) => {
-      if (img) c.drawImage(img, tx, ty, iw * z, ih * z);
-      else {
-        // Sin imagen (todavía no se generó): un fondo con la marca.
-        const g = c.createLinearGradient(0, 0, W, H);
-        g.addColorStop(0, env.brand.surface);
-        g.addColorStop(1, env.brand.bg);
-        c.fillStyle = g;
-        c.fillRect(0, 0, W, H);
-      }
-    };
+    const drawImg = (c) => c.drawImage(src, tx, ty, iw * z, ih * z);
     // Fondo desenfocado y apagado; la zona, nítida.
     const fxp = ease.outCubic(env.progress(t, 0.9, 0.5));
-    const zx = tx + FOCUS.x * iw * z;
-    const zy = ty + FOCUS.y * ih * z;
-    const zw = FOCUS.w * iw * z;
-    const zh = FOCUS.h * ih * z;
+    const zx = tx + F.x * iw * z;
+    const zy = ty + F.y * ih * z;
+    const zw = F.w * iw * z;
+    const zh = F.h * ih * z;
     ctx.save();
     ctx.filter = fxp > 0.01 ? "blur(" + (fxp * 10).toFixed(1) + "px) brightness(" + (1 - fxp * 0.5).toFixed(3) + ")" : "none";
     drawImg(ctx);

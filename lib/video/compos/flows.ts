@@ -96,15 +96,21 @@ const sentencesText = (words: Word[]) =>
     .map((f) => `[${f.from}–${f.to}] ${f.start.toFixed(1)}–${f.end.toFixed(1)} s: ${f.text}`)
     .join("\n");
 
-/** Cuánto presupuesto dejar para las animaciones de la copia y cuántas vueltas de revisión. */
+/**
+ * Cuántas animaciones y cuántas vueltas de revisión entran en lo que queda del tope (dejando ~USD 0,60 para la segunda
+ * mirada y la revisión final). Primero calidad (al menos una vuelta con cuadros) sin bajar de 8 momentos; con tope
+ * chico, menos momentos o sin revisión.
+ */
 function copyBudget(ctx: WorkCtx): { compose: number; lookRounds: number } {
-  const left = ctx.cap - ctx.spent;
-  const perTask = STAGE_COST.plan + STAGE_COST.code * 1.3;
-  // Reserva para la segunda mirada del director y la revisión final.
-  const usable = Math.max(0, left - 0.6);
-  const lookRounds = usable > 9 * (perTask + STAGE_COST.look * 2) ? 3 : usable > 6 * (perTask + STAGE_COST.look) ? 2 : usable > 4 * perTask + 4 * STAGE_COST.look ? 1 : 0;
-  const per = perTask + lookRounds * STAGE_COST.look;
-  return { compose: Math.max(0, Math.min(14, Math.floor(usable / per))), lookRounds };
+  const usable = Math.max(0, ctx.cap - ctx.spent - 0.6);
+  const perTask = STAGE_COST.plan + STAGE_COST.code * 1.15;
+  for (const rounds of [3, 2, 1]) {
+    const n = Math.min(14, Math.floor(usable / (perTask + rounds * STAGE_COST.look)));
+    if (n >= 8) return { compose: n, lookRounds: rounds };
+  }
+  const withOne = Math.floor(usable / (perTask + STAGE_COST.look));
+  if (withOne >= 3) return { compose: Math.min(14, withOne), lookRounds: 1 };
+  return { compose: Math.max(0, Math.min(14, Math.floor(usable / perTask))), lookRounds: 0 };
 }
 
 // ─── Copiar edición ──────────────────────────────────────────────────────
@@ -278,6 +284,9 @@ function applyCatalog(plan: EditPlan, key: string, x: { from_word: number; to_wo
   return null;
 }
 
+const FUNCTION_LABEL: Record<string, string> = { gancho: "Gancho", enumeracion: "Enumeración", cifra: "Cifra", promesa: "Promesa", cta: "Llamado a la acción", enfasis: "Énfasis", historia: "Historia", prueba: "Prueba", pregunta: "Pregunta", cambio: "Cambio de tema", otro: "Otro momento" };
+const KIND_LABEL: Record<string, string> = { transicion: "transición", texto: "texto animado", tarjeta: "tarjeta", camara: "movimiento de cámara", look: "look", broll: "b-roll", recorte: "recorte de la persona", subtitulos: "subtítulos", sonido: "sonido", grafico: "gráfico", imagen: "imagen" };
+
 /** Al terminar las animaciones de la copia: el informe por momento. */
 export async function finishCopy(projectId: string): Promise<CopyReport | null> {
   const ctx = await loadWorkCtx(projectId);
@@ -287,7 +296,7 @@ export async function finishCopy(projectId: string): Promise<CopyReport | null> 
   const moments = copy.recipe.moments.map((m) => {
     const map = copy.mapping?.find((x) => x.moment === m.id);
     const task = work?.tasks.find((t) => t.moment === m.id);
-    const label = `${m.function} · ${m.kind}`;
+    const label = `${FUNCTION_LABEL[m.function] ?? m.function} · ${KIND_LABEL[m.kind] ?? m.kind}`;
     if (task?.status === "done" && task.result) {
       const score = task.score ?? null;
       return { id: m.id, label, t0: m.t0, status: (score == null || score >= 70 ? "copiado" : "aproximado") as "copiado" | "aproximado", score, how: `animación «${task.result.name}»`, note: task.note ?? "" };

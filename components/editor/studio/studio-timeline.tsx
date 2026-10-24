@@ -21,7 +21,7 @@ export type StudioSelection =
   | { kind: "range"; from: number; to: number }
   | { kind: "audio" }
   /** Un corte del video final (la primera palabra del tramo que entra): su transición o el lugar para poner una. */
-  | { kind: "transition"; word: number }
+  | { kind: "transition"; word: number; id?: string }
   /** Un sonido puesto a mano en la pista de Sonido. */
   | { kind: "sound"; id: string };
 
@@ -44,7 +44,7 @@ export function selectionKey(sel: StudioSelection | null): string | null {
     case "audio":
       return "audio";
     case "transition":
-      return `transition:${sel.word}`;
+      return sel.id ? `transition:${sel.id}` : `transition:${sel.word}`;
     case "sound":
       return `sound:${sel.id}`;
   }
@@ -69,6 +69,8 @@ export type TimelineBlock = {
   max?: number;
   /** B-roll sin clip elegido (no sale en el video). */
   empty?: boolean;
+  /** Se mueve en segundos, sin imán a las palabras (una transición en cualquier punto). */
+  free?: boolean;
   selection: StudioSelection;
   thumb?: string | null;
 };
@@ -151,7 +153,10 @@ export function StudioTimeline({
   selection: StudioSelection | null;
   /** Tramo elegido en la pista de video (en segundos), si hay. */
   range: { start: number; end: number } | null;
-  /** Lo que no se puede pisar en cada pista además de sus propios bloques (un tramo lleva b-roll o efecto). */
+  /**
+   * Lo que hay en otras pistas y se reemplaza si se suelta algo encima (un tramo lleva b-roll o efecto): no bloquea,
+   * solo se avisa en la etiqueta del arrastre.
+   */
   obstacles: Partial<Record<TrackKey, { start: number; end: number; label: string }[]>>;
   /** Resuelve un tramo a palabras (null si no se puede poner ahí). Con bloque: aplica sus reglas (duración). */
   snap: (t0: number, t1: number, block: TimelineBlock | null) => SnappedSpan | null;
@@ -261,19 +266,19 @@ export function StudioTimeline({
     if (!dr.moved && Math.abs(dx) < 4) return;
     dr.moved = true;
     if (!canEdit || !dr.block.editable) return;
+    // Se suelta en cualquier lado: lo que queda debajo se reemplaza (el Estudio lo recorta o lo quita, con Deshacer).
     const own = blocks.filter((b) => b.track === dr.block.track && b.key !== dr.block.key);
     const cross = obstacles[dr.block.track] ?? [];
-    const raw = clampDrag({ mode: dr.mode, start: dr.block.start, end: dr.block.end, delta: dx / pps, duration: d, obstacles: [...own, ...cross], min: dr.block.min, max: dr.block.max });
-    const span = snap(raw.start, raw.end, dr.block);
-    // Si el imán cae encima de un vecino, no vale (queda donde estaba).
-    const hit = span ? [...own, ...cross].find((o) => span.start < o.end - 0.02 && o.start < span.end - 0.02) : null;
-    const blocker = cross.find((o) => (dr.mode !== "start" && Math.abs(raw.end - o.start) < 0.05) || (dr.mode !== "end" && Math.abs(raw.start - o.end) < 0.05));
+    const raw = clampDrag({ mode: dr.mode, start: dr.block.start, end: dr.block.end, delta: dx / pps, duration: d, obstacles: [], min: dr.block.min, max: dr.block.max });
+    const span = dr.block.free ? { from: 0, to: 0, start: raw.start, end: raw.end } : snap(raw.start, raw.end, dr.block);
+    const under = span ? [...own.filter((o) => o.track !== "audio"), ...cross].filter((o) => span.start < o.end - 0.02 && o.start < span.end - 0.02) : [];
+    const names = [...new Set(under.map((o) => o.label))];
     setGhost({
       key: dr.block.key,
       start: span?.start ?? raw.start,
       end: span?.end ?? raw.end,
-      span: hit ? null : span,
-      note: hit ? "Ahí ya hay otro bloque." : blocker ? `${blocker.label}: un tramo lleva b-roll o efecto, no los dos.` : !span ? "No se puede poner ahí." : null,
+      span,
+      note: !span ? "No se puede poner ahí." : names.length ? `Reemplaza ${names.length > 2 ? `«${names[0]}» y ${names.length - 1} más` : names.map((n) => `«${n}»`).join(" y ")}` : null,
     });
   }
   function onBlockUp(e: ReactPointerEvent<HTMLElement>) {

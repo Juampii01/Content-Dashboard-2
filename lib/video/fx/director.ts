@@ -7,7 +7,7 @@ import { sentences } from "@/lib/ai/prompts/editor";
 import { norm } from "../text";
 import type { Word } from "../types";
 import { FX_CATEGORIES, FX_CATEGORY_LABELS, FX_FREQUENCY_LABELS, FX_INFO, FX_MIN_GAP, fxBudget, fxByCategory, type FxFrequency, type FxKind } from "./catalog";
-import { cutPoints, newTransitionId, TRANSITION_INFO, TRANSITION_KINDS, type TransitionItem, type TransitionKind } from "./transitions";
+import { cutPoints, newTransitionId, transitionCenter, TRANSITION_INFO, TRANSITION_KINDS, type TransitionItem, type TransitionKind } from "./transitions";
 import type { Timeline } from "../timeline";
 import { fxFromText } from "./request-words";
 import { clampFx, defaultFx, newFxId, strongWords, type FxItem, type FxSettings } from "./schema";
@@ -258,34 +258,40 @@ export function fxPlanText(items: FxItem[]): string {
 export type TransitionWire = { at_word: number; kind: TransitionKind; why: string };
 
 /**
- * Del formato de cable a las transiciones del plan, con reglas duras: solo en cortes que existen en el video final,
- * sin b-roll ni efecto encima, como mucho las permitidas, separadas al menos 3 s y sin repetir la misma seguida. Las
- * que puso la persona se quedan.
+ * Del formato de cable a las transiciones del plan, con reglas duras: en un corte que existe en el video final o, si la
+ * palabra no abre un tramo, en cualquier punto (anclada al inicio de esa palabra, sobre el plano), sin b-roll ni efecto
+ * encima, como mucho las permitidas, separadas al menos 3 s y sin repetir la misma seguida. Las que puso la persona se
+ * quedan.
  */
 export function transitionsFromWire(
   wire: TransitionWire[],
-  input: { timeline: Pick<Timeline, "clips">; limits: FxLimits; blocked: { start: number; end: number }[]; base?: TransitionItem[] | null },
+  input: { timeline: Pick<Timeline, "clips" | "words" | "duration">; limits: FxLimits; blocked: { start: number; end: number }[]; base?: TransitionItem[] | null },
 ): { items: TransitionItem[]; dropped: string[] } {
   const cuts = cutPoints(input.timeline);
   const max = input.limits.transitions ?? 0;
-  const kept = (input.base ?? []).filter((t) => t.source === "user" && cuts.some((c) => c.word === t.at_word));
+  const kept = (input.base ?? []).filter((t) => t.source === "user" && transitionCenter(input.timeline, t, cuts) != null);
   const out: TransitionItem[] = [...kept];
   const dropped: string[] = [];
   let added = 0;
   for (const w of [...wire].sort((a, b) => a.at_word - b.at_word)) {
     if (added >= max) break;
-    const cut = cuts.find((c) => c.word === w.at_word);
-    if (!cut || !(TRANSITION_KINDS as readonly string[]).includes(w.kind)) continue;
+    if (!(TRANSITION_KINDS as readonly string[]).includes(w.kind)) continue;
+    const onCut = cuts.some((c) => c.word === w.at_word);
+    // Fuera de un corte: en el inicio de la palabra (solo si la palabra queda en el video).
+    const candidate: TransitionItem = { id: newTransitionId(), kind: w.kind, at_word: w.at_word, ...(onCut ? {} : { offset: 0 }), source: "director", why: w.why.slice(0, 300) };
+    if (!onCut && !input.timeline.words.some((x) => x.id === w.at_word)) continue;
+    const at = transitionCenter(input.timeline, candidate, cuts);
+    if (at == null) continue;
     if (out.some((t) => t.at_word === w.at_word)) continue;
-    if (input.blocked.some((b) => cut.at > b.start - 0.4 && cut.at < b.end + 0.4)) {
-      dropped.push(`No puse la transición ${TRANSITION_INFO[w.kind].label}: en ese corte hay un b-roll o un efecto.`);
+    if (input.blocked.some((b) => at > b.start - 0.4 && at < b.end + 0.4)) {
+      dropped.push(`No puse la transición ${TRANSITION_INFO[w.kind].label}: ahí hay un b-roll o un efecto.`);
       continue;
     }
-    const near = out.map((t) => cuts.find((c) => c.word === t.at_word)).filter(Boolean) as { at: number }[];
-    if (near.some((c) => Math.abs(c.at - cut.at) < 3)) continue;
+    const near = out.map((t) => transitionCenter(input.timeline, t, cuts)).filter((x): x is number => x != null);
+    if (near.some((c) => Math.abs(c - at) < 3)) continue;
     const prev = [...out].filter((t) => t.at_word < w.at_word).sort((a, b) => b.at_word - a.at_word)[0];
     if (prev && prev.kind === w.kind) continue;
-    out.push({ id: newTransitionId(), kind: w.kind, at_word: w.at_word, source: "director", why: w.why.slice(0, 300) });
+    out.push(candidate);
     added++;
   }
   return { items: out.sort((a, b) => a.at_word - b.at_word), dropped };

@@ -202,7 +202,7 @@ type LibTab = "efectos" | "transiciones" | "graficos" | "broll" | "musica" | "so
 
 /**
  * Pestaña Biblioteca: 100 efectos en categorías con buscador, 20 transiciones, gráficos, b-roll, música (generada, tuya
- * y de catálogo) y 40 sonidos. Tocar agrega en el cabezal (la transición, en el corte más cercano); también se
+ * y de catálogo) y 40 sonidos. Tocar agrega en el cabezal (si ahí hay algo, lo nuevo lo reemplaza); también se
  * arrastran a la línea de tiempo.
  */
 export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: LibraryDrop) => void }) {
@@ -236,7 +236,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
           </button>
         ))}
       </div>
-      <p className="text-xs text-muted">{edit ? (tab === "transiciones" ? "Toca una para ponerla en el corte más cercano al cabezal, o arrástrala a un corte (los rombos de la pista de efectos)." : tab === "musica" ? "Elige la música de fondo: va debajo de tu voz y baja sola cuando hablas." : "Toca para agregarlo donde está el cabezal, o arrástralo a la línea de tiempo.") : "Solo lectura: tu usuario no puede editar."}</p>
+      <p className="text-xs text-muted">{edit ? (tab === "transiciones" ? "Toca una para ponerla donde está el cabezal, o arrástrala a cualquier punto de la línea de tiempo. Si la sueltas sobre un rombo, va en ese corte." : tab === "musica" ? "Elige la música de fondo: va debajo de tu voz y baja sola cuando hablas." : "Toca para agregarlo donde está el cabezal, o arrástralo a la línea de tiempo.") : "Solo lectura: tu usuario no puede editar."}</p>
 
       {tab === "efectos" && <FxLibraryGrid brand={api.fxBrand} onPick={edit ? (kind) => onAdd({ type: "fx", kind }) : null} dragData={edit ? (kind) => JSON.stringify({ type: "fx", kind } satisfies LibraryDrop) : undefined} />}
 
@@ -262,7 +262,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
               ))}
             </div>
           )}
-          <p className="text-xs text-muted">Las transiciones tapan el corte con movimiento, luz o color: tu voz no se corre ni se pisa. Cada una trae su sonido (lo puedes apagar).</p>
+          <p className="text-xs text-muted">Las transiciones tapan un corte o marcan un cambio en medio de un plano, con movimiento, luz o color: tu voz no se corre ni se pisa. Cada una trae su sonido (lo puedes apagar).</p>
         </div>
       )}
 

@@ -122,8 +122,11 @@ export type StudioApi = {
     setGraphic: (id: string, graphic: BrollGraphic) => void;
     changeDensity: (d: Density) => void;
     pickOption: (id: string, option: SignedOption | BrollOption) => void;
-    /** Pone, cambia o quita (null) la transición de un corte (primera palabra del tramo que entra). */
-    setTransition: (word: number, patch: Partial<TransitionItem> | null) => void;
+    /**
+     * Pone, cambia o quita (null) una transición: la de un corte (primera palabra del tramo que entra) o, con `id`, una
+     * libre (en cualquier punto). Lo que la tapa se reemplaza.
+     */
+    setTransition: (word: number, patch: Partial<TransitionItem> | null, id?: string) => void;
     /** Pone o mueve un sonido para que su punto fuerte caiga en `hit` (segundos del video final). */
     placeSound: (id: string | null, name: SfxName, hit: number, gain?: number) => void;
     /** Deja completa (o vuelve a acortar) la pausa que va antes de la palabra `word`. */

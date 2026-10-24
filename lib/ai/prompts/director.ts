@@ -112,7 +112,7 @@ Cada decisión va como un elemento de "actions": {"type", "from_word", "to_word"
 - broll: data {"kind": "stock" | "graphic", "query_en", "keywords": [...], "graphic": escena o null, "why"}. La escena va como en las reglas de motion graphics ({"title", "mode", "position", "layers": [{"kind", "component", "spec"}]}); en las capas, spec puede ir como objeto.
 - caption_hide: data {"why"}
 - effect: data {"kind": nombre del efecto, "text", "items": [...], "why"}
-- transition: from_word = to_word = la primera palabra del tramo que entra después de un corte, data {"kind": nombre de la transición, "why"}
+- transition: from_word = to_word = la primera palabra del tramo que entra después de un corte o, sin corte, la palabra donde cambia la idea (se dibuja sobre el plano en ese instante), data {"kind": nombre de la transición, "why"}
 - variant: from_word y to_word son su gancho (-1 y -1 = el mismo gancho), data {"label", "why", "extra_cuts": [{"from_word", "to_word"}], "keep_broll": true | false}
 AJUSTES (los mismos que la persona puede tocar a mano en el Estudio; úsalos para cumplir un pedido de la persona o imitar una REFERENCIA, casi nunca en la primera dirección):
 - captions (from_word = to_word = -1): data {"preset": "caja" | "hormozi" | "karaoke" | "palabra" | "minimal" | "resaltador" | "clasico" | "pop" | "ninguno", "size": 0.6 a 2 (multiplica el tamaño actual: 1.3 = 30 % más grandes), "position": "arriba" | "centro" | "abajo", "emoji": true | false}. Todos los campos son opcionales: manda solo lo que cambia.

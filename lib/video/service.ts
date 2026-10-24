@@ -358,9 +358,10 @@ async function projectForEdit(projectId: string) {
   return { project, plan: project.plan as EditPlan, transcript: project.transcript as Transcript, media: (project.media ?? {}) as MediaInfo };
 }
 
-export async function saveReview(projectId: string, review: Review, format: VideoFormat): Promise<void> {
+export async function saveReview(projectId: string, review0: Review, format: VideoFormat): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
+  const review = await withTrustedCompositions(project, review0, plan, transcript, media, format);
   const next = applyReview(plan, review, transcript.words, media.duration || transcript.duration, format);
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
@@ -372,14 +373,27 @@ export async function saveReview(projectId: string, review: Review, format: Vide
   }
 }
 
+/**
+ * Las animaciones (composiciones) que manda el navegador: el código que no estaba en el plan guardado se valida en el
+ * sandbox con sus datos reales antes de guardarse (lib/video/compos/service.ts); lo que no pasa se descarta.
+ */
+async function withTrustedCompositions(project: Project, review: Review, plan: EditPlan, transcript: Transcript, media: MediaInfo, format: VideoFormat): Promise<Review> {
+  if (!review.compositions) return review;
+  const { trustedCompositions } = await import("./compos/service");
+  // El plan con lo que cambió la revisión (cortes, gancho, formato): los tramos de las animaciones se miden sobre eso.
+  const draft = applyReview(plan, { ...review, compositions: undefined }, transcript.words, media.duration || transcript.duration, format);
+  return { ...review, compositions: await trustedCompositions(project, review.compositions, draft) };
+}
+
 const DEFAULT_CAPTION_ACCENT = "#FFD84D";
 /** El worker dibuja hasta 24 emojis por video (worker/video/pipeline.py); los pop siguen a esos. */
 const MAX_EMOJIS = 24;
 
 /** `manual`: lo exporta la persona desde la revisión (deja de ser "Hazlo por mí"). */
-export async function startRender(projectId: string, review: Review, format: VideoFormat, userId: string | null, opts: { manual?: boolean } = {}): Promise<void> {
+export async function startRender(projectId: string, review0: Review, format: VideoFormat, userId: string | null, opts: { manual?: boolean } = {}): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
+  const review = await withTrustedCompositions(project, review0, plan, transcript, media, format);
   const duration = media.duration || transcript.duration;
   const next = applyReview(plan, review, transcript.words, duration, format);
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);

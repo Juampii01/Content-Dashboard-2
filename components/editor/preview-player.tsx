@@ -62,6 +62,8 @@ export type PreviewCanvas = {
   disabled?: boolean;
 };
 
+const NO_ORDER: Record<string, number> = {};
+
 /** Escala del zoom en un instante del video final (igual que la expresión de zoompan del worker). */
 export function zoomAt(zooms: OutputZoom[], t: number): number {
   const z = zooms.find((x) => t >= x.start && t < x.end);
@@ -107,6 +109,11 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   fxImages?: Record<string, HTMLImageElement | undefined>;
   /** Lienzo para tocar lo que se ve (opcional: sin esto, la vista previa es solo para mirar). */
   canvas?: PreviewCanvas;
+  /**
+   * Orden de dibujo de lo que se superpone (lib/video/layers.ts, el mismo que manda el render): clave "b:<b-roll>",
+   * "f:<efecto>" o "t:<transición>" → lugar (0 = abajo). Sin esto, el b-roll abajo y los efectos encima.
+   */
+  order?: Record<string, number>;
 }>(function PreviewPlayer(
   {
     src,
@@ -134,6 +141,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     fxMaskFps = 10,
     fxImages = {},
     canvas,
+    order = NO_ORDER,
   },
   ref,
 ) {
@@ -148,15 +156,14 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   const [height, setHeight] = useState(640);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
+  // El elemento del video para las capas de efectos (se guarda al montarlo: no se lee la ref durante el render).
+  const [baseVideo, setBaseVideo] = useState<HTMLVideoElement | null>(null);
+  const videoRef = useCallback((el: HTMLVideoElement | null) => {
+    video.current = el;
+    setBaseVideo(el);
+  }, []);
 
-  const offsets = useMemo(() => {
-    let acc = 0;
-    return clips.map((c) => {
-      const start = acc;
-      acc += (c.endFrame - c.startFrame) / FPS;
-      return start;
-    });
-  }, [clips]);
+  const offsets = useMemo(() => clips.reduce<number[]>((list, c, i) => [...list, i === 0 ? 0 : list[i - 1]! + (clips[i - 1]!.endFrame - clips[i - 1]!.startFrame) / FPS], []), [clips]);
 
   const clipsRef = useRef(clips);
   const offsetsRef = useRef(offsets);
@@ -197,6 +204,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clips]);
 
+  // El cuadro siguiente llama a la versión más nueva de `tick` (sin que se llame a sí mismo antes de existir).
+  const tickRef = useRef<() => void>(() => undefined);
   const tick = useCallback(() => {
     const v = video.current;
     const list = clipsRef.current;
@@ -230,8 +239,11 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
         outputCb.current?.(o);
       }
     }
-    raf.current = requestAnimationFrame(tick);
+    raf.current = requestAnimationFrame(() => tickRef.current());
   }, [onSourceTime]);
+  useEffect(() => {
+    tickRef.current = tick;
+  }, [tick]);
 
   useEffect(() => {
     const v = video.current;
@@ -290,13 +302,36 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     videoStyle = { width: "100%", height: "100%", left: 0, top: 0, objectFit: "cover" };
   }
 
-  const activeBroll = broll.find((b) => out >= b.start && out < b.end) ?? null;
-  const activeFx = activeBroll ? null : (effects.find((e) => out >= e.start && out < e.end) ?? null);
-  // Igual que el render: durante un gráfico no se muestran subtítulos (salvo una palabra clave arriba).
-  const block = useMemo(() => (activeBroll?.graphic && graphicHidesCaptions(activeBroll.graphic) ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, activeBroll]);
+  // Capas: todo lo que se ve ahora (b-roll, gráficos, efectos y transiciones), de abajo hacia arriba, en el mismo
+  // orden que el render (lib/video/layers.ts). Los efectos se dibujan sobre el cuadro del video y tapan lo de abajo.
+  const { activeBrolls, activeFxs, layers, activeBroll, topBroll, activeFx, fxOnTop, hideCaptions, topGraphicBroll } = useMemo(() => {
+    const zOf = (key: string, fallback: number) => order[key] ?? fallback;
+    const activeBrolls = broll.filter((b) => out >= b.start && out < b.end);
+    const activeFxs = effects.filter((e) => out >= e.start && out < e.end);
+    const layers = [
+      ...activeBrolls.map((b, i) => ({ kind: "broll" as const, z: zOf(`b:${b.id}`, i - 1000), b })),
+      ...activeFxs.map((f, i) => ({ kind: "fx" as const, z: order[`f:${f.id}`] ?? order[`t:${f.id}`] ?? 1000 + i, f })),
+    ].sort((a, b) => a.z - b.z);
+    const brolls = layers.flatMap((l) => (l.kind === "broll" ? [l.b] : []));
+    const fxs = layers.flatMap((l) => (l.kind === "fx" ? [l.f] : []));
+    return {
+      activeBrolls,
+      activeFxs,
+      layers,
+      // La de abajo decide dónde va la persona (pantalla dividida); la de arriba, lo que se toca en el lienzo.
+      activeBroll: brolls[0] ?? null,
+      topBroll: brolls[brolls.length - 1] ?? null,
+      activeFx: fxs[fxs.length - 1] ?? null,
+      fxOnTop: layers.length > 0 && layers[layers.length - 1]!.kind === "fx",
+      // Igual que el render: durante un gráfico no se muestran subtítulos (salvo una palabra clave arriba).
+      hideCaptions: activeBrolls.some((b) => b.graphic && graphicHidesCaptions(b.graphic)),
+      // El gráfico de más arriba es el que se toca en el lienzo (los demás se dibujan igual, cada uno con su escena).
+      topGraphicBroll: brolls.filter((b) => b.graphic).pop() ?? null,
+    };
+  }, [broll, effects, out, order]);
+  const block = useMemo(() => (hideCaptions ? null : (blocks.find((b) => out >= b.start && out < b.end) ?? null)), [blocks, out, hideCaptions]);
   const pct = duration ? (out / duration) * 100 : 0;
   const zoom = zoomAt(zooms, out);
-  const brollVideo = useRef<HTMLVideoElement>(null);
 
   // Pantalla dividida o a un lado (clip o gráfico en 16:9): la persona pasa a su parte del cuadro.
   const activeEdit = activeBroll?.edit ?? DEFAULT_EDIT;
@@ -310,8 +345,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   // ─── Lienzo: los elementos que se ven ahora, con su caja (las mismas cuentas que dibujan los motores) ───
   const outW = format === "9:16" ? 1080 : 1920;
   const outH = format === "9:16" ? 1920 : 1080;
-  const activeGraphic = activeBroll?.graphic ?? null;
-  const compiledGraphic = useMotionScene(activeGraphic, format, activeBroll ? activeBroll.end - activeBroll.start : 1);
+  const activeGraphic = topGraphicBroll?.graphic ?? null;
+  const compiledGraphic = useMotionScene(activeGraphic, format, topGraphicBroll ? topGraphicBroll.end - topGraphicBroll.start : 1);
   const [fxBox, setFxBox] = useState<{ id: string; box: Box } | null>(null);
   const [capBox, setCapBox] = useState<CaptionBoxReport>(null);
   const onFxMovable = useCallback((id: string, box: Box | null) => {
@@ -331,13 +366,13 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   const elements = useMemo<CanvasElement[]>(() => {
     if (!canvas) return [];
     const out: CanvasElement[] = [];
-    if (activeBroll && activeGraphic && compiledGraphic) {
+    if (topGraphicBroll && activeGraphic && compiledGraphic && !fxOnTop) {
       out.push({
-        id: canvasId({ kind: "graphic", key: activeBroll.id }),
+        id: canvasId({ kind: "graphic", key: topGraphicBroll.id }),
         kind: "graphic",
         label: `Gráfico · ${graphicKindLabel(activeGraphic)}`,
         box: placedContentBox(compiledGraphic),
-        transform: activeBroll.edit?.transform ?? IDENTITY_TRANSFORM,
+        transform: topGraphicBroll.edit?.transform ?? IDENTITY_TRANSFORM,
         rotatable: true,
         texts: graphicCanvasTexts(activeGraphic),
         textsTitle: "Edita los textos del gráfico",
@@ -371,19 +406,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
       });
     }
     return out;
-  }, [canvas, activeBroll, activeGraphic, compiledGraphic, activeFx, fxBox, block, captionLook, preset, capBox, pxScale, outW, outH]);
-
-  // El b-roll de la vista previa sigue al video principal: arranca en su punto (más el segundo del clip elegido) y se
-  // pausa con él. Si el clip es más corto que el tramo, vuelve a empezar (como el render).
-  useEffect(() => {
-    const v = brollVideo.current;
-    if (!v || !activeBroll?.previewUrl) return;
-    const raw = Math.max(0, out - activeBroll.start) + (activeBroll.edit?.clip_start ?? 0);
-    const target = v.duration && Number.isFinite(v.duration) && raw >= v.duration ? raw % v.duration : raw;
-    if (Math.abs(v.currentTime - target) > 0.35) v.currentTime = target;
-    if (playing && v.paused) void v.play().catch(() => undefined);
-    if (!playing && !v.paused) v.pause();
-  }, [activeBroll, out, playing]);
+  }, [canvas, topGraphicBroll, activeGraphic, compiledGraphic, activeFx, fxBox, block, captionLook, preset, capBox, pxScale, outW, outH, fxOnTop]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -402,7 +425,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
           )}
           <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: `50% ${focusY * 100}%` }}>
           <video
-            ref={video}
+            ref={videoRef}
             src={src}
             poster={poster ?? undefined}
             preload="auto"
@@ -423,50 +446,41 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
           </div>
           </div>
         ) : null}
-        {activeBroll &&
-          (activeBroll.graphic ? (
-            // El gráfico se dibuja en el mismo instante que el render (en "sobre tu video", el video sigue debajo).
-            <div
-              key={activeBroll.id}
-              className="pointer-events-none absolute inset-0"
-              style={{ opacity: graphicAlpha(activeEdit, Math.max(0, out - activeBroll.start), activeBroll.end - activeBroll.start) }}
-            >
-              <GraphicCanvas spec={activeBroll.graphic} compiled={compiledGraphic} format={format} duration={activeBroll.end - activeBroll.start} time={Math.max(0, out - activeBroll.start)} scale={0.5} />
+        {layers.map((l) =>
+          l.kind === "broll" ? (
+            l.b.graphic ? (
+              // El gráfico se dibuja en el mismo instante que el render (en "sobre tu video", el video sigue debajo).
+              <div
+                key={`b:${l.b.id}`}
+                className="pointer-events-none absolute inset-0"
+                style={{ opacity: graphicAlpha(l.b.edit ?? DEFAULT_EDIT, Math.max(0, out - l.b.start), l.b.end - l.b.start) }}
+              >
+                <GraphicCanvas spec={l.b.graphic} compiled={l.b === topGraphicBroll ? compiledGraphic : undefined} format={format} duration={l.b.end - l.b.start} time={Math.max(0, out - l.b.start)} scale={0.5} />
+              </div>
+            ) : l.b.previewUrl || l.b.thumbUrl ? (
+              <SyncedBroll key={`b:${l.b.id}`} item={l.b} out={out} playing={playing} format={format} accent={brandAccent} pxScale={pxScale} />
+            ) : null
+          ) : (
+            // El efecto se dibuja con el mismo motor que el render, sobre el cuadro del video (ya con su encuadre).
+            <div key={`f:${l.f.id}`} className="pointer-events-none absolute inset-0">
+              <FxVideoLayer
+                spec={l.f}
+                time={Math.max(0, out - l.f.start)}
+                video={baseVideo}
+                sourceWidth={sourceWidth}
+                sourceHeight={sourceHeight}
+                offsetX={offsetX}
+                strips={fxStrips}
+                maskFps={fxMaskFps}
+                images={fxImages}
+                reducedMotion={reducedMotion}
+                onMovable={canvas && l.f === activeFx ? onFxMovable : undefined}
+              />
             </div>
-          ) : activeBroll.previewUrl || activeBroll.thumbUrl ? (
-            <BrollLayer
-              key={activeBroll.id}
-              className="pointer-events-none"
-              edit={activeEdit}
-              format={format}
-              media={{ previewUrl: activeBroll.previewUrl, thumbUrl: activeBroll.thumbUrl, width: activeBroll.width ?? 0, height: activeBroll.height ?? 0 }}
-              accent={brandAccent}
-              time={Math.max(0, out - activeBroll.start)}
-              duration={activeBroll.end - activeBroll.start}
-              pxScale={pxScale}
-              videoRef={brollVideo}
-            />
-          ) : null)}
-        {activeFx && (
-          // El efecto se dibuja con el mismo motor que el render, sobre el cuadro del video (ya con su encuadre).
-          <div key={activeFx.id} className="pointer-events-none absolute inset-0">
-            <FxVideoLayer
-              spec={activeFx}
-              time={Math.max(0, out - activeFx.start)}
-              video={video.current}
-              sourceWidth={sourceWidth}
-              sourceHeight={sourceHeight}
-              offsetX={offsetX}
-              strips={fxStrips}
-              maskFps={fxMaskFps}
-              images={fxImages}
-              reducedMotion={reducedMotion}
-              onMovable={canvas ? onFxMovable : undefined}
-            />
-          </div>
+          ),
         )}
-        {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeBroll.graphic ? "Gráfico" : "B-roll"}</span>}
-        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{specLabel(activeFx.kind)}</span>}
+        {topBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{topBroll.graphic ? "Gráfico" : "B-roll"}{activeBrolls.length > 1 ? ` +${activeBrolls.length - 1}` : ""}</span>}
+        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{specLabel(activeFx.kind)}{activeFxs.length > 1 ? ` +${activeFxs.length - 1}` : ""}</span>}
         <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} onBox={canvas ? onCaptionBox : undefined} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">
@@ -526,3 +540,31 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     </div>
   );
 });
+
+/** Un clip de b-roll que sigue al video principal: arranca en su punto (más el segundo del clip elegido) y se pausa con
+ * él; si el clip es más corto que el tramo, vuelve a empezar (como el render). Uno por capa: pueden verse varios a la vez. */
+function SyncedBroll({ item, out, playing, format, accent, pxScale }: { item: PreviewBroll; out: number; playing: boolean; format: VideoFormat; accent: string; pxScale: number }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || !item.previewUrl) return;
+    const raw = Math.max(0, out - item.start) + (item.edit?.clip_start ?? 0);
+    const target = v.duration && Number.isFinite(v.duration) && raw >= v.duration ? raw % v.duration : raw;
+    if (Math.abs(v.currentTime - target) > 0.35) v.currentTime = target;
+    if (playing && v.paused) void v.play().catch(() => undefined);
+    if (!playing && !v.paused) v.pause();
+  }, [item, out, playing]);
+  return (
+    <BrollLayer
+      className="pointer-events-none"
+      edit={item.edit ?? DEFAULT_EDIT}
+      format={format}
+      media={{ previewUrl: item.previewUrl, thumbUrl: item.thumbUrl, width: item.width ?? 0, height: item.height ?? 0 }}
+      accent={accent}
+      time={Math.max(0, out - item.start)}
+      duration={item.end - item.start}
+      pxScale={pxScale}
+      videoRef={ref}
+    />
+  );
+}

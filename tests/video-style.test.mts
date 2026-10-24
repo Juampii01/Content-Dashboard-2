@@ -169,11 +169,11 @@ describe("pausas, zooms y b-roll sobre el timeline", () => {
     assert.equal(brollCredits([]), "");
   });
 
-  test("el plan valida el b-roll: ids y superposiciones", () => {
+  test("el plan valida el b-roll: ids (superpuestos valen: van en capas)", () => {
     const ok = basePlan({ broll: [item("a", 2, 4), item("b", 6, 8)] });
     assert.equal(planSchemaFor(words.length).safeParse(ok).success, true);
-    const bad = basePlan({ broll: [item("a", 2, 6), item("b", 5, 8)] });
-    assert.equal(planSchemaFor(words.length).safeParse(bad).success, false);
+    const layered = basePlan({ broll: [item("a", 2, 6), { ...item("b", 5, 8), layer: 1 }] });
+    assert.equal(planSchemaFor(words.length).safeParse(layered).success, true);
     const out = basePlan({ broll: [item("a", 2, 99)] });
     assert.equal(planSchemaFor(words.length).safeParse(out).success, false);
   });

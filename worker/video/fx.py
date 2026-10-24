@@ -54,6 +54,20 @@ def engine_hash() -> str:
         return "sin-motor"
 
 
+def layer_z(item: dict[str, Any]) -> float:
+    """Lugar en el orden de dibujo (lo calcula la app: lib/video/layers.ts); sin el campo, 0 (planes viejos)."""
+    try:
+        return float(item.get("z", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def overlay_order(overlays: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Las capas de abajo hacia arriba: por `z` (b-roll, gráficos, efectos y transiciones juntos) y, con el mismo `z`,
+    por inicio (como antes de las capas). Las que se superponen se dibujan una encima de otra, sin recortarse."""
+    return sorted(overlays, key=lambda o: (float(o.get("z", 0) or 0), float(o["start"])))
+
+
 def validate(item: Any) -> dict[str, Any]:
     """Revisión defensiva (la app ya validó y compiló el efecto)."""
     if not isinstance(item, dict) or not isinstance(item.get("spec"), dict):
@@ -187,7 +201,7 @@ def render_effects(
             for tmp in (cache / f"base-{h}.mkv", cache / f"mask-{h}.raw"):
                 tmp.unlink(missing_ok=True)
             log.info("efecto %s (%s): %s cuadros, máscara %s ms, dibujo %s ms", spec.get("id"), spec.get("kind"), frames, mask_ms, draw_ms)
-        out.append({"path": final, "start": start, "end": start + frames / FPS, "kind": spec.get("kind"), "ms": draw_ms, "maskMs": mask_ms})
+        out.append({"path": final, "start": start, "end": start + frames / FPS, "kind": spec.get("kind"), "ms": draw_ms, "maskMs": mask_ms, "z": layer_z(item)})
         if on_progress:
             on_progress((n + 1) / len(items))
     return out

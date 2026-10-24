@@ -21,6 +21,7 @@ import { planDensity } from "./rhythm";
 import { transitionSounds, TRANSITION_SOUND_GAIN } from "./fx/transitions";
 import { isSfxName, type SfxName } from "./sfx-library";
 import { ensureFxMasks, fxForRender } from "./fx-service";
+import { layerKey, stackIndex } from "./layers";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
 import { placeCaptionBlocks } from "./canvas/captions";
@@ -488,6 +489,11 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
   const phraseFixes = await phraseFixesForRender(projectId);
 
+  // Orden de dibujo de todo lo que se superpone (b-roll, gráficos, efectos y transiciones), el mismo que la vista previa.
+  const z = stackIndex([
+    ...broll.map((b) => ({ key: layerKey("broll", b.id), kind: "broll" as const, layer: b.layer, start: b.start })),
+    ...fx.items.map((f) => ({ key: layerKey(f.layerKind ?? "fx", f.spec.id), kind: f.layerKind ?? ("fx" as const), layer: f.layer, start: f.spec.start })),
+  ]);
   const input = {
     projectId,
     sourceKey: project.sourceKey,
@@ -509,12 +515,12 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
     broll: broll.map((b) =>
       b.option.source === "graphic"
-        ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic, edit: brollEdit(b) }
+        ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic, edit: brollEdit(b), z: z.get(layerKey("broll", b.id)) ?? 0 }
         : b.option.source !== "library"
-          ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: brollEdit(b) }
-          : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key, edit: brollEdit(b) },
+          ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: brollEdit(b), z: z.get(layerKey("broll", b.id)) ?? 0 }
+          : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key, edit: brollEdit(b), z: z.get(layerKey("broll", b.id)) ?? 0 },
     ),
-    effects: fx.items,
+    effects: fx.items.map(({ layerKind, ...f }) => ({ spec: f.spec, sourceFrames: f.sourceFrames, ...(f.images ? { images: f.images } : {}), z: z.get(layerKey(layerKind ?? "fx", f.spec.id)) ?? 0 })),
     credits,
     creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
     srt: toSrt(timeline.words),

@@ -7,6 +7,7 @@
  * `scripts/make-sync-fixture.mts` lo escribe en worker/tests/fixtures/sync-plan.json; tests/video-sync.test.mts
  * revisa que el archivo esté al día y que la vista previa y el render usen el mismo mapeo de tramos.
  */
+import { layerKey, stackIndex } from "../lib/video/layers";
 import { brollRenderEdit } from "../lib/video/broll-edit";
 import { captionLook, captionTracks } from "../lib/video/caption-styles";
 import { captionBlocks, hideDuring, toSrt } from "../lib/video/captions";
@@ -137,9 +138,11 @@ export function syncRenderInput(words: Word[] = syncWords(), plan: EditPlan = sy
   const fx = segments.map((segment) => {
     const face = faceAnchor([], sourceRangesOf(timeline, segment.start, segment.end), 1080, 1920, "9:16", 0);
     const spec = compileFx({ segment, timeline, format: "9:16", brand: BRAND, face, thumbs: 0, cards: [] });
-    return { spec, sourceFrames: spec.mask ? sourceFramesOf(timeline, spec.start, Math.max(1, Math.round(spec.duration * 30))) : [] };
+    return { spec, sourceFrames: spec.mask ? sourceFramesOf(timeline, spec.start, Math.max(1, Math.round(spec.duration * 30))) : [], layer: segment.layer };
   });
   const broll = brollSegments(timeline, plan.broll);
+  // Orden de dibujo de las capas, igual que renderInputFor.
+  const z = stackIndex([...broll.map((b) => ({ key: layerKey("broll", b.id), kind: "broll" as const, layer: b.layer, start: b.start })), ...fx.map((f) => ({ key: layerKey("fx", f.spec.id), kind: "fx" as const, layer: f.layer, start: f.spec.start }))]);
   const avoid = [...broll, ...segments.map((s) => ({ start: s.start, end: s.end }))];
   const zooms = directorZooms(timeline, plan.zoom_moments, avoid);
   const look = captionLook("hormozi", { format: "9:16", accent: BRAND.accent, brandFont: "inter", emoji: false });
@@ -168,10 +171,10 @@ export function syncRenderInput(words: Word[] = syncWords(), plan: EditPlan = sy
       zooms: zooms.map((z) => ({ start: z.start, end: z.end, scale: z.scale, ramp: z.ramp })),
       broll: broll.map((b) =>
         b.option.source === "graphic"
-          ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic, edit: edit(b) }
-          : { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: edit(b) },
+          ? { start: b.start, end: b.end, source: "graphic", spec: b.option.graphic, edit: edit(b), z: z.get(layerKey("broll", b.id)) ?? 0 }
+          : { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: edit(b), z: z.get(layerKey("broll", b.id)) ?? 0 },
       ),
-      effects: fx,
+      effects: fx.map(({ layer: _layer, ...f }) => (void _layer, { ...f, z: z.get(layerKey("fx", f.spec.id)) ?? 0 })),
       srt: toSrt(timeline.words),
       audio: { targetLufs: -14, truePeak: -1, sfx, music: { trackId: "00000000-0000-4000-8000-000000000001", key: "editor/musica/00000000-0000-4000-8000-000000000001/pista.wav", db: -16 }, studio: "soft" },
       phraseFixes: [],

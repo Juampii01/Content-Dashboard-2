@@ -59,7 +59,8 @@ export type FxSpec = {
   place?: Place;
 };
 
-export type FxSegment = { id: string; start: number; end: number; item: FxItem };
+/** `layer`: capa del efecto (lib/video/layers.ts). */
+export type FxSegment = { id: string; start: number; end: number; item: FxItem; layer?: number };
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 /** Los efectos van a la rejilla de cuadros (el worker los dibuja cuadro a cuadro). */
@@ -87,12 +88,11 @@ export function fxSegments(timeline: Pick<Timeline, "words" | "duration">, items
     }
     if (end - start > info.duration.max) end = start + info.duration.max;
     if (end - start < info.duration.min) end = Math.min(timeline.duration, start + info.duration.min);
-    const prev = out[out.length - 1];
-    if (prev && start < prev.end) start = prev.end;
+    // Varios efectos a la vez se dibujan en capas (no se recortan entre sí).
     start = snap(start);
     end = snap(end);
     if (end - start < 0.5) continue;
-    out.push({ id: item.id, start: round3(start), end: round3(end), item });
+    out.push({ id: item.id, start: round3(start), end: round3(end), item, layer: item.layer ?? 0 });
   }
   return out;
 }

@@ -353,6 +353,9 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         "image_inputs": [EMOJI_DIR / f"{n}.png" for n in emoji_files],
         "audio_info": audio_info,
         "fmt": fmt,
+        # Lo que se usó para cortar (con las frases corregidas, si las hay): contra esto se mide la sincronía final.
+        "source_wav": seg_wav,
+        "segments": segments,
     }
 
 
@@ -378,6 +381,19 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     qc = render.quality_check(final, expected, fmt, float(data.get("audio", {}).get("targetLufs", -14)))
     if not next(c for c in qc["checks"] if c["name"] == "Duración")["ok"] or not next(c for c in qc["checks"] if c["name"] == "Sincronía audio-video")["ok"]:
         raise JobError("El video salió con un problema de duración o sincronía. Vamos a reintentarlo.", detail=str(qc["checks"]))
+    # Sincronía real: el audio del MP4 tiene que ser el del original en el lugar que dice el timeline (el mismo de la
+    # vista previa). Si no, no se entrega: se borran los tramos de este render (por si alguno quedó viejo en la caché)
+    # y el reintento los rehace desde el original.
+    sync = render.sync_check(final, built["source_wav"], data["clips"])
+    qc["checks"].append({k: sync[k] for k in ("name", "ok", "detail")})
+    if not sync["ok"]:
+        for seg in built["segments"]:
+            seg.unlink(missing_ok=True)
+        log.error("sincronía fuera de lugar en %s: %s · %s", pid, sync["detail"], sync["points"])
+        raise JobError(
+            "El audio del video final no quedó alineado con la imagen. No lo entregamos así: vamos a rehacerlo desde el original. Si vuelve a pasar, escríbenos.",
+            detail=f"sincronía: {sync['detail']}",
+        )
     if not qc["ok"]:
         log.warning("control de calidad con avisos: %s", [c for c in qc["checks"] if not c["ok"]])
 

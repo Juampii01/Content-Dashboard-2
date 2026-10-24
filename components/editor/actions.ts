@@ -168,6 +168,13 @@ const reviewSchema = z.object({
       emphasis: z.array(z.number().int().min(0)).max(60),
     })
     .optional(),
+  // Lo que mostraba la vista previa al exportar (el servidor no exporta si su timeline no da lo mismo).
+  preview: z
+    .object({
+      clips: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])).max(5000),
+      hook: z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0) }).nullable(),
+    })
+    .optional(),
 });
 
 export async function saveReviewAction(projectId: string, review: Review, format: "9:16" | "16:9"): Promise<ActionResult> {

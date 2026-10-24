@@ -18,25 +18,21 @@ import { brollRenderEdit } from "./broll-edit";
 import { brollCredits, brollSegments, computeZooms, directorZooms, graphicEntries, graphicHidesCaptions } from "./effects";
 import { fxSegments } from "./fx/compile";
 import { planDensity } from "./rhythm";
-import { cleanFx } from "./fx/schema";
-import { cleanTransitions, transitionSounds, TRANSITION_SOUND_GAIN } from "./fx/transitions";
-import { musicGenSchema } from "./music-gen/spec";
+import { transitionSounds, TRANSITION_SOUND_GAIN } from "./fx/transitions";
 import { isSfxName, type SfxName } from "./sfx-library";
 import { ensureFxMasks, fxForRender } from "./fx-service";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
-import { cleanCaptionPlacement, placeCaptionBlocks } from "./canvas/captions";
-import { cleanPlace } from "./canvas/transform";
+import { placeCaptionBlocks } from "./canvas/captions";
 import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme, graphicWithPlace } from "./motion-graphics";
 import { sceneSchema } from "./motion/schema";
 import { loadTrack } from "./music";
-import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerived } from "./plan";
+import { assemblePlan, planSchemaFor } from "./plan";
 import { phraseFixesForRender } from "./phrase-fix-service";
 import { alignScript } from "./script-align";
 import { proofreadTranscript } from "./transcript-fix";
-import { cleanSoundCues, hookEnd, MUSIC_DB, sfxCues, sfxLevel, soundCueTimes, type SfxLevel } from "./sfx";
-import { studioLevel, type StudioLevel } from "./studio-audio";
-import type { ZoomMoment } from "./types";
+import { hookEnd, sfxCues, sfxLevel, soundCueTimes } from "./sfx";
+import { studioLevel } from "./studio-audio";
 import type { StyleMetrics } from "./style";
 import { stylePreset } from "./styles";
 import { readEditorDefaults } from "./defaults";
@@ -44,7 +40,7 @@ import { buildTimeline, outputRange } from "./timeline";
 import { evenFrames, keyFrames, mergeFrames } from "./director/keyframes";
 import { clampBudget, eyesMaxFrames } from "./director/cost";
 import { briefIsEmpty, type Brief } from "./director/types";
-import { FPS, type BrollItem, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type PlanMove, type Transcript, type VideoFormat } from "./types";
+import { FPS, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type Transcript, type VideoFormat } from "./types";
 
 /**
  * Ciclo de vida de un proyecto del Editor de video:
@@ -351,163 +347,8 @@ export async function withEditorDefaults(plan: EditPlan, brand: Awaited<ReturnTy
 
 // ─── Revisión y render ────────────────────────────────────────────────────
 
-export type Review = {
-  removed: number[];
-  selectedHook: number | null;
-  preset: CaptionPresetKey;
-  offsetX: number;
-  corrections: Record<string, string>;
-  /** B-roll tal como quedó en la revisión (cambiado, movido o quitado). */
-  broll?: BrollItem[];
-  /** Zooms del estilo encendidos o apagados. */
-  zooms?: boolean;
-  /** Emojis sobre las palabras clave (galería de subtítulos). */
-  emoji?: boolean;
-  /** Efectos de sonido. */
-  sfx?: SfxLevel;
-  /** Audio de estudio (ruido y eco fuera). */
-  studio?: StudioLevel;
-  /** Música de fondo: pista de la biblioteca (o null) y su volumen respecto de la voz. */
-  music?: { trackId: string | null; db: number };
-  /** Bloques movidos por el director que siguen en pie (la persona puede dejar alguno en su lugar). */
-  moves?: PlanMove[];
-  /** Efectos de la biblioteca tal como quedaron en la revisión. */
-  effects?: unknown[];
-  /** Transiciones en los cortes (lib/video/fx/transitions). */
-  transitions?: unknown[];
-  /** Sonidos de la biblioteca puestos a mano en la pista de Sonido. */
-  soundCues?: unknown[];
-  /** Música generada elegida (estilo, semilla y tempo), o null para quitarla. Manda sobre `music.trackId`. */
-  musicGen?: unknown;
-  /**
-   * Ritmo elegido en la revisión (lib/video/rhythm.ts): la densidad y lo que el relleno de ritmo dejó en la vista
-   * previa (punch-ins, pausa máxima y palabras resaltadas); los gráficos y efectos que agregó van en broll y effects.
-   */
-  rhythm?: { density: "sobria" | "normal" | "reels"; added: NonNullable<EditPlan["rhythm"]>["added"]; zoomMoments: ZoomMoment[]; longPause: number; emphasis: number[] };
-  /**
-   * Lugar y tamaño de los subtítulos desde el lienzo (lib/video/canvas/captions.ts): de todos y, opcional, por línea
-   * (id de la primera palabra del bloque). Sin el campo, se deja lo que ya tenía el plan.
-   */
-  captionPlace?: { transform?: unknown; lines?: unknown };
-  /** Tramos sin subtítulos tal como quedaron en la revisión (quitados por la persona o por el director). */
-  captionHide?: { from_word: number; to_word: number; why: string }[];
-};
-
-export function applyReview(plan: EditPlan, review: Review, words: Transcript["words"], duration: number, format: VideoFormat): EditPlan {
-  const valid = review.removed.filter((id) => Number.isInteger(id) && id >= 0 && id < words.length);
-  const corrections: Record<string, string> = {};
-  for (const [id, text] of Object.entries(review.corrections)) {
-    const n = Number(id);
-    const clean = text.trim().slice(0, 60);
-    if (Number.isInteger(n) && n >= 0 && n < words.length && clean) corrections[String(n)] = clean;
-  }
-  const next: EditPlan = {
-    ...plan,
-    format,
-    removals: rangesFromIds(valid, [...plan.removals, ...plan.proposed_removals]),
-    selected_hook: review.selectedHook != null && plan.hook_candidates[review.selectedHook] ? review.selectedHook : null,
-    captions: { ...plan.captions, preset: review.preset, ...(review.emoji != null ? { emoji: review.emoji } : {}) },
-    audio: {
-      ...plan.audio,
-      ...(review.sfx ? { sfx: sfxLevel(review.sfx) } : {}),
-      ...(review.studio ? { studio: studioLevel(review.studio) } : {}),
-      ...(review.music
-        ? { music_asset_id: review.music.trackId, music_db: Math.round(Math.max(MUSIC_DB.min, Math.min(MUSIC_DB.max, review.music.db))) }
-        : {}),
-    },
-    framing: { mode: review.offsetX === 0 ? "center" : "manual", offset_x: Math.max(-1, Math.min(1, review.offsetX)) },
-    corrections,
-    ...(review.broll ? { broll: cleanBroll(review.broll, words.length) } : {}),
-    ...(review.zooms != null && plan.style_id ? { zooms_enabled: review.zooms } : {}),
-  };
-  if (review.captionHide) {
-    // Subtítulos quitados: tramos válidos, sin repetir y unidos si se pisan.
-    const spans = review.captionHide
-      .map((h) => ({ from_word: Math.min(h.from_word, h.to_word), to_word: Math.max(h.from_word, h.to_word), why: h.why.slice(0, 300) }))
-      .filter((h) => h.from_word >= 0 && h.to_word < words.length)
-      .sort((a, b) => a.from_word - b.from_word);
-    const merged: typeof spans = [];
-    for (const h of spans) {
-      const last = merged[merged.length - 1];
-      if (last && h.from_word <= last.to_word + 1) last.to_word = Math.max(last.to_word, h.to_word);
-      else merged.push({ ...h });
-    }
-    const { hide: _h, ...rest } = next.captions;
-    void _h;
-    next.captions = merged.length ? { ...rest, hide: merged.slice(0, 60) } : rest;
-  }
-  if (review.captionPlace) {
-    // Lienzo: lugar de los subtítulos, limpio (sin rotación, ids válidos, dentro de los límites).
-    const place = cleanCaptionPlacement(review.captionPlace, words.length);
-    const { transform: _t, lines: _l, ...rest } = next.captions;
-    void _t;
-    void _l;
-    next.captions = { ...rest, ...place };
-  }
-  if (review.effects) {
-    const fx = cleanFx(review.effects, words.length, next.broll.filter((b) => b.choice));
-    if (fx.length) next.effects = fx;
-    else delete next.effects;
-  }
-  if (review.transitions) {
-    // Solo en cortes que existen con lo que quedó (el corte depende de lo cortado y del gancho).
-    const tr = cleanTransitions(review.transitions, buildTimeline(words, next, duration));
-    if (tr.length) next.transitions = tr;
-    else delete next.transitions;
-  }
-  if (review.soundCues) {
-    const cues = cleanSoundCues(review.soundCues, words.length);
-    const { cues: _c, ...audio } = next.audio;
-    void _c;
-    next.audio = cues.length ? { ...audio, cues } : audio;
-  }
-  if (review.musicGen !== undefined) {
-    const gen = review.musicGen === null ? null : musicGenSchema.safeParse(review.musicGen);
-    next.audio = { ...next.audio, music_gen: gen && gen.success ? gen.data : null };
-    if (next.audio.music_gen) next.audio.music_asset_id = null;
-  }
-  if (review.rhythm) {
-    // Densidad elegida en la revisión: los punch-ins, la pausa máxima y los resaltados que ya se veían en la vista previa.
-    const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < words.length;
-    const zooms = review.rhythm.zoomMoments.filter((z) => valid(z.from_word) && valid(z.to_word) && z.from_word <= z.to_word).slice(0, 60).map((z) => ({ from_word: z.from_word, to_word: z.to_word, scale: Math.max(1, Math.min(1.4, z.scale)), why: String(z.why ?? "").slice(0, 300) }));
-    if (zooms.length) next.zoom_moments = zooms;
-    else delete next.zoom_moments;
-    next.pacing = { long_pause: Math.max(0.2, Math.min(1.2, review.rhythm.longPause)) };
-    next.captions = { ...next.captions, emphasis_words: [...new Set(review.rhythm.emphasis.filter(valid))].slice(0, 40) };
-    next.rhythm = { density: review.rhythm.density, added: review.rhythm.added.filter((a) => valid(a.from_word) && valid(a.to_word)).slice(-120).map((a) => ({ ...a, why: a.why.slice(0, 300) })) };
-  }
-  if (review.moves) {
-    // Solo se pueden quitar bloques movidos (no inventar nuevos desde el navegador).
-    const kept = (plan.moves ?? []).filter((m) => review.moves!.some((r) => r.from_word === m.from_word && r.to_word === m.to_word && r.after_word === m.after_word));
-    if (kept.length) next.moves = kept;
-    else delete next.moves;
-  }
-  return withDerived(next, words, duration);
-}
-
-/** B-roll que manda el navegador: forma válida, ids dentro de la transcripción, sin superponerse. */
-function cleanBroll(items: BrollItem[], wordCount: number): BrollItem[] {
-  const out: BrollItem[] = [];
-  for (const raw of [...items].sort((a, b) => a.from_word - b.from_word).slice(0, 20)) {
-    const parsed = brollItemSchema.safeParse(raw);
-    if (!parsed.success) continue;
-    const b = parsed.data as BrollItem;
-    if (b.from_word > b.to_word || b.to_word >= wordCount) continue;
-    if (out.some((o) => b.from_word <= o.to_word && o.from_word <= b.to_word)) continue;
-    out.push(cleanBrollPlace(b));
-  }
-  return out;
-}
-
-/** El lugar y la animación del lienzo solo valen para gráficos, dentro de sus límites y si cambian algo. */
-function cleanBrollPlace(b: BrollItem): BrollItem {
-  if (!b.edit || (!b.edit.transform && !b.edit.anim)) return b;
-  const { transform: _t, anim: _a, ...rest } = b.edit;
-  void _t;
-  void _a;
-  const place = b.choice?.source === "graphic" ? cleanPlace(b.edit) : undefined;
-  return { ...b, edit: { ...rest, ...(place?.transform ? { transform: place.transform } : {}), ...(place?.anim ? { anim: place.anim } : {}) } };
-}
+import { applyReview, previewMismatch, type Review } from "./review";
+export { applyReview, previewMismatch, type Review };
 
 async function projectForEdit(projectId: string) {
   const project = await loadProject(projectId);
@@ -544,6 +385,13 @@ export async function startRender(projectId: string, review: Review, format: Vid
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
   const { input, timeline, preset } = await renderInputFor(project, next, format, transcript, duration);
   if (timeline.clips.length === 0 || timeline.duration < 1) throw new VideoError("Cortaste todo el video. Restaura algunas palabras antes de renderizar.");
+  // Lo que sale en el MP4 tiene que ser lo que se vio: si el plan guardado cambió por detrás (otra pestaña, una
+  // versión del director) y el servidor arma otro orden de tramos u otro gancho, no se exporta.
+  const mismatch = previewMismatch(review.preview, next, timeline);
+  if (mismatch) {
+    console.error(`[editor] render ${projectId}: la vista previa no coincide con el plan guardado (${mismatch})`);
+    throw new VideoError("La revisión cambió mientras la tenías abierta, así que el video final no iba a ser igual a la vista previa. Recarga la página, revisa y vuelve a exportar.");
+  }
   // Revisión final del director: cuadros del MP4 en los momentos clave del plan (lib/video/director).
   const finalFrames = mergeFrames(keyFrames({ plan: next, words: transcript.words, timeline, eyes: null, max: 24 }), evenFrames(timeline.duration, 12), 30);
 

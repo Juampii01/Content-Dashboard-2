@@ -8,8 +8,10 @@
  */
 import { z } from "zod";
 import type { BrollItem } from "../types";
-import type { BudgetPlan } from "./cost";
+import type { BudgetPlan, StagePlan } from "./cost";
 import type { RequestLocks } from "./locks";
+import type { DirectorReference, ReferenceSource } from "./reference";
+import type { ComplianceItem, PlanBaseline } from "./request";
 
 // ─── Ojos (lo que mide el worker, worker/video/eyes.py) ──────────────────
 
@@ -92,6 +94,13 @@ export const briefSchema = z.object({
   mustKeep: z.string().trim().max(400),
   /** Notas libres para el director ("que se note el producto", "tono serio"). */
   notes: z.string().trim().max(600),
+  /** Un video de referencia para la edición (link de Instagram, TikTok o YouTube): se imita su edición, no su contenido. */
+  reference: z
+    .string()
+    .trim()
+    .max(500)
+    .refine((v) => !v || /^https:\/\/([a-z0-9-]+\.)*(instagram\.com|tiktok\.com|youtube\.com|youtu\.be)\//i.test(v), "Pega un link de Instagram, TikTok o YouTube.")
+    .optional(),
 });
 export type Brief = z.infer<typeof briefSchema>;
 
@@ -236,7 +245,43 @@ export type FinalReview = {
 
 // ─── Edítalo así, versiones y costo ───────────────────────────────────────
 
-export type EditRequest = { at: string; instruction: string; changes: string[]; note: string; source: "persona" | "arreglo" };
+export type EditRequest = {
+  at: string;
+  instruction: string;
+  changes: string[];
+  note: string;
+  source: "persona" | "arreglo";
+  /** Id del pedido (las vueltas de un mismo pedido actualizan la misma entrada). */
+  id?: string;
+  /** Qué se hizo de cada parte del pedido y qué no (lib/video/director/request.ts). */
+  compliance?: ComplianceItem[];
+  /** Vueltas del director para este pedido. */
+  rounds?: number;
+  /** Lo que gastó este pedido en IA (USD). */
+  costUsd?: number;
+  /** La referencia que pasó con el pedido: si se pudo mirar y qué se midió. */
+  reference?: { ok: boolean; summary: string; error?: string | null } | null;
+};
+
+/** Pedido en curso: el texto, sus vueltas y lo que hace falta para comparar al final. */
+export type PendingRequest = {
+  kind: "edit" | "fix";
+  instruction: string;
+  id?: string;
+  /** Vuelta del director en este pedido (0 = la primera). */
+  attempt?: number;
+  /** Lo que no se cumplió en la vuelta anterior (para la siguiente) y su huella (si se repite, no hay otra vuelta). */
+  focus?: string[];
+  missingKey?: string;
+  /** El plan antes del pedido, en medidas (para el cumplimiento). */
+  baseline?: PlanBaseline;
+  /** "Qué cambió" acumulado de las vueltas. */
+  changes?: string[];
+  /** Gasto de IA del video cuando empezó el pedido. */
+  spentAtStart?: number;
+  /** Referencia adjunta (link o archivo subido): el worker la mide antes de dirigir. */
+  reference?: { id: string; source: ReferenceSource } | null;
+};
 
 export type PlanVariant = {
   id: string;
@@ -261,7 +306,7 @@ export type DirectorState = {
   /** Qué se dejó de hacer por el tope de costo, en palabras para la persona. */
   degraded: string[];
   /** Pedido en curso ("Edítalo así" o un arreglo de la revisión final). */
-  pending: { kind: "edit" | "fix"; instruction: string } | null;
+  pending: PendingRequest | null;
   /** Etapas del director que ya corrieron en este análisis (para retomar si el worker se reinicia). */
   steps: string[];
   /** Ciclo en curso: el análisis completo o un pedido ("Edítalo así" o un arreglo), que tiene una sola vuelta. */
@@ -273,6 +318,15 @@ export type DirectorState = {
    * correcciones lo respetan.
    */
   request?: RequestLocks | null;
+  /**
+   * El pedido que se está cerrando (después de dirigirlo, mientras corre la segunda mirada): con qué comparar, cuántas
+   * vueltas lleva, con qué crítico y qué referencia lleva.
+   */
+  active?: { id: string; baseline: PlanBaseline; attempt: number; spentAtStart: number; referenceId: string | null; critic: StagePlan | null; missingKey?: string } | null;
+  /** La última referencia de edición que miró el director (de "Edítalo así" o del brief). */
+  reference?: DirectorReference | null;
+  /** Subida de una referencia reservada desde el Estudio (la ruta y el tamaño que se aceptan). */
+  refUpload?: { key: string; bytes: number; name: string; at: string } | null;
   updatedAt: string;
 };
 
@@ -298,7 +352,7 @@ export function readBrief(raw: unknown): Brief | null {
 }
 
 export function briefIsEmpty(b: Brief | null | undefined): boolean {
-  return !b || (!b.goal && !b.audience && !b.cta && !b.mustKeep && !b.notes);
+  return !b || (!b.goal && !b.audience && !b.cta && !b.mustKeep && !b.notes && !b.reference);
 }
 
 /** Brief efectivo: lo que escribió la persona manda; lo vacío se completa con lo que infirió la IA. */

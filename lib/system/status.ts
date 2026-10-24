@@ -180,6 +180,8 @@ const jobKinds: Record<string, JobKind> = {
   CAROUSEL_IMAGES: { what: "Imágenes de carrusel", href: (id) => `/carruseles/${id}`, retry: null, hrefLabel: "Abrir y volver a generar" },
   CAROUSEL_STYLE: { what: "Plantilla de carrusel", href: (id) => `/carruseles/plantillas/${id}`, retry: null, hrefLabel: "Ver plantilla", failedStatus: "FAILED" },
   CODEX_LOGIN: { what: "Conexión con ChatGPT", href: () => `/ajustes#claves`, retry: null, hrefLabel: "Volver a conectar" },
+  CAROUSEL_COPY: { what: "Copia de un carrusel", href: (id) => `/carruseles/copiar/${id}`, retry: null, hrefLabel: "Ver y reintentar" },
+  CAROUSEL_ANIMATE: { what: "Video de un slide", href: (id) => `/carruseles/${id}`, retry: null, hrefLabel: "Abrir y volver a animar" },
   REEL_COPY: { what: "Copia de un reel", href: (id) => `/guiones/copiar/${id}`, retry: null, hrefLabel: "Ver y reintentar", failedStatus: "FAILED" },
 };
 

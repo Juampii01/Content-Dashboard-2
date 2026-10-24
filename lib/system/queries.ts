@@ -13,7 +13,7 @@ import type { ConnectionRow, FailStreak, FailedCloneRow, FailedJobRow, ServicesI
  */
 
 /** Trabajos que procesa el worker (los de la app, como la sincronización, se ven en las conexiones). */
-export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "CODEX_LOGIN", "REEL_COPY"] as const;
+export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "CODEX_LOGIN", "REEL_COPY", "CAROUSEL_COPY", "CAROUSEL_ANIMATE"] as const;
 const workerTypes = sql.raw(WORKER_JOB_TYPES.map((t) => `'${t}'`).join(", "));
 
 export async function readWorker(): Promise<WorkerInput> {
@@ -34,6 +34,8 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
           when j.type = 'CAROUSEL_IMAGES' then j.input->>'carouselId'
           when j.type = 'CAROUSEL_STYLE' then j.input->>'templateId'
           when j.type = 'REEL_COPY' then j.input->>'reelCopyId'
+          when j.type = 'CAROUSEL_COPY' then j.input->>'copyId'
+          when j.type = 'CAROUSEL_ANIMATE' then j.input->>'carouselId'
           else null
         end as ref_id
       from jobs j

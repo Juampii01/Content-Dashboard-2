@@ -100,6 +100,7 @@ export function ProjectScreen({
         <ProcessingView
           projectId={project.id}
           kind={status === "RENDERING" ? "render" : project.editing ? "edit" : "analyze"}
+          withReference={Boolean(project.director?.state.pending?.reference)}
           canEdit={project.canEdit}
           autoSummary={project.autoSummary}
           initial={{ status, errorMessage: project.errorMessage, autoExport: project.autoExport, job: project.job, worker: { online: project.worker.online, autoStart: project.worker.autoStart } }}

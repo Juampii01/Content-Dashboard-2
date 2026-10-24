@@ -17,9 +17,11 @@ import {
   slideTask,
   type GeneratedSlide,
 } from "@/lib/ai/prompts/carruseles";
+import { HOOK_TYPES, variantsSchema, variantsTask } from "@/lib/ai/prompts/carruseles-copia";
 import { scriptAsText } from "@/lib/ai/prompts/guiones";
 import { getDb, schema } from "@/lib/db";
-import type { CarouselSlide, ScriptContent } from "@/lib/db/schema";
+import type { CaptionVariant, CarouselSlide, ScriptContent } from "@/lib/db/schema";
+import { cleanTags } from "./captions";
 import type { CarouselObjective } from "./labels";
 import { newSlideId, type TemplateRef } from "./theme";
 import { LIMITS, normalizeHashtag } from "./validate";
@@ -32,8 +34,13 @@ async function context(): Promise<string> {
   return `${CAROUSEL_RULES}\n\n${await brandContext(await getBrand())}`;
 }
 
-function toSlide(s: GeneratedSlide & { scenePrompt?: string }, keep?: Pick<CarouselSlide, "id" | "template" | "imageUrl" | "imageSource" | "scenePrompt">): CarouselSlide {
+/**
+ * Slide a partir de lo que escribió la IA. `keep` es el slide actual: se conserva todo lo que la IA no escribe
+ * (plantilla, imagen, escena, personaje, original, video) y se reemplaza solo el texto.
+ */
+function toSlide(s: GeneratedSlide & { scenePrompt?: string }, keep?: CarouselSlide): CarouselSlide {
   return {
+    ...keep,
     id: keep?.id ?? newSlideId(),
     type: s.type,
     kicker: s.kicker.trim(),
@@ -42,8 +49,7 @@ function toSlide(s: GeneratedSlide & { scenePrompt?: string }, keep?: Pick<Carou
     body: s.body.trim(),
     cta: s.cta.trim(),
     template: keep?.template ?? null,
-    ...(keep?.imageUrl ? { imageUrl: keep.imageUrl, imageSource: keep.imageSource ?? null } : {}),
-    ...(s.scenePrompt?.trim() ? { scenePrompt: s.scenePrompt.trim().slice(0, 600) } : keep?.scenePrompt ? { scenePrompt: keep.scenePrompt } : {}),
+    ...(s.scenePrompt?.trim() ? { scenePrompt: s.scenePrompt.trim().slice(0, 600) } : {}),
   };
 }
 
@@ -193,23 +199,49 @@ export async function newCaption(carouselId: string, slides: CarouselSlide[], us
   return { caption: res.caption.trim(), hashtags: cleanHashtags(res.hashtags) };
 }
 
-/** Propone la escena (sin texto) de los slides que no la tienen, para generar sus imágenes. */
-export async function proposeScenes(carouselId: string, slides: CarouselSlide[], slideIds: string[], userId: string): Promise<Record<string, string>> {
+/**
+ * Propone la escena (sin texto) de los slides que no la tienen, para generar sus imágenes. En los slides donde sale
+ * el personaje, la escena lo incluye y trae su pose (si el slide no tenía una).
+ */
+export async function proposeScenes(carouselId: string, slides: CarouselSlide[], slideIds: string[], userId: string): Promise<Record<string, { scene: string; pose: string }>> {
   await exists(carouselId);
   const indexes = slideIds.map((id) => slides.findIndex((s) => s.id === id)).filter((i) => i >= 0);
   if (!indexes.length) return {};
+  const withCharacter = indexes.filter((i) => slides[i]!.character === true);
   const res = await generateStructured({
     feature: "carruseles.escenas",
     model: "fast",
     context: await context(),
-    task: scenesTask(carouselAsText(slides), indexes),
+    task: scenesTask(carouselAsText(slides), indexes, withCharacter),
     schema: scenesSchema,
     userId,
   });
-  const out: Record<string, string> = {};
+  const out: Record<string, { scene: string; pose: string }> = {};
   for (const scene of res.scenes) {
     const slide = slides[scene.index - 1];
-    if (slide && indexes.includes(scene.index - 1) && scene.scenePrompt.trim()) out[slide.id] = scene.scenePrompt.trim().slice(0, 600);
+    if (slide && indexes.includes(scene.index - 1) && scene.scenePrompt.trim()) out[slide.id] = { scene: scene.scenePrompt.trim().slice(0, 600), pose: scene.pose.trim().slice(0, 300) };
   }
   return out;
+}
+
+/** 5 variaciones del caption (dato, pregunta, problema, promesa, curiosidad) con 5 hashtags distintos cada una. */
+export async function captionVariants(carouselId: string, slides: CarouselSlide[], caption: string, userId: string): Promise<CaptionVariant[]> {
+  const row = await exists(carouselId);
+  const res = await generateStructured({
+    feature: "carruseles.variaciones",
+    model: "fast",
+    context: await context(),
+    task: variantsTask({ carousel: carouselAsText(slides), caption, keyword: row.ctaKeyword }),
+    schema: variantsSchema,
+    maxTokens: 4_000,
+    userId,
+    fake: () => ({
+      variants: HOOK_TYPES.map((hook, i) => ({
+        hook,
+        caption: `${["Un dato que cambia cómo contestas el teléfono.", "¿Sabes qué escucha tu paciente en los primeros segundos?", "Llaman, preguntan el precio y no vuelven.", "Llena tu agenda sin gastar más en anuncios.", "Lo que tu recepción hace sin darse cuenta."][i]}\n\nTodo está en el orden de la llamada: primero escuchas, después explicas.\n\n${row.ctaKeyword ? `💬 Comenta ${row.ctaKeyword} y te mando el guion.` : "Compártelo con tu equipo."}\n\n📌 Guárdalo para ${["tu próxima reunión de equipo", "entrenar a tu recepción", "revisar tus llamadas", "el lunes", "cuando vuelvas a contestar"][i]}.`,
+        hashtags: [["#clinicadental", "#marketingdental", "#recepcion", "#dentistas", "#pacientes"], ["#odontologia", "#agendallena", "#clinicas", "#ventas", "#llamadas"], ["#dentistaslatinos", "#recepcion", "#negocios", "#salud", "#marketing"], ["#clinicadental", "#crecimiento", "#agenda", "#emprendedores", "#odontologos"], ["#dentistas", "#tips", "#atencionalcliente", "#clinicas", "#marketingdigital"]][i]!,
+      })),
+    }),
+  });
+  return res.variants.slice(0, 5).map((v) => ({ hook: v.hook, caption: v.caption.trim(), hashtags: cleanTags(v.hashtags) }));
 }

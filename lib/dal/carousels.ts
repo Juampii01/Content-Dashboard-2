@@ -12,6 +12,10 @@ import { activeImageJob, imagesLast24h } from "@/lib/carousels/images/service";
 import type { TemplateSpec } from "@/lib/carousels/template-spec";
 import { getTemplate, latestStyleJob, listTemplates, type TemplateListItem } from "@/lib/carousels/templates";
 import { workerStatus } from "@/lib/jobs";
+import { activeAnimation } from "@/lib/carousels/animate";
+import { copyOfCarousel, getCopyRow, latestCopyJob } from "@/lib/carousels/copy";
+import { characterPhotos, type CharacterPhoto } from "@/lib/carousels/photos";
+import type { CarouselCopyOptions } from "@/lib/db/schema";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -175,6 +179,12 @@ export type CarouselImageState = {
   providers: ImageProvidersStatus;
   last24h: { chatgpt: number; openai: number };
   activeJobId: string | null;
+  /** Video de un slide en curso (se puede salir y volver). */
+  animation: { jobId: string; slideId: string } | null;
+  /** Fotos del personaje de Mi marca, con sus rasgos (para elegir la referencia de la cara por slide). */
+  photos: CharacterPhoto[];
+  /** Carrusel copiado de otro: el @ del original (para avisar si se cuela). */
+  copy: { id: string; handle: string | null; sourceUrl: string | null } | null;
   workerOnline: boolean;
   workerAutoStart: boolean;
   storageReady: boolean;
@@ -182,8 +192,27 @@ export type CarouselImageState = {
 
 export async function getCarouselImageState(carouselId: string): Promise<CarouselImageState> {
   await getCurrentUser();
-  const [providers, last24h, active, worker] = await Promise.all([providersStatus(), imagesLast24h(), UUID.test(carouselId) ? activeImageJob(carouselId) : null, workerStatus()]);
-  return { providers, last24h, activeJobId: active?.id ?? null, workerOnline: worker.online, workerAutoStart: worker.autoStart, storageReady: carouselFilesReady() };
+  const valid = UUID.test(carouselId);
+  const [providers, last24h, active, worker, animation, photos, copy] = await Promise.all([
+    providersStatus(),
+    imagesLast24h(),
+    valid ? activeImageJob(carouselId) : null,
+    workerStatus(),
+    valid ? activeAnimation(carouselId) : null,
+    characterPhotos(),
+    valid ? copyOfCarousel(carouselId) : null,
+  ]);
+  return {
+    providers,
+    last24h,
+    activeJobId: active?.id ?? null,
+    animation: animation ? { jobId: animation.id, slideId: animation.slideId } : null,
+    photos,
+    copy,
+    workerOnline: worker.online,
+    workerAutoStart: worker.autoStart,
+    storageReady: carouselFilesReady(),
+  };
 }
 
 /** Estado de la conexión de ChatGPT y de la API key de OpenAI, para Ajustes. */
@@ -197,4 +226,53 @@ export async function getImageKeysStatus() {
     .orderBy(desc(schema.jobs.createdAt))
     .limit(1);
   return { isOwner: me.role === "OWNER", providers, last24h, loginJobId: login?.id ?? null, workerOnline: worker.online, workerAutoStart: worker.autoStart };
+}
+
+// ─── Copiar un carrusel ───────────────────────────────────────────────────
+
+export type CopyView = {
+  id: string;
+  status: "ANALYZING" | "READY" | "FAILED";
+  source: string;
+  sourceUrl: string | null;
+  referenceCount: number;
+  options: CarouselCopyOptions;
+  carouselId: string | null;
+  errorMessage: string | null;
+  /** Falló al bajar el link: se ofrece subir las imágenes. */
+  linkFailed: boolean;
+  job: { id: string; status: string; progress: number; stage: string | null; errorMessage: string | null } | null;
+  workerOnline: boolean;
+  workerAutoStart: boolean;
+};
+
+export async function getCopyView(id: string): Promise<CopyView | null> {
+  await getCurrentUser();
+  if (!UUID.test(id)) return null;
+  const [row, job, worker] = await Promise.all([getCopyRow(id), latestCopyJob(id), workerStatus()]);
+  if (!row) return null;
+  const failedByJob = row.status === "ANALYZING" && (job?.status === "FAILED" || job?.status === "CANCELED");
+  const status = failedByJob ? "FAILED" : row.status;
+  const errorMessage = row.errorMessage ?? (failedByJob ? (job?.errorMessage ?? "La lectura se canceló.") : null);
+  return {
+    id: row.id,
+    status,
+    source: row.source,
+    sourceUrl: row.sourceUrl,
+    referenceCount: row.referenceCount,
+    options: row.options,
+    carouselId: row.carouselId,
+    errorMessage,
+    linkFailed: status === "FAILED" && row.source === "link",
+    job,
+    workerOnline: worker.online,
+    workerAutoStart: worker.autoStart,
+  };
+}
+
+/** Lo que necesita la pantalla de "Copiar un carrusel": fotos del personaje y plantillas para elegir. */
+export async function getCopySetup() {
+  await getCurrentUser();
+  const [photos, templates, providers, last24h] = await Promise.all([characterPhotos(), listCarouselTemplates(true), providersStatus(), imagesLast24h()]);
+  return { photos, templates, providers, last24h, storageReady: carouselFilesReady() };
 }

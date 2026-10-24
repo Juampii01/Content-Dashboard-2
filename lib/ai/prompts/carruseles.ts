@@ -107,11 +107,20 @@ ${all}`;
 // ─── Escenas para imágenes con IA ─────────────────────────────────────────
 
 export const scenesSchema = z.object({
-  scenes: z.array(z.object({ index: z.number().int().describe("Número del slide, empezando en 1."), scenePrompt: z.string().describe(SCENE_HINT) })),
+  scenes: z.array(
+    z.object({
+      index: z.number().int().describe("Número del slide, empezando en 1."),
+      scenePrompt: z.string().describe(SCENE_HINT),
+      pose: z.string().describe("Solo en los slides donde sale el creador: pose, gesto y mirada en una frase, con UNA sola acción de las manos. Vacío en los demás."),
+    }),
+  ),
 });
 
-export function scenesTask(all: string, indexes: number[]): string {
+/** `withCharacter`: slides (índices desde 0) donde sale el creador: su escena lo incluye y lleva pose. */
+export function scenesTask(all: string, indexes: number[], withCharacter: number[] = []): string {
+  const people = withCharacter.filter((i) => indexes.includes(i));
   return `TAREA: propone la escena de la imagen de estos slides: ${indexes.map((i) => i + 1).join(", ")}. La imagen va detrás o arriba del texto, que se dibuja aparte: la escena no lleva ningún texto. Que se entienda en menos de un segundo y acompañe la idea del slide.
+${people.length ? `En los slides ${people.map((i) => i + 1).join(", ")} sale el creador (su cara, con sus fotos de referencia): la escena lo incluye haciendo algo que acompañe la idea, y propone su pose (ángulo, mirada, expresión y una sola acción de las manos), distinta entre slides seguidos. En los demás no sale ninguna persona.` : "No sale ninguna persona."}
 CARRUSEL:
 ${all}`;
 }

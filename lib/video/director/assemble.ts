@@ -218,10 +218,15 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     if (last && Math.abs(last.scale - scale) < 0.02 && words[from]!.start - words[last.to_word]!.end < 1) scale = scale === strong ? soft : strong;
     zooms.push({ from_word: from, to_word: to, scale, why: clip(z.why, 300) });
   }
-  const hide = ai.caption_hide
-    .filter((h) => valid(Math.min(h.from_word, h.to_word), Math.max(h.from_word, h.to_word)))
-    .slice(0, 30)
-    .map((h) => ({ from_word: Math.min(h.from_word, h.to_word), to_word: Math.max(h.from_word, h.to_word), why: clip(h.why, 300) }));
+  // Los tramos sin subtítulos que quitó la persona en el Estudio se quedan; los del director se vuelven a decidir.
+  const userHide = (base?.captions.hide ?? []).filter((h) => h.why === "Lo quitaste tú." && valid(h.from_word, h.to_word));
+  const hide = [
+    ...userHide,
+    ...ai.caption_hide
+      .filter((h) => valid(Math.min(h.from_word, h.to_word), Math.max(h.from_word, h.to_word)))
+      .slice(0, 30)
+      .map((h) => ({ from_word: Math.min(h.from_word, h.to_word), to_word: Math.max(h.from_word, h.to_word), why: clip(h.why, 300) })),
+  ].slice(0, 60);
 
   // 6 bis. Efectos de la biblioteca (nunca sobre un b-roll, lo importante que se muestra ni una toma mala).
   // Los efectos se dibujan sobre la persona que habla: el gancho y la CTA los admiten; solo se protege lo que se muestra
@@ -249,6 +254,9 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
       emphasis_words: emphasis,
       ...(base?.captions.emoji != null ? { emoji: base.captions.emoji } : {}),
       ...(hide.length ? { hide } : {}),
+      // El lugar y el tamaño que eligió la persona en el lienzo se quedan al corregir.
+      ...(base?.captions.transform ? { transform: base.captions.transform } : {}),
+      ...(base?.captions.lines ? { lines: base.captions.lines } : {}),
     },
     corrections: base?.corrections ?? input.corrections,
     overlays: [],

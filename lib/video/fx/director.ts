@@ -9,6 +9,7 @@ import type { Word } from "../types";
 import { FX_CATEGORIES, FX_CATEGORY_LABELS, FX_FREQUENCY_LABELS, FX_INFO, FX_MIN_GAP, fxBudget, fxByCategory, type FxFrequency, type FxKind } from "./catalog";
 import { cutPoints, newTransitionId, TRANSITION_INFO, TRANSITION_KINDS, type TransitionItem, type TransitionKind } from "./transitions";
 import type { Timeline } from "../timeline";
+import { fxFromText } from "./request-words";
 import { clampFx, defaultFx, newFxId, strongWords, type FxItem, type FxSettings } from "./schema";
 
 export type FxLimits = { allowed: FxKind[]; max: number; minGap: number; frequency: FxFrequency; /** Transiciones que puede poner (con moderación). */ transitions?: number };
@@ -186,10 +187,10 @@ export function parseFxRequest(instruction: string): FxRequest | null {
   const t = instruction.toLowerCase();
   if (/sin efectos|quita (los|el) efectos?|saca (los|el) efectos?/.test(t)) return { none: true };
   if (!/efecto|ponle|pon |agrega|suma/.test(t)) return null;
-  const hit = REQUEST_WORDS.find(([re]) => re.test(t));
-  if (!hit) return null;
+  const kind = REQUEST_WORDS.find(([re]) => re.test(t))?.[1] ?? fxFromText(t.normalize("NFD").replace(/[̀-ͯ]/g, ""));
+  if (!kind) return null;
   const where = /al (principio|inicio|comienzo)|para abrir|de entrada/.test(t) ? "start" : /al final|para cerrar/.test(t) ? "end" : /en el medio|a la mitad/.test(t) ? "middle" : null;
-  return { kind: hit[1], where };
+  return { kind, where };
 }
 
 /**

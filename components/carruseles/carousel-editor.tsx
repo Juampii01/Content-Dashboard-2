@@ -22,6 +22,10 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
+import type { CaptionVariant } from "@/lib/db/schema";
+import { variantsText } from "@/lib/carousels/captions";
+import { CHATGPT_DAILY_IMAGES, quotaTone } from "@/lib/carousels/quota";
+import { slideHash } from "@/lib/carousels/slide-hash";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -60,6 +64,7 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   captionAction,
+  captionVariantsAction,
   coverOptionsAction,
   deleteCarouselAction,
   duplicateCarouselAction,
@@ -70,8 +75,14 @@ import {
   type CarouselDraft,
 } from "./actions";
 import { CustomTemplatesProvider, type CustomTemplateInfo } from "./custom-templates";
-import { buildZip, downloadBlob, ensureFonts, slugify } from "./export";
-import { generateImagesAction } from "./image-actions";
+import { buildZip, captureSlide, downloadBlob, ensureFonts, slugify } from "./export";
+import { animateSlideAction, correctImageAction, generateImagesAction } from "./image-actions";
+import { CaptionVariants } from "./caption-variants";
+import { CarouselRoute, type RouteStep } from "./carousel-route";
+import { CharacterPanel } from "./character-panel";
+import { OriginalPanel } from "./original-panel";
+import { SlideVideoPanel, type AnimateSettings } from "./slide-video-panel";
+import { uploadImage } from "./upload";
 import { ScaledSlide, Slide } from "./slide";
 import { SlideImagePanel } from "./slide-image-panel";
 
@@ -114,7 +125,7 @@ export function CarouselEditor({
   imageState,
 }: {
   carouselId: string;
-  initial: { title: string; status: CarouselStatus; template: TemplateRef; theme: Theme; slides: CarouselSlide[]; caption: string; hashtags: string[] };
+  initial: { title: string; status: CarouselStatus; template: TemplateRef; theme: Theme; slides: CarouselSlide[]; caption: string; hashtags: string[]; captionVariants: CaptionVariant[] };
   look: Look;
   sourceText: string | null;
   ctaKeyword: string | null;
@@ -131,6 +142,13 @@ export function CarouselEditor({
   const [slides, setSlides] = useState<CarouselSlide[]>(initial.slides);
   const [caption, setCaption] = useState(initial.caption);
   const [hashtagText, setHashtagText] = useState(initial.hashtags.join(" "));
+  const [variants, setVariants] = useState<CaptionVariant[]>(initial.captionVariants);
+  const [correct, setCorrect] = useState<{ id: string; instruction: string } | null>(null);
+  // Video de un slide: el slide se dibuja a 1080×1350 fuera de la pantalla, se sube y el worker lo anima.
+  const [animJobId, setAnimJobId] = useState<string | null>(imageState.animation?.jobId ?? null);
+  const [animSlideId, setAnimSlideId] = useState<string | null>(imageState.animation?.slideId ?? null);
+  const [drawing, setDrawing] = useState<string | null>(null);
+  const drawRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState(initial.slides[0]?.id ?? "");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -158,7 +176,11 @@ export function CarouselEditor({
     () => resolveTheme(theme as Record<string, string>, look, refTemplate ? { palette: refTemplate.spec.palette, font: refTemplate.spec.fonts.heading } : null),
     [theme, look, refTemplate],
   );
-  const warnings = useMemo(() => validateCarousel({ slides, caption, hashtags, bannedWords: look.bannedWords, sourceText }), [slides, caption, hashtags, look.bannedWords, sourceText]);
+  const photos = imageState.photos;
+  const warnings = useMemo(
+    () => validateCarousel({ slides, caption, hashtags, bannedWords: look.bannedWords, sourceText, copy: imageState.copy, characterPhotos: photos.length }),
+    [slides, caption, hashtags, look.bannedWords, sourceText, imageState.copy, photos.length],
+  );
   const selectedIndex = Math.max(0, slides.findIndex((s) => s.id === selectedId));
   const selected = slides[selectedIndex];
   const validRef = (t: string | null | undefined): t is TemplateRef => Boolean(t && isTemplateRef(t) && (!customIdOf(t) || customs[customIdOf(t)!]));
@@ -174,13 +196,13 @@ export function CarouselEditor({
   const providerReady = Boolean(provider);
   const job = useJob(imageJobId, (state: JobState) => {
     // Cada imagen se pone apenas sale (el servidor ya la guardó en el carrusel).
-    const done = Array.isArray(state.output.slides) ? (state.output.slides as { slideId: string; url: string }[]) : [];
+    const done = Array.isArray(state.output.slides) ? (state.output.slides as { slideId: string; url: string; prev?: string | null }[]) : [];
     const fresh = done.filter((d) => d.url && !merged.current.has(`${state.id}:${d.slideId}`));
     if (fresh.length) {
       fresh.forEach((d) => merged.current.add(`${state.id}:${d.slideId}`));
       setSlides((list) => list.map((s) => {
         const hit = fresh.find((d) => d.slideId === s.id);
-        return hit ? { ...s, imageUrl: hit.url, imageSource: "ai" } : s;
+        return hit ? { ...s, imageUrl: hit.url, imageSource: "ai", prevImageUrl: hit.prev ?? s.imageUrl ?? null, prevImageSource: hit.prev ? "ai" : (s.imageSource ?? null) } : s;
       }));
       setMade24h((n) => n + fresh.length);
     }
@@ -195,6 +217,23 @@ export function CarouselEditor({
     }
   });
   const generating = isActive(job) || (imageJobId !== null && !job);
+  const pendingHash = useRef<string | null>(null);
+  const animJob = useJob(animJobId, (state: JobState) => {
+    if (state.status === "SUCCEEDED") {
+      const url = typeof state.output.url === "string" ? state.output.url : null;
+      const id = typeof state.output.slideId === "string" ? state.output.slideId : animSlideId;
+      if (url && id) setSlides((list) => list.map((s) => (s.id === id ? { ...s, videoUrl: url, videoFormat: s.videoFormat, videoHash: pendingHash.current ?? s.videoHash } : s)));
+      toast.success("Video listo.", { description: "Está en el slide y va en el ZIP." });
+      setAnimJobId(null);
+      setAnimSlideId(null);
+      router.refresh();
+    } else if (state.status === "FAILED" || state.status === "CANCELED") {
+      toast.error(state.error ?? "No se pudo animar el slide.", { duration: 12_000 });
+      setAnimJobId(null);
+      setAnimSlideId(null);
+    }
+  });
+  const animating = isActive(animJob) || (animJobId !== null && !animJob) || drawing !== null;
   const slideWarnings = (id: string) => warnings.filter((w) => w.slideId === id);
   const globalWarnings = warnings.filter((w) => w.slideId === null);
 
@@ -213,7 +252,7 @@ export function CarouselEditor({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  const draft = (): CarouselDraft => ({ title: title.trim() || "Carrusel sin título", template, theme: theme as CarouselDraft["theme"], slides, caption, hashtags });
+  const draft = (): CarouselDraft => ({ title: title.trim() || "Carrusel sin título", template, theme: theme as CarouselDraft["theme"], slides, caption, hashtags, captionVariants: variants });
 
   async function save(silent = false): Promise<boolean> {
     const res = await saveCarouselAction(carouselId, draft());
@@ -343,12 +382,65 @@ export function CarouselEditor({
     const res = await generateImagesAction(carouselId, ids, provider);
     setBusy(null);
     if (!res.ok || !res.data) return void toast.error(res.ok ? "No pudimos pedir las imágenes." : res.error);
-    const scenes = res.data.scenes;
-    // Las escenas que propuso la IA ya están guardadas: se muestran sin marcar cambios.
-    setSlides((list) => list.map((s) => (scenes[s.id] ? { ...s, scenePrompt: scenes[s.id] } : s)));
+    applyScenes(res.data.scenes);
     setImageJobSlides(ids);
     setImageJobId(res.data.jobId);
     toast.success(ids.length === 1 ? "Generando la imagen…" : `Generando ${ids.length} imágenes…`, { description: "Puedes seguir editando o salir: se guardan solas." });
+  }
+
+  /** Las escenas y poses que propuso la IA ya están guardadas: se muestran sin marcar cambios. */
+  function applyScenes(scenes: Record<string, { scene: string; pose: string }>) {
+    setSlides((list) => list.map((s) => (scenes[s.id] ? { ...s, scenePrompt: scenes[s.id]!.scene || s.scenePrompt, pose: s.character ? scenes[s.id]!.pose || s.pose : s.pose } : s)));
+  }
+
+  async function correctImage(id: string, instruction: string) {
+    if (dirty && !(await save(true))) return;
+    setBusy("imagenes");
+    const res = await correctImageAction(carouselId, id, instruction, provider);
+    setBusy(null);
+    if (!res.ok || !res.data) return void toast.error(res.ok ? "No pudimos pedir la corrección." : res.error);
+    applyScenes(res.data.scenes);
+    setImageJobSlides([id]);
+    setImageJobId(res.data.jobId);
+    toast.success("Corrigiendo la imagen…", { description: "Si no te gusta, vuelves a la anterior con un clic." });
+  }
+
+  async function animate(slide: CarouselSlide, settings: AnimateSettings) {
+    if (dirty && !(await save(true))) return;
+    setDrawing(slide.id);
+    try {
+      await ensureFonts(resolved.font);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await Promise.all(Array.from(drawRef.current?.querySelectorAll("img") ?? []).map((img) => img.decode().catch(() => undefined)));
+      const node = drawRef.current?.querySelector<HTMLElement>("[data-slide]");
+      if (!node) throw new Error("No pudimos dibujar el slide. Recarga la página y prueba de nuevo.");
+      const bytes = await captureSlide(node, resolved.bg);
+      const up = await uploadImage(`/api/carruseles/subir?tipo=animar&carrusel=${carouselId}&slide=${encodeURIComponent(slide.id)}`, new Blob([bytes as BlobPart], { type: "image/jpeg" }));
+      const hash = slideHash(slide, templateOf(slide), theme);
+      const res = await animateSlideAction(carouselId, slide.id, up.key, { ...settings, hash });
+      if (!res.ok || !res.data) throw new Error(res.ok ? "No pudimos empezar el video." : res.error);
+      pendingHash.current = hash;
+      setSlides((list) => list.map((s) => (s.id === slide.id ? { ...s, videoFormat: settings.format } : s)));
+      setAnimSlideId(slide.id);
+      setAnimJobId(res.data);
+      toast.success("Animando el slide…", { description: "Tarda menos de un minuto. Puedes seguir editando." });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No pudimos animar el slide.");
+    } finally {
+      setDrawing(null);
+    }
+  }
+
+  function runVariants() {
+    setBusy("variaciones");
+    startTransition(async () => {
+      const res = await captionVariantsAction(carouselId, slides, caption);
+      setBusy(null);
+      if (!res.ok) return void toast.error(res.error);
+      setVariants(res.data ?? []);
+      touch();
+      toast.success("5 variaciones listas. Guarda para conservarlas.");
+    });
   }
 
   const needImages = slides.filter((s) => imageMode(s) === "required" && !s.imageUrl);
@@ -374,9 +466,17 @@ export function CarouselEditor({
       await Promise.all(Array.from(stageRef.current?.querySelectorAll("img") ?? []).map((img) => img.decode().catch(() => undefined)));
       const nodes = Array.from(stageRef.current?.querySelectorAll<HTMLElement>("[data-slide]") ?? []);
       if (nodes.length !== slides.length) throw new Error("stage");
+      // Los videos de los slides animados van en el ZIP con el número de su slide (01.mp4…).
+      const videos: Record<string, Uint8Array> = {};
+      for (const [i, s] of slides.entries()) {
+        if (!s.videoUrl) continue;
+        const res = await fetch(s.videoUrl).catch(() => null);
+        if (res?.ok) videos[`${String(i + 1).padStart(2, "0")}.mp4`] = new Uint8Array(await res.arrayBuffer());
+      }
       const blob = await buildZip(nodes, {
         background: resolved.bg,
         captionText: captionWithHashtags(caption, hashtags),
+        extra: { ...videos, ...(variants.length ? { "variaciones.txt": variantsText(variants) } : {}) },
         onProgress: (done, total) => setExporting({ done, total }),
       });
       downloadBlob(blob, `${slugify(title)}.zip`);
@@ -384,7 +484,8 @@ export function CarouselEditor({
         const res = await markExportedAction(carouselId);
         if (res.ok) setStatus("EXPORTED");
       }
-      toast.success(`Listo: ${slides.length} imágenes de 1080 × 1350 y el caption en un ZIP.`);
+      const nVideos = slides.filter((s) => s.videoUrl).length;
+      toast.success(`Listo: ${slides.length} imágenes de 1080 × 1350${nVideos ? `, ${nVideos} ${nVideos === 1 ? "video" : "videos"}` : ""} y el caption${variants.length ? " con sus 5 variaciones" : ""} en un ZIP.`);
     } catch (error) {
       console.error("[carruseles] exportar", error);
       toast.error("No pudimos armar las imágenes. Recarga la página y prueba de nuevo; si sigue, prueba con Chrome.");
@@ -414,6 +515,33 @@ export function CarouselEditor({
   }
 
   const disabled = !canEdit || busy !== null;
+  // Imágenes de las últimas 24 h del proveedor elegido (las de esta sesión se suman al que se está usando).
+  const madeHere = made24h - imageState.last24h.chatgpt - imageState.last24h.openai;
+  const used24h = (provider === "openai-api" ? imageState.last24h.openai : imageState.last24h.chatgpt) + madeHere;
+  const quota = provider === "chatgpt" ? quotaTone(used24h) : "ok";
+  const slideWarningCount = warnings.filter((w) => w.slideId).length;
+  const withImages = withImageSlot.filter((s) => s.imageUrl).length;
+  const videos = slides.filter((s) => s.videoUrl).length;
+  const routeSteps: RouteStep[] = [
+    { id: "ficha", label: "Ficha", detail: slideWarningCount ? `${slideWarningCount} ${slideWarningCount === 1 ? "aviso" : "avisos"}` : "Sin avisos", done: slideWarningCount === 0 },
+    { id: "imagenes", label: "Imágenes", detail: withImageSlot.length ? `${withImages} de ${withImageSlot.length}` : "Sin imágenes", done: withImageSlot.length === 0 || withImages === withImageSlot.length },
+    { id: "descripcion", label: "Descripción", detail: variants.length ? "Con 5 variaciones" : caption.trim() && hashtags.length === 5 ? "Lista" : "Falta revisar", done: Boolean(caption.trim()) && hashtags.length === 5 },
+    { id: "video", label: "Video", detail: videos ? `${videos} ${videos === 1 ? "slide" : "slides"}` : "Opcional", done: videos > 0, optional: true },
+    { id: "descargar", label: "Descargar", detail: status === "EXPORTED" ? "Descargado" : "JPG + ZIP", done: status === "EXPORTED" },
+  ];
+  function goTo(id: string) {
+    if (id === "imagenes") {
+      const missing = needImages[0] ?? withImageSlot[0];
+      if (missing) setSelectedId(missing.id);
+    }
+    const target = { ficha: "c-ficha", imagenes: "c-imagen", descripcion: "c-descripcion", video: "c-video", descargar: "c-descargar" }[id];
+    requestAnimationFrame(() => {
+      const el = target ? document.getElementById(target) : null;
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (el instanceof HTMLDetailsElement) el.open = true;
+      if (id === "descargar") (el as HTMLButtonElement | null)?.focus();
+    });
+  }
   const ws = selected ? slideWarnings(selected.id) : [];
   const fieldWarnings = (field: CarouselWarning["field"]) => ws.filter((w) => w.field === field);
   const marca = brandPalette(look.colors);
@@ -458,7 +586,7 @@ export function CarouselEditor({
                 {generating ? "Generando…" : needImages.length ? `Generar imágenes (${needImages.length})` : "Generar imágenes"}
               </Button>
             )}
-            <Button onClick={() => void exportZip()} disabled={busy !== null || slides.length === 0 || generating} icon={<Download className="h-4 w-4" aria-hidden />}>
+            <Button id="c-descargar" onClick={() => void exportZip()} disabled={busy !== null || slides.length === 0 || generating} icon={<Download className="h-4 w-4" aria-hidden />}>
               {exporting ? `Preparando ${exporting.done} de ${exporting.total}…` : "Descargar ZIP"}
             </Button>
             <DropdownMenu
@@ -474,6 +602,19 @@ export function CarouselEditor({
               ]}
             />
           </div>
+        </div>
+        <div className="flex flex-col gap-2 border-t border-white/8 pt-3 xl:flex-row xl:items-center xl:justify-between">
+          <CarouselRoute steps={routeSteps} onGo={goTo} />
+          {imageState.providers.preferred && withImageSlot.length > 0 && (
+            <span
+              className={cn("pill flex-none self-start xl:self-auto", quota === "over" ? "!border-danger/50 !text-danger" : quota === "near" ? "!border-warning/50 !text-warning" : "")}
+              title={provider === "chatgpt" ? `Los planes de ChatGPT cortan en torno a las ${CHATGPT_DAILY_IMAGES} imágenes por día (medido, no publicado).` : "Con tu API key, el límite es el saldo de tu cuenta de OpenAI."}
+            >
+              <Images className="h-3.5 w-3.5" aria-hidden />
+              Imágenes en 24 h: <strong className="font-mono text-white">{formatNumber(used24h)}</strong>
+              {provider === "chatgpt" ? <span className="text-muted">de ~{CHATGPT_DAILY_IMAGES}</span> : null}
+            </span>
+          )}
         </div>
         {exporting && <Progress value={(exporting.done / Math.max(1, exporting.total)) * 100} label="Dibujando tus slides en 1080 × 1350" />}
         {generating && <Progress value={job?.progress ?? 0} label={job?.retrying ? `${job.retrying} Lo volvemos a intentar.` : (job?.stage ?? "En cola")} />}
@@ -578,8 +719,9 @@ export function CarouselEditor({
 
         {/* Campos del slide */}
         {selected && (
+          <div id="c-ficha" className="order-2 min-w-0 scroll-mt-24 lg:order-none">
           <Section
-            className="order-2 lg:order-none !p-5"
+            className="!p-5"
             title={`Slide ${selectedIndex + 1} · ${SLIDE_TYPES[selected.type]}`}
             actions={
               canEdit && (
@@ -597,6 +739,7 @@ export function CarouselEditor({
             }
           >
             <div className="flex flex-col gap-4">
+              {selected.original && <OriginalPanel original={selected.original} index={selectedIndex} />}
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Tipo" htmlFor="s-type">
                   <Select id="s-type" value={selected.type} onChange={(e) => patchSlide(selected.id, { type: e.target.value as SlideType })} disabled={!canEdit}>
@@ -667,6 +810,17 @@ export function CarouselEditor({
                   <WarningList items={fieldWarnings("cta")} />
                 </div>
               )}
+              <CharacterPanel
+                slide={selected}
+                index={selectedIndex}
+                photos={photos}
+                canEdit={canEdit}
+                disabled={disabled}
+                showsImages={imageMode(selected) !== null}
+                onPatch={(patch) => patchSlide(selected.id, patch)}
+                onUsePhotoTemplate={() => patchSlide(selected.id, { template: "foto" })}
+              />
+              <div id="c-imagen" className="scroll-mt-24">
               <SlideImagePanel
                 carouselId={carouselId}
                 slide={selected}
@@ -679,7 +833,27 @@ export function CarouselEditor({
                 onPatch={(patch) => patchSlide(selected.id, patch)}
                 onGenerate={() => void generateImages([selected.id])}
                 onUsePhotoTemplate={() => patchSlide(selected.id, { template: "foto" })}
+                onCorrect={() => setCorrect({ id: selected.id, instruction: "" })}
               />
+              </div>
+              <div id="c-video" className="scroll-mt-24">
+                <SlideVideoPanel
+                  key={selected.id}
+                  slide={selected}
+                  hash={slideHash(selected, templateOf(selected), theme)}
+                  canEdit={canEdit}
+                  disabled={disabled || animating || !imageState.storageReady}
+                  running={animating && animSlideId === selected.id}
+                  progress={drawing === selected.id ? 2 : (animJob?.progress ?? 0)}
+                  stage={drawing === selected.id ? "Dibujando el slide" : animJob?.retrying ? `${animJob.retrying} Lo volvemos a intentar.` : (animJob?.stage ?? "En cola")}
+                  onAnimate={(settings) => {
+                    setAnimSlideId(selected.id);
+                    void animate(selected, settings);
+                  }}
+                  onRemove={() => patchSlide(selected.id, { videoUrl: null, videoHash: null, videoFormat: null })}
+                />
+                {animating && animSlideId && animSlideId !== selected.id && <p className="mt-1.5 text-xs text-muted">Se está animando el slide {slides.findIndex((s) => s.id === animSlideId) + 1}. Espera a que termine para animar otro.</p>}
+              </div>
               {canEdit && (
                 <div className="flex flex-wrap gap-1.5 border-t border-white/8 pt-3 lg:hidden">
                   <Button variant="subtle" size="sm" disabled={selectedIndex === 0 || disabled} onClick={() => move(selected.id, -1)} icon={<ArrowUp className="h-3.5 w-3.5" aria-hidden />}>
@@ -698,6 +872,7 @@ export function CarouselEditor({
               )}
             </div>
           </Section>
+          </div>
         )}
 
         {/* Vista previa y diseño */}
@@ -780,6 +955,7 @@ export function CarouselEditor({
       </div>
 
       {/* Caption */}
+      <div id="c-descripcion" className="scroll-mt-24">
       <Section
         title="Caption y hashtags"
         description="Lo que va debajo del carrusel. Se descarga en caption.txt junto con las imágenes."
@@ -810,8 +986,23 @@ export function CarouselEditor({
             </div>
           </Field>
           <WarningList items={globalWarnings} />
+          <CaptionVariants
+            variants={variants}
+            source={`${sourceText ?? ""}\n${slides.map((s) => [s.kicker, s.headline, s.body, s.cta].join(" ")).join("\n")}`}
+            slidesCount={slides.length}
+            canEdit={canEdit}
+            busy={busy === "variaciones"}
+            onGenerate={runVariants}
+            onUse={(v) => {
+              setCaption(v.caption);
+              setHashtagText(v.hashtags.join(" "));
+              touch();
+              toast.success("Caption cambiado. Revisa y guarda.");
+            }}
+          />
         </div>
       </Section>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         <ButtonLink href={`/calendario?nuevo=1&carrusel=${carouselId}`} variant="ghost" icon={<CalendarPlus className="h-4 w-4" aria-hidden />}>
@@ -842,6 +1033,55 @@ export function CarouselEditor({
           ))}
         </div>
       )}
+
+      {/* Un solo slide a tamaño real, para animarlo */}
+      {drawing && (
+        <div ref={drawRef} aria-hidden style={{ position: "fixed", left: -30000, top: 0, pointerEvents: "none" }}>
+          {slides
+            .filter((s) => s.id === drawing)
+            .map((s) => (
+              <div key={s.id} style={{ width: 1080, height: 1350 }}>
+                <Slide slide={s} index={slides.indexOf(s)} total={slides.length} template={templateOf(s)} theme={resolved} identity={look.identity} />
+              </div>
+            ))}
+        </div>
+      )}
+
+      <Dialog
+        open={correct !== null}
+        onOpenChange={(open) => !open && setCorrect(null)}
+        title="Corregir la imagen de este slide"
+        description="Di qué cambiar y el resto queda igual. Gasta 1 imagen. Si sale tu personaje, se vuelven a mandar tus fotos para que la cara no pierda parecido."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCorrect(null)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={!correct || correct.instruction.trim().length < 4}
+              icon={<Wand2 className="h-4 w-4" aria-hidden />}
+              onClick={() => {
+                if (!correct) return;
+                const { id, instruction } = correct;
+                setCorrect(null);
+                void correctImage(id, instruction);
+              }}
+            >
+              Corregir
+            </Button>
+          </>
+        }
+      >
+        <Field label="Qué cambiar" htmlFor="img-instruction" hint="Un solo cambio, concreto.">
+          <Input
+            id="img-instruction"
+            value={correct?.instruction ?? ""}
+            maxLength={300}
+            onChange={(e) => setCorrect((c) => (c ? { ...c, instruction: e.target.value } : c))}
+            placeholder="Que mire a cámara, quita la planta de la izquierda, luz más cálida…"
+          />
+        </Field>
+      </Dialog>
 
       <Dialog
         open={rewrite !== null}
@@ -969,7 +1209,15 @@ export function CarouselEditor({
               </Select>
             </Field>
           )}
-          <p className="text-xs text-muted">Llevas {formatNumber(made24h)} imágenes en las últimas 24 h. Los planes de ChatGPT tienen un límite diario.</p>
+          {slides.some((s) => s.character) && photos.length > 0 && <p className="text-xs text-muted">En los slides con tu personaje se mandan tus fotos de Mi marca como referencia de la cara.</p>}
+          <p className={cn("text-xs", provider === "chatgpt" && used24h + Math.min(10, needImages.length || withImageSlot.length) > CHATGPT_DAILY_IMAGES ? "text-warning" : "text-muted")}>
+            Llevas {formatNumber(used24h)} imágenes en las últimas 24 h{provider === "chatgpt" ? " con tu ChatGPT" : provider === "openai-api" ? " con tu API key" : ""}.{" "}
+            {provider === "chatgpt"
+              ? used24h + Math.min(10, needImages.length || withImageSlot.length) > CHATGPT_DAILY_IMAGES
+                ? `Con estas pasarías las ~${CHATGPT_DAILY_IMAGES} que suele permitir un plan de ChatGPT por día: puede cortar a mitad.`
+                : `Los planes de ChatGPT cortan en torno a las ${CHATGPT_DAILY_IMAGES} por día.`
+              : "Con tu API key, el límite es el saldo de tu cuenta de OpenAI."}
+          </p>
         </div>
       </Dialog>
     </div>

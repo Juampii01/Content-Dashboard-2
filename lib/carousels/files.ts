@@ -9,8 +9,9 @@ import { assertKey, localPath, serveLocal, writeLocal } from "@/lib/storage/file
 /**
  * Archivos de Carruseles en el almacenamiento **privado** (el mismo store que los videos del Editor):
  * - `carruseles/<carrusel>/<slide>-<azar>.<ext>`: imágenes de los slides (subidas por el cliente o generadas con IA).
- * - `carruseles-ref/<plantilla>/<nn>.<ext>`: imágenes de un carrusel de referencia, solo mientras se analiza; se borran
- *   al terminar el análisis (nunca se muestran ni se mandan al generador de imágenes).
+ * - `carruseles/<carrusel>/anim/<slide>-<azar>.<jpg|mp4>`: el slide dibujado (lo sube el navegador) y su video animado.
+ * - `carruseles-ref/<plantilla o copia>/<nn>.<ext>`: imágenes de un carrusel de referencia (o del carrusel que se copia),
+ *   solo mientras se analiza; se borran al terminar (nunca se muestran ni se mandan al generador de imágenes).
  * El navegador las lee siempre por `/api/carruseles/archivos/<clave>` (mismo origen y con sesión): así la exportación
  * a JPG puede dibujarlas y nadie sin sesión llega a ellas.
  */
@@ -20,6 +21,8 @@ export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const UUID = "[0-9a-f-]{36}";
 export const SLIDE_KEY_RE = new RegExp(`^carruseles/${UUID}/[a-z0-9]{1,40}-[0-9a-f]{8}\\.(jpg|png|webp)$`, "i");
 export const REF_KEY_RE = new RegExp(`^carruseles-ref/${UUID}/\\d{2}\\.(jpg|png|webp)$`, "i");
+export const ANIM_KEY_RE = new RegExp(`^carruseles/${UUID}/anim/[a-z0-9]{1,40}-[0-9a-f]{8}\\.(jpg|mp4)$`, "i");
+export const MAX_VIDEO_BYTES = 40 * 1024 * 1024;
 
 export function carouselFilesReady(): boolean {
   return fileDriver() !== null;
@@ -41,6 +44,17 @@ export function fileUrl(key: string): string {
 export function keyFromUrl(url: string | null | undefined): string | null {
   const m = url?.match(/^\/api\/carruseles\/archivos\/(carruseles\/[^?#]+)/);
   return m && SLIDE_KEY_RE.test(m[1]!) ? m[1]! : null;
+}
+
+/** Clave del video (o del slide dibujado) de un slide animado, a partir de su URL. */
+export function animKeyFromUrl(url: string | null | undefined): string | null {
+  const m = url?.match(/^\/api\/carruseles\/archivos\/(carruseles\/[^?#]+)/);
+  return m && ANIM_KEY_RE.test(m[1]!) ? m[1]! : null;
+}
+
+/** Se puede servir al navegador (con sesión): imágenes de slides y videos animados. Las referencias, nunca. */
+export function servableKey(key: string): boolean {
+  return SLIDE_KEY_RE.test(key) || ANIM_KEY_RE.test(key);
 }
 
 export async function putFile(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
@@ -107,7 +121,7 @@ export async function copySlideImages<T extends { id: string; imageUrl?: string 
 }
 
 export async function deleteFiles(keys: string[]): Promise<void> {
-  const valid = keys.filter((k) => SLIDE_KEY_RE.test(k) || REF_KEY_RE.test(k));
+  const valid = keys.filter((k) => SLIDE_KEY_RE.test(k) || REF_KEY_RE.test(k) || ANIM_KEY_RE.test(k));
   if (valid.length) await deleteKeys(valid).catch((e) => console.error("[carruseles] borrar archivos:", e instanceof Error ? e.message : "error"));
 }
 

@@ -8,7 +8,7 @@ import { fileDriver, readUrl } from "@/lib/storage";
 import { cleanupReplaced } from "@/lib/video/service";
 import type { EditPlan, MediaInfo, Transcript } from "@/lib/video/types";
 import type { AudioPreview, AudioPreviewMedia } from "@/lib/video/studio-audio";
-import { costSummary, editEstimate, readEyes, type CostSummary } from "@/lib/video/director/service";
+import { costSummary, editEstimate, readEyes, type CostSummary, type EditEstimate } from "@/lib/video/director/service";
 import { clampBudget } from "@/lib/video/director/cost";
 import { readBrief, readDirector, type Brief, type DirectorState, type Eyes } from "@/lib/video/director/types";
 
@@ -148,8 +148,8 @@ export type DirectorView = {
   brief: Brief | null;
   budgetUsd: number;
   cost: CostSummary;
-  /** Estimación de un pedido de "Edítalo así". */
-  editEstimate: number;
+  /** Estimación de un pedido de "Edítalo así" (modelo, vueltas y costo, con y sin referencia). */
+  editEstimate: EditEstimate;
   /** Hojas de contacto del original (para las miniaturas de "Lo que entendió") y su grilla. */
   sheets: SheetView[];
   layout: Eyes["layout"] | null;
@@ -163,14 +163,15 @@ async function directorView(p: typeof schema.videoProjects.$inferSelect, sign: (
   const state = readDirector(p.director);
   const eyes = readEyes(p.eyes);
   const budgetUsd = clampBudget(p.aiBudgetUsd);
+  const cost = await costSummary(p.id, budgetUsd);
   const sheets = await Promise.all((eyes?.sheets ?? []).map(async (s) => ({ url: (await sign(s.key)) ?? "", frames: s.frames, width: s.width, height: s.height })));
   const finalSheets = await Promise.all((state.final?.sheets ?? []).map(async (key) => ({ url: (await sign(key)) ?? "", frames: [], width: 0, height: 0 })));
   return {
     state,
     brief: readBrief(p.brief),
     budgetUsd,
-    cost: await costSummary(p.id, budgetUsd),
-    editEstimate: editEstimate(p),
+    cost,
+    editEstimate: editEstimate(p, budgetUsd - cost.totalUsd),
     sheets: sheets.filter((s) => s.url),
     layout: eyes?.layout ?? null,
     stats: eyes?.stats ?? null,

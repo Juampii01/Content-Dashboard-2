@@ -6,6 +6,7 @@ mensaje claro para que la persona suba las imágenes a mano. No se usa ninguna s
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -35,8 +36,11 @@ def clean_link(url: str) -> str:
     return url.split("?")[0].rstrip("/") + "/"
 
 
-def download_post(url: str, dest: Path, timeout: int = 150) -> list[Path]:
-    """Baja las imágenes del carrusel a `dest` (01.jpg, 02.jpg…). Los slides que son video se omiten."""
+def download_post(url: str, dest: Path, timeout: int = 150, metadata: bool = False) -> list[Path]:
+    """Baja las imágenes del carrusel a `dest` (01.jpg, 02.jpg…). Los slides que son video se omiten.
+
+    Con `metadata`, gallery-dl deja además un `.json` por imagen (de ahí sale el texto del post: ver post_text).
+    """
     link = clean_link(url)
     exe = shutil.which(gallery_dl_bin())
     if not exe:
@@ -54,6 +58,7 @@ def download_post(url: str, dest: Path, timeout: int = 150) -> list[Path]:
         f"1-{MAX_IMAGES}",
         "--filter",
         "extension in ('jpg', 'jpeg', 'png', 'webp')",
+        *(["--write-metadata"] if metadata else []),
         link,
     ]
     try:
@@ -68,3 +73,16 @@ def download_post(url: str, dest: Path, timeout: int = 150) -> list[Path]:
     if len(files) < 2:
         raise JobError("Ese link tiene una sola imagen. Para copiar un estilo necesitamos un carrusel de al menos 2 slides.", retry=False)
     return files[:MAX_IMAGES]
+
+
+def post_text(dest: Path) -> str | None:
+    """El texto del post (la descripción debajo del carrusel), si gallery-dl lo dejó en los metadatos."""
+    for meta in sorted(dest.glob("*.json")):
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        text = data.get("description") if isinstance(data, dict) else None
+        if isinstance(text, str) and text.strip():
+            return text.strip()[:5000]
+    return None

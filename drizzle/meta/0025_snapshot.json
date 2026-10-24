@@ -1,5 +1,5 @@
 {
-  "id": "8bc0bbca-5424-45b5-a4cc-8337ecff21c0",
+  "id": "32b023ec-0792-44fb-be53-cc74d3a49915",
   "prevId": "06dd6ba4-f884-4895-9235-adadcab53749",
   "version": "7",
   "dialect": "postgresql",
@@ -1149,6 +1149,175 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.carousel_copies": {
+      "name": "carousel_copies",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "status": {
+          "name": "status",
+          "type": "carousel_template_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ANALYZING'"
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'link'"
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_count": {
+          "name": "reference_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "options": {
+          "name": "options",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reading": {
+          "name": "reading",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "carousel_id": {
+          "name": "carousel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "carousel_copies_updated_at_idx": {
+          "name": "carousel_copies_updated_at_idx",
+          "columns": [
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "carousel_copies_carousel_idx": {
+          "name": "carousel_copies_carousel_idx",
+          "columns": [
+            {
+              "expression": "carousel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "carousel_copies_template_id_carousel_templates_id_fk": {
+          "name": "carousel_copies_template_id_carousel_templates_id_fk",
+          "tableFrom": "carousel_copies",
+          "tableTo": "carousel_templates",
+          "columnsFrom": [
+            "template_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "carousel_copies_carousel_id_carousels_id_fk": {
+          "name": "carousel_copies_carousel_id_carousels_id_fk",
+          "tableFrom": "carousel_copies",
+          "tableTo": "carousels",
+          "columnsFrom": [
+            "carousel_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "carousel_copies_created_by_users_id_fk": {
+          "name": "carousel_copies_created_by_users_id_fk",
+          "tableFrom": "carousel_copies",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.carousel_templates": {
       "name": "carousel_templates",
       "schema": "",
@@ -1335,6 +1504,13 @@
           "notNull": true,
           "default": "'{}'::text[]"
         },
+        "caption_variants": {
+          "name": "caption_variants",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "cta_keyword": {
           "name": "cta_keyword",
           "type": "text",
@@ -1481,6 +1657,69 @@
         },
         "updated_at": {
           "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.character_photo_traits": {
+      "name": "character_photo_traits",
+      "schema": "",
+      "columns": {
+        "photo_key": {
+          "name": "photo_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "angle": {
+          "name": "angle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expression": {
+          "name": "expression",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "framing": {
+          "name": "framing",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gaze": {
+          "name": "gaze",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quality": {
+          "name": "quality",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0.7
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -3012,31 +3251,6 @@
         "duration": {
           "name": "duration",
           "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'upload'"
-        },
-        "external_id": {
-          "name": "external_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attribution": {
-          "name": "attribution",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "license_url": {
-          "name": "license_url",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -6508,7 +6722,9 @@
         "YOUTUBE_TRANSCRIPT",
         "REEL_COPY",
         "VIDEO_PHRASE_CLIP",
-        "VIDEO_FX"
+        "VIDEO_FX",
+        "CAROUSEL_COPY",
+        "CAROUSEL_ANIMATE"
       ]
     },
     "public.link_status": {
@@ -6610,8 +6826,7 @@
       "values": [
         "HEYGEN",
         "CHATGPT",
-        "OPENAI",
-        "JAMENDO"
+        "OPENAI"
       ]
     },
     "public.sync_kind": {

@@ -297,7 +297,7 @@ class Player {
   }
 
   /** Fuente de una imagen: el video, la persona, la silueta, una imagen permitida o una capa (ya dibujada). */
-  private source(op: unknown[], depth: number): { src: Src | null; args: unknown[] } {
+  private source(op: unknown[], depth: number): { src: Src | null; args: unknown[]; fallback?: boolean } {
     const f = this.f;
     const W = f.W;
     const H = f.H;
@@ -306,8 +306,10 @@ class Player {
       case "v":
         return { src: f.src.frame ? unit(f.src.frame, W, H) : null, args: op.slice(1) };
       case "pe": {
+        // Sin recorte (todavía no llegó a la vista previa): el cuadro del video como respaldo, nunca un hueco vacío.
         const l = f.personLayer();
-        return { src: l ? unit(l.canvas, W, H) : null, args: op.slice(1) };
+        if (l) return { src: unit(l.canvas, W, H), args: op.slice(1) };
+        return { src: f.src.frame ? unit(f.src.frame, W, H) : null, args: op.slice(1), fallback: true };
       }
       case "sil": {
         const color = typeof op[1] === "string" && COLOR_RE.test(op[1]) ? op[1] : "#ffffff";
@@ -338,7 +340,7 @@ class Player {
   }
 
   private image(ctx: Ctx2, op: unknown[], depth: number): void {
-    const { src, args } = this.source(op, depth);
+    const { src, args, fallback } = this.source(op, depth);
     const W = this.f.W;
     const H = this.f.H;
     if (!src) {
@@ -356,6 +358,19 @@ class Player {
     if (!allFin(args, 0, n)) return;
     const v = args as number[];
     const img = src.img;
+    // Respaldo de la persona sin recorte: el video, algo transparente (lo que iba "detrás" se sigue viendo).
+    if (fallback) {
+      ctx.save();
+      ctx.globalAlpha *= FALLBACK_ALPHA;
+    }
+    try {
+      this.draw(ctx, img, src, v, n);
+    } finally {
+      if (fallback) ctx.restore();
+    }
+  }
+
+  private draw(ctx: Ctx2, img: Src["img"], src: Src, v: number[], n: number): void {
     const natW = (img as { width: number }).width / src.kx;
     const natH = (img as { height: number }).height / src.ky;
     if (n === 2) ctx.drawImage(img, 0, 0, (img as { width: number }).width, (img as { height: number }).height, v[0]!, v[1]!, natW, natH);
@@ -366,6 +381,9 @@ class Player {
     }
   }
 }
+
+/** Opacidad del video cuando hace de respaldo de la persona (la vista previa sin recorte todavía). */
+export const FALLBACK_ALPHA = 0.7;
 
 function roundRectPath(ctx: FxCtx, x: number, y: number, w: number, h: number, r: number): void {
   const rr = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));

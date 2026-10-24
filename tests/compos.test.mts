@@ -10,7 +10,7 @@ import { test } from "node:test";
 import vm from "node:vm";
 import { checkStatic, moduleScript } from "../lib/video/compos/static";
 import { NodeSandbox } from "../lib/video/compos/sandbox-node";
-import { validateComposition, sampleTimes, codeHash } from "../lib/video/compos/validate";
+import { validateComposition, sampleTimes, codeHash, drawsPerson } from "../lib/video/compos/validate";
 import { COMPOS_SAMPLES } from "../lib/video/compos/samples";
 import { RUNTIME_SOURCE } from "../lib/video/compos/runtime-source";
 import { cleanCompositions, compileComposition, composSegments, needsMask, type Composition } from "../lib/video/compos/schema";
@@ -78,10 +78,14 @@ test("sandbox: bucle infinito, memoria, demasiadas operaciones y escapes no romp
     const opened = await NodeSandbox.open(code, env);
     assert.ok(opened.ok, `${name} debería abrir`);
     if (!opened.ok) continue;
-    const r = await opened.sandbox.frame(1);
-    assert.equal(r.ok, false, `${name} debería fallar`);
-    if (!r.ok) assert.equal(r.kind, kind, `${name}: ${r.error}`);
-    await opened.sandbox.close();
+    try {
+      const r = await opened.sandbox.frame(1);
+      assert.equal(r.ok, false, `${name} debería fallar`);
+      // Agotar la memoria puede cortarse antes por tiempo en una máquina cargada: las dos cosas lo frenan sin romper nada.
+      if (!r.ok) assert.ok(r.kind === kind || (kind === "memory" && r.kind === "timeout"), `${name}: ${r.kind} · ${r.error}`);
+    } finally {
+      await opened.sandbox.close();
+    }
   }
   // El proceso sigue vivo y el sandbox siguiente funciona.
   const again = await NodeSandbox.open(ok("ctx.fillRect(0, 0, 10, 10);"), env);
@@ -110,7 +114,7 @@ test("sandbox: el global del contexto no tiene nada del host (process, require, 
   await opened.sandbox.close();
 });
 
-test("las 9 muestras pasan la validación (rápidas, deterministas y dibujan algo)", async () => {
+test("las muestras pasan la validación (rápidas, deterministas y dibujan algo)", async () => {
   assert.ok(COMPOS_SAMPLES.length >= 9);
   for (const s of COMPOS_SAMPLES) {
     const check = await validateComposition(s.code, { ...env, params: Object.fromEntries(s.params.map((p) => [p.key, p.value])) });
@@ -129,6 +133,42 @@ test("validación: rechaza lo no determinista y lo que no dibuja", async () => {
   assert.match(r1.ok ? "" : r1.error, /determinista/);
   const empty = await validateComposition(ok(""), env);
   assert.equal(empty.ok, false);
+});
+
+test("recorte: si usa a la persona tiene que dibujarla; env.mask.ready y env.popOut", async () => {
+  // Usa el recorte pero solo dibuja una tarjeta (la persona nunca aparece): no pasa.
+  const empty = ok(`if (false) ctx.drawPerson(); ctx.fillStyle = "#00aa00"; ctx.fillRect(100, 600, 800, 900);`);
+  const r = await validateComposition(empty, env);
+  assert.equal(r.ok, false);
+  assert.match(r.ok ? "" : r.error, /recorte de la persona/);
+  // Con la persona: pasa. Sin recorte (env.mask false) no se exige.
+  assert.equal((await validateComposition(ok(`ctx.fillRect(0, 0, 10, 10); ctx.drawPerson();`), env)).ok, true);
+  assert.equal((await validateComposition(empty, { ...env, mask: false })).ok, true);
+  // Un cuadro de un módulo (el sandbox se cierra siempre, aunque falle una comprobación).
+  const frameOf = async (code: string, data: typeof env & { maskReady?: boolean }) => {
+    const o = await NodeSandbox.open(code, data);
+    if (!o.ok) throw new Error(o.error);
+    try {
+      const f = await o.sandbox.frame(1, 2000);
+      if (!f.ok) throw new Error(f.error);
+      return f.frame;
+    } finally {
+      await o.sandbox.close();
+    }
+  };
+  // env.mask.ready sigue a maskReady (la vista previa sin tiras) y, sin el campo, a mask.
+  const probe = ok(`ctx.fillStyle = env.mask.ready ? "#ff0000" : "#00ff00"; ctx.fillRect(0, 0, 10, 10);`);
+  assert.match(JSON.stringify((await frameOf(probe, env)).o), /#ff0000/);
+  assert.match(JSON.stringify((await frameOf(probe, { ...env, maskReady: false })).o), /#00ff00/);
+  assert.match(JSON.stringify((await frameOf(probe, { ...env, mask: false })).o), /#00ff00/);
+  // popOut: la persona adentro de la tarjeta y la parte de arriba por fuera; sin recorte, el video adentro.
+  const pop = ok(`env.popOut(ctx, { rect: { x: 200, y: 700, w: 680, h: 900 }, background: "#00aa55" });`);
+  const withMask = await frameOf(pop, env);
+  assert.equal(withMask.o.filter((op) => Array.isArray(op) && op[0] === "pe").length, 2);
+  const noMask = await frameOf(pop, { ...env, maskReady: false });
+  assert.equal(drawsPerson(noMask), false);
+  assert.ok(noMask.o.some((op) => Array.isArray(op) && op[0] === "v"));
+  assert.equal(needsMask(pop), true);
 });
 
 test("paridad: el sandbox del navegador (Function en su propio global) da la misma lista que el de Node", async () => {

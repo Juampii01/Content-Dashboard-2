@@ -334,7 +334,7 @@ export default {
     ctx.font = env.font(400, 100, env.fonts.cut);
     const size = env.fit(ctx, word, (s) => env.font(400, s, env.fonts.cut), W * 0.96, (env.vertical ? 520 : 600) * u, 120 * u);
     // Con recorte va a la altura de la cabeza (la persona la tapa en parte); sin recorte, arriba de la cara.
-    const y = env.hasMask ? env.face.cy - size * 0.05 : Math.max(size * 0.55, env.safe.y - size * 0.45);
+    const y = env.mask.ready ? env.face.cy - size * 0.05 : Math.max(size * 0.55, env.safe.y - size * 0.45);
     ctx.save();
     ctx.globalAlpha = (1 - out) * Math.min(1, inP * 1.4);
     ctx.translate(W / 2 + (1 - inP) * W * 0.12 - t * 18 * u, y);
@@ -347,11 +347,11 @@ export default {
     g.addColorStop(0, "#ffffff");
     g.addColorStop(1, env.mix("#ffffff", env.brand.accent, 0.55));
     ctx.fillStyle = g;
-    ctx.globalAlpha *= env.hasMask ? 1 : 0.85;
+    ctx.globalAlpha *= env.mask.ready ? 1 : 0.85;
     ctx.fillText(word, 0, 0);
     ctx.restore();
-    // La persona encima de la palabra (con un borde de luz suave).
-    if (env.hasMask) {
+    // La persona encima de la palabra (con un borde de luz suave). Sin recorte todavía, la palabra queda arriba.
+    if (env.mask.ready) {
       ctx.save();
       ctx.globalAlpha = 0.5 * (1 - out);
       ctx.filter = "blur(10px)";
@@ -359,6 +359,51 @@ export default {
       ctx.restore();
       ctx.drawPerson();
     }
+  },
+};
+`,
+  },
+  {
+    key: "pop_out",
+    name: "Salir del marco",
+    use: "Momento personal o de impacto: la persona queda dentro de una tarjeta de color (fondo reemplazado con el recorte) y su cabeza sale por arriba del borde. Con un rótulo debajo.",
+    tags: ["salir-del-marco", "tarjeta-recorte"],
+    params: [{ key: "label", label: "Rótulo", value: "Mi historia" }],
+    sounds: [{ at: 0.05, name: "whoosh", gain: -16 }],
+    hide_captions: false,
+    code: String.raw`export default {
+  params: { label: "Mi historia" },
+  render(ctx, t, env) {
+    const { W, H, u, ease, face } = env;
+    const inP = ease.outBack(env.progress(t, 0, 0.55));
+    const out = ease.inCubic(env.progress(t, env.duration - 0.35, 0.35));
+    // La tarjeta abraza el cuerpo: su borde de arriba corta a la mitad de la cara, así la cabeza sale del marco.
+    const w = Math.min(W * 0.84, Math.max(W * 0.62, face.w * 3.4));
+    const top = face.y + face.h * 0.5;
+    const bottom = env.captions.visible ? env.captions.y - 30 * u : H - 160 * u;
+    const h = Math.max(200 * u, Math.min(bottom - top, w * 1.35));
+    const x = env.clamp(face.cx - w / 2, 24 * u, W - w - 24 * u);
+    ctx.save();
+    ctx.globalAlpha = 1 - out;
+    // Entra creciendo desde el centro de la tarjeta.
+    const k = 0.6 + 0.4 * inP;
+    ctx.translate(face.cx, top + h / 2);
+    ctx.scale(k, k);
+    ctx.translate(-face.cx, -(top + h / 2));
+    const g = ctx.createLinearGradient(0, top, 0, top + h);
+    g.addColorStop(0, env.brand.accent);
+    g.addColorStop(1, env.mix(env.brand.accent, "#000000", 0.45));
+    env.popOut(ctx, { rect: { x, y: top, w, h }, background: g, radius: 36 * u, breakTop: true });
+    // Rótulo debajo de la tarjeta.
+    const label = String(env.params.label || "").slice(0, 40);
+    if (label) {
+      ctx.font = env.font(800, 54 * u, env.fonts.display);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = env.brand.ink;
+      ctx.fillText(label, x + w / 2, Math.min(H - 70 * u, top + h + 60 * u));
+    }
+    ctx.restore();
   },
 };
 `,

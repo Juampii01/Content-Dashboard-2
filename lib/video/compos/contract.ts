@@ -55,6 +55,11 @@ export type ComposEnvData = {
   captions: { y: number; h: number; visible: boolean };
   /** Si va a haber recorte de la persona (en la vista previa puede tardar en llegar). */
   mask: boolean;
+  /**
+   * Si el recorte ya está para este tramo (en el render, siempre que `mask`; en la vista previa, cuando llegaron sus
+   * tiras). Sin él, ctx.drawPerson() dibuja el cuadro del video como respaldo. Sin el campo, igual a `mask`.
+   */
+  maskReady?: boolean;
   assets: ComposAsset[];
 };
 
@@ -161,6 +166,13 @@ Utilidades (todas deterministas):
 - env.particles({ seed, count, t, x, y, spread, speed, gravity, life, size }) → [{ x, y, size, alpha, angle }] partículas de una explosión en t.
 - env.project(x, y, z, { cx, cy, fov = 1400 }) → { x, y, s } perspectiva simple.
 - env.card3d(ctx, fuente, { x, y, w, h, rx, ry, fov = 1600, strips = 28, shade = 0.35 }) dibuja la capa/imagen como tarjeta 3D girada (grados en rx, ry).
+- env.popOut(ctx, { rect: { x, y, w, h }, background = acento, radius = 28·u, breakTop = true, person = { x, y, w, h } })
+  "Salir del marco": tarjeta con sombra y fondo reemplazado (color o gradiente), la persona recortada adentro, y la parte
+  que sobresale del borde superior (la cabeza) dibujada por fuera con sombra. «person»: dónde va el cuadro completo de la
+  persona (por defecto 0, 0, W, H). Pon la tarjeta alrededor del cuerpo (usa env.face) y su borde superior un poco por
+  debajo de la cabeza (por ejemplo face.y + face.h * 0.55) para que la cabeza salga. Sin recorte, dibuja el video adentro.
+- env.mask.ready: true si el recorte ya está (en la vista previa puede tardar). Sin él, ctx.drawPerson() dibuja el
+  video completo como respaldo: no armes la animación de forma que quede vacía.
 - env.motionBlur(ctx, (ctx, tt) => { … }, t, { samples = 6, shutter = 1/60 }) dibuja varios instantes cercanos promediados (desenfoque de movimiento real).
 - env.zoomBlur(ctx, fuente, { cx, cy, scale, amount = 0.08, samples = 8 }) zoom con desenfoque radial (para golpes y transiciones).
 - env.font(peso, tamaño, familia, estilo?)

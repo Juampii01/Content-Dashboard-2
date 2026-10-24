@@ -97,7 +97,7 @@ export function composSegments(timeline: Pick<Timeline, "words" | "duration">, i
 }
 
 /** ¿Usa el recorte de la persona? (el worker solo arma la máscara si hace falta) */
-export const needsMask = (code: string) => /\b(drawPerson|env\.person|silhouette)\b/.test(code);
+export const needsMask = (code: string) => /\b(drawPerson|env\.person|silhouette|popOut)\b/.test(code);
 /** ¿Usa las imágenes permitidas? */
 export const usesAssets = (code: string) => /\benv\.assets\b/.test(code);
 

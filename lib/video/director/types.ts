@@ -270,8 +270,9 @@ export type PendingRequest = {
   id?: string;
   /** Vuelta del director en este pedido (0 = la primera). */
   attempt?: number;
-  /** Lo que no se cumplió en la vuelta anterior (para la siguiente). */
+  /** Lo que no se cumplió en la vuelta anterior (para la siguiente) y su huella (si se repite, no hay otra vuelta). */
   focus?: string[];
+  missingKey?: string;
   /** El plan antes del pedido, en medidas (para el cumplimiento). */
   baseline?: PlanBaseline;
   /** "Qué cambió" acumulado de las vueltas. */
@@ -321,7 +322,7 @@ export type DirectorState = {
    * El pedido que se está cerrando (después de dirigirlo, mientras corre la segunda mirada): con qué comparar, cuántas
    * vueltas lleva, con qué crítico y qué referencia lleva.
    */
-  active?: { id: string; baseline: PlanBaseline; attempt: number; spentAtStart: number; referenceId: string | null; critic: StagePlan | null } | null;
+  active?: { id: string; baseline: PlanBaseline; attempt: number; spentAtStart: number; referenceId: string | null; critic: StagePlan | null; missingKey?: string } | null;
   /** La última referencia de edición que miró el director (de "Edítalo así" o del brief). */
   reference?: DirectorReference | null;
   /** Subida de una referencia reservada desde el Estudio (la ruta y el tamaño que se aceptan). */

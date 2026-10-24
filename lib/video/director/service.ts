@@ -51,7 +51,7 @@ import { briefText, mapText, planText, sentencesText, transcriptText, tramosText
 import { clampBudget, estimateRevise, estimateStage, MAX_EDIT_ROUNDS, planBudget, planEdit, type BudgetPlan, type CostInput, type EditEstimate, type StagePlan } from "./cost";
 export type { EditEstimate } from "./cost";
 import { newReferenceId, referenceFromPayload, referenceSettings, referenceSummary, referenceText, type DirectorReference, type ReferencePayload, type ReferenceSource } from "./reference";
-import { applyRequest, checkCompliance, enforceRequest, findLinks, isReferenceLink, mergeCompliance, missingOf, parseRequest, planBaseline, requestOverrides, requestText, settingsFromRequest, type ParsedRequest } from "./request";
+import { applyRequest, checkCompliance, enforceRequest, findLinks, isReferenceLink, mergeCompliance, missingKey, missingOf, parseRequest, planBaseline, requestOverrides, requestText, settingsFromRequest, type ParsedRequest } from "./request";
 import { diffPlans } from "./diff";
 import { keyFrames, type KeyFrame } from "./keyframes";
 import { mapFromMeasures, mapFromWire, mustKeepRanges } from "./map";
@@ -646,6 +646,8 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     candidates,
     musicTrack: parsed?.items.some((i) => i.kind === "musica" && i.on !== false) || ai.settings?.audio?.music || refCopy?.settings.audio?.music ? await firstTrack() : null,
     base,
+    baseline: pending?.baseline ?? (mode === "revise" ? (director.active?.baseline ?? null) : null),
+    theme: motionTheme(look),
   });
   plan = applied.plan;
   if (refCopy && wantsReference && !mode && refCopy.pace === "fast") plan = { ...plan, pacing: { long_pause: Math.min(plan.pacing?.long_pause ?? 0.3, 0.3) }, director: { version: 1, pace: "fast" } };
@@ -686,12 +688,14 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
       reference: refInfo,
     };
     edits = upsertEdit(edits, entry);
-    active = { id, baseline, attempt, spentAtStart: pending.spentAtStart ?? spent, referenceId: pending.reference?.id ?? null, critic: editBudget?.critic ?? null };
+    active = { id, baseline, attempt, spentAtStart: pending.spentAtStart ?? spent, referenceId: pending.reference?.id ?? null, critic: editBudget?.critic ?? null, missingKey: missingKey(compliance) };
     // ¿Otra vuelta? Si una parte no se cumplió, otra vuelta lo puede arreglar y queda tope para hacerla.
     const missing = missingOf(compliance);
+    const key = missingKey(compliance);
     const nextCost = estimateRevise(stage, input);
-    if (missing.length && attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= nextCost + (editBudget?.estimate.critic ?? 0)) {
-      nextPending = { ...pending, id, attempt: attempt + 1, focus: missing, baseline, changes, spentAtStart: active.spentAtStart };
+    // Otra vuelta solo si algo cambió desde la anterior (si quedó igual de lejos, insistir no suma y gasta).
+    if (missing.length && key !== pending.missingKey && attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= nextCost + (editBudget?.estimate.critic ?? 0)) {
+      nextPending = { ...pending, id, attempt: attempt + 1, focus: missing, missingKey: key, baseline, changes, spentAtStart: active.spentAtStart };
     }
   }
   const variants = mode === "revise" ? director.variants : assembled.variants;
@@ -735,6 +739,8 @@ async function applyWithoutAi(ctx: Ctx, base: EditPlan, parsed: ParsedRequest | 
     candidates: detectCandidates(words, {}),
     musicTrack: parsed?.items.some((i) => i.kind === "musica" && i.on !== false) ? await firstTrack() : null,
     base,
+    baseline: pending.baseline ?? null,
+    theme: motionTheme(brandGraphicLook(ctx.brand)),
   });
   const locked = enforceLocks(applied.plan, base, locks, zones.zones);
   const plan = planSchemaFor(words.length).safeParse(locked.plan).success ? locked.plan : base;
@@ -884,9 +890,11 @@ async function critique(projectId: string, round: number, sheets: { key: string;
       const missing = missingOf(compliance);
       const input = { ...costInput(ctx, 6), refSheets: refSheets.length };
       const again = planEdit({ ...input, remaining: ctx.cap - (await spentUsd(projectId)) });
-      if (missing.length && active.attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= estimateRevise(again.director, input)) {
+      // El crítico vio algo nuevo que falta (no lo mismo que ya se intentó sin éxito) y queda tope: otra vuelta.
+      const seen = active.missingKey ?? "";
+      if (missing.length && missingKey(compliance) !== seen && active.attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= estimateRevise(again.director, input)) {
         const focus = [...missing, ...issues.filter((i) => i.severity !== "baja").slice(0, 3).map((i) => `${i.note} → ${i.fix}`)];
-        const pending: PendingRequest = { kind: entry.source === "arreglo" ? "fix" : "edit", instruction: entry.instruction, id: entry.id, attempt: active.attempt + 1, focus, baseline: active.baseline, changes: entry.changes.filter((c) => c !== "No hizo falta cambiar nada."), spentAtStart: active.spentAtStart, reference: active.referenceId && director.reference?.id === active.referenceId ? { id: active.referenceId, source: director.reference.source } : null };
+        const pending: PendingRequest = { kind: entry.source === "arreglo" ? "fix" : "edit", instruction: entry.instruction, id: entry.id, attempt: active.attempt + 1, focus, missingKey: missingKey(compliance), baseline: active.baseline, changes: entry.changes.filter((c) => c !== "No hizo falta cambiar nada."), spentAtStart: active.spentAtStart, reference: active.referenceId && director.reference?.id === active.referenceId ? { id: active.referenceId, source: director.reference.source } : null };
         record.fixed = true;
         await saveDirector(projectId, { ...director, rounds, degraded, edits, pending });
         return { next: { step: "edit", label: `Corrigiendo lo que faltó de tu pedido (vuelta ${active.attempt + 2})` }, status: "PROCESSING" };

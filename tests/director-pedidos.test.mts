@@ -24,6 +24,7 @@ import {
   applyRequest,
   checkCompliance,
   complianceSummary,
+  enforceRequest,
   findLinks,
   mergeCompliance,
   missingOf,
@@ -130,7 +131,7 @@ async function pipeline(instruction: string | null, base: EditPlan | null, opts:
   plan = syncGraphics(plan, words, zones.zones);
   plan = fillRhythm(plan, { words, duration, density: o.density ?? density, format: "9:16", forbidden: zones.zones, theme: motionTheme(look), fxAllowed: fx.max > 0 ? fx.allowed : [], faceWords: null, candidates, mustKeep: [] }).plan;
   plan = enforceLocks(plan, base, locks, zones.zones).plan;
-  const applied = applyRequest(plan, parsed, { ai: w.settings ?? null, reference: null, words, duration, forbidden: zones.zones, mustKeep: [], faceWords: null, candidates, musicTrack: opts.musicTrack ?? null, base });
+  const applied = applyRequest(plan, parsed, { ai: w.settings ?? null, reference: null, words, duration, forbidden: zones.zones, mustKeep: [], faceWords: null, candidates, musicTrack: opts.musicTrack ?? null, base, theme: motionTheme(look) });
   plan = applied.plan;
   const compliance = parsed && base ? checkCompliance(parsed, { before: planBaseline(base, words, duration), after: plan, words, duration, answers: w.answers, failed: applied.failed }) : [];
   return { plan, parsed, compliance, wire: w, applied };
@@ -205,6 +206,17 @@ describe("pedidos típicos de punta a punta (simulador + cadena del servicio)", 
     assert.notEqual(r.compliance[0]!.status, "no");
   });
 
+  test("piso de «más gráficos»: si el director no agregó nada, gráficos simples en la zona pedida", () => {
+    const parsed = parseRequest("más gráficos en la segunda mitad");
+    const out = enforceRequest(first, parsed, { words, duration, forbidden: [], mustKeep: [], base: first, theme: motionTheme(look), format: "9:16" });
+    const tl = buildTimeline(words, out.plan, duration);
+    const added = out.plan.broll.filter((b) => !first.broll.some((x) => x.id === b.id));
+    assert.ok(added.length >= 1, "agrega al menos uno");
+    assert.ok(added.every((b) => (tl.words.find((w) => w.id === b.from_word)?.start ?? 0) >= tl.duration / 2), "en la segunda mitad");
+    assert.ok(out.done.some((d) => d.includes("segunda mitad")));
+    assert.ok(planSchemaFor(words.length).safeParse(out.plan).success);
+  });
+
   test("«versión de 30 s»: queda cerca de 30 s", async () => {
     const r = await pipeline("versión de 30 s", first);
     const d = buildTimeline(words, r.plan, duration).duration;
@@ -235,6 +247,17 @@ describe("pedidos típicos de punta a punta (simulador + cadena del servicio)", 
     assert.ok((r.plan.captions.transform?.scale ?? 1) > 1.2);
     assert.equal(r.compliance[0]!.status, "hecho");
     assert.ok(diffPlans(first, r.plan, words, duration).some((c) => c.startsWith("Subtítulos más grandes")));
+  });
+
+  test("otra vuelta del mismo pedido no vuelve a agrandar los subtítulos ni a subir la música", () => {
+    const parsed = parseRequest("subtítulos más grandes y la música más alta");
+    const base = { ...first, audio: { ...first.audio, music_asset_id: "00000000-0000-4000-8000-000000000001", music_db: -16 } };
+    const baseline = planBaseline(base, words, duration);
+    const ctx = { ai: null, reference: null, words, duration, forbidden: [], mustKeep: [], faceWords: null, candidates: [], musicTrack: null, baseline };
+    const once = applyRequest(base, parsed, ctx).plan;
+    const twice = applyRequest(once, parsed, ctx).plan;
+    assert.equal(twice.captions.transform?.scale, once.captions.transform?.scale);
+    assert.equal(twice.audio.music_db, -12);
   });
 
   test("subtítulos clásicos: pasan a Caja para poder agrandarlos y se explica", () => {

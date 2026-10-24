@@ -148,38 +148,37 @@ export function EditRequestCard({
             </button>
           ) : (
             <div className="flex flex-col gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold text-white">Video de referencia</p>
-                <div className="flex items-center gap-2">
-                  <SegmentedControl
-                    label="Origen de la referencia"
-                    value={refMode}
-                    onValueChange={(v) => {
-                      setRefMode(v);
-                      setRefError(null);
-                    }}
-                    options={[
-                      { value: "link", label: "Link", icon: <Link2 className="h-3.5 w-3.5" aria-hidden /> },
-                      { value: "upload", label: "Subir", icon: <Upload className="h-3.5 w-3.5" aria-hidden /> },
-                    ]}
-                  />
-                  <Button
-                    size="sm"
-                    variant="subtle"
-                    className="!h-8 !w-8 !px-0"
-                    icon={<X className="h-3.5 w-3.5" aria-hidden />}
-                    aria-label="Quitar la referencia"
-                    disabled={busy}
-                    onClick={() => {
-                      abort.current?.abort();
-                      setAttach(false);
-                      setFile(null);
-                      setLink("");
-                      setRefError(null);
-                    }}
-                  />
-                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="!h-7 !px-2 text-[11px]"
+                  icon={<X className="h-3.5 w-3.5" aria-hidden />}
+                  disabled={busy}
+                  onClick={() => {
+                    abort.current?.abort();
+                    setAttach(false);
+                    setFile(null);
+                    setLink("");
+                    setRefError(null);
+                  }}
+                >
+                  Quitar
+                </Button>
               </div>
+              <SegmentedControl
+                label="Origen de la referencia"
+                value={refMode}
+                onValueChange={(v) => {
+                  setRefMode(v);
+                  setRefError(null);
+                }}
+                options={[
+                  { value: "link", label: "Link", icon: <Link2 className="h-3.5 w-3.5" aria-hidden /> },
+                  { value: "upload", label: "Archivo", icon: <Upload className="h-3.5 w-3.5" aria-hidden /> },
+                ]}
+              />
               {refMode === "link" ? (
                 <Field label="Link del video" htmlFor="edit-ref-link" hint="De Instagram, TikTok o YouTube. Si es privado o pide iniciar sesión, descárgalo y súbelo." error={linkInvalid ? "Pega un link de Instagram, TikTok o YouTube." : (refError ?? undefined)}>
                   <Input id="edit-ref-link" type="url" inputMode="url" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://www.instagram.com/reel/…" disabled={busy} />
@@ -292,13 +291,12 @@ function LastRequest({ edit, humanize }: { edit: EditRequest; humanize: (t: stri
               const st = STATUS[c.status];
               return (
                 <li key={c.n} className="flex gap-2 rounded-lg bg-black/15 p-2">
-                  <span className={cn("mt-px flex-none", st.className)} title={st.label}>
+                  <span className={cn("mt-0.5 flex-none", st.className)} aria-hidden>
                     {st.icon}
-                    <span className="sr-only">{st.label}</span>
                   </span>
                   <span className="min-w-0">
-                    <span className="font-semibold text-white">{c.label}</span>
-                    <span className={cn("ml-1.5 text-[11px]", st.className)}>{st.label}</span>
+                    <span className={cn("block text-[10px] font-semibold uppercase tracking-wide", st.className)}>{st.label}</span>
+                    <span className="block font-semibold text-white">{c.label}</span>
                     <span className="block text-text/80">{humanize(c.detail)}</span>
                   </span>
                 </li>

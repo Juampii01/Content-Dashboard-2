@@ -144,7 +144,7 @@ export function referenceSettings(m: StyleMetrics | null | undefined, format: Vi
       ...(look ? { scale: Math.max(0.6, Math.min(2, c.size / look.size)) } : {}),
     };
   }
-  if (m.audio.music) settings.audio = { music: true };
+  // La música no se copia sola (hay que elegir una pista de la biblioteca): la decide el director con la acción audio.
   return { settings, density, pace };
 }
 

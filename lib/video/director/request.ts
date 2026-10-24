@@ -22,7 +22,8 @@ import { captionLook, isCaptionStyle } from "../caption-styles";
 import { FX_INFO, FX_KINDS, type FxKind } from "../fx/catalog";
 import { clampFx, defaultFx, newFxId, type FxItem } from "../fx/schema";
 import { normalizeRemovals, planSchemaFor } from "../plan";
-import { DENSITY_LABELS, type Density } from "../rhythm";
+import { addGraphicsInRange, DENSITY_LABELS, type Density } from "../rhythm";
+import type { MotionThemeInput } from "../motion/theme";
 import { buildTimeline, removedIds, type Timeline } from "../timeline";
 import { CAPTION_PRESET_KEYS, type CaptionPresetKey, type EditPlan, type VideoFormat, type Word } from "../types";
 import { formatDuration } from "@/lib/format";
@@ -468,6 +469,11 @@ export type SettingsContext = {
   words: Word[];
   /** Una pista de la biblioteca para "con música" si el video no tiene. */
   musicTrack?: string | null;
+  /**
+   * Lo que había antes del pedido: los cambios relativos ("más grandes", "música más alta") se calculan desde ahí, así
+   * otra vuelta del mismo pedido no los vuelve a sumar.
+   */
+  baseline?: Pick<PlanBaseline, "captions" | "musicDb"> | null;
 };
 
 /**
@@ -506,7 +512,8 @@ export function applySettings(plan0: EditPlan, s: PlanSettings, ctx: SettingsCon
         const look = captionLook(plan.captions.preset, { format: plan.format, accent: "#0070F8" });
         const cur = plan.captions.transform ?? { x: 0, y: 0, scale: 1 };
         const next = { ...cur };
-        if (c.scale != null) next.scale = r3(clampN(cur.scale * clampN(c.scale, 0.5, 2), 0.6, 2.2));
+        const from = ctx.baseline?.captions.scale ?? cur.scale;
+        if (c.scale != null) next.scale = r3(clampN(from * clampN(c.scale, 0.5, 2), 0.6, 2.2));
         if (c.position) next.y = r3(clampN(CAPTION_Y[c.position] - look.y, -0.5, 0.5));
         plan.captions.transform = next.x || next.y || next.scale !== 1 ? next : undefined;
         if (!plan.captions.transform) delete plan.captions.transform;
@@ -535,7 +542,7 @@ export function applySettings(plan0: EditPlan, s: PlanSettings, ctx: SettingsCon
         } else failed.push("No tienes música lista en la biblioteca: sube una pista en Biblioteca → Música y vuelve a pedirlo.");
       }
       if (a.louder != null && plan.audio.music_asset_id) {
-        plan.audio.music_db = clampN(plan.audio.music_db + (a.louder ? 4 : -4), -30, -6);
+        plan.audio.music_db = clampN((ctx.baseline?.musicDb ?? plan.audio.music_db) + (a.louder ? 4 : -4), -30, -6);
         done.push(a.louder ? "Subí la música." : "Bajé la música.");
       }
     }
@@ -621,6 +628,11 @@ export type EnforceContext = {
   candidates?: { kind: string; from_word: number; to_word: number; confidence: number }[];
   /** El plan de antes del pedido (para "más gráficos": nunca quedan menos). */
   base?: EditPlan | null;
+  /** El plan de antes del pedido, en medidas (en otra vuelta, `base` ya es el de la vuelta anterior). */
+  baseline?: PlanBaseline | null;
+  /** Tema de la marca y formato, para los gráficos que agrega el piso de "más gráficos". */
+  theme?: MotionThemeInput | null;
+  format?: VideoFormat;
 };
 
 /**
@@ -705,6 +717,23 @@ export function enforceRequest(plan0: EditPlan, req: ParsedRequest | null | unde
     if (restored.length) {
       const keepNew = plan.broll.filter((x) => !(filler(x.why) && restored.some((b) => overlaps({ from: x.from_word, to: x.to_word }, { from: b.from_word, to: b.to_word }))));
       plan = { ...plan, broll: [...keepNew, ...restored].sort((a, b) => a.from_word - b.from_word) };
+    }
+  }
+
+  // "Más gráficos …": si en la zona pedida no hay al menos dos más que antes, gráficos simples sincronizados con la voz.
+  const before = ctx.baseline ?? (ctx.base ? planBaseline(ctx.base, words, duration) : null);
+  if (o.brollExtra && before && ctx.theme && !o.noGraphics) {
+    const region = o.brollRegion ?? "todo";
+    const count = (x: PlanBaseline) => [...x.graphics, ...x.stock, ...x.fx.map((f) => f.t)].filter((t) => t >= 0 && inRegion(t, region, x.duration)).length;
+    const missing = count(before) + 2 - count(planBaseline(plan, words, duration));
+    if (missing > 0) {
+      const total = buildTimeline(words, plan, duration).duration;
+      const [start, end] = region === "inicio" ? [0, Math.min(8, total * 0.25)] : region === "primera_mitad" ? [0, total / 2] : region === "segunda_mitad" ? [total / 2, total] : region === "final" ? [total * 0.7, total] : [0, total];
+      const g = addGraphicsInRange(plan, { words, duration, format: ctx.format ?? plan.format, theme: ctx.theme, forbidden: ctx.forbidden, start, end, count: missing, minGap: 0, why: "Más gráficos, como pediste: la idea entra cuando la dices." });
+      if (g.added) {
+        plan = g.plan;
+        done.push(`Agregué ${g.added === 1 ? "un gráfico" : `${g.added} gráficos`}${region !== "todo" ? ` ${REGION_LABELS[region]}` : ""}.`);
+      }
     }
   }
 
@@ -822,15 +851,15 @@ function placeEffect(plan: EditPlan, kind: FxKind, where: "start" | "end" | "mid
 export function applyRequest(
   plan0: EditPlan,
   parsed: ParsedRequest | null,
-  input: { ai: PlanSettings | null; reference: PlanSettings | null; words: Word[]; duration: number; forbidden: { from: number; to: number; label: string }[]; mustKeep: { from: number; to: number }[]; faceWords: Set<number> | null; candidates: { kind: string; from_word: number; to_word: number; confidence: number }[]; musicTrack: string | null; base?: EditPlan | null },
+  input: { ai: PlanSettings | null; reference: PlanSettings | null; words: Word[]; duration: number; forbidden: { from: number; to: number; label: string }[]; mustKeep: { from: number; to: number }[]; faceWords: Set<number> | null; candidates: { kind: string; from_word: number; to_word: number; confidence: number }[]; musicTrack: string | null; base?: EditPlan | null; baseline?: PlanBaseline | null; theme?: MotionThemeInput | null },
 ): { plan: EditPlan; done: string[]; failed: string[]; notes: string[] } {
   if (!parsed?.items.length && !input.ai && !input.reference) return { plan: plan0, done: [], failed: [], notes: [] };
   // De menos a más: lo de la referencia, lo que dice el pedido, lo que afinó el director.
   const fromText = settingsFromRequest(parsed);
   const ref = input.reference ? absoluteCaptionScale(input.reference, plan0.captions.transform?.scale ?? 1) : {};
   const settings = mergeSettings(mergeSettings(ref, fromText), input.ai);
-  const s = applySettings(plan0, settings, { words: input.words, musicTrack: input.musicTrack });
-  const e = enforceRequest(s.plan, parsed, { words: input.words, duration: input.duration, forbidden: input.forbidden, mustKeep: input.mustKeep, faceWords: input.faceWords, candidates: input.candidates, base: input.base ?? null });
+  const s = applySettings(plan0, settings, { words: input.words, musicTrack: input.musicTrack, baseline: input.baseline ?? (input.base ? planBaseline(input.base, input.words, input.duration) : null) });
+  const e = enforceRequest(s.plan, parsed, { words: input.words, duration: input.duration, forbidden: input.forbidden, mustKeep: input.mustKeep, faceWords: input.faceWords, candidates: input.candidates, base: input.base ?? null, baseline: input.baseline ?? null, theme: input.theme ?? null, format: plan0.format });
   // Si un ajuste rompió la validación (por ejemplo, un formato raro), se queda el plan sin ajustes.
   const ok = planSchemaFor(input.words.length).safeParse(e.plan).success;
   return ok ? { plan: e.plan, done: [...s.done, ...e.done], failed: s.failed, notes: s.notes } : { plan: plan0, done: [], failed: ["No pude aplicar algunos ajustes sin romper el plan."], notes: [] };
@@ -980,7 +1009,7 @@ export function checkCompliance(req: ParsedRequest, input: ComplianceInput): Com
         const n1 = count(a);
         if (n1 >= n0 + 2) out.push(res("hecho", `Pasó de ${n0} a ${n1} gráficos, b-roll y efectos${item.region && item.region !== "todo" ? ` ${REGION_LABELS[item.region]}` : ""}.`));
         else if (n1 > n0) out.push(res("parcial", `Agregué ${n1 - n0 === 1 ? "uno" : n1 - n0}${item.region && item.region !== "todo" ? ` ${REGION_LABELS[item.region]}` : ""}: no había más lugares que no taparan algo importante.`));
-        else out.push(res("no", `Siguen ${n0}${item.region && item.region !== "todo" ? ` ${REGION_LABELS[item.region]}` : ""}.`));
+        else out.push(res("no", `Siguen ${n0}${item.region && item.region !== "todo" ? ` ${REGION_LABELS[item.region]}` : ""}: no encontré frases donde un gráfico más no tape algo importante ni se pise con otro.`));
         break;
       }
       case "graficos_menos": {
@@ -1099,7 +1128,18 @@ export function missingOf(items: ComplianceItem[]): string[] {
 /** Resumen corto del cumplimiento ("Hice 4 de 5 cosas que pediste"). */
 export function complianceSummary(items: ComplianceItem[]): string {
   if (!items.length) return "";
-  const done = items.filter((i) => i.status === "hecho").length;
+  const n = (s: ComplianceStatus) => items.filter((i) => i.status === s).length;
+  const [done, partial, no, check] = [n("hecho"), n("parcial"), n("no"), n("revisar")];
   if (done === items.length) return items.length === 1 ? "Hice lo que pediste." : `Hice las ${items.length} cosas que pediste.`;
-  return `Hice ${done} de ${items.length} cosas que pediste.`;
+  if (items.length === 1) return partial ? "Lo hice en parte." : no ? "No se pudo hacer lo que pediste." : "Revisa si quedó como querías.";
+  const extra = [partial ? `${partial} en parte` : "", no ? `${no} no ${no === 1 ? "se pudo" : "se pudieron"}` : "", check ? `${check} para que revises` : ""].filter(Boolean);
+  return `Hice ${done} de las ${items.length} cosas que pediste${extra.length ? ` (${extra.join(", ")})` : ""}.`;
+}
+
+/** Huella de lo que falta: si otra vuelta deja lo mismo sin cumplir, no se sigue gastando. */
+export function missingKey(items: ComplianceItem[]): string {
+  return items
+    .filter((i) => i.fixable && (i.status === "no" || i.status === "parcial"))
+    .map((i) => `${i.n}:${i.status}:${i.detail}`)
+    .join("|");
 }

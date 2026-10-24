@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, Clapperboard, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
+import { ArrowLeft, Bot, Clapperboard, Copy, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SegmentedControl } from "@/components/ui/tabs";
@@ -1552,6 +1552,11 @@ export function Studio(props: StudioProps) {
               <Keyboard className="h-4 w-4" aria-hidden />
             </button>
             {props.menu}
+            {canEdit && (
+              <Button variant="ghost" className="!px-3 !py-2" icon={<Copy className="h-4 w-4" aria-hidden />} onClick={() => (setLeftTab("ia"), setLeftOpen(true))} title="Haz la misma edición que un video de referencia">
+                <span className="hidden lg:inline">Copiar edición</span>
+              </Button>
+            )}
             {canEdit && (
               <Button onClick={render} disabled={rendering || timeline.clips.length === 0} className="!px-3 !py-2" icon={rendering ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />}>
                 {rendering ? "Enviando…" : <span>Renderizar</span>}

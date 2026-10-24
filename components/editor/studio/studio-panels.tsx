@@ -57,6 +57,16 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
   return (
     <div className="flex flex-col gap-5 p-4">
       {props.notice}
+      {/* Arriba de todo: es lo primero que se busca en esta pestaña. */}
+      <CopyEditCard
+        projectId={props.projectId}
+        canEdit={props.canEdit}
+        dirty={dirty}
+        spent={props.director?.cost.totalUsd ?? 0}
+        cap={props.director?.budgetUsd ?? 8}
+        report={((props.director?.state as { copy?: { report?: CopyReport | null } } | undefined)?.copy?.report) ?? null}
+      />
+
       {plan.planned_by === "auto" && (
         <Notice tone="warning" title="Plan armado sin IA">
           {plan.warning || "La IA no respondió: se cortaron solo las tomas repetidas, arranques en falso y muletillas más claras. Revisa los cortes con más atención."}
@@ -147,15 +157,6 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
           {plan.hook_candidates.length === 0 && <p className="text-xs text-muted">No encontramos frases de 3 a 8 segundos que funcionen solas como gancho.</p>}
         </div>
       </section>
-
-      <CopyEditCard
-        projectId={props.projectId}
-        canEdit={props.canEdit}
-        dirty={dirty}
-        spent={props.director?.cost.totalUsd ?? 0}
-        cap={props.director?.budgetUsd ?? 8}
-        report={((props.director?.state as { copy?: { report?: CopyReport | null } } | undefined)?.copy?.report) ?? null}
-      />
 
       {props.canEdit && (
         <EditRequestCard

@@ -1,5 +1,5 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { brandContext, getBrand } from "@/lib/ai/brand-context";
 import { AiError, generateStructured } from "@/lib/ai/client";
 import {
@@ -111,6 +111,9 @@ export type ComposWork = {
   finishedAt?: string;
   /** El pedido de "Edítalo así" que lo abrió (para no repetir vueltas del director por lo mismo). */
   editId?: string | null;
+  /** Pedidos del Estudio (uno por fila en compos_requests): lo reservado del tope al encolarse y lo gastado. */
+  reservedUsd?: number;
+  usedUsd?: number;
 };
 
 export type WorkerNext =
@@ -122,7 +125,7 @@ export const readWork = (d: DirectorState): ComposWork | null => ((d as Director
 
 let seq = 0;
 export const newTaskId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`;
-export const newWorkId = () => `w${Date.now().toString(36)}${(seq++).toString(36)}`;
+export const newWorkId = () => `w${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 export function newTask(input: Omit<ComposTask, "id" | "compId" | "images" | "status" | "attempts" | "round"> & { compId?: string }): ComposTask {
   return { ...input, id: newTaskId(), compId: input.compId ?? newComposId(), images: [], status: "plan", attempts: 0, round: 0 };
@@ -144,6 +147,8 @@ export type WorkCtx = {
   cap: number;
   spent: number;
   media: MediaInfo;
+  /** Pedido del Estudio que se está avanzando (su fila en compos_requests); sin él, el taller del director. */
+  requestId?: string | null;
 };
 
 async function loadRow(projectId: string) {
@@ -179,6 +184,27 @@ export async function loadWorkCtx(projectId: string): Promise<WorkCtx | null> {
     spent: await spentOn(projectId),
     media,
   };
+}
+
+/**
+ * Guarda el taller. Un pedido del Estudio escribe solo su fila (varios pedidos avanzan a la vez sin pisarse) y nunca
+ * revive un pedido cancelado; el taller del director (copiar, "Edítalo así", variedad) va en el estado del director.
+ */
+async function saveTarget(ctx: WorkCtx, work: ComposWork, extra: Partial<typeof schema.videoProjects.$inferInsert> = {}): Promise<void> {
+  if (ctx.requestId) {
+    const failed = work.done && !work.tasks.some((t) => t.status === "done" && t.result);
+    await getDb()
+      .update(schema.composRequests)
+      .set({
+        work: work as unknown as Record<string, unknown>,
+        usedUsd: work.usedUsd ?? 0,
+        status: work.done ? (failed ? "failed" : "done") : "running",
+        error: failed ? (work.tasks.find((t) => t.error)?.error ?? work.error ?? "No pudimos hacer la animación.").slice(0, 400) : null,
+      })
+      .where(and(eq(schema.composRequests.id, ctx.requestId), inArray(schema.composRequests.status, ["queued", "running"])));
+    return;
+  }
+  await saveWork(ctx.projectId, ctx.director, work, extra);
 }
 
 async function saveWork(projectId: string, director: DirectorState, work: ComposWork, extra: Partial<typeof schema.videoProjects.$inferInsert> = {}): Promise<void> {
@@ -296,8 +322,19 @@ function refSheetsFor(ctx: WorkCtx, frames: number[] | undefined) {
  */
 export const STAGE_COST = { plan: 0.02, vision: 0.04, code: 0.4, look: 0.2, reuse: 0 } as const;
 
-function remaining(ctx: WorkCtx): number {
-  return ctx.cap - ctx.spent;
+/**
+ * Lo que queda para esta animación: el tope del video menos lo gastado; en un pedido del Estudio, además, lo que le
+ * queda de su reserva (así varios pedidos a la vez nunca pasan el tope entre todos).
+ */
+function remaining(ctx: WorkCtx, work?: ComposWork): number {
+  const video = ctx.cap - ctx.spent;
+  if (!ctx.requestId || !work || work.reservedUsd == null) return video;
+  return Math.min(video + (work.reservedUsd - (work.usedUsd ?? 0)), work.reservedUsd - (work.usedUsd ?? 0));
+}
+
+/** Suma al pedido lo que cuesta una etapa (estimado, para su reserva). */
+function charge(work: ComposWork, usd: number): void {
+  work.usedUsd = Math.round(((work.usedUsd ?? 0) + usd) * 1000) / 1000;
 }
 
 // ─── Paso ────────────────────────────────────────────────────────────────
@@ -309,10 +346,18 @@ export type StepResult = { next: WorkerNext | null; finished: boolean };
  * tiene que hacer el worker a continuación o `finished` cuando todas las animaciones terminaron (el que llama decide
  * qué sigue: la segunda mirada del director, cerrar, o nada en un pedido del Estudio).
  */
-export async function advanceWork(projectId: string, body: { step: string; results?: unknown; sheets?: unknown } = { step: "compos" }): Promise<StepResult> {
+export async function advanceWork(projectId: string, body: { step: string; results?: unknown; sheets?: unknown; workId?: string } = { step: "compos" }): Promise<StepResult> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) return { next: null, finished: true };
-  const work = readWork(ctx.director);
+  let work: ComposWork | null;
+  if (body.workId) {
+    // Un pedido del Estudio: su fila. Cancelado, terminado o de otro video: no se avanza.
+    const [row] = await getDb().select().from(schema.composRequests).where(and(eq(schema.composRequests.id, body.workId), eq(schema.composRequests.projectId, projectId))).limit(1);
+    if (!row || (row.status !== "queued" && row.status !== "running")) return { next: null, finished: true };
+    ctx.requestId = row.id;
+    work = row.work as unknown as ComposWork;
+    work.reservedUsd ??= row.reservedUsd;
+  } else work = readWork(ctx.director);
   if (!work || work.done) return { next: null, finished: true };
 
   // Lo que devuelve el worker.
@@ -324,7 +369,7 @@ export async function advanceWork(projectId: string, body: { step: string; resul
   if (pendingImages.length && body.step !== "compos-images-done") {
     const items = pendingImages.flatMap((t) => t.images.filter((i) => i.status === "pending").map((i) => ({ taskId: t.id, imageId: i.id, prompt: i.prompt, aspect: i.aspect })));
     if (items.length) {
-      await saveWork(projectId, ctx.director, work);
+      await saveTarget(ctx, work);
       return { next: { step: "compos-images", items, label: `Generando ${items.length === 1 ? "la imagen" : `${items.length} imágenes`} con IA` }, finished: false };
     }
   }
@@ -334,7 +379,7 @@ export async function advanceWork(projectId: string, body: { step: string; resul
   const task = work.tasks.find((t) => t.status === "plan" || t.status === "vision" || t.status === "code" || t.status === "looking");
   if (task) {
     const label = await stepTask(ctx, work, task);
-    await saveWork(projectId, ctx.director, work);
+    await saveTarget(ctx, work);
     return { next: { step: "compos", label }, finished: false };
   }
 
@@ -342,7 +387,7 @@ export async function advanceWork(projectId: string, body: { step: string; resul
   const toDraw = work.tasks.filter((t) => t.status === "look" && t.result);
   if (toDraw.length) {
     const stills = await stillsRequest(ctx, toDraw);
-    await saveWork(projectId, ctx.director, work);
+    await saveTarget(ctx, work);
     if (stills) return { next: stills, finished: false };
     for (const t of toDraw) t.status = "done";
   }
@@ -425,8 +470,8 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
     switch (task.status) {
       case "plan": {
         // Sin tope para escribir, todavía se puede reusar un efecto guardado (solo cuesta el plan).
-        const onlyReuse = remaining(ctx) < STAGE_COST.code + STAGE_COST.plan;
-        if (remaining(ctx) < STAGE_COST.plan) {
+        const onlyReuse = remaining(ctx, work) < STAGE_COST.code + STAGE_COST.plan;
+        if (remaining(ctx, work) < STAGE_COST.plan) {
           task.status = "failed";
           task.error = "No alcanzó el tope de IA de este video para escribir esta animación.";
           return `Animación ${of}`;
@@ -447,6 +492,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           videoProjectId: ctx.projectId,
           fake: () => fakePlan(brief, library),
         });
+        charge(work, STAGE_COST.plan);
         task.approach = plan.approach.slice(0, 1200);
         const pick = plan.reuse ? library.find((e) => e.id === plan.reuse.trim()) : null;
         if (pick) {
@@ -459,7 +505,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
             task.result = { ...built, ...(task.moment ? { moment: task.moment } : {}), ...(task.request ? { request: task.request.slice(0, 600) } : {}) };
             task.reused = { id: pick.id, name: pick.name, version: pick.row.version };
             task.note = [task.note, `Reusamos «${pick.name}» de Mis efectos.`].filter(Boolean).join(" ").slice(0, 300);
-            task.status = work.lookRounds > task.round && remaining(ctx) >= STAGE_COST.look ? "look" : "done";
+            task.status = work.lookRounds > task.round && remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
             return `Reusando «${pick.name}» de Mis efectos (${of})`;
           } catch (error) {
             // No funciona en este tramo: se escribe una nueva.
@@ -486,7 +532,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
       }
       case "vision": {
         const ready = task.images.filter((i) => i.status === "ready");
-        if (ready.length && remaining(ctx) >= STAGE_COST.vision + STAGE_COST.code) {
+        if (ready.length && remaining(ctx, work) >= STAGE_COST.vision + STAGE_COST.code) {
           const wire = await generateStructured({
             feature: "video.compos.imagenes",
             model: "main",
@@ -499,6 +545,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
             videoProjectId: ctx.projectId,
             fake: () => fakeImageLook(ready.length),
           });
+          charge(work, STAGE_COST.vision);
           for (const r of wire.images) {
             const img = ready[r.index - 1];
             if (!img) continue;
@@ -544,6 +591,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           videoProjectId: ctx.projectId,
           fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0 }),
         });
+        charge(work, STAGE_COST.code / 1.6);
         task.attempts++;
         const item = itemOf(task, wire);
         const spec = envFor(ctx, item);
@@ -560,11 +608,11 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         // Los textos editables con los valores por defecto del módulo si Claude no los listó.
         const params = item.params.length ? item.params : Object.entries(check.defaults).map(([key, value]) => ({ key, label: key, value }));
         task.result = { ...item, params, checked: check.hash };
-        task.status = work.lookRounds > task.round && remaining(ctx) >= STAGE_COST.look ? "look" : "done";
+        task.status = work.lookRounds > task.round && remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
         return `Programando la animación ${of}`;
       }
       case "looking": {
-        if (!task.result || !task.sheet || remaining(ctx) < STAGE_COST.look * 0.6) {
+        if (!task.result || !task.sheet || remaining(ctx, work) < STAGE_COST.look * 0.6) {
           task.status = "done";
           return `Revisando la animación ${of}`;
         }
@@ -583,6 +631,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           videoProjectId: ctx.projectId,
           fake: () => fakeLook(task.round),
         });
+        charge(work, STAGE_COST.look);
         task.round++;
         task.score = Math.round(Math.max(0, Math.min(100, wire.score)));
         task.note = [task.note, wire.note].filter(Boolean).join(" ").slice(0, 300);
@@ -593,7 +642,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           const check = spec ? await validateComposition(fixedItem.code, spec.compos!.env) : null;
           if (check?.ok) {
             task.result = { ...fixedItem, checked: check.hash };
-            task.status = remaining(ctx) >= STAGE_COST.look ? "look" : "done";
+            task.status = remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
             return `Puliendo la animación ${of} (vuelta ${task.round + 1})`;
           }
         }
@@ -662,6 +711,13 @@ export function layerOnTop(plan: Pick<EditPlan, "broll" | "effects" | "compositi
 
 /** Pone las animaciones hechas en el plan encima de lo que se pisa con ellas (en capas, sin quitar nada) y cierra el taller. */
 async function finishWork(ctx: WorkCtx, work: ComposWork): Promise<void> {
+  if (ctx.requestId) {
+    // Un pedido del Estudio no toca el plan: el Estudio lo agrega sobre lo que la persona tenga (con deshacer).
+    work.done = true;
+    work.finishedAt = new Date().toISOString();
+    await saveTarget(ctx, work);
+    return;
+  }
   const made = work.tasks.filter((t) => t.status === "done" && t.result).map((t) => t.result!);
   let plan = ctx.plan;
   if (made.length) {

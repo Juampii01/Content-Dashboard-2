@@ -35,7 +35,8 @@ const bodySchema = z.discriminatedUnion("step", [
   // Composiciones (lib/video/compos): receta, adaptación, taller, imágenes generadas y cuadros para la revisión.
   z.object({ step: z.literal("recipe") }),
   z.object({ step: z.literal("adapt") }),
-  z.object({ step: z.literal("compos") }),
+  // `workId`: un pedido del Estudio (compos_requests); sin él, el taller del director.
+  z.object({ step: z.literal("compos"), workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional() }),
   z.object({
     step: z.literal("compos-images-done"),
     results: z
@@ -50,8 +51,9 @@ const bodySchema = z.discriminatedUnion("step", [
         }),
       )
       .max(20),
+    workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional(),
   }),
-  z.object({ step: z.literal("compos-look"), sheets: z.array(sheet.extend({ taskId: z.string().max(40), times: z.array(z.number().min(0).max(60)).max(12).optional() })).max(30) }),
+  z.object({ step: z.literal("compos-look"), sheets: z.array(sheet.extend({ taskId: z.string().max(40), times: z.array(z.number().min(0).max(60)).max(12).optional() })).max(30), workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional() }),
 ]);
 
 export async function POST(request: NextRequest, { params }: RouteContext<"/api/worker/projects/[id]/director">) {

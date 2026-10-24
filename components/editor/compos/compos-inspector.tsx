@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, PenLine, Trash2, UserRound, Wand2, WandSparkles } from "lucide-react";
+import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, PenLine, Trash2, UserRound, Wand2, WandSparkles, X } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { myEffectStateAction, removeMyEffectAction, renameMyEffectAction, saveToMyEffectsAction } from "../my-effects-actions";
 import { myEffectsChanged } from "../studio/library-mine";
@@ -11,6 +11,7 @@ import { secondsLabel, timeLabel } from "@/lib/video/studio";
 import type { Composition } from "@/lib/video/compos/schema";
 import { cn } from "@/lib/utils";
 import type { StudioApi } from "../studio/types";
+import { isActive, requestStage } from "./use-compos-work";
 
 const SOURCE: Record<Composition["source"], { label: string; icon: React.ReactNode }> = {
   copy: { label: "Copiada de la referencia", icon: <Copy className="h-3.5 w-3.5" aria-hidden /> },
@@ -21,36 +22,83 @@ const SOURCE: Record<Composition["source"], { label: string; icon: React.ReactNo
 const IDEAS_CHANGE = ["Más grande", "Que entre más rápido", "Con los colores de mi marca", "Que vaya detrás de mí", "Otra tipografía, más gruesa"];
 export const IDEAS_NEW = ["Crea con IA un mapa del mundo, haz foco en el país que nombro y trae una flecha con su nombre", "La cifra que digo en una tarjeta 3D que gira", "Lista que aparece a medida que nombro cada cosa", "Mi palabra clave gigante detrás de mí"];
 
-/** Estado de un pedido en curso, para mostrar debajo del campo. */
-export function ComposProgress({ api, compId }: { api: StudioApi; compId?: string }) {
-  const w = api.compos.work;
-  if (!w || w.done) return null;
-  if (compId && w.request?.replaceId !== compId) return null;
-  const t = w.tasks[0];
-  const step: Record<string, string> = {
-    plan: "Pensando la animación…",
-    images: "Generando la imagen con IA…",
-    vision: "Mirando la imagen para ubicar cada cosa…",
-    code: "Programando la animación…",
-    look: "Dibujándola sobre tu video…",
-    looking: "Revisándola cuadro a cuadro…",
-  };
+/** Pedidos en curso para mostrar debajo del campo (los de este tramo, o el cambio de esta animación). */
+export function ComposProgress({ api, compId, from, to }: { api: StudioApi; compId?: string; from?: number; to?: number }) {
+  const list = api.compos.requests.filter((r) => isActive(r) && (compId ? r.request?.replaceId === compId : from == null || (r.request && r.request.from_word <= (to ?? from) && from <= r.request.to_word)));
+  if (!list.length) return null;
   return (
-    <p className="flex items-center gap-2 rounded-xl bg-accent/10 px-3 py-2 text-xs text-accent-glow" role="status" aria-live="polite">
-      <Loader2 className="h-3.5 w-3.5 flex-none animate-spin motion-reduce:animate-none" aria-hidden />
-      {t ? (step[t.status] ?? "Creando la animación…") : "Empezando…"} <span className="text-muted">Puedes seguir editando.</span>
-    </p>
+    <ul className="flex flex-col gap-1" aria-live="polite">
+      {list.map((r) => (
+        <li key={r.id} className="flex items-center gap-2 rounded-xl bg-[#8b5cf6]/10 px-3 py-2 text-xs text-[#c4b5fd]">
+          <Loader2 className="h-3.5 w-3.5 flex-none animate-spin motion-reduce:animate-none" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">
+            {requestStage(r)} <span className="text-muted">«{r.request?.instruction}»</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Pedidos de animaciones en curso (pestaña IA y pedido elegido en la pista): qué se pidió, en qué va, y cancelar. Los
+ * que no se pudieron hacer quedan con su motivo hasta cerrarlos.
+ */
+export function RequestsPanel({ api, only }: { api: StudioApi; only?: string }) {
+  const list = api.compos.requests.filter((r) => !only || r.id === only);
+  if (!list.length) return only ? <p className="px-4 py-3 text-sm text-muted">Este pedido ya terminó.</p> : null;
+  return (
+    <section className="flex flex-col gap-2 rounded-xl border border-[#8b5cf6]/35 bg-[#8b5cf6]/[0.06] p-3" aria-label="Animaciones en curso" data-testid="compos-requests">
+      {!only && (
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
+          <WandSparkles className="h-4 w-4 text-[#c4b5fd]" aria-hidden /> Animaciones en curso
+          <span className="font-mono text-[11px] font-normal text-muted">{list.filter(isActive).length}</span>
+        </h3>
+      )}
+      <ul className="flex flex-col gap-1.5">
+        {list.map((r) => {
+          const range = r.request ? api.textOf(r.request.from_word, r.request.to_word, 40) : "";
+          const failed = r.status === "failed";
+          return (
+            <li key={r.id} className={cn("flex items-start gap-2 rounded-lg border px-2.5 py-2 text-xs", failed ? "border-danger/40 bg-danger/[0.06]" : "border-white/10 bg-white/[0.03]")} data-testid="compos-request">
+              {failed ? <X className="mt-0.5 h-3.5 w-3.5 flex-none text-danger" aria-hidden /> : <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-none animate-spin text-[#c4b5fd] motion-reduce:animate-none" aria-hidden />}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-semibold text-white">{r.request?.replaceId ? "Cambio: " : ""}{r.request?.instruction}</span>
+                <span className="block truncate text-muted">
+                  {requestStage(r)}
+                  {range ? ` · «${range}»` : ""}
+                </span>
+                {failed && <span className="mt-0.5 block text-danger">{r.error ?? r.tasks[0]?.error ?? "Prueba de nuevo con otras palabras."}</span>}
+              </span>
+              {api.props.canEdit && (
+                <button
+                  type="button"
+                  onClick={() => void (failed ? api.compos.dismiss(r.id) : api.compos.cancel(r.id))}
+                  className="flex-none rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-muted hover:bg-white/[0.07] hover:text-white"
+                  aria-label={failed ? "Cerrar este aviso" : `Cancelar «${r.request?.instruction ?? ""}»`}
+                  disabled={r.id.startsWith("tmp-")}
+                >
+                  {failed ? "Cerrar" : "Cancelar"}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
 /** "Pide una animación aquí": texto libre sobre el tramo elegido. */
 export function AskAnimation({ api, from, to }: { api: StudioApi; from: number; to: number }) {
   const [text, setText] = useState("");
-  const busy = api.compos.running;
+  // Siempre habilitada: cada pedido corre por su cuenta (se pueden pedir varios seguidos).
   async function send() {
-    if (text.trim().length < 3) return;
-    const ok = await api.compos.request({ from_word: from, to_word: to, instruction: text.trim(), replace: null });
-    if (ok) setText("");
+    const instruction = text.trim();
+    if (instruction.length < 3) return;
+    setText("");
+    const ok = await api.compos.request({ from_word: from, to_word: to, instruction, replace: null });
+    if (!ok && api.compos.error) setText(instruction);
   }
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-[#8b5cf6]/40 bg-[#8b5cf6]/[0.08] p-3">
@@ -58,19 +106,20 @@ export function AskAnimation({ api, from, to }: { api: StudioApi; from: number; 
         <WandSparkles className="h-4 w-4 text-[#c4b5fd]" aria-hidden /> Pide una animación aquí
       </label>
       <p className="text-xs text-muted">Descríbela como a un motion designer: qué se ve, cómo se mueve y cuándo. Puede llevar imágenes creadas con IA. La programamos a medida para este tramo.</p>
-      <Textarea id="ask-animation" value={text} onChange={(e) => setText(e.target.value)} maxLength={600} className="!min-h-20 text-sm" placeholder="Ej.: un mapa del mundo creado con IA, zoom a Francia, la remarca y una flecha que diga «el mejor país del mundo»" disabled={busy} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void send()} />
+      <Textarea id="ask-animation" value={text} onChange={(e) => setText(e.target.value)} maxLength={600} className="!min-h-20 text-sm" placeholder="Ej.: un mapa del mundo creado con IA, zoom a Francia, la remarca y una flecha que diga «el mejor país del mundo»" onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void send()} />
       <div className="flex flex-wrap gap-1.5" aria-label="Ideas de animaciones">
         {IDEAS_NEW.map((s) => (
-          <button key={s} type="button" className="pill border border-white/10 text-left text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => setText(s)} disabled={busy}>
+          <button key={s} type="button" className="pill border border-white/10 text-left text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => setText(s)}>
             {s}
           </button>
         ))}
       </div>
-      <Button size="sm" onClick={() => void send()} disabled={busy || text.trim().length < 3} icon={busy ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}>
-        {busy ? "Creando una animación…" : "Crear animación"}
+      <Button size="sm" onClick={() => void send()} disabled={text.trim().length < 3} icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />}>
+        Crear animación
       </Button>
+      <p className="text-[11px] text-muted">Puedes pedir varias seguidas: cada una aparece en la pista Animaciones mientras se crea y cae en su propia capa.</p>
       {api.compos.error && <p className="text-xs text-danger">{api.compos.error}</p>}
-      <ComposProgress api={api} />
+      <ComposProgress api={api} from={from} to={to} />
     </div>
   );
 }
@@ -80,7 +129,8 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   const { props } = api;
   const seg = api.composSegs.find((s) => s.id === item.id) ?? null;
   const [ask, setAsk] = useState("");
-  const busy = api.compos.running;
+  // Un cambio a esta animación a la vez (los demás pedidos del video siguen en paralelo).
+  const busy = api.compos.requests.some((r) => isActive(r) && r.request?.replaceId === item.id);
   const src = SOURCE[item.source];
   async function change() {
     if (ask.trim().length < 3) return;

@@ -95,9 +95,9 @@ export type DirectorBody =
   // Composiciones (lib/video/compos): receta y adaptación de "Copiar edición" y el taller de animaciones.
   | { step: "recipe" }
   | { step: "adapt" }
-  | { step: "compos" }
-  | { step: "compos-images-done"; results: unknown[] }
-  | { step: "compos-look"; sheets: { taskId: string; key: string; width: number; height: number; times?: number[] }[] };
+  | { step: "compos"; workId?: string }
+  | { step: "compos-images-done"; results: unknown[]; workId?: string }
+  | { step: "compos-look"; sheets: { taskId: string; key: string; width: number; height: number; times?: number[] }[]; workId?: string };
 
 const STAGE_LABEL: Record<string, string> = {
   "video.director.mapa": "Entender el video",
@@ -298,6 +298,8 @@ export async function directorStep(projectId: string, body: DirectorBody): Promi
       case "compos-look": {
         const r = await advanceWork(projectId, body);
         if (!r.finished) return { next: r.next, status: (await loadProject(projectId))?.status ?? "PROCESSING" };
+        // Un pedido del Estudio (su propia fila): termina ahí, el Estudio lo entrega.
+        if (body.workId) return { next: null, status: (await loadProject(projectId))?.status ?? "AWAITING_REVIEW" };
         return afterCompos(projectId);
       }
     }

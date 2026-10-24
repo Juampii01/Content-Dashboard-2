@@ -31,8 +31,12 @@ export async function enqueueJob(input: {
       stage: input.stage ?? "En cola",
     })
     .returning({ id: schema.jobs.id });
-  // Encender el worker no debe demorar la respuesta: va después.
-  after(() => wakeWorker());
+  // Encender el worker no debe demorar la respuesta: va después (fuera de una petición, como en un script, enseguida).
+  try {
+    after(() => wakeWorker());
+  } catch {
+    void wakeWorker().catch(() => undefined);
+  }
   return row!.id;
 }
 

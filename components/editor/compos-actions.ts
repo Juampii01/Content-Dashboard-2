@@ -4,6 +4,7 @@ import { z } from "zod";
 import { isDenied, requireEditor } from "@/lib/auth";
 import { ComposRequestError, startStudioRequest } from "@/lib/video/compos/flows";
 import { composStatus, type ComposStatus } from "@/lib/video/compos/service";
+import { ackRequests, cancelRequest } from "@/lib/video/compos/requests";
 import { loadProject } from "@/lib/video/service";
 
 /**
@@ -19,14 +20,15 @@ const requestSchema = z.object({
   replace: z.unknown().nullable().optional(),
 });
 
-export async function requestAnimationAction(projectId: string, input: z.input<typeof requestSchema>): Promise<{ ok: true; workId: string } | { ok: false; error: string }> {
+/** Varios pedidos pueden correr a la vez. `error`: el pedido quedó creado pero sin tope de IA (se muestra en él). */
+export async function requestAnimationAction(projectId: string, input: z.input<typeof requestSchema>): Promise<{ ok: true; workId: string; error: string | null } | { ok: false; error: string }> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = requestSchema.safeParse(input);
   if (!idSchema.safeParse(projectId).success || !parsed.success) return { ok: false, error: parsed.error?.issues[0]?.message ?? "Pedido no válido." };
   try {
-    const { workId } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null }, user.id);
-    return { ok: true, workId };
+    const { workId, error } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null }, user.id);
+    return { ok: true, workId, error };
   } catch (error) {
     if (error instanceof ComposRequestError) return { ok: false, error: error.message };
     console.error("[animaciones] pedido:", error instanceof Error ? error.message : error);
@@ -46,4 +48,24 @@ export async function composStatusAction(projectId: string): Promise<{ ok: true;
     console.error("[animaciones] estado:", error instanceof Error ? error.message : error);
     return { ok: false, error: "No pudimos consultar la animación." };
   }
+}
+
+const workIdSchema = z.string().regex(/^w[0-9a-z]{1,30}$/);
+
+/** Cancela un pedido de animación (en cola: no se hace; en curso: se detiene en el próximo paso). */
+export async function cancelAnimationAction(projectId: string, workId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(projectId).success || !workIdSchema.safeParse(workId).success) return { ok: false, error: "Pedido no válido." };
+  return (await cancelRequest(projectId, workId)) ? { ok: true } : { ok: false, error: "Ese pedido ya terminó." };
+}
+
+/** Marca pedidos como entregados: ya están en la revisión guardada (o la persona cerró el aviso de uno fallido). */
+export async function ackAnimationsAction(projectId: string, workIds: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const ids = workIds.filter((w) => workIdSchema.safeParse(w).success).slice(0, 30);
+  if (!idSchema.safeParse(projectId).success) return { ok: false, error: "Pedido no válido." };
+  await ackRequests(projectId, ids);
+  return { ok: true };
 }

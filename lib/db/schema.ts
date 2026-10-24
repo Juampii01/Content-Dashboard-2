@@ -1537,3 +1537,34 @@ export const createdEffectUses = pgTable(
   },
   (t) => [uniqueIndex("created_effect_uses_pk").on(t.effectId, t.projectId)],
 );
+
+// ─── Editor: pedidos de animaciones del Estudio (varios a la vez) ──────────
+
+/**
+ * Pedidos de animaciones del Estudio ("Pide una animación aquí" y "Pídele un cambio a esta animación"): uno por fila,
+ * así varios corren a la vez sin pisarse (cada paso del taller escribe solo su fila). `work` es el taller de ese pedido
+ * (lib/video/compos/work.ts). Al encolarse reserva su costo estimado (`reserved_usd`) del tope de IA del video.
+ * El resultado no se escribe en el plan: lo entrega el Estudio sobre lo que la persona tenga en ese momento (con
+ * deshacer) y marca `delivered` cuando quedó guardado. Estados: queued → running → done | failed | canceled.
+ */
+export const composRequests = pgTable(
+  "compos_requests",
+  {
+    id: text("id").primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => videoProjects.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("queued"),
+    work: jsonb("work").$type<Record<string, unknown>>().notNull(),
+    reservedUsd: real("reserved_usd").notNull().default(0),
+    /** Lo que ya gastó este pedido (estimado por etapa, para descontarlo de su reserva). */
+    usedUsd: real("used_usd").notNull().default(0),
+    delivered: boolean("delivered").notNull().default(false),
+    error: text("error"),
+    jobId: uuid("job_id"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("compos_requests_project_idx").on(t.projectId, t.createdAt)],
+);

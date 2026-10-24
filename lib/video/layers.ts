@@ -60,3 +60,13 @@ export function restack(items: Stackable[], key: string, below: string | null): 
   order.splice(Math.max(0, at), 0, me);
   return new Map(order.map((x, i) => [x.key, i]));
 }
+
+/**
+ * Capa para algo nuevo en [start, end]: una más que la más alta de lo que se le superpone (la siguiente libre,
+ * encima); undefined (capa 0) si no se pisa con nada. Así varias animaciones que llegan juntas al mismo tramo caen
+ * cada una en su propia capa y ninguna reemplaza a otra.
+ */
+export function nextLayer(items: { start: number; end: number; layer?: number }[], span: { start: number; end: number }): number | undefined {
+  const hit = items.filter((v) => v.start < span.end - 0.01 && span.start < v.end - 0.01);
+  return hit.length ? Math.min(999, Math.max(...hit.map(layerOf)) + 1) : undefined;
+}

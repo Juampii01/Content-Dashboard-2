@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { DecisionsPanel } from "../director/decisions-panel";
 import { EditRequestCard } from "../director/edit-request";
 import { CopyEditCard } from "../compos/copy-edit-card";
+import { RequestsPanel } from "../compos/compos-inspector";
 import type { CopyReport } from "@/lib/video/compos/flows";
 import { UnderstandingPanel } from "../director/understanding-panel";
 import { VariantsPanel } from "../director/variants-panel";
@@ -58,6 +59,8 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
   return (
     <div className="flex flex-col gap-5 p-4">
       {props.notice}
+      {/* Las animaciones que se están creando (varias a la vez), con cancelar. */}
+      <RequestsPanel api={api} />
       {/* Arriba de todo: es lo primero que se busca en esta pestaña. */}
       <CopyEditCard
         projectId={props.projectId}

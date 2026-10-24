@@ -11,6 +11,7 @@ import { cleanCompositions, compileComposition, composSegments, type Composition
 import { codeHash, validateComposition } from "./validate";
 import { readWork, workView, type WorkView } from "./work";
 import { readCopy, type CopyReport } from "./flows";
+import { listRequests, type RequestView } from "./requests";
 
 /**
  * Composiciones en el servidor: lo que manda el navegador se vuelve a validar (el código que no estaba en el plan
@@ -71,6 +72,8 @@ export async function composImageUrls(plans: (EditPlan | null | undefined)[], ex
 }
 
 export type ComposStatus = {
+  /** Pedidos del Estudio (varios a la vez): en curso y terminados sin entregar. */
+  requests: RequestView[];
   work: WorkView | null;
   /** Las animaciones que terminó el taller (para ponerlas en la revisión abierta). */
   made: Composition[];
@@ -83,6 +86,7 @@ export async function composStatus(project: ProjectLike & { director: unknown })
   const director = readDirector(project.director);
   const work = readWork(director);
   const made = work?.done ? work.tasks.filter((t) => t.status === "done" && t.result).map((t) => t.result!) : [];
-  const images = await composImageUrls([project.plan as EditPlan | null], made.flatMap((m) => m.images ?? []));
-  return { work: workView(work), made, images, copy: readCopy(director)?.report ?? null };
+  const requests = await listRequests(project.id);
+  const images = await composImageUrls([project.plan as EditPlan | null], [...made, ...requests.flatMap((r) => r.made)].flatMap((m) => m.images ?? []));
+  return { requests, work: workView(work), made, images, copy: readCopy(director)?.report ?? null };
 }

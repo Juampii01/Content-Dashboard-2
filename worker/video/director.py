@@ -34,7 +34,9 @@ STEP_LABELS = {
     "revise": "Corrigiendo lo que encontró la revisión",
     "finalize": "Dejando todo listo",
 }
-MAX_STEPS = 20  # un pedido puede llevar hasta 3 vueltas del director, cada una con su segunda mirada
+# Un pedido puede llevar hasta 3 vueltas del director, cada una con su segunda mirada; "Copiar edición" suma la receta,
+# la adaptación y unas 5 llamadas por animación (hasta 14).
+MAX_STEPS = 160
 
 
 def see(ctx: JobContext, project: dict[str, Any], workdir: Path, media: dict[str, Any], start: float, end: float) -> None:
@@ -93,8 +95,9 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
         nxt = res.get("next")
         if not nxt:
             return res
-        a = start + span * min(0.9, k / 8)
-        b = start + span * min(0.95, (k + 1) / 8)
+        # El progreso avanza más despacio cuantos más pasos (Copiar edición tiene muchos).
+        a = start + span * min(0.92, 1 - 0.85 ** (k + 1) + 0.0)
+        b = start + span * min(0.96, 1 - 0.85 ** (k + 2))
         step = nxt.get("step")
         ctx.check()
         if step == "preview":
@@ -102,6 +105,18 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
             ctx.stage(f"Revisando la edición (vuelta {round_})", a, b)
             sheets = preview(ctx, project, nxt.get("render") or {}, nxt.get("frames") or [], round_)
             res = ctx.app.director(pid, {"step": "critique", "round": round_, "sheets": sheets})
+        elif step == "compos-images":
+            from . import compos  # noqa: PLC0415
+
+            ctx.stage(str(nxt.get("label") or "Generando imágenes con IA")[:120], a, b)
+            results = compos.generate_images(ctx, pid, nxt.get("items") or [], ctx.workdir(pid))
+            res = ctx.app.director(pid, {"step": "compos-images-done", "results": results})
+        elif step == "compos-stills":
+            from . import compos  # noqa: PLC0415
+
+            ctx.stage(str(nxt.get("label") or "Mirando las animaciones")[:120], a, b)
+            sheets = compos.stills(ctx, project, nxt.get("render") or {}, nxt.get("items") or [])
+            res = ctx.app.director(pid, {"step": "compos-look", "sheets": sheets})
         else:
             ctx.stage(str(nxt.get("label") or STEP_LABELS.get(step, "Dirigiendo la edición"))[:120], a, b)
             res = ctx.app.director(pid, {"step": step})

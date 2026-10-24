@@ -1,0 +1,181 @@
+"""Animaciones a medida del Editor (composiciones, lib/video/compos): lo que hace el worker mientras la app las escribe.
+
+1. **Imágenes generadas** (`compos-images`): con la cuenta de ChatGPT del cliente (Codex) o su API key de OpenAI, las
+   mismas piezas que los carruseles. Siempre sin texto (el texto lo dibuja la animación). Se guardan en
+   `editor/<proyecto>/compos/<id>.<ext>` (quedan en la biblioteca del proyecto). Si una falla, se avisa y la app sigue
+   sin ella.
+2. **Cuadros para la revisión** (`compos-stills`): se arma el video con los cortes de la revisión y se dibuja cada
+   animación en 5 instantes con el mismo motor del render; los cuadros van en una hoja que Claude compara con la
+   referencia o con el pedido.
+3. **VIDEO_COMPOS**: los pedidos del Estudio ("Pide una animación aquí", "Pídele un cambio a esta animación"): maneja el
+   taller paso a paso con la app, sin sacar el video de la revisión.
+"""
+
+from __future__ import annotations
+
+import logging
+import shutil
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from comunes.errors import Cancelled, JobError
+from comunes.runner import JobContext, register
+
+from . import director, eyes, fx, fx_mask, render
+
+log = logging.getLogger("worker.compos")
+
+ASPECTS = {"vertical": ("formato vertical 9:16", "1024x1536"), "horizontal": ("formato horizontal 16:9", "1536x1024"), "square": ("formato cuadrado 1:1", "1024x1024")}
+
+WRAPPER = """{prompt}
+
+INSTRUCCIÓN TÉCNICA: no leas skills ni archivos y no ejecutes ningún comando. Llama UNA sola vez a la herramienta de generación de imágenes con todo lo anterior ({aspect}, sin ningún texto ni letra en la imagen) y termina respondiendo solo 'ok'."""
+
+
+def _credentials(ctx: JobContext, pid: str) -> dict[str, Any]:
+    return ctx.app._post(f"/api/worker/projects/{pid}/imagenes", {"op": "credentials"}, timeout=60)  # noqa: SLF001
+
+
+def generate_images(ctx: JobContext, pid: str, items: list[dict[str, Any]], workdir: Path) -> list[dict[str, Any]]:
+    """Genera las imágenes pedidas. Devuelve una fila por pedido: con su clave y tamaño, o con el error."""
+    from PIL import Image  # noqa: PLC0415
+
+    from carruseles import codex, openai_api  # noqa: PLC0415
+
+    out: list[dict[str, Any]] = []
+    try:
+        creds = _credentials(ctx, pid)
+    except JobError as e:
+        return [{"taskId": i.get("taskId"), "imageId": i.get("imageId"), "error": e.user_message} for i in items]
+    provider = creds.get("provider")
+    home = None
+    work = workdir / "compos-img"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        if provider == "chatgpt":
+            home = codex.CodexHome.create(work, creds.get("authJson"))
+        for n, item in enumerate(items[:8]):
+            ctx.check()
+            image_id = str(item.get("imageId") or "")
+            if not image_id.replace("g", "", 1).isalnum():
+                continue
+            aspect_text, size = ASPECTS.get(str(item.get("aspect")), ASPECTS["vertical"])
+            prompt = str(item.get("prompt") or "")[:1500]
+            dest = work / f"img-{n + 1}"
+            dest.mkdir()
+            try:
+                if provider == "chatgpt" and home:
+                    image = codex.generate_image(home, dest, WRAPPER.format(prompt=prompt, aspect=aspect_text), [], model=str(creds.get("model") or "gpt-5.6-terra"), effort=str(creds.get("effort") or "medium"), check=ctx.check)
+                    refreshed = home.refreshed()
+                    if refreshed:
+                        ctx.app._post(f"/api/worker/projects/{pid}/imagenes", {"op": "chatgpt", "authJson": refreshed}, timeout=60)  # noqa: SLF001
+                        home.mark_saved(refreshed)
+                elif provider == "openai":
+                    image = openai_api.generate_image({**creds, "size": size}, prompt, [], dest / "imagen.png")
+                else:
+                    raise JobError("Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes para generar imágenes.", retry=False)
+                with Image.open(image) as im:
+                    im.verify()
+                with Image.open(image) as im:
+                    w, h = im.size
+                    fmt = (im.format or "PNG").upper()
+                ext, ctype = {"JPEG": ("jpg", "image/jpeg"), "WEBP": ("webp", "image/webp")}.get(fmt, ("png", "image/png"))
+                key = f"editor/{pid}/compos/{image_id.lower()}.{ext}"
+                ctx.app.upload(pid, key, image, ctype)
+                out.append({"taskId": item.get("taskId"), "imageId": image_id, "key": key, "width": int(w), "height": int(h)})
+            except Cancelled:
+                raise
+            except JobError as e:
+                log.warning("imagen %s sin generar: %s", image_id, e.detail or e.user_message)
+                out.append({"taskId": item.get("taskId"), "imageId": image_id, "error": e.user_message[:380]})
+            except Exception as e:  # noqa: BLE001 — una imagen que falla no corta el resto
+                log.warning("imagen %s sin generar", image_id, exc_info=True)
+                out.append({"taskId": item.get("taskId"), "imageId": image_id, "error": f"No se pudo generar ({e.__class__.__name__})."})
+    finally:
+        if home:
+            home.cleanup()
+        shutil.rmtree(work, ignore_errors=True)
+    return out
+
+
+def stills(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Cuadros de cada animación dibujada sobre el video (con los cortes de la revisión), en una hoja por animación."""
+    import cv2  # noqa: PLC0415
+
+    from .pipeline import compose, fx_image_hosts  # noqa: PLC0415 — evita el import circular
+
+    pid = str(project["id"])
+    built = compose(ctx, project, data, preview=True)
+    joined = Path(built["joined"])
+    workdir = ctx.workdir(pid)
+    mezz = workdir / "mezz.mp4"
+    media = project.get("media") or {}
+    src_size = (int(media.get("width") or 1080), int(media.get("height") or 1920))
+    total = int(round(float(media.get("duration") or 0) * render.FPS)) or 1
+    fmt = built["fmt"]
+    offset_x = float((data.get("framing") or {}).get("offsetX", 0))
+    out_w, out_h = render.OUTPUT_SIZE[fmt]
+    out_dir = Path(built["out_dir"]) / "compos-cuadros"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    uploaded: list[dict[str, Any]] = []
+    for item in items[:20]:
+        ctx.check()
+        task_id = str(item.get("taskId") or "")
+        times = [float(t) for t in item.get("times") or []][:8]
+        if not task_id.isalnum() or not times:
+            continue
+        try:
+            paths = fx.render_stills(
+                ctx,
+                {"spec": item.get("spec"), "sourceFrames": item.get("sourceFrames") or [], "imageKeys": item.get("imageKeys") or {}, "projectId": item.get("projectId")},
+                times,
+                joined=joined,
+                mezz=mezz,
+                src_size=src_size,
+                total_frames=total,
+                fmt=fmt,
+                offset_x=offset_x,
+                workdir=workdir,
+                fonts_dir=ctx.config.fonts_dir,
+                image_hosts=fx_image_hosts(ctx.config.app_url),
+                out_dir=out_dir / task_id,
+            )
+        except fx.ComposFailed as e:
+            log.warning("cuadros de la animación %s: %s", task_id, e.detail)
+            continue
+        frames = [cv2.imread(str(p)) if p and p.exists() else np.zeros((out_h // 2, out_w // 2, 3), np.uint8) for p in paths]
+        sheets = director._sheets_from_frames(frames, times, (out_w, out_h), out_dir / f"hoja-{task_id}", ctx.config.fonts_dir, "anim")  # noqa: SLF001
+        if not sheets:
+            continue
+        from PIL import Image  # noqa: PLC0415
+
+        path = sheets[0][0]
+        rnd = int(item.get("round") or 1)
+        key = f"editor/{pid}/director/compos-{task_id.lower()}-{rnd}.jpg"
+        ctx.app.upload(pid, key, path, "image/jpeg")
+        with Image.open(path) as im:
+            w, h = im.size
+        uploaded.append({"taskId": task_id, "key": key, "width": w, "height": h, "times": times})
+    shutil.rmtree(out_dir, ignore_errors=True)
+    return uploaded
+
+
+@register("VIDEO_COMPOS")
+def compos_job(ctx: JobContext) -> dict[str, Any]:
+    """Pedido del Estudio: el taller de animaciones paso a paso. El video sigue en revisión."""
+    from comunes import db  # noqa: PLC0415
+
+    project = db.get_project(ctx.conn, ctx.input["projectId"])
+    if not project:
+        raise JobError("El proyecto ya no existe.", retry=False)
+    if project["status"] not in ("AWAITING_REVIEW", "DONE"):
+        return {"skipped": project["status"]}
+    res = director.run(ctx, project, "compos", 0.0, 1.0)
+    return {"status": res.get("status")}
+
+
+__all__ = ["generate_images", "stills", "eyes", "fx_mask"]

@@ -10,6 +10,7 @@ import { strongWords, type FxItem } from "./schema";
 import { FX_MOVABLE } from "./catalog";
 import { cleanPlace, type Place } from "../canvas/transform";
 import type { TransitionKind } from "./transitions";
+import type { ComposEnvData } from "../compos/contract";
 
 export const FX_VERSION = 1;
 
@@ -20,8 +21,8 @@ export type FxWord = { t0: number; t1: number; text: string; stop: boolean; stro
 export type FxSpec = {
   v: 1;
   id: string;
-  /** Un efecto de la biblioteca o una transición (lib/video/fx/transitions). */
-  kind: FxKind | TransitionKind;
+  /** Un efecto de la biblioteca, una transición (lib/video/fx/transitions) o una composición escrita por Claude. */
+  kind: FxKind | TransitionKind | "composition";
   /** Semilla estable (inclinaciones, posiciones, temblor). */
   seed: number;
   start: number;
@@ -57,6 +58,8 @@ export type FxSpec = {
   mask: boolean;
   /** Lugar y animación del elemento movible (lienzo de la revisión). Sin esto, como siempre. */
   place?: Place;
+  /** Solo las composiciones (lib/video/compos): su código y los datos de `env`. */
+  compos?: { code: string; env: ComposEnvData };
 };
 
 /** `layer`: capa del efecto (lib/video/layers.ts). */

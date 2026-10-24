@@ -358,18 +358,31 @@ async function projectForEdit(projectId: string) {
   return { project, plan: project.plan as EditPlan, transcript: project.transcript as Transcript, media: (project.media ?? {}) as MediaInfo };
 }
 
-export async function saveReview(projectId: string, review: Review, format: VideoFormat): Promise<void> {
+export async function saveReview(projectId: string, review0: Review, format: VideoFormat): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
+  const review = await withTrustedCompositions(project, review0, plan, transcript, media, format);
   const next = applyReview(plan, review, transcript.words, media.duration || transcript.duration, format);
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: review.preset }).where(eq(schema.videoProjects.id, projectId));
   // Efectos con recorte: el worker prepara la máscara de esos segundos para la vista previa (si falta).
-  if (next.effects?.length) {
+  if (next.effects?.length || next.compositions?.length) {
     const timeline = buildTimeline(transcript.words, next, media.duration || transcript.duration);
     await ensureFxMasks({ projectId, plan: next, timeline, media, userId: null }).catch((error) => console.error("[efectos] no se pudo pedir el recorte:", error instanceof Error ? error.message : error));
   }
+}
+
+/**
+ * Las animaciones (composiciones) que manda el navegador: el código que no estaba en el plan guardado se valida en el
+ * sandbox con sus datos reales antes de guardarse (lib/video/compos/service.ts); lo que no pasa se descarta.
+ */
+async function withTrustedCompositions(project: Project, review: Review, plan: EditPlan, transcript: Transcript, media: MediaInfo, format: VideoFormat): Promise<Review> {
+  if (!review.compositions) return review;
+  const { trustedCompositions } = await import("./compos/service");
+  // El plan con lo que cambió la revisión (cortes, gancho, formato): los tramos de las animaciones se miden sobre eso.
+  const draft = applyReview(plan, { ...review, compositions: undefined }, transcript.words, media.duration || transcript.duration, format);
+  return { ...review, compositions: await trustedCompositions(project, review.compositions, draft) };
 }
 
 const DEFAULT_CAPTION_ACCENT = "#FFD84D";
@@ -377,9 +390,10 @@ const DEFAULT_CAPTION_ACCENT = "#FFD84D";
 const MAX_EMOJIS = 24;
 
 /** `manual`: lo exporta la persona desde la revisión (deja de ser "Hazlo por mí"). */
-export async function startRender(projectId: string, review: Review, format: VideoFormat, userId: string | null, opts: { manual?: boolean } = {}): Promise<void> {
+export async function startRender(projectId: string, review0: Review, format: VideoFormat, userId: string | null, opts: { manual?: boolean } = {}): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
+  const review = await withTrustedCompositions(project, review0, plan, transcript, media, format);
   const duration = media.duration || transcript.duration;
   const next = applyReview(plan, review, transcript.words, duration, format);
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);
@@ -424,13 +438,14 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   const preset: CaptionPresetKey = next.captions.preset === "estilo" && !captionStyle ? "clasico" : next.captions.preset;
   // B-roll: cada clip elegido se verifica contra su fuente (nunca se confía en lo que manda el navegador).
   const look = brandGraphicLook(brand);
+  // En el tramo de una animación (composición) manda la animación: el b-roll que se pisa con ella no va.
   const broll = await verifiedBroll(brollSegments(timeline, next.broll), look);
   // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea. Tampoco donde el director los ocultó (texto quemado).
   const graphicSpans = broll.filter((b) => b.option.source === "graphic" && graphicHidesCaptions(b.option.graphic));
   const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
   // Efectos de la biblioteca: lo que dibuja el worker (el mismo spec que la vista previa); algunos llevan sus propios
   // subtítulos y ninguno lleva zooms del estilo encima (traen su propia cámara).
-  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections, broll });
+  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections, broll, projectId, captionsVisible: preset !== "ninguno" });
   const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans, ...fx.hides]);
   const noZoom = [...broll, ...fx.avoid];
   const zooms =
@@ -474,6 +489,8 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     manual: [
       ...soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
       ...transitionSounds(fx.transitions).filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: TRANSITION_SOUND_GAIN })),
+      // Los sonidos de las animaciones (en sus momentos).
+      ...fx.sounds.filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: s.gain })),
     ],
   });
   // Música: una pista generada (la arma el worker con el mismo generador que la vista previa) o una pista lista de la
@@ -520,7 +537,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
           ? { start: b.start, end: b.end, source: b.option.source, url: b.option.file, edit: brollEdit(b), z: z.get(layerKey("broll", b.id)) ?? 0 }
           : { start: b.start, end: b.end, source: "library", clipId: b.option.id, key: b.option.key, edit: brollEdit(b), z: z.get(layerKey("broll", b.id)) ?? 0 },
     ),
-    effects: fx.items.map(({ layerKind, ...f }) => ({ spec: f.spec, sourceFrames: f.sourceFrames, ...(f.images ? { images: f.images } : {}), z: z.get(layerKey(layerKind ?? "fx", f.spec.id)) ?? 0 })),
+    effects: fx.items.map(({ layerKind, ...f }) => ({ spec: f.spec, sourceFrames: f.sourceFrames, ...(f.images ? { images: f.images } : {}), ...(f.imageKeys ? { imageKeys: f.imageKeys, projectId: f.projectId } : {}), z: z.get(layerKey(layerKind ?? "fx", f.spec.id)) ?? 0 })),
     credits,
     creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
     srt: toSrt(timeline.words),

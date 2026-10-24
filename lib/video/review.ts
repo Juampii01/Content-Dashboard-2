@@ -6,6 +6,7 @@
 import { cleanCaptionPlacement } from "./canvas/captions";
 import { cleanPlace } from "./canvas/transform";
 import { cleanFx } from "./fx/schema";
+import { cleanCompositions } from "./compos/schema";
 import { cleanTransitions } from "./fx/transitions";
 import { musicGenSchema } from "./music-gen/spec";
 import { brollItemSchema, rangesFromIds, withDerived } from "./plan";
@@ -38,6 +39,11 @@ export type Review = {
   effects?: unknown[];
   /** Transiciones en los cortes (lib/video/fx/transitions). */
   transitions?: unknown[];
+  /**
+   * Animaciones (composiciones) tal como quedaron. El código que no estaba en el plan guardado se vuelve a validar en
+   * el servidor antes de llegar aquí (lib/video/compos/service.ts).
+   */
+  compositions?: unknown[];
   /** Sonidos de la biblioteca puestos a mano en la pista de Sonido. */
   soundCues?: unknown[];
   /** Música generada elegida (estilo, semilla y tempo), o null para quitarla. Manda sobre `music.trackId`. */
@@ -143,6 +149,11 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const fx = cleanFx(review.effects, words.length, next.broll.filter((b) => b.choice));
     if (fx.length) next.effects = fx;
     else delete next.effects;
+  }
+  if (review.compositions) {
+    const comps = cleanCompositions(review.compositions, words.length);
+    if (comps.length) next.compositions = comps;
+    else delete next.compositions;
   }
   if (review.transitions) {
     // Solo en cortes que existen con lo que quedó (el corte depende de lo cortado y del gancho).

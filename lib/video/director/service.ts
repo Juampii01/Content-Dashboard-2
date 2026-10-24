@@ -53,6 +53,9 @@ export type { EditEstimate } from "./cost";
 import { newReferenceId, referenceFromPayload, referenceSettings, referenceSummary, referenceText, type DirectorReference, type ReferencePayload, type ReferenceSource } from "./reference";
 import { applyRequest, checkCompliance, enforceRequest, findLinks, isReferenceLink, mergeCompliance, missingKey, missingOf, parseRequest, planBaseline, requestOverrides, requestText, settingsFromRequest, type ParsedRequest } from "./request";
 import { diffPlans } from "./diff";
+import { advanceWork, readWork } from "../compos/work";
+import { adaptStep, asksForAnimation, finishCopy, readCopy, recentUsage, recipeStep, startCopy, startEditRequest, startVariety, wantsCopy } from "../compos/flows";
+import type { FxKind } from "../fx/catalog";
 import { keyFrames, type KeyFrame } from "./keyframes";
 import { mapFromMeasures, mapFromWire, mustKeepRanges } from "./map";
 import { mapToWire, simulateCritic, simulateDirector, simulateRequestCheck } from "./simulate";
@@ -72,7 +75,9 @@ import { BUDGET, effectiveBrief, readBrief, readDirector, type Brief, type Criti
  */
 
 export type DirectorNext =
-  | { step: "understand" | "direct" | "revise" | "finalize" | "edit"; label?: string }
+  | { step: "understand" | "direct" | "revise" | "finalize" | "edit" | "recipe" | "adapt" | "compos"; label?: string }
+  | { step: "compos-images"; items: { taskId: string; imageId: string; prompt: string; aspect: string }[]; label: string }
+  | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string }
   | { step: "preview"; round: number; render: Record<string, unknown>; frames: KeyFrame[] }
   | null;
 
@@ -86,7 +91,13 @@ export type DirectorBody =
   | { step: "edit" }
   | { step: "abort"; error?: string }
   | ({ step: "reference" } & ReferencePayload)
-  | { step: "final"; sheets: { key: string; width: number; height: number }[]; frames: KeyFrame[] };
+  | { step: "final"; sheets: { key: string; width: number; height: number }[]; frames: KeyFrame[] }
+  // Composiciones (lib/video/compos): receta y adaptación de "Copiar edición" y el taller de animaciones.
+  | { step: "recipe" }
+  | { step: "adapt" }
+  | { step: "compos" }
+  | { step: "compos-images-done"; results: unknown[] }
+  | { step: "compos-look"; sheets: { taskId: string; key: string; width: number; height: number; times?: number[] }[] };
 
 const STAGE_LABEL: Record<string, string> = {
   "video.director.mapa": "Entender el video",
@@ -95,6 +106,14 @@ const STAGE_LABEL: Record<string, string> = {
   "video.director.critica": "Segunda mirada",
   "video.director.final": "Revisión final",
   "video.motion.retry": "Gráficos",
+  "video.compos.receta": "Copiar edición: receta",
+  "video.compos.adaptar": "Copiar edición: adaptar",
+  "video.compos.pedido": "Animaciones: pedido",
+  "video.compos.momentos": "Animaciones: momentos clave",
+  "video.compos.plan": "Animaciones: plan",
+  "video.compos.imagenes": "Animaciones: mirar imágenes",
+  "video.compos.codigo": "Animaciones: programar",
+  "video.compos.mirar": "Animaciones: revisar con cuadros",
 };
 
 // ─── Contexto de un proyecto ──────────────────────────────────────────────
@@ -266,6 +285,21 @@ export async function directorStep(projectId: string, body: DirectorBody): Promi
       case "final":
         await finalReview(projectId, body.sheets, body.frames);
         return { next: null, status: "DONE" };
+      case "recipe": {
+        const r = await recipeStep(projectId);
+        return r.step === "compos-skip" ? afterCompos(projectId) : { next: { step: r.step as "adapt", label: r.label }, status: "PROCESSING" };
+      }
+      case "adapt": {
+        const r = await adaptStep(projectId);
+        return r.step === "compos-skip" ? afterCompos(projectId) : { next: { step: "compos", label: r.label }, status: "PROCESSING" };
+      }
+      case "compos":
+      case "compos-images-done":
+      case "compos-look": {
+        const r = await advanceWork(projectId, body);
+        if (!r.finished) return { next: r.next, status: (await loadProject(projectId))?.status ?? "PROCESSING" };
+        return afterCompos(projectId);
+      }
     }
   });
 }
@@ -489,7 +523,10 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
         ? { ...baseFx, max: baseFx.max + 1 }
         : baseFx;
   // Transiciones: el pedido manda sobre Mi marca ("sin transiciones" o "pon transiciones", aunque la frecuencia sea ninguno).
-  const fx = overrides.transitions === "off" ? { ...fx0, transitions: 0 } : overrides.transitions === "more" ? { ...fx0, transitions: Math.max(fx0.transitions ?? 0, 2) + overrides.transitionKinds.length } : fx0;
+  const fxT = overrides.transitions === "off" ? { ...fx0, transitions: 0 } : overrides.transitions === "more" ? { ...fx0, transitions: Math.max(fx0.transitions ?? 0, 2) + overrides.transitionKinds.length } : fx0;
+  // Variedad entre videos: lo que la marca usó en sus últimos videos (el director y el relleno de ritmo lo rotan).
+  const recent = await recentUsage(projectId).catch(() => ({ fx: [] as FxKind[], transitions: [] as string[], families: [] as string[] }));
+  const fx = { ...fxT, recent: { fx: recent.fx, transitions: recent.transitions } };
   const faceWords = faceWordsOf(ctx.eyes, words);
   // Palabras mal transcritas ("desancado" → "estancado"): solo en la primera dirección, en paralelo con el director.
   const proofread = !mode && !base ? proofreadTranscript({ words, brandCtx: ctx.brandCtx, script }) : Promise.resolve({} as Record<string, string>);
@@ -629,6 +666,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     faceWords,
     candidates,
     mustKeep: [...keep, ...protect],
+    recentFx: recent.fx,
   });
   plan = filled.plan;
   if (filled.added.length) console.info(`[director] ritmo (${density}): ${filled.added.length} agregados`);
@@ -653,6 +691,8 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   });
   plan = applied.plan;
   if (refCopy && wantsReference && !mode && refCopy.pace === "fast") plan = { ...plan, pacing: { long_pause: Math.min(plan.pacing?.long_pause ?? 0.3, 0.3) }, director: { version: 1, pace: "fast" } };
+  // Las animaciones a medida (composiciones) no las rearma el director: siguen como estaban (las cambia el taller).
+  if (base?.compositions?.length && !plan.compositions?.length) plan = { ...plan, compositions: base.compositions };
 
   const parsedPlan = planSchemaFor(words.length).safeParse(plan);
   if (!parsedPlan.success) {
@@ -716,6 +756,19 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   };
   await saveDirector(projectId, next, { plan, ...(format !== ctx.format ? { format } : {}) });
   if (nextPending) return { next: { step: "edit", label: `Aplicando tus cambios (vuelta ${(nextPending.attempt ?? 0) + 1})` }, status: "PROCESSING" };
+
+  // Animaciones a medida (lib/video/compos): "Copiar edición", pedidos de animaciones en "Edítalo así" y, sin
+  // referencia, la variedad del director en los momentos clave.
+  if (mode !== "revise") {
+    if (pending && wantsCopy(director)) {
+      const started = await startCopy(projectId);
+      if (started) return { next: { step: "recipe", label: "Desarmando la edición de la referencia" }, status: "PROCESSING" };
+    } else if (pending && !pending.copy && (pending.attempt ?? 0) === 0 && asksForAnimation(pending.instruction) && (await startEditRequest(projectId, pending.instruction))) {
+      return { next: { step: "compos", label: "Programando las animaciones que pediste" }, status: "PROCESSING" };
+    } else if (!mode && !reference && (await startVariety(projectId))) {
+      return { next: { step: "compos", label: "Programando animaciones a medida para los momentos clave" }, status: "PROCESSING" };
+    }
+  }
 
   // ¿Segunda mirada? Mientras queden vueltas en este ciclo; si no, verificaciones y arreglos seguros al cerrar.
   if (next.rounds.length < roundLimit(next)) {
@@ -884,7 +937,9 @@ async function critique(projectId: string, round: number, sheets: { key: string;
   const rounds = [...director.rounds, record];
   // Pedido: lo que el crítico vio de cada parte se junta con lo medido. Si falta algo que se puede arreglar y queda
   // tope, otra vuelta del director dirigida a eso (con lo que encontró el crítico).
-  if (active && parsed?.items.length) {
+  // En "Copiar edición" no hay otra vuelta del director por el pedido: ya se copió momento a momento.
+  const copying = Boolean(active?.id) && (readCopy(director)?.editId === active?.id || readWork(director)?.editId === active?.id);
+  if (active && parsed?.items.length && !copying) {
     const entry = director.edits.find((e) => e.id === active.id);
     if (entry) {
       const compliance = mergeCompliance(entry.compliance ?? [], wire?.request ?? null);
@@ -913,6 +968,27 @@ async function critique(projectId: string, round: number, sheets: { key: string;
     return { next: { step: "revise" }, status: "PROCESSING" };
   }
   await saveDirector(projectId, { ...director, rounds, degraded });
+  return { next: { step: "finalize" }, status: "PROCESSING" };
+}
+
+/**
+ * Terminó el taller de animaciones (o no hacía falta): el informe de la copia y lo que sigue. Un pedido del Estudio
+ * (VIDEO_COMPOS) termina ahí; en un análisis o un pedido de "Edítalo así", sigue la segunda mirada o el cierre.
+ */
+async function afterCompos(projectId: string): Promise<{ next: DirectorNext; status: string }> {
+  const project = await loadProject(projectId);
+  if (!project) throw new VideoError("No encontramos ese proyecto.");
+  const director = readDirector(project.director);
+  const work = readWork(director);
+  const copy = readCopy(director);
+  if (copy && copy.status !== "done" && copy.status !== "failed") await finishCopy(projectId);
+  if (work?.mode === "request" || project.status !== "PROCESSING") return { next: null, status: project.status };
+  const fresh = readDirector((await loadProject(projectId))!.director);
+  if (fresh.rounds.length < roundLimit(fresh) && project.plan) {
+    const transcript = project.transcript as Transcript;
+    const duration = ((project.media ?? {}) as MediaInfo).duration || transcript.duration;
+    return { next: await previewNext(project, project.plan as EditPlan, transcript.words, duration, fresh.rounds.length + 1, readEyes(project.eyes)), status: "PROCESSING" };
+  }
   return { next: { step: "finalize" }, status: "PROCESSING" };
 }
 
@@ -1031,7 +1107,7 @@ async function finalReview(projectId: string, sheets: { key: string; width: numb
  * "Edítalo así" (y "Arreglarlo" de la revisión final): el pedido pasa por el director con todo el contexto. El video
  * vuelve a "procesando" un momento (el worker arma la vista previa para la segunda mirada) y después a la revisión.
  */
-export async function requestEdit(projectId: string, instruction: string, kind: "edit" | "fix", userId: string | null, attach: { link?: string | null; upload?: boolean } = {}): Promise<void> {
+export async function requestEdit(projectId: string, instruction: string, kind: "edit" | "fix", userId: string | null, attach: { link?: string | null; upload?: boolean; copy?: boolean } = {}): Promise<void> {
   const project = await loadProject(projectId);
   if (!project) throw new VideoError("No encontramos ese proyecto.");
   if (!project.plan || !project.transcript) throw new VideoError("Este video todavía no está listo para editar.");
@@ -1055,7 +1131,8 @@ export async function requestEdit(projectId: string, instruction: string, kind: 
   const reference = source ? { id: newReferenceId(), source } : null;
   const transcript = project.transcript as Transcript;
   const duration = ((project.media ?? {}) as MediaInfo).duration || transcript.duration;
-  const pending: PendingRequest = { kind, instruction: clean, id: newEditId(), attempt: 0, baseline: planBaseline(project.plan as EditPlan, transcript.words, duration), changes: [], spentAtStart: await spentUsd(projectId), reference };
+  if (attach.copy && !reference) throw new VideoError("Pega el link del video que quieres copiar o súbelo.");
+  const pending: PendingRequest = { kind, instruction: clean, id: newEditId(), attempt: 0, baseline: planBaseline(project.plan as EditPlan, transcript.words, duration), changes: [], spentAtStart: await spentUsd(projectId), reference, ...(attach.copy ? { copy: true } : {}) };
   await getDb()
     .update(schema.videoProjects)
     .set({
@@ -1066,6 +1143,7 @@ export async function requestEdit(projectId: string, instruction: string, kind: 
         ...director,
         pending,
         active: null,
+        ...(attach.copy ? { copy: null, compos: null } : {}),
         ...(reference ? { reference: { id: reference.id, source: reference.source, status: "pending", at: new Date().toISOString() } satisfies DirectorReference } : {}),
         ...(attach.upload ? { refUpload: null } : {}),
         updatedAt: new Date().toISOString(),

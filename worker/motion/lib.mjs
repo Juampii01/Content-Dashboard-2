@@ -38,6 +38,12 @@ export async function loadFxEngine() {
   return import(pathToFileURL(file).href);
 }
 
+/** El sandbox de las composiciones (lib/video/compos empaquetado en compos-engine.mjs). */
+export async function loadComposEngine() {
+  const file = process.env.COMPOS_ENGINE || join(here, "compos-engine.mjs");
+  return import(pathToFileURL(file).href);
+}
+
 const FX_FILES = {
   "Instrument Serif": ["InstrumentSerif-Regular", "InstrumentSerif-Italic"],
   "JetBrains Mono": ["JetBrainsMono-Medium", "JetBrainsMono-Bold"],

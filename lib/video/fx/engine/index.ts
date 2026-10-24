@@ -15,6 +15,7 @@ import { bgBlur, bwAccent, chroma, dreamyGlow, duotone, dust, filmGrain, glitch,
 import { beatPulse, bounceZoom, handheld, impact, pushIn, rollIn, shake, slowPan, snapZoom, tilt } from "./fx-camera";
 import { browserWindow, computerScreen, filmStrip, notebook, paperFrame, phoneFrame, polaroid, splitThree, splitTwo, tapeFrame } from "./fx-frames";
 import { TRANSITION_DRAW } from "./transitions";
+import { replayComposition } from "../../compos/replay";
 import { bgBrand, bgBw, cloneTrio, dropShadow, echo, glowOutline, stickerCutout, textBehind } from "./fx-cutout";
 
 export const FX_DRAW: Record<FxKind, (f: FxFrame) => void> = {
@@ -146,6 +147,11 @@ export class FxRenderer {
     ctx.filter = "none";
     ctx.imageSmoothingEnabled = true;
     const frame = new FxFrame(ctx, spec, Math.max(0, Math.min(spec.duration, t)), src, this.host, pixelScale, this.pool);
+    if (spec.kind === "composition") {
+      replayComposition(frame, src.compos);
+      ctx.restore();
+      return { movable: null };
+    }
     const draw = (FX_DRAW as Record<string, ((f: FxFrame) => void) | undefined>)[spec.kind] ?? (TRANSITION_DRAW as Record<string, ((f: FxFrame) => void) | undefined>)[spec.kind];
     if (draw) draw(frame);
     else frame.drawBase(ctx);

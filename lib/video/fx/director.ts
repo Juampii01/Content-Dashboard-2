@@ -10,9 +10,19 @@ import { FX_CATEGORIES, FX_CATEGORY_LABELS, FX_FREQUENCY_LABELS, FX_INFO, FX_MIN
 import { cutPoints, newTransitionId, transitionCenter, TRANSITION_INFO, TRANSITION_KINDS, type TransitionItem, type TransitionKind } from "./transitions";
 import type { Timeline } from "../timeline";
 import { fxFromText } from "./request-words";
+import { openerOrder } from "./openers";
 import { clampFx, defaultFx, newFxId, strongWords, type FxItem, type FxSettings } from "./schema";
 
-export type FxLimits = { allowed: FxKind[]; max: number; minGap: number; frequency: FxFrequency; /** Transiciones que puede poner (con moderación). */ transitions?: number };
+export type FxLimits = {
+  allowed: FxKind[];
+  max: number;
+  minGap: number;
+  frequency: FxFrequency;
+  /** Transiciones que puede poner (con moderación). */
+  transitions?: number;
+  /** Efectos y transiciones que la marca usó en sus últimos videos (variedad entre videos). */
+  recent?: { fx: FxKind[]; transitions: string[] };
+};
 
 /** Transiciones por video según la frecuencia de Mi marca: pocas (un corte de cada tanto, nunca todos). */
 export function transitionBudget(frequency: FxFrequency, seconds: number): number {
@@ -46,7 +56,7 @@ REGLAS DE LOS EFECTOS
 - Los que dicen "Recorte" van detrás de la persona: solo donde se la ve a cámara.
 - VARIEDAD: no repitas un efecto en el mismo video (los zooms y golpes de cámara, como mucho dos veces); alterna categorías (texto, tarjeta, cámara, look…) y no pongas dos de la misma categoría seguidos.
 - Elige por el contenido: una cifra que se dice → counter o big_stat; una lista → checklist o numbered_list; una cita → quote_card; una pregunta al público → poll o question_box; algo del pasado → film_grain, dust o polaroid; un giro → word_slam, impact o glitch; presentarte → lower_third. Los looks (grano, VHS, duotono…) y la cámara (sacudida, pulso…) acompañan un tramo con intención, no todo el video.
-- cover_story y glass_type abren o presentan el tema (cover_story casi siempre en los primeros segundos). zoom_cut solo en el cambio entre dos ideas.
+- Para abrir hay muchas opciones (cover_story, glass_type, word_slam, text_behind, digital_zoom, snap_zoom, title_card, neon_text, letter_build…): elige la que pide ESTE gancho y rota entre videos. No abras siempre con el mismo efecto: mira USADOS HACE POCO en la tarea y evítalos. Abrir sin efecto también vale si el gancho es fuerte. zoom_cut solo en el cambio entre dos ideas.
 - Nunca inventes cifras: counter, big_stat y price_tag solo con un número que se dice en ese tramo.
 - Respeta la cantidad y la separación de EFECTOS PERMITIDOS. Si no hay efectos permitidos, effects va vacío.
 - Los textos de los efectos van en el idioma de la marca, cortísimos.
@@ -63,8 +73,9 @@ ${TRANSITION_KINDS.map((k) => `- ${k} «${TRANSITION_INFO[k].label}» (${TRANSIT
 export function fxTaskText(limits: FxLimits): string {
   const tr = limits.transitions ?? 0;
   const trText = tr > 0 ? `\nTRANSICIONES PERMITIDAS: hasta ${tr} en este video, en cambios de parte.` : "\nTRANSICIONES PERMITIDAS: ninguna (sin acciones transition).";
+  const recent = limits.recent && (limits.recent.fx.length || limits.recent.transitions.length) ? `\nUSADOS HACE POCO EN LA MARCA (VARIEDAD: no los repitas salvo que sean claramente lo mejor para ese momento; prioriza los que no se usaron): efectos ${limits.recent.fx.join(", ") || "ninguno"}; transiciones ${limits.recent.transitions.join(", ") || "ninguna"}.` : "";
   if (!limits.allowed.length || limits.max <= 0) return `EFECTOS PERMITIDOS: ninguno (effects vacío).${trText}`;
-  return `EFECTOS PERMITIDOS: hasta ${limits.max} en este video, separados al menos ${limits.minGap} s (frecuencia "${FX_FREQUENCY_LABELS[limits.frequency].label}" de Mi marca). Solo estos: ${limits.allowed.join(", ")}.${trText}`;
+  return `${recent.slice(1)}${recent ? "\n" : ""}EFECTOS PERMITIDOS: hasta ${limits.max} en este video, separados al menos ${limits.minGap} s (frecuencia "${FX_FREQUENCY_LABELS[limits.frequency].label}" de Mi marca). Solo estos: ${limits.allowed.join(", ")}.${trText}`;
 }
 
 export type FxWire = { from_word: number; to_word: number; kind: FxKind; text: string; items: string[]; why: string };
@@ -218,7 +229,9 @@ export function simulateEffects(input: { words: Word[]; limits: FxLimits; remove
     if (f) out.push({ ...fit(f, request.kind), kind: request.kind, text: "", items: [], why: "Lo pediste en «Edítalo así»." });
   }
   const first = phrases.find(free);
-  if (first && allow("cover_story") && !out.some((e) => e.kind === "cover_story") && words[first.from]!.start < 6) out.push({ ...fit(first, "cover_story"), kind: "cover_story", text: "", items: [], why: "Abre como una portada: presenta el tema con fuerza." });
+  // Apertura: un efecto distinto en cada video (los que la marca usó hace poco, al final).
+  const opener = first && words[first.from]!.start < 6 ? openerOrder(words, limits.recent?.fx).find((k) => allow(k) && !out.some((e) => e.kind === k)) : undefined;
+  if (first && opener) out.push({ ...fit(first, opener), kind: opener, text: "", items: [], why: `Abre con «${FX_INFO[opener].label}»: presenta el tema con fuerza.` });
   for (const f of phrases) {
     if (out.length >= limits.max) break;
     if (!free(f) || out.some((e) => overlaps({ from: e.from_word, to: e.to_word }, f))) continue;

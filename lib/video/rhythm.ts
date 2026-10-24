@@ -245,6 +245,8 @@ export type FillInput = {
   mustKeep?: { from: number; to: number }[];
   /** Al cambiar la densidad en la revisión: lo agregado antes por el ritmo se quita y se vuelve a calcular. */
   replace?: boolean;
+  /** Efectos que usó la marca en sus últimos videos (los de apertura se rotan para no repetir). */
+  recentFx?: FxKind[];
 };
 
 export type FillResult = { plan: EditPlan; added: RhythmAddition[] };
@@ -326,8 +328,8 @@ function simpleScene(kind: "keyword" | "quote", clause: Clause, words: Word[], c
   return parsed.success ? withCueWords(parsed.data, spoken) : null;
 }
 
-/** Efectos que sirven para abrir (sobre la persona), en orden de preferencia. */
-const OPENERS: FxKind[] = ["cover_story", "digital_zoom", "glass_type"];
+export { openerOrder } from "./fx/openers";
+import { openerOrder } from "./fx/openers";
 
 export function fillRhythm(plan0: EditPlan, input: FillInput): FillResult {
   const { words, duration, density } = input;
@@ -402,7 +404,7 @@ export function fillRhythm(plan0: EditPlan, input: FillInput): FillResult {
       const from = opening[0]!.from;
       let to = opening[0]!.to;
       for (const c of opening.slice(1)) if (c.end - opening[0]!.start <= 3.6) to = c.to;
-      for (const kind of OPENERS) {
+      for (const kind of openerOrder(words, input.recentFx)) {
         if (!input.fxAllowed!.includes(kind)) continue;
         const info = FX_INFO[kind];
         if (info.mask && input.faceWords && ![from, to].every((id) => input.faceWords!.has(id))) continue;

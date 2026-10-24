@@ -7,14 +7,19 @@
  * Entrada (JSON por stdin): { spec, base, mask?: { path, width, height }, images?: { t0: ruta… }, out, fps?, fontsDir?,
  *   preset?, stills?: [segundos…] (en lugar del video: un PNG por instante en out-<n>.png) }
  * Salida (JSON por stdout): { ok: true, frames, ms, perFrame } o { ok: false, error }.
+ *
+ * Composiciones (spec.kind "composition"): el código de Claude corre en el sandbox (compos-engine.mjs: hilo aparte con
+ * memoria acotada, vm sin generación de código, tiempo por cuadro) y devuelve la lista de dibujo de cada cuadro, que
+ * dibuja el motor de efectos. Si falla, sale con { ok: false, compos: true, error } y el worker la descarta con aviso.
  */
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { Canvas, ImageData, loadImage } from "skia-canvas";
-import { loadFxEngine, registerFxFonts } from "./lib.mjs";
+import { loadComposEngine, loadFxEngine, registerFxFonts } from "./lib.mjs";
 
+let isCompos = false;
 function fail(error, code = 1) {
-  process.stdout.write(JSON.stringify({ ok: false, error: String(error) }) + "\n");
+  process.stdout.write(JSON.stringify({ ok: false, error: String(error), ...(isCompos ? { compos: true } : {}) }) + "\n");
   process.exit(code);
 }
 
@@ -33,6 +38,15 @@ if (!Number.isInteger(W) || !Number.isInteger(H) || W < 16 || H < 16 || W > 4096
 if (!(spec.duration > 0 && spec.duration <= 30) || typeof out !== "string" || !out || typeof base !== "string") fail("Duración, entrada o salida inválidas.", 2);
 
 const started = Date.now();
+isCompos = spec.kind === "composition";
+let sandbox = null;
+if (isCompos) {
+  if (!spec.compos || typeof spec.compos.code !== "string" || !spec.compos.env) fail("La composición no trae su código.", 2);
+  const compos = await loadComposEngine();
+  const opened = await compos.NodeSandbox.open(spec.compos.code, spec.compos.env);
+  if (!opened.ok) fail(`La animación no se pudo cargar: ${opened.error}`, 5);
+  sandbox = opened.sandbox;
+}
 const engine = await loadFxEngine();
 try {
   registerFxFonts(input.fontsDir);
@@ -144,10 +158,20 @@ for (let i = 0; i < frames; i++) {
   frameCtx.clearRect(0, 0, W, H);
   frameCtx.putImageData(new ImageData(new Uint8ClampedArray(raw.buffer, raw.byteOffset, raw.byteLength), W, H), 0, 0);
   const hasMask = input.mask ? readMask(i) : false;
-  renderer.render(ctx, spec, i / fps, { frame: frameCanvas, mask: hasMask ? maskCanvas : null, images }, 1);
+  let compos = null;
+  if (sandbox) {
+    const r = await sandbox.frame(i / fps);
+    if (!r.ok) {
+      await sandbox.close();
+      fail(`La animación falló en el segundo ${(i / fps).toFixed(2)}: ${r.error}`, 5);
+    }
+    compos = r.frame;
+  }
+  renderer.render(ctx, spec, i / fps, { frame: frameCanvas, mask: hasMask ? maskCanvas : null, images, compos }, 1);
   drawMs += Date.now() - t0;
   if (wantStill) {
-    await canvas.saveAs(`${out}-${wantStill.get(i)}.png`);
+    // toFile (saveAs es el nombre viejo y en skia-canvas 3 no espera a que se escriba el archivo).
+    await (canvas.toFile ?? canvas.saveAs).call(canvas, `${out}-${wantStill.get(i)}.png`);
     continue;
   }
   const data = ctx.getImageData(0, 0, W, H).data;
@@ -156,6 +180,7 @@ for (let i = 0; i < frames; i++) {
   if (enc.exitCode != null) break;
 }
 dec.kill();
+if (sandbox) await sandbox.close();
 if (maskFd != null) closeSync(maskFd);
 enc?.stdin.end();
 const code = await closed;

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { FxRenderer, type FxCtx, type FxFonts, type FxSpec } from "@/lib/video/fx";
 import { framingMap } from "@/lib/video/fx/compile";
 import { maskTileAt } from "@/lib/video/fx/masks";
+import { composBox, composKey, subscribeCompos } from "@/lib/video/compos/sandbox-browser";
 import type { VideoFormat } from "@/lib/video/types";
 import { useGraphicFonts } from "../graphic-canvas";
 import { cn } from "@/lib/utils";
@@ -151,6 +152,16 @@ export function FxVideoLayer({
   const scale = spec.format === "9:16" ? 0.5 : 0.375;
   const cw = Math.round(spec.width * scale);
   const ch = Math.round(spec.height * scale);
+  // Composiciones: el código corre en un Web Worker sin red (/compos-sandbox.js) y devuelve la lista de dibujo de cada
+  // cuadro; se dibuja con el mismo motor que el render. Mientras llega el cuadro, se ve el video tal cual.
+  const compos = spec.kind === "composition" ? (spec.compos ?? null) : null;
+  const box = useMemo(() => (compos ? composBox(composKey(compos.code, compos.env), compos.code, compos.env) : null), [compos]);
+  const [composTick, setComposTick] = useState(0);
+  const composStatus = useSyncExternalStore(
+    subscribeCompos,
+    () => box?.status ?? "ready",
+    () => "loading",
+  );
   // Con el video en pausa, se vuelve a dibujar cuando termina de buscar el cuadro (si no, queda el de antes o nada).
   const [seekTick, setSeekTick] = useState(0);
   useEffect(() => {
@@ -199,11 +210,28 @@ export function FxVideoLayer({
         mx.drawImage(strip, index * tw, 0, tw, th, 0, 0, mask.width, mask.height);
       }
     }
-    const drawn = renderer.render(ctx as unknown as FxCtx, spec, time, { frame, mask, images }, scale);
+    let list = null;
+    if (box) {
+      const idx = Math.max(0, Math.min(Math.round(spec.duration * 30) - 1, Math.round(time * 30)));
+      list = box.cached(idx) ?? box.cached(idx - 1) ?? null;
+      if (!box.cached(idx)) void box.frame(idx, idx / 30).then((f) => f && setComposTick((n) => n + 1));
+      // Los próximos cuadros, por adelantado (al reproducir).
+      for (let k = 1; k <= 3; k++) if (idx + k < spec.duration * 30 && !box.cached(idx + k)) void box.frame(idx + k, (idx + k) / 30);
+    }
+    const drawn = renderer.render(ctx as unknown as FxCtx, spec, time, { frame, mask, images, compos: list }, scale);
     movableCb.current?.(spec.id, drawn.movable);
-  }, [spec, time, video, fonts, renderer, strips, maskFps, images, sourceWidth, sourceHeight, offsetX, cw, ch, scale, seekTick]);
+  }, [spec, time, video, fonts, renderer, strips, maskFps, images, sourceWidth, sourceHeight, offsetX, cw, ch, scale, seekTick, box, composTick, composStatus]);
 
-  return <canvas ref={canvas} width={cw} height={ch} className={cn("block h-full w-full", className)} aria-hidden />;
+  return (
+    <>
+      <canvas ref={canvas} width={cw} height={ch} className={cn("block h-full w-full", className)} aria-hidden />
+      {box && composStatus === "broken" && (
+        <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-2 py-1 text-[11px] font-semibold text-warning" role="status">
+          Esta animación tiene un error: pídele un cambio o quítala.
+        </span>
+      )}
+    </>
+  );
 }
 
 /**

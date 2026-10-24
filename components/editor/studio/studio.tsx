@@ -18,6 +18,8 @@ import { compileFx, faceAnchor, fxBrandFromLook, fxCaptionHides, fxSegments, sou
 import { FX_MASK_CHUNK } from "@/lib/video/fx/masks";
 import { defaultFx, newFxId, type FxItem } from "@/lib/video/fx/schema";
 import { defaultGraphic, type GraphicTemplate } from "@/lib/video/graphics";
+import { compileComposition, composCaptionHides, composSegments, composSounds, type Composition } from "@/lib/video/compos/schema";
+import { useComposWork, type ComposRequest } from "../compos/use-compos-work";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
 import { rangesFromIds } from "@/lib/video/plan";
@@ -142,6 +144,8 @@ export function Studio(props: StudioProps) {
   const pauseList = useMemo(() => longPauses(words, { removals: rangesFromIds(sRemoved, plan.removals), pacing: studioPacing({ pacing: sPacing, pauses: sPauses }) }), [words, sRemoved, plan.removals, sPacing, sPauses]);
   const trimmedPauses = useMemo(() => pauseList.filter((p) => p.trimmed), [pauseList]);
   const fxSegs = useMemo(() => fxSegments(timeline, s.effects), [timeline, s.effects]);
+  // Animaciones a medida: en su tramo mandan sobre los efectos y el b-roll (igual que en el render).
+  const composSegs = useMemo(() => composSegments(timeline, s.compositions), [timeline, s.compositions]);
   // Tramos sin subtítulos (quitados por la persona o por el director), con su índice para poder volver a mostrarlos.
   const captionHides = useMemo(
     () =>
@@ -155,10 +159,9 @@ export function Studio(props: StudioProps) {
   );
   const hiddenCaptions = useMemo(() => captionHides.map(({ start, end }) => ({ start, end })), [captionHides]);
   // Sin subtítulos donde el director los ocultó ni durante los efectos que llevan los suyos, igual que en el render.
-  const captions = useMemo(() => (s.preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, s.preset, captionStyle), [...hiddenCaptions, ...fxCaptionHides(fxSegs)])), [timeline, s.preset, captionStyle, hiddenCaptions, fxSegs]);
+  const captions = useMemo(() => (s.preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, s.preset, captionStyle), [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...composCaptionHides(composSegs)])), [timeline, s.preset, captionStyle, hiddenCaptions, fxSegs, composSegs]);
   const capLook = useMemo(() => (isCaptionStyle(s.preset) ? captionLook(s.preset, { format: s.format, accent, brandFont: graphicLook.font, emoji: s.emoji }) : null), [s.preset, s.format, accent, graphicLook.font, s.emoji]);
   const segments = useMemo(() => brollSegments(timeline, s.broll), [timeline, s.broll]);
-  // Transiciones en los cortes (no van encima de un b-roll ni de un efecto, que llevan su propia capa).
   // Transiciones: cada una en su instante y en su capa, encima de lo que haya (lib/video/layers.ts).
   const trSegs = useMemo(() => transitionSegments(timeline, s.transitions), [timeline, s.transitions]);
   // Todo lo visual que se superpone, con su capa: el orden de dibujo es el mismo en la vista previa y en el render.
@@ -166,18 +169,19 @@ export function Studio(props: StudioProps) {
     () => [
       ...segments.map((b) => ({ key: layerKey("broll", b.id), kind: "broll" as const, layer: b.layer, start: b.start, end: b.end, label: b.option.source === "graphic" ? (b.option.title ?? "Gráfico") : b.option.source === "library" ? (b.option.title ?? "Tu clip") : "B-roll" })),
       ...fxSegs.map((f) => ({ key: layerKey("fx", f.id), kind: "fx" as const, layer: f.layer, start: f.start, end: f.end, label: FX_INFO[f.item.kind].label })),
+      ...composSegs.map((c) => ({ key: layerKey("compos", c.id), kind: "compos" as const, layer: c.layer, start: c.start, end: c.end, label: c.item.name })),
       ...trSegs.map((t) => ({ key: layerKey("transition", t.item.id), kind: "transition" as const, layer: t.layer, start: t.start, end: t.end, label: TRANSITION_INFO[t.item.kind].label })),
     ],
-    [segments, fxSegs, trSegs],
+    [segments, fxSegs, composSegs, trSegs],
   );
   const stackOrder = useMemo(() => stackIndex(visualStack), [visualStack]);
   const previewOrder = useMemo(() => Object.fromEntries(stackOrder), [stackOrder]);
   const cutList = useMemo(() => cutPoints(timeline), [timeline]);
   const styleZooms = Boolean(style && style.zoom.enabled && s.zoomsOn);
   const zooms = useMemo(() => {
-    const avoid = [...segments, ...fxSegs, ...trSegs];
+    const avoid = [...segments, ...fxSegs, ...trSegs, ...composSegs];
     return style && style.zoom.enabled && s.zoomsOn ? computeZooms(timeline, style.zoom, { emphasis: s.emphasis, avoid }) : directorZooms(timeline, s.zoomMoments, avoid);
-  }, [style, s.zoomsOn, timeline, s.emphasis, s.zoomMoments, segments, fxSegs, trSegs]);
+  }, [style, s.zoomsOn, timeline, s.emphasis, s.zoomMoments, segments, fxSegs, trSegs, composSegs]);
   const entries = useMemo(() => graphicEntries(segments), [segments]);
   const rhythm = useMemo(() => rhythmScore({ timeline, broll: segments, zooms, effects: fxSegs.map((f) => ({ start: f.start, end: f.end, kind: f.item.kind })), entries, density: s.density }), [timeline, segments, zooms, fxSegs, entries, s.density]);
   const sfxMarks = useMemo(
@@ -194,9 +198,10 @@ export function Studio(props: StudioProps) {
         manual: [
           ...soundCueTimes(timeline, s.soundCues).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
           ...transitionSounds(trSegs).filter((x) => isSfxName(x.name)).map((x) => ({ name: x.name as SfxName, hitAt: x.hitAt, gain: TRANSITION_SOUND_GAIN })),
+          ...composSounds(composSegs).map((x) => ({ name: x.name, hitAt: x.hitAt, gain: x.gain })),
         ],
       }),
-    [s.sfx, timeline, segments, entries, fxSegs, zooms, s.density, s.soundCues, trSegs],
+    [s.sfx, timeline, segments, entries, fxSegs, zooms, s.density, s.soundCues, trSegs, composSegs],
   );
   const fxBrand = useMemo(() => fxBrandFromLook(graphicLook), [graphicLook]);
   const thumbs = useMemo(() => fxContext?.thumbs ?? [], [fxContext]);
@@ -208,12 +213,23 @@ export function Studio(props: StudioProps) {
       }),
     [fxSegs, fxContext, timeline, sourceWidth, sourceHeight, s.format, s.offsetX, fxBrand, thumbs],
   );
-  // Las transiciones se dibujan con el mismo motor que los efectos (la vista previa toma el spec del instante).
+  const composSpecs = useMemo(
+    () =>
+      composSegs.map((seg) => {
+        const face = faceAnchor(fxContext?.faces ?? [], sourceRangesOf(timeline, seg.start, seg.end), sourceWidth, sourceHeight, s.format, s.offsetX);
+        return compileComposition({ item: seg.item, start: seg.start, end: seg.end, timeline, format: s.format, brand: fxBrand, face, captionsVisible: s.preset !== "ninguno", thumbs });
+      }),
+    [composSegs, fxContext, timeline, sourceWidth, sourceHeight, s.format, s.offsetX, fxBrand, s.preset, thumbs],
+  );
+  // Las transiciones se dibujan con el mismo motor que los efectos (la vista previa toma el spec del instante). Las
+  // animaciones van primero: en su tramo mandan (la vista previa dibuja la primera que coincide).
   const previewSpecs = useMemo(() => {
     const tr = trSegs.map((segment) => compileTransition({ segment, format: s.format, brand: fxBrand, face: faceAnchor(fxContext?.faces ?? [], sourceRangesOf(timeline, segment.start, segment.end), sourceWidth, sourceHeight, s.format, s.offsetX) }));
-    return [...fxSpecs, ...tr].sort((a, b) => a.start - b.start);
-  }, [fxSpecs, trSegs, s.format, fxBrand, fxContext, timeline, sourceWidth, sourceHeight, s.offsetX]);
-  const fxImages = useImages(useMemo(() => Object.fromEntries(thumbs.map((t, i) => [`t${i}`, t.url])), [thumbs]));
+    return [...composSpecs, ...[...fxSpecs, ...tr].sort((a, b) => a.start - b.start)];
+  }, [composSpecs, fxSpecs, trSegs, s.format, fxBrand, fxContext, timeline, sourceWidth, sourceHeight, s.offsetX]);
+  // Imágenes generadas de las animaciones (las del plan y las que llegan de un pedido).
+  const [composImageUrls, setComposImageUrls] = useState<Record<string, string>>(() => fxContext?.composImages ?? {});
+  const fxImages = useImages(useMemo(() => ({ ...Object.fromEntries(thumbs.map((t, i) => [`t${i}`, t.url])), ...composImageUrls }), [thumbs, composImageUrls]));
   const stripImgs = useImages(useMemo(() => Object.fromEntries(Object.entries(masks?.urls ?? {})), [masks]));
   const fxStrips = useMemo(() => Object.fromEntries(Object.entries(stripImgs).map(([k, v]) => [Number(k), v])) as Record<number, HTMLImageElement | undefined>, [stripImgs]);
   const maskMissing = useMemo(() => {
@@ -361,6 +377,7 @@ export function Studio(props: StudioProps) {
       let at: number | null = null;
       if (sel.kind === "broll") at = segments.find((x) => x.id === sel.id)?.start ?? null;
       else if (sel.kind === "fx") at = fxSegs.find((x) => x.id === sel.id)?.start ?? null;
+      else if (sel.kind === "compos") at = composSegs.find((x) => x.id === sel.id)?.start ?? null;
       else if (sel.kind === "caption") at = captions[sel.index]?.start ?? null;
       else if (sel.kind === "zoom" && sel.index >= 0) {
         const m = s.zoomMoments[sel.index];
@@ -378,7 +395,7 @@ export function Studio(props: StudioProps) {
       }
       if (at != null && !playingNow) seek(at, false);
     },
-    [videoEl, segments, fxSegs, captions, s.zoomMoments, timeline, seek, cutList, s.soundCues, trSegs],
+    [videoEl, segments, fxSegs, composSegs, captions, s.zoomMoments, timeline, seek, cutList, s.soundCues, trSegs],
   );
 
   // ─── Acciones ───
@@ -600,6 +617,7 @@ export function Studio(props: StudioProps) {
     if (sel.kind === "zoom") return { ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.map((z, i) => (i === sel.index ? { ...z, why: `${USER_TAG} ${stripTag(z.why)}`.slice(0, 300) } : z)) };
     if (sel.kind === "transition") return { ...st, transitions: st.transitions.map((t) => ((sel.id ? t.id === sel.id : t.at_word === sel.word && !isFreeTransition(t)) ? { ...t, source: "user" as const } : t)) };
     if (sel.kind === "sound") return { ...st, soundCues: st.soundCues.map((c) => (c.id === sel.id ? { ...c, source: "user" as const } : c)) };
+    if (sel.kind === "compos") return { ...st, compositions: st.compositions.map((c) => (c.id === sel.id ? { ...c, source: "user" as const } : c)) };
     return st;
   }
   function acceptAll() {
@@ -614,6 +632,7 @@ export function Studio(props: StudioProps) {
     if (!sel || !canEdit) return;
     if (sel.kind === "broll") update((st) => ({ ...st, broll: st.broll.filter((b) => b.id !== sel.id) }));
     else if (sel.kind === "fx") update((st) => ({ ...st, effects: st.effects.filter((e) => e.id !== sel.id) }));
+    else if (sel.kind === "compos") update((st) => ({ ...st, compositions: st.compositions.filter((c) => c.id !== sel.id) }));
     else if (sel.kind === "zoom" && sel.index >= 0) update((st) => ({ ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === "transition") update((st) => ({ ...st, transitions: st.transitions.filter((t) => !(sel.id ? t.id === sel.id : t.at_word === sel.word && !isFreeTransition(t))) }));
     else if (sel.kind === "sound") update((st) => ({ ...st, soundCues: st.soundCues.filter((c) => c.id !== sel.id) }));
@@ -737,6 +756,23 @@ export function Studio(props: StudioProps) {
         thumb: graphic ? null : (signedOf(choice)?.thumbUrl ?? null),
       });
     }
+    for (const seg of composSegs) {
+      out.push({
+        key: `compos:${seg.id}`,
+        track: "anim",
+        start: seg.start,
+        end: seg.end,
+        label: seg.item.name,
+        detail: seg.item.match ? `${seg.item.match.score} % parecido` : undefined,
+        tone: "border-[#8b5cf6]/70 bg-[#8b5cf6]/50",
+        ai: seg.item.source !== "user",
+        editable: true,
+        min: 0.8,
+        max: 12,
+        z: stackOrder.get(layerKey("compos", seg.id)) ?? 0,
+        selection: { kind: "compos", id: seg.id },
+      });
+    }
     for (const seg of fxSegs) {
       const info = FX_INFO[seg.item.kind];
       out.push({
@@ -820,7 +856,7 @@ export function Studio(props: StudioProps) {
         });
       });
     return out;
-  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder]);
+  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder]);
 
   // Cortes sin transición donde se puede poner una con un toque (va encima de lo que haya).
   const transitionSlots = useMemo(() => {
@@ -893,7 +929,7 @@ export function Studio(props: StudioProps) {
    * (enteros desde 0) de todo lo visual, o null si no se superpone con nada de su pista.
    */
   function laneOrder(key: string, kind: LayerKind, start: number, end: number, lane: number | null): Map<string, number> | null {
-    const kinds: LayerKind[] = kind === "broll" ? ["broll"] : ["fx", "transition"];
+    const kinds: LayerKind[] = kind === "broll" ? ["broll"] : kind === "compos" ? ["compos"] : ["fx", "transition"];
     const me = visualStack.find((v) => v.key === key) ?? { key, kind, layer: 0, start, end, label: "" };
     const others = visualStack.filter((v) => v.key !== key && kinds.includes(v.kind) && v.start < end - 0.01 && start < v.end - 0.01).sort((a, b) => (stackOrder.get(b.key) ?? 0) - (stackOrder.get(a.key) ?? 0));
     if (!others.length) return null;
@@ -910,14 +946,14 @@ export function Studio(props: StudioProps) {
     return restack(all, key, below);
   }
 
-  /** Aplica capas nuevas (de `laneOrder` o `restack`) al b-roll, los efectos y las transiciones. */
+  /** Aplica capas nuevas (de `laneOrder` o `restack`) al b-roll, los efectos, las animaciones y las transiciones. */
   function withLayers(st: StudioState, layers: Map<string, number> | null): StudioState {
     if (!layers) return st;
     const set = <T extends { id: string; layer?: number }>(kind: LayerKind, list: T[]) => list.map((x) => (layers.has(layerKey(kind, x.id)) ? { ...x, layer: Math.min(999, layers.get(layerKey(kind, x.id))!) } : x));
-    return { ...st, broll: set("broll", st.broll), effects: set("fx", st.effects), transitions: set("transition", st.transitions) };
+    return { ...st, broll: set("broll", st.broll), effects: set("fx", st.effects), compositions: set("compos", st.compositions), transitions: set("transition", st.transitions) };
   }
 
-  const selKeyOf = (sel: StudioSelection) => (sel.kind === "broll" ? layerKey("broll", sel.id) : sel.kind === "fx" ? layerKey("fx", sel.id) : sel.kind === "transition" && sel.id ? layerKey("transition", sel.id) : null);
+  const selKeyOf = (sel: StudioSelection) => (sel.kind === "broll" ? layerKey("broll", sel.id) : sel.kind === "fx" ? layerKey("fx", sel.id) : sel.kind === "compos" ? layerKey("compos", sel.id) : sel.kind === "transition" && sel.id ? layerKey("transition", sel.id) : null);
   /** Lo visual que se superpone con lo elegido. */
   const overlapsOf = (key: string | null) => {
     const me = key ? visualStack.find((v) => v.key === key) : null;
@@ -990,6 +1026,16 @@ export function Studio(props: StudioProps) {
       const seg = fxSegments(timeline, [moved])[0];
       const layers = seg ? laneOrder(layerKey("fx", item.id), "fx", seg.start, seg.end, lane) : null;
       update((st) => withLayers({ ...st, effects: st.effects.map((e) => (e.id === sel.id ? moved : e)).sort((a, b) => a.from_word - b.from_word) }, layers));
+      setSelection(sel);
+      return true;
+    }
+    if (sel.kind === "compos") {
+      const item = s.compositions.find((c) => c.id === sel.id);
+      if (!item) return false;
+      const moved: Composition = { ...item, from_word: rawRange.from, to_word: rawRange.to };
+      const seg = composSegments(timeline, [moved])[0];
+      const layers = seg ? laneOrder(layerKey("compos", item.id), "compos", seg.start, seg.end, lane) : null;
+      update((st) => withLayers({ ...st, compositions: st.compositions.map((c) => (c.id === sel.id ? moved : c)).sort((a, b) => a.from_word - b.from_word) }, layers));
       setSelection(sel);
       return true;
     }
@@ -1306,8 +1352,8 @@ export function Studio(props: StudioProps) {
   const cuts = useMemo(() => cutMarks(timeline, removedSet), [timeline, removedSet]);
   // En la pista de subtítulos: dónde no se ven (los ocultó el director, un efecto lleva los suyos o un gráfico los tapa).
   const captionGaps = useMemo(
-    () => [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...segments.filter((sg) => sg.option.source === "graphic" && graphicHidesCaptions(sg.option.graphic)).map((sg) => ({ start: sg.start, end: sg.end }))],
-    [hiddenCaptions, fxSegs, segments],
+    () => [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...composCaptionHides(composSegs), ...segments.filter((sg) => sg.option.source === "graphic" && graphicHidesCaptions(sg.option.graphic)).map((sg) => ({ start: sg.start, end: sg.end }))],
+    [hiddenCaptions, fxSegs, composSegs, segments],
   );
   const musicTrack = s.musicGen ? null : (tracks.find((t) => t.id === s.music.trackId) ?? null);
   // Sonidos y música también en la vista previa (los mismos archivos y el mismo generador que el render).
@@ -1322,6 +1368,45 @@ export function Studio(props: StudioProps) {
     duration: timeline.duration,
   });
 
+  // Pedidos de animaciones (Estudio): cuando el taller termina, la animación entra en la línea de tiempo encima de lo
+  // que haya ahí (en capas: nada se quita) y se puede deshacer.
+  const composWork = useComposWork(projectId, (made, images, work) => {
+    if (Object.keys(images).length) setComposImageUrls((prev) => ({ ...prev, ...images }));
+    const task = work.tasks[0];
+    if (!made.length) {
+      toast.error(task?.error ? `No pudimos hacer la animación: ${task.error}` : "No pudimos hacer la animación. Prueba de nuevo con otras palabras.");
+      return;
+    }
+    const under: string[] = [];
+    const placed = made.map((m) => {
+      // Si rehace una animación que ya estaba, queda en su misma capa; si es nueva, encima de lo que se le superpone.
+      const old = s.compositions.find((c) => c.id === m.id);
+      if (old) return { ...m, layer: old.layer };
+      const seg = composSegments(timeline, [m])[0];
+      const top = seg ? layerOnTop(seg.start, seg.end, layerKey("compos", m.id)) : { layer: undefined, under: [] };
+      under.push(...top.under);
+      const out: Composition = { ...m, layer: top.layer };
+      if (out.layer == null) delete out.layer;
+      return out;
+    });
+    update((st) => {
+      const ids = new Set(placed.map((m) => m.id));
+      return { ...st, compositions: [...st.compositions.filter((c) => !ids.has(c.id)), ...placed].sort((a, b) => a.from_word - b.from_word) };
+    });
+    const first = made[0]!;
+    setSelection({ kind: "compos", id: first.id });
+    const r = outputRange(timeline, first.from_word, first.to_word);
+    if (r) seek(r.start);
+    toast.success(work.request?.replaceId ? `Listo: cambiamos «${first.name}».` : `Listo: «${first.name}» ya está en tu video.`, { description: [work.cannot, task?.note].filter(Boolean).join(" ") || undefined });
+    notifyOnTop(under);
+  });
+  async function requestAnimation(req: ComposRequest): Promise<boolean> {
+    if (dirty) toast.info("Guardando tus cambios antes de pedir la animación…");
+    const ok = await composWork.request(req);
+    if (ok) toast.success("Estamos creando la animación. Puedes seguir editando: aparece sola cuando termina (1 a 3 minutos).");
+    return ok;
+  }
+
   const api: StudioApi = {
     props,
     state: s,
@@ -1332,6 +1417,8 @@ export function Studio(props: StudioProps) {
     timeline,
     segments,
     fxSegs,
+    composSegs,
+    compos: { work: composWork.work, running: composWork.running, error: composWork.error, request: requestAnimation, imageUrls: composImageUrls },
     trSegs,
     cutList,
     zooms,
@@ -1383,7 +1470,8 @@ export function Studio(props: StudioProps) {
   };
 
   // Lo que se ve ahora en la vista previa (para elegirlo con un toque).
-  const fxNow = fxSegs.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null;
+  const composNow = composSegs.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null;
+  const fxNow = composNow ? null : (fxSegs.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null);
   const brNow = fxNow ? null : (segments.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null);
   const pickedItem = picking ? s.broll.find((b) => b.id === picking.id) ?? null : null;
 
@@ -1691,7 +1779,17 @@ export function Studio(props: StudioProps) {
                 )}
               </div>
               <div className="mt-1 flex h-8 items-center justify-center">
-                {(fxNow || brNow) && (
+                {composNow && (
+                  <button
+                    type="button"
+                    onClick={() => select({ kind: "compos", id: composNow.id }, { seek: false })}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-muted transition hover:border-white/25 hover:text-white"
+                  >
+                    En pantalla: <span className="font-semibold text-white">Animación «{composNow.item.name}»</span>
+                    {canEdit && <span className="text-accent-hi">Editar</span>}
+                  </button>
+                )}
+                {!composNow && (fxNow || brNow) && (
                   <button
                     type="button"
                     onClick={() => (fxNow ? select({ kind: "fx", id: fxNow.id }, { seek: false }) : brNow && select({ kind: "broll", id: brNow.id }, { seek: false }))}

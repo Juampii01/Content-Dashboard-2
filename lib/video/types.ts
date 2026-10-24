@@ -7,6 +7,7 @@
  */
 import type { BrollEditInput } from "./broll-edit";
 import type { FxItem } from "./fx/schema";
+import type { Composition } from "./compos/schema";
 import type { TransitionItem } from "./fx/transitions";
 import type { MusicGenSpec } from "./music-gen/spec";
 import type { SoundCue } from "./sfx";
@@ -119,6 +120,11 @@ export type EditPlan = {
   effects?: FxItem[];
   /** Transiciones en los cortes (lib/video/fx/transitions). Sin el campo, cortes secos. */
   transitions?: TransitionItem[];
+  /**
+   * Composiciones: animaciones escritas por Claude (lib/video/compos), sobre rangos de palabras. En su tramo mandan
+   * sobre los efectos, las transiciones y el b-roll que se pisen. Sin el campo, ninguna.
+   */
+  compositions?: Composition[];
   /** Zooms y punch-ins del estilo (se calculan en cada render a partir del timeline; aquí solo si van o no). */
   zooms_enabled?: boolean;
   /**

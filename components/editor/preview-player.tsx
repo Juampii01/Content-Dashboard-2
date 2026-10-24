@@ -310,7 +310,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     const activeFxs = effects.filter((e) => out >= e.start && out < e.end);
     const layers = [
       ...activeBrolls.map((b, i) => ({ kind: "broll" as const, z: zOf(`b:${b.id}`, i - 1000), b })),
-      ...activeFxs.map((f, i) => ({ kind: "fx" as const, z: order[`f:${f.id}`] ?? order[`t:${f.id}`] ?? 1000 + i, f })),
+      ...activeFxs.map((f, i) => ({ kind: "fx" as const, z: order[`f:${f.id}`] ?? order[`c:${f.id}`] ?? order[`t:${f.id}`] ?? 1000 + i, f })),
     ].sort((a, b) => a.z - b.z);
     const brolls = layers.flatMap((l) => (l.kind === "broll" ? [l.b] : []));
     const fxs = layers.flatMap((l) => (l.kind === "fx" ? [l.f] : []));
@@ -480,7 +480,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
           ),
         )}
         {topBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{topBroll.graphic ? "Gráfico" : "B-roll"}{activeBrolls.length > 1 ? ` +${activeBrolls.length - 1}` : ""}</span>}
-        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{specLabel(activeFx.kind)}{activeFxs.length > 1 ? ` +${activeFxs.length - 1}` : ""}</span>}
+        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeFx.kind === "composition" ? `Animación · ${activeFx.text}` : specLabel(activeFx.kind)}{activeFxs.length > 1 ? ` +${activeFxs.length - 1}` : ""}</span>}
         <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} onBox={canvas ? onCaptionBox : undefined} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">

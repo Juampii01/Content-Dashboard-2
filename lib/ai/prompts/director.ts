@@ -132,14 +132,14 @@ QUÉ DECIDES
 6. broll: dónde se tapa al creador por unos segundos mientras su voz sigue. "graphic" para lo conceptual (cifras dichas, listas, contrastes, procesos, ideas clave) y "stock" para lo concreto que se puede mostrar. Nunca encima de lo que se muestra (producto, pantalla). Lo que tapa a la persona (stock y gráficos "full") no va en el gancho ni en la última frase de la CTA; los gráficos "overlay" (palabra clave, frase, notificación) sí pueden ir en el gancho y en la CTA: la refuerzan. Un gráfico empieza cuando se empieza a decir lo que muestra y dura hasta que se dijo su último elemento (una lista de tres errores dura lo que tardas en decir los tres).
 7. caption_hide: tramos donde los subtítulos irían encima de un texto ya quemado en la misma franja (ver TEXTO EN PANTALLA): ahí se ocultan.
 8. pace: "calm" (pausas de hasta 0,7 s), "normal" (0,5 s) o "fast" (0,3 s).
-9. effects: efectos de la biblioteca (ver EFECTOS DE LA BIBLIOTECA) donde suman: la apertura (el gancho admite efectos sobre la persona: cover_story, digital_zoom, glass_type, text_behind, word_slam), una lista, un dato, un giro, una emoción, la CTA. Variados y respetando EFECTOS PERMITIDOS. Y transitions (ver TRANSICIONES): pocas, en los cambios de parte.
+9. effects: efectos de la biblioteca (ver EFECTOS DE LA BIBLIOTECA) donde suman: la apertura (el gancho admite efectos sobre la persona: cover_story, digital_zoom, glass_type, text_behind, word_slam, snap_zoom, title_card, letter_build…; rota: nunca el mismo de los últimos videos, ver USADOS HACE POCO), una lista, un dato, un giro, una emoción, la CTA. Variados y respetando EFECTOS PERMITIDOS. Y transitions (ver TRANSICIONES): pocas, en los cambios de parte.
 10. variants: 0 a 2 versiones para probar (otro gancho u otra duración: 15, 30 o 60 s), con los cortes extra que hacen falta. Solo si el material lo permite y tiene sentido para el objetivo.
 
 RITMO: PIENSA COMO UN EDITOR DE REELS
 - Cada beat de la historia tiene su recurso visual: el gancho, el problema, cada punto, la cifra, el contraste, la CTA. Ningún tramo largo se queda solo con la cara sin que pase nada.
 - La DENSIDAD de la tarea fija cada cuánto tiene que cambiar algo en pantalla y cada cuánto va un b-roll, gráfico o efecto. Cúmplela: si el video es de una persona a cámara, tu trabajo es justamente que no se sienta plano.
 - Alterna recursos: nunca el mismo componente ni el mismo efecto dos veces seguidas; alterna pantalla completa y sobre el video; alterna la fuerza de los zooms (suave, marcado, suave…) para que el encuadre cambie de frase en frase.
-- La apertura y el cierre van con más intensidad (efecto de firma o gráfico en el gancho, algo que refuerce la CTA).
+- La apertura y el cierre van con más intensidad (un efecto, un gráfico o un zoom marcado en el gancho, algo que refuerce la CTA). Cada video abre distinto: varía el recurso de apertura respecto de los últimos videos de la marca.
 - Todo sincronizado con la voz: cada cosa empieza en la palabra en que se dice (el zoom en la palabra fuerte, el ítem de la lista cuando lo dices, la cifra cuando la dices). En los gráficos, marca "cues" (ver motion graphics).
 - La CTA es la que se DICE en el video. Si el brief o la marca traen otra, manda la que se dice: no lo marques como problema ni lo repitas en warning.
 

@@ -51,8 +51,13 @@ const attachSchema = z
       .refine((v) => !v || /^https:\/\/([a-z0-9-]+\.)*(instagram\.com|tiktok\.com|youtube\.com|youtu\.be)\//i.test(v), "Pega un link de Instagram, TikTok o YouTube.")
       .optional(),
     upload: z.boolean().optional(),
+    /** "Copiar edición": además de imitar el estilo, copia cada momento con animaciones a medida. */
+    copy: z.boolean().optional(),
   })
   .optional();
+
+/** Un pedido con referencia que pide copiar la edición ("cópiala", "la misma edición", "igualito"). */
+const COPY_RE = /\bcopi(a|á|ar|ala|ála)\b.*\b(edici[oó]n|video|estilo)|\bmisma edici[oó]n|\bigual(ito)? (a|que) (este|ese|el)|\bcopi[aá] (todo|la edici[oó]n)/i;
 
 /** "Edítalo así": el pedido pasa por el director con todo el contexto y vuelve a la revisión. Puede llevar una referencia (link o el video que se acaba de subir). */
 export async function editAction(projectId: string, instruction: string, kind: "edit" | "fix" = "edit", attach?: z.input<typeof attachSchema>): Promise<Result> {
@@ -63,7 +68,9 @@ export async function editAction(projectId: string, instruction: string, kind: "
   if (!idSchema.safeParse(projectId).success || !parsed.success) return { ok: false, error: parsed.error?.issues[0]?.message ?? "Proyecto no válido." };
   if (!ref.success) return { ok: false, error: ref.error.issues[0]?.message ?? "La referencia no es válida." };
   try {
-    await requestEdit(projectId, parsed.data, kind === "fix" ? "fix" : "edit", user.id, { link: ref.data?.link || null, upload: Boolean(ref.data?.upload) });
+    const hasRef = Boolean(ref.data?.link || ref.data?.upload || /https?:\/\//.test(parsed.data));
+    const copy = hasRef && (ref.data?.copy === true || COPY_RE.test(parsed.data));
+    await requestEdit(projectId, parsed.data, kind === "fix" ? "fix" : "edit", user.id, { link: ref.data?.link || null, upload: Boolean(ref.data?.upload), copy });
     refresh();
     return { ok: true };
   } catch (error) {

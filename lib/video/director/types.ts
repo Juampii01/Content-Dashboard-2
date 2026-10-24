@@ -267,6 +267,8 @@ export type EditRequest = {
 export type PendingRequest = {
   kind: "edit" | "fix";
   instruction: string;
+  /** "Copiar edición": después de dirigir, la receta de la referencia y una animación por momento (lib/video/compos). */
+  copy?: boolean;
   id?: string;
   /** Vuelta del director en este pedido (0 = la primera). */
   attempt?: number;

@@ -9,8 +9,9 @@
  */
 
 /** Tipo de capa visual (desempata con la misma `layer`). */
-export type LayerKind = "broll" | "fx" | "transition";
-const RANK: Record<LayerKind, number> = { broll: 0, fx: 1, transition: 2 };
+export type LayerKind = "broll" | "fx" | "compos" | "transition";
+// Las composiciones (animaciones que escribe Claude) van entre los efectos y las transiciones con la misma capa.
+const RANK: Record<LayerKind, number> = { broll: 0, fx: 1, compos: 2, transition: 3 };
 
 export type Stackable = { key: string; kind: LayerKind; layer?: number; start: number };
 
@@ -26,8 +27,8 @@ export function stackIndex(items: Stackable[]): Map<string, number> {
   return new Map(stackSort(items).map((x, i) => [x.key, i]));
 }
 
-/** Claves de la vista previa y del render: "b:" b-roll, "f:" efecto, "t:" transición. */
-export const layerKey = (kind: LayerKind, id: string) => `${kind === "broll" ? "b" : kind === "fx" ? "f" : "t"}:${id}`;
+/** Claves de la vista previa y del render: "b:" b-roll, "f:" efecto, "c:" composición, "t:" transición. */
+export const layerKey = (kind: LayerKind, id: string) => `${kind === "broll" ? "b" : kind === "fx" ? "f" : kind === "compos" ? "c" : "t"}:${id}`;
 
 /**
  * Carriles de una pista (0 = arriba = lo que se dibuja encima): de arriba hacia abajo, cada bloque va un carril por

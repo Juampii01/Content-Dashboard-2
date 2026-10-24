@@ -8,6 +8,7 @@ import { FX_INFO } from "./fx/catalog";
 import { compileFx, faceAnchor, fxBrandFromLook, fxCaptionHides, fxSegments, sourceFramesOf, sourceRangesOf, type FxBrand, type FxSpec } from "./fx/compile";
 import { fxMaskKey, maskChunksFor } from "./fx/masks";
 import { compileTransition, transitionSegments, type TransitionSegment } from "./fx/transitions";
+import { composCaptionHides, composSegments, composSounds, compileComposition, type ComposSegment } from "./compos/schema";
 import type { GraphicLook } from "./graphics";
 import type { Timeline } from "./timeline";
 import type { EditPlan, FxMaskMedia, MediaInfo, VideoFormat } from "./types";
@@ -53,10 +54,19 @@ export function fxBrand(look: GraphicLook): FxBrand {
 type EyesLike = { samples?: { t: number; face: { x: number; y: number; w: number; h: number } | null }[] } | null;
 
 /**
- * Lo que dibuja el worker por cada efecto o transición. `z`: lugar en el orden de dibujo de todas las capas (b-roll,
- * gráficos, efectos y transiciones; lib/video/layers.ts): el worker superpone de menor a mayor.
+ * Lo que dibuja el worker por cada efecto, transición o composición. `z`: lugar en el orden de dibujo de todas las
+ * capas (b-roll, gráficos, efectos, composiciones y transiciones; lib/video/layers.ts): el worker superpone de menor a mayor.
  */
-export type FxRenderItem = { spec: FxSpec; sourceFrames: number[]; images?: Record<string, string>; z?: number; layer?: number; layerKind?: "fx" | "transition" };
+export type FxRenderItem = {
+  spec: FxSpec;
+  sourceFrames: number[];
+  images?: Record<string, string>;
+  imageKeys?: Record<string, string>;
+  projectId?: string;
+  z?: number;
+  layer?: number;
+  layerKind?: "fx" | "compos" | "transition";
+};
 
 /**
  * Los efectos del plan como los dibuja el worker: el spec (mismo que la vista previa), los cuadros del original de cada
@@ -74,11 +84,17 @@ export async function fxForRender(input: {
   corrections?: Record<string, string>;
   /** Tramos con b-roll (solo para los zooms: las transiciones se dibujan en su capa sobre lo que haya). */
   broll?: { start: number; end: number }[];
-}): Promise<{ items: FxRenderItem[]; hides: { start: number; end: number }[]; avoid: { start: number; end: number }[]; transitions: TransitionSegment[] }> {
+  /** Para las imágenes de las composiciones (se bajan por su clave del almacenamiento del proyecto). */
+  projectId?: string;
+  /** Si se ven subtítulos (las composiciones dejan libre su franja). */
+  captionsVisible?: boolean;
+}): Promise<{ items: FxRenderItem[]; hides: { start: number; end: number }[]; avoid: { start: number; end: number }[]; transitions: TransitionSegment[]; sounds: { name: string; hitAt: number; gain: number }[]; compos: ComposSegment[] }> {
+  // Todo convive en capas: nada se quita por pisarse con otra cosa (el orden de dibujo lo da lib/video/layers.ts).
+  const comps = composSegments(input.timeline, input.plan.compositions ?? []);
   const segments = fxSegments(input.timeline, input.plan.effects ?? []);
   const trSegs = transitionSegments(input.timeline, input.plan.transitions ?? []);
-  if (!segments.length && !trSegs.length) return { items: [], hides: [], avoid: [], transitions: [] };
-  const needThumbs = segments.some((s) => FX_INFO[s.item.kind].thumbs);
+  if (!segments.length && !trSegs.length && !comps.length) return { items: [], hides: [], avoid: [], transitions: [], sounds: [], compos: [] };
+  const needThumbs = segments.some((s) => FX_INFO[s.item.kind].thumbs) || comps.some((c) => /\benv\.assets\b/.test(c.item.code));
   const thumbs = needThumbs ? await fxThumbs() : [];
   const brand = fxBrand(input.look);
   const srcW = input.media.width || 1080;
@@ -97,8 +113,31 @@ export async function fxForRender(input: {
     const face = faceAnchor(samples, sourceRangesOf(input.timeline, segment.start, segment.end), srcW, srcH, input.format, input.offsetX);
     items.push({ spec: compileTransition({ segment, format: input.format, brand, face }), sourceFrames: [], layer: segment.layer ?? 0, layerKind: "transition" });
   }
+  // Composiciones: el código de Claude (ya validado) y sus datos; el worker lo corre en el sandbox.
+  for (const segment of comps) {
+    const face = faceAnchor(samples, sourceRangesOf(input.timeline, segment.start, segment.end), srcW, srcH, input.format, input.offsetX);
+    const spec = compileComposition({ item: segment.item, start: segment.start, end: segment.end, timeline: input.timeline, format: input.format, brand, face, captionsVisible: input.captionsVisible !== false, thumbs });
+    const frames = Math.max(1, Math.round(spec.duration * 30));
+    const out: FxRenderItem = { spec, sourceFrames: spec.mask ? sourceFramesOf(input.timeline, spec.start, frames) : [], layer: segment.item.layer ?? 0, layerKind: "compos" };
+    const env = spec.compos!.env;
+    const images = env.assets.filter((a) => a.kind === "thumb").map((a) => [a.id, absolute(thumbs[Number(a.id.slice(1))]?.url ?? "")] as const).filter(([, u]) => u);
+    if (images.length) out.images = Object.fromEntries(images);
+    const keys = (segment.item.images ?? []).map((g) => [g.id, g.key] as const);
+    if (keys.length && input.projectId) {
+      out.imageKeys = Object.fromEntries(keys);
+      out.projectId = input.projectId;
+    }
+    items.push(out);
+  }
   items.sort((a, b) => a.spec.start - b.spec.start);
-  return { items, hides: fxCaptionHides(segments), avoid: [...segments, ...trSegs].map((s) => ({ start: s.start, end: s.end })), transitions: trSegs };
+  return {
+    items,
+    hides: [...fxCaptionHides(segments), ...composCaptionHides(comps)],
+    avoid: [...segments, ...trSegs, ...comps].map((s) => ({ start: s.start, end: s.end })),
+    transitions: trSegs,
+    sounds: composSounds(comps),
+    compos: comps,
+  };
 }
 
 // ─── Recorte para la vista previa ─────────────────────────────────────────

@@ -30,14 +30,37 @@ const bundles = [
     banner: "// Generado por scripts/motion-bundle.mjs desde lib/video/music-gen (no lo edites a mano). Música generada, licencia propia.",
   },
 ];
+// Composiciones: primero el runtime que corre dentro del sandbox (un script suelto, como texto), después lo que lo usa.
+bundles.unshift(
+  {
+    entry: "lib/video/compos/runtime/index.ts",
+    out: "lib/video/compos/runtime-source.ts",
+    format: "iife",
+    asSource: true,
+    banner: "",
+  },
+  {
+    entry: "lib/video/compos/sandbox-browser-worker.ts",
+    out: "public/compos-sandbox.js",
+    format: "iife",
+    platform: "browser",
+    banner: "// Generado por scripts/motion-bundle.mjs desde lib/video/compos (no lo edites a mano). Incluye acorn (MIT).",
+  },
+  {
+    entry: "lib/video/compos/node-entry.ts",
+    out: "worker/motion/compos-engine.mjs",
+    platform: "node",
+    banner: "// Generado por scripts/motion-bundle.mjs desde lib/video/compos (no lo edites a mano). Incluye acorn (MIT).",
+  },
+);
 let stale = false;
 for (const b of bundles) {
   const outfile = join(root, b.out);
   const result = await build({
     entryPoints: [join(root, b.entry)],
     bundle: true,
-    format: "esm",
-    platform: "neutral",
+    format: b.format ?? "esm",
+    platform: b.platform ?? "neutral",
     target: "node22",
     outfile,
     write: false,
@@ -46,7 +69,10 @@ for (const b of bundles) {
     logLevel: "warning",
     minify: true,
   });
-  const fresh = result.outputFiles[0].text;
+  const text = result.outputFiles[0].text;
+  const fresh = b.asSource
+    ? `// Generado por scripts/motion-bundle.mjs desde lib/video/compos/runtime (no lo edites a mano).\n// Runtime que corre DENTRO del sandbox de las composiciones (como texto).\n/* eslint-disable */\nexport const RUNTIME_SOURCE: string = ${JSON.stringify(text)};\n`
+    : text;
   if (check) {
     let current = "";
     try {

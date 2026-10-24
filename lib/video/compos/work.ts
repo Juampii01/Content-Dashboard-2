@@ -119,7 +119,7 @@ export const newTaskId = () => `t${Date.now().toString(36)}${(seq++).toString(36
 export const newWorkId = () => `w${Date.now().toString(36)}${(seq++).toString(36)}`;
 
 export function newTask(input: Omit<ComposTask, "id" | "compId" | "images" | "status" | "attempts" | "round"> & { compId?: string }): ComposTask {
-  return { id: newTaskId(), compId: input.compId ?? newComposId(), images: [], status: "plan", attempts: 0, round: 0, ...input };
+  return { ...input, id: newTaskId(), compId: input.compId ?? newComposId(), images: [], status: "plan", attempts: 0, round: 0 };
 }
 
 // ─── Contexto ────────────────────────────────────────────────────────────
@@ -417,7 +417,10 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           task.images = wanted.map((im, i) => ({ id: `g${task.id.slice(1, 9)}${i}`, purpose: im.purpose.slice(0, 200), prompt: `${im.prompt.slice(0, 900)}\nNo text, no letters, no numbers, no watermark.`, aspect: im.aspect, status: "pending" as const }));
           task.status = "images";
         } else {
-          if (wanted.length) task.note = "Pediste una imagen generada, pero no hay ChatGPT ni API key de OpenAI conectados (Ajustes → Claves de servicios): la animación se dibujó sin ella.";
+          if (wanted.length) {
+            task.note = "Pediste una imagen generada, pero no hay ChatGPT ni API key de OpenAI conectados (Ajustes → Claves de servicios): la animación se dibujó sin ella.";
+            task.approach = `${task.approach ?? ""}\nNO HAY GENERADOR DE IMÁGENES: dibuja todo con código (formas simplificadas, siluetas, íconos geométricos) y texto; no uses env.assets.`.slice(0, 1400);
+          }
           task.status = "code";
         }
         return `Planeando la animación ${of}`;
@@ -540,7 +543,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
       }
     }
   } catch (error) {
-    console.error("[compos]", task.status, error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
+    console.error("[compos]", task.status, error instanceof AiError ? error.detail : error instanceof Error ? (error.stack ?? error.message).split("\n").slice(0, 4).join(" · ") : error);
     task.attempts++;
     if (task.attempts >= 3 || task.status === "plan") {
       // Sin plan: se escribe directo; sin mirar: queda como está.

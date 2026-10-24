@@ -170,6 +170,13 @@ def decode_video(path: Path) -> np.ndarray:
         n = from_halves(a, b) if a is not None and b is not None else None
         if n is not None:
             out[i] = n
+    # Un cuadro solo cuenta si el de al lado es el siguiente o el anterior del original: un efecto que mezcla dos
+    # cuadros (fundido, desenfoque de movimiento) puede dar por casualidad un color válido con su suma de control (1 en
+    # 50), pero no dos seguidos. Un desfase de verdad corre tramos enteros, y esos se siguen viendo.
+    ok = np.zeros(len(out), dtype=bool)
+    ok[1:] |= (out[1:] >= 0) & (out[1:] - out[:-1] == 1)
+    ok[:-1] |= (out[:-1] >= 0) & (out[1:] - out[:-1] == 1)
+    out[~ok] = -1
     return out
 
 

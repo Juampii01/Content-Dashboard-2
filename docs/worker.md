@@ -409,6 +409,7 @@ sh scripts/fetch_fonts.sh                     # Montserrat e Inter (OFL) en work
 .venv/bin/python scripts/fetch_models.py models --only yunet   # detector de caras (los demás modelos, opcionales en local)
 # Tesseract: sudo apt install tesseract-ocr tesseract-ocr-spa
 .venv/bin/python -m pytest -q                 # unitarias y render real con ffmpeg
+.venv/bin/python -m pytest -q --slow tests/test_sync.py   # sincronía con el plan completo de un reel (~10 min por nivel de audio)
 TEST_DATABASE_URL=postgres://… .venv/bin/python -m pytest -q tests/test_queue.py   # cola (base de prueba)
 
 # Video de prueba sintético con su transcripción, y una referencia de estilo (cortes cada 2 s, un zoom,
@@ -435,5 +436,7 @@ Requiere ffmpeg con libass, libx264, libopus y zimg, y Tesseract.
 4. **Revisión** de la persona. La vista previa y el render usan el mismo timeline (`lib/video/timeline.ts`).
 5. **Render**: tramos con `-ss` exacto y cantidad fija de cuadros (1600 muestras de audio por cuadro, sin desfase), fundido de 10 ms, unión con concat, cadena de voz y `loudnorm` lineal en dos pasadas a -14 LUFS / -1 dBTP, efectos y música bajo la voz (opcionales), reencuadre, subtítulos ASS (galería animada, Clásico, Pop o del estilo) y emojis, H.264 High CRF 18, BT.709, AAC 192k, `+faststart`.
 6. **Control de calidad**: duración, tamaño, fps, sonoridad, pico y sincronía. Si fallan duración o sincronía, se reintenta; los demás quedan como aviso en el resultado. Sale el MP4 con su SRT.
+   La sincronía se mide de verdad (`render.sync_check`): el audio del MP4 se correlaciona con el audio del original en el lugar que dice el timeline, en 16 puntos (ventanas de 1,2 s dentro de un tramo, búsqueda de ±0,6 s). Si un punto confiable está corrido más de 60 ms, o en la mayoría de los puntos el audio no se parece al esperado, el video no se entrega: se borran sus tramos de la caché y el reintento los rehace desde el original. La prueba de punta a punta (`tests/test_sync.py`) renderiza un original sintético cuya imagen y cuyo audio codifican el tiempo y verifica cada cuadro y el audio (±40 ms); el caso completo lo arma la app (`node --import tsx scripts/make-sync-fixture.mts` → `tests/fixtures/sync-plan.json`).
+   Antes, la app compara lo que mostraba la vista previa (tramos y gancho) con el timeline que arma el servidor al exportar; si no coinciden (el plan guardado cambió por detrás), no exporta (`lib/video/review.ts`, `previewMismatch`).
 
 Pendiente para v2: seguimiento de cara, b-roll generado con IA, mezclar el audio en la vista previa (hoy los efectos y la música se escuchan por separado en la revisión), aplicar la sonoridad medida en la referencia (hoy se mide y se muestra; el render sigue a -14 LUFS).

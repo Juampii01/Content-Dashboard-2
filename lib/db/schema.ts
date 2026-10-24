@@ -845,7 +845,7 @@ export const videoProjects = pgTable(
     brief: jsonb("brief").$type<Record<string, unknown>>(),
     eyes: jsonb("eyes").$type<Record<string, unknown>>(),
     director: jsonb("director").$type<Record<string, unknown>>(),
-    aiBudgetUsd: real("ai_budget_usd").notNull().default(5),
+    aiBudgetUsd: real("ai_budget_usd").notNull().default(8),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

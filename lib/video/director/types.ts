@@ -107,7 +107,7 @@ export type Brief = z.infer<typeof briefSchema>;
 export const EMPTY_BRIEF: Brief = { goal: null, audience: "", cta: "", mustKeep: "", notes: "" };
 
 /** Tope de gasto de IA por video (USD). */
-export const BUDGET = { min: 1, default: 5, max: 15 } as const;
+export const BUDGET = { min: 1, default: 8, max: 20 } as const;
 
 // ─── Mapa del video (lo que entendió) ─────────────────────────────────────
 

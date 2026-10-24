@@ -325,9 +325,9 @@ describe("costo y tope", () => {
     assert.equal(tiny.director.model, "main");
   });
 
-  test("tope entre 1 y 15 y cuadros según el tope", () => {
-    assert.equal(clampBudget(40), 15);
-    assert.equal(clampBudget(0), 5);
+  test("tope entre 1 y 20 y cuadros según el tope", () => {
+    assert.equal(clampBudget(40), 20);
+    assert.equal(clampBudget(0), 8);
     assert.equal(clampBudget(0.2), 1);
     assert.equal(eyesMaxFrames(5), 240);
     assert.equal(eyesMaxFrames(1), 90);

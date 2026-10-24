@@ -28,6 +28,7 @@ async function Editor({ params }: { params: PageProps<"/carruseles/[id]">["param
         slides: c.slides,
         caption: c.caption ?? "",
         hashtags: c.hashtags,
+        captionVariants: c.captionVariants ?? [],
       }}
       look={{ colors: look.colors, fonts: look.fonts, identity: look.identity, bannedWords: look.bannedWords }}
       sourceText={c.sourceText}

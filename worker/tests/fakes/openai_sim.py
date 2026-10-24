@@ -4,7 +4,8 @@
 
 - POST /v1/images/generations y /v1/images/edits → {"data": [{"b64_json": …}]} con un PNG hecho con Pillow.
 - GET /v1/models → lista corta (la usa la app para validar la key).
-- La key "sk-invalida" responde 401; "sk-sin-saldo", 429 insufficient_quota.
+- La key "sk-invalida" responde 401; "sk-sin-saldo", 429 insufficient_quota; "sk-sin-fidelidad", 400 si el pedido
+  trae input_fidelity (como un modelo que no lo admite).
 Guarda el último pedido (sin la key) en `last_request` para que los tests lo revisen.
 """
 
@@ -67,7 +68,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")
         last_request.clear()
-        last_request.update({"path": self.path, "model": body.get("model"), "size": body.get("size"), "quality": body.get("quality"), "images": len(body.get("images") or []), "prompt": str(body.get("prompt", ""))[:300]})
+        last_request.update({"path": self.path, "model": body.get("model"), "size": body.get("size"), "quality": body.get("quality"), "images": len(body.get("images") or []), "input_fidelity": body.get("input_fidelity"), "prompt": str(body.get("prompt", ""))[:300]})
+        if "input_fidelity" in body and (self.headers.get("authorization") or "").endswith("sk-sin-fidelidad"):
+            self._send(400, {"error": {"message": "Unknown parameter: 'input_fidelity'.", "type": "invalid_request_error", "param": "input_fidelity", "code": "unknown_parameter"}})
+            return
         if not self.path.endswith(("/images/generations", "/images/edits")):
             self._send(404, {"error": {"message": "not found"}})
             return

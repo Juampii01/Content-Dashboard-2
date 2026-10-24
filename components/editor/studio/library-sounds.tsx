@@ -26,7 +26,7 @@ export function LibrarySounds({ canEdit, onAdd }: { canEdit: boolean; onAdd: (it
       {names.length === 0 ? (
         <p className="rounded-xl border border-white/10 p-3 text-sm text-muted">Ningún sonido coincide con «{q}».</p>
       ) : (
-        <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2" aria-label="Sonidos">
+        <ul className="grid grid-cols-1 gap-1" aria-label="Sonidos">
           {names.map((n: SfxName) => (
             <li
               key={n}

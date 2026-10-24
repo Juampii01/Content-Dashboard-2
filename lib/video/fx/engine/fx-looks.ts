@@ -28,14 +28,14 @@ export function vignetteOver(f: FxFrame, strength: number, inner = 0.45): void {
 }
 
 /** Separa los canales del cuadro: cada uno con su propia transformación (aberración, VHS, glitch). */
-export function channelSplit(f: FxFrame, xfs: [Xf, Xf, Xf], alpha = 1, filter = "none"): void {
+export function channelSplit(f: FxFrame, xfs: [Xf, Xf, Xf], alpha = 1, filter = "none", scale = 1): void {
   const { ctx, W, H } = f;
-  const out = f.layer("ch-out");
+  const out = f.layer("ch-out", scale);
   out.ctx.fillStyle = "#000000";
   out.ctx.fillRect(0, 0, W, H);
   (["#ff0000", "#00ff00", "#0000ff"] as const).forEach((color, i) => {
-    const l = f.layer(`ch${i}`);
-    f.drawBase(l.ctx, xfs[i], filter);
+    const l = f.layer(`ch${i}`, scale);
+    f.drawBase(l.ctx, xfs[i], filter, 1, scale);
     l.ctx.globalCompositeOperation = "multiply";
     l.ctx.fillStyle = color;
     l.ctx.fillRect(0, 0, W, H);
@@ -159,7 +159,8 @@ export function vhs(f: FxFrame): void {
   const fi = frameIndex(f);
   const r = rng(spec.seed + fi * 31);
   const shift = (6 + r() * 3) * u;
-  channelSplit(f, [{ ...ID, tx: shift }, ID, { ...ID, tx: -shift * 0.6 }], a, "saturate(1.35) contrast(1.12) blur(1.2px)");
+  // A media resolución: el VHS es blando de por sí (y así cuesta un cuarto).
+  channelSplit(f, [{ ...ID, tx: shift }, ID, { ...ID, tx: -shift * 0.6 }], a, "saturate(1.35) contrast(1.12)", 0.5);
   ctx.save();
   ctx.globalAlpha *= a;
   // Líneas de barrido.

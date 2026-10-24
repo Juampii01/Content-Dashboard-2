@@ -673,7 +673,7 @@ function SoundInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
           <label htmlFor="snd-name" className="text-sm font-semibold text-white">
             Cuál
           </label>
-          <select id="snd-name" className="field h-9 rounded-xl text-sm" value={cue.name} disabled={!edit} onChange={(e) => set({ name: e.target.value as SfxName })}>
+          <select id="snd-name" className="field h-10 rounded-xl !py-0 text-sm" value={cue.name} disabled={!edit} onChange={(e) => set({ name: e.target.value as SfxName })}>
             {SFX_CATEGORIES.map((c) => (
               <optgroup key={c} label={SFX_CATEGORY_LABELS[c]}>
                 {SFX_NAMES.filter((n) => SFX_LIBRARY[n].category === c).map((n) => (

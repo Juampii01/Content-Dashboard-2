@@ -771,8 +771,9 @@ export function Studio(props: StudioProps) {
   const transitionSlots = useMemo(() => {
     const busy = [...segments, ...fxSegs];
     const taken = new Set(s.transitions.map((t) => t.at_word));
-    return cutList.filter((c) => !taken.has(c.word) && !busy.some((b) => c.at > b.start - 0.15 && c.at < b.end + 0.15)).map((c) => ({ at: c.at, word: c.word }));
-  }, [cutList, s.transitions, segments, fxSegs]);
+    // La misma regla que el dibujo: una transición de duración normal cabe sin pisar lo ocupado.
+    return cutList.filter((c) => !taken.has(c.word) && transitionSegments(timeline, [{ id: "probe", kind: "tr_whip", at_word: c.word }], busy).length > 0).map((c) => ({ at: c.at, word: c.word }));
+  }, [cutList, s.transitions, segments, fxSegs, timeline]);
 
   /** Pone, cambia o quita (kind null) la transición de un corte. */
   function setTransition(word: number, patch: Partial<TransitionItem> | null) {

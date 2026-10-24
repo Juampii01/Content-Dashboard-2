@@ -37,15 +37,28 @@ function zoomOut(f: FxFrame): void {
 
 function whip(f: FxFrame, vertical: boolean): void {
   const { k, side } = phase(f);
+  const { W, H } = f;
   const dir = f.spec.seed % 2 ? 1 : -1;
-  const dist = (vertical ? f.H : f.W) * 0.55 * k * (side < 0 ? 1 : -1) * dir * -1;
-  const steps = 5;
-  // Desenfoque de movimiento: copias corridas en la dirección del barrido.
-  f.drawBase(f.ctx, { s: 1 + 0.08 * k, px: f.W / 2, py: f.H / 2, tx: vertical ? 0 : dist, ty: vertical ? dist : 0 }, blur(4 * k));
-  for (let i = 1; i <= steps && k > 0.05; i++) {
-    const o = dist * (1 - (i / steps) * 0.35);
-    f.drawBase(f.ctx, { s: 1 + 0.08 * k, px: f.W / 2, py: f.H / 2, tx: vertical ? 0 : o, ty: vertical ? o : 0 }, blur(10 * k), (0.5 * k) / i);
+  const span = vertical ? H : W;
+  const dist = span * 0.55 * k * (side < 0 ? 1 : -1) * dir * -1;
+  if (k < 0.02) {
+    f.drawBase(f.ctx);
+    return;
   }
+  // Barrido con desenfoque de movimiento: copias corridas en la dirección del barrido, a media resolución (es todo
+  // borroso igual) y dando la vuelta (lo que sale por un lado entra por el otro: nunca quedan bordes vacíos).
+  const l = f.layer("whip", 0.5);
+  const steps = 5;
+  const at = (o: number, alpha: number, blurPx: number) => {
+    for (const wrap of [0, -Math.sign(o || 1) * span]) {
+      const off = o + wrap;
+      if (Math.abs(off) >= span) continue;
+      f.drawBase(l.ctx, { s: 1, px: W / 2, py: H / 2, tx: vertical ? 0 : off, ty: vertical ? off : 0 }, blur(blurPx), alpha, 0.5);
+    }
+  };
+  at(dist, 1, 6 * k);
+  for (let i = 1; i <= steps; i++) at(dist * (1 - (i / steps) * 0.35), (0.5 * k) / i, 12 * k);
+  f.ctx.drawImage(l.canvas, 0, 0, W, H);
 }
 
 function blurT(f: FxFrame): void {

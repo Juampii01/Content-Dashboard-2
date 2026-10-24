@@ -399,6 +399,8 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     # y el reintento los rehace desde el original.
     sync = render.sync_check(final, built["source_wav"], data["clips"])
     qc["checks"].append({k: sync[k] for k in ("name", "ok", "detail")})
+    if sync["ok"] and sync.get("warn"):
+        log.warning("sincronía con avisos en %s: %s · %s", pid, sync["detail"], sync["points"])
     if not sync["ok"]:
         for seg in built["segments"]:
             seg.unlink(missing_ok=True)

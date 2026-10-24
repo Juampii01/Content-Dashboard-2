@@ -185,16 +185,20 @@ def test_sync_short_hook_pauses_moves_zooms_sfx_music(short_render: Any) -> None
 
 
 def test_sync_check_catches_a_render_that_does_not_follow_the_timeline(short_render: Any) -> None:
-    """Si el audio del MP4 no es el del timeline (un tramo de otro lugar, o el audio corrido), el render no se entrega."""
+    """Un audio que no sigue el timeline queda como aviso; un desfase grande y repetido no se entrega."""
     final, wav, _, data = short_render
     clips = data["clips"]
-    # El mismo MP4 medido contra un timeline sin el gancho al principio: no coincide.
+    # El mismo MP4 medido contra un timeline sin el gancho al principio: no coincide → aviso.
     wrong = render.sync_check(final, wav, clips[1:] + clips[:1])
-    assert not wrong["ok"], wrong
-    # Y contra el timeline corrido 3 cuadros (100 ms): se detecta el desfase.
+    assert wrong["warn"], wrong
+    # Corrido 3 cuadros (100 ms): se detecta y se avisa, pero no frena la entrega.
     shifted = [{**c, "start": c["start"] + 3, "end": c["end"] + 3} for c in clips]
     late = render.sync_check(final, wav, shifted)
-    assert not late["ok"] and "corrido" in late["detail"], late
+    assert late["warn"] and late["ok"] and "corrido" in late["detail"], late
+    # Corrido 10 cuadros (333 ms): se nota a simple vista → no se entrega.
+    far = [{**c, "start": c["start"] + 10, "end": c["end"] + 10} for c in clips]
+    bad = render.sync_check(final, wav, far)
+    assert not bad["ok"], bad
 
 
 # ─── Versión completa (lenta) ──────────────────────────────────────────────

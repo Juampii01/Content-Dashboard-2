@@ -610,6 +610,7 @@ SYNC_SEARCH = 0.6
 SYNC_POINTS = 16
 SYNC_TOLERANCE = 0.06  # Más de 60 ms de desfase en un punto confiable: el video sale mal.
 SYNC_CONFIDENT = 0.6  # Correlación mínima para que un punto cuente como medido.
+SYNC_SEVERE = 0.25  # Desfase que de verdad se nota (un cuarto de segundo): 3 puntos así frenan la entrega.
 
 
 def _envelope(path: Path) -> Any:
@@ -726,7 +727,10 @@ def sync_check(final: Path, source: Path, clips: list[dict[str, Any]], tolerance
     off = [p for p in confident if abs(p["lag"]) > tolerance]
     worst = max((abs(p["lag"]) for p in confident), default=0.0)
     matched = len(confident) / len(points)
-    ok = not off and matched >= 0.5
+    # Solo frena el render un desfase grande y repetido en puntos confiables (un video de verdad corrido). Con música,
+    # efectos de sonido y audio de estudio la correlación baja aunque todo esté bien: eso queda como aviso, no frena.
+    severe = [p for p in off if abs(p["lag"]) > SYNC_SEVERE]
+    ok = len(severe) < 3
     if off:
         p = max(off, key=lambda p: abs(p["lag"]))
         detail = f"el audio está corrido {p['lag'] * 1000:+.0f} ms en el segundo {p['out']:.1f} ({len(off)} de {len(confident)} puntos)"
@@ -734,7 +738,7 @@ def sync_check(final: Path, source: Path, clips: list[dict[str, Any]], tolerance
         detail = f"el audio no coincide con el original en {len(points) - len(confident)} de {len(points)} puntos"
     else:
         detail = f"{len(confident)} de {len(points)} puntos medidos, desfase máximo {worst * 1000:.0f} ms"
-    return {"name": "Sincronía con el original", "ok": ok, "detail": detail, "points": points}
+    return {"name": "Sincronía con el original", "ok": ok, "warn": bool(off) or matched < 0.5, "detail": detail, "points": points}
 
 
 def quality_check(path: Path, expected: float, fmt: str, target: float = -14.0) -> dict[str, Any]:

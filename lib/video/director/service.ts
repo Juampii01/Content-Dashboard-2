@@ -686,6 +686,8 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   });
   plan = applied.plan;
   if (refCopy && wantsReference && !mode && refCopy.pace === "fast") plan = { ...plan, pacing: { long_pause: Math.min(plan.pacing?.long_pause ?? 0.3, 0.3) }, director: { version: 1, pace: "fast" } };
+  // Las animaciones a medida (composiciones) no las rearma el director: siguen como estaban (las cambia el taller).
+  if (base?.compositions?.length && !plan.compositions?.length) plan = { ...plan, compositions: base.compositions };
 
   const parsedPlan = planSchemaFor(words.length).safeParse(plan);
   if (!parsedPlan.success) {
@@ -756,7 +758,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     if (pending && wantsCopy(director)) {
       const started = await startCopy(projectId);
       if (started) return { next: { step: "recipe", label: "Desarmando la edición de la referencia" }, status: "PROCESSING" };
-    } else if (pending && asksForAnimation(pending.instruction) && (await startEditRequest(projectId, pending.instruction))) {
+    } else if (pending && !pending.copy && (pending.attempt ?? 0) === 0 && asksForAnimation(pending.instruction) && (await startEditRequest(projectId, pending.instruction))) {
       return { next: { step: "compos", label: "Programando las animaciones que pediste" }, status: "PROCESSING" };
     } else if (!mode && !reference && (await startVariety(projectId))) {
       return { next: { step: "compos", label: "Programando animaciones a medida para los momentos clave" }, status: "PROCESSING" };
@@ -930,7 +932,9 @@ async function critique(projectId: string, round: number, sheets: { key: string;
   const rounds = [...director.rounds, record];
   // Pedido: lo que el crítico vio de cada parte se junta con lo medido. Si falta algo que se puede arreglar y queda
   // tope, otra vuelta del director dirigida a eso (con lo que encontró el crítico).
-  if (active && parsed?.items.length) {
+  // En "Copiar edición" no hay otra vuelta del director por el pedido: ya se copió momento a momento.
+  const copying = readCopy(director)?.editId === active?.id;
+  if (active && parsed?.items.length && !copying) {
     const entry = director.edits.find((e) => e.id === active.id);
     if (entry) {
       const compliance = mergeCompliance(entry.compliance ?? [], wire?.request ?? null);

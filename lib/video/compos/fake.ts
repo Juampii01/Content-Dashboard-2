@@ -24,7 +24,7 @@ function keyWord(text: string): string {
 
 /** La muestra que mejor encaja con el pedido y lo que se dice. */
 export function pickSample(brief: string, said: string, avoid: string[] = []): ComposSample {
-  const t = norm(`${brief} ${said}`);
+  const t = norm(`${brief} ${said}`).replace(/\bm\d+\b/g, "");
   const want = (key: string) => COMPOS_SAMPLES.find((s) => s.key === key)!;
   const rules: [RegExp, string][] = [
     [/mapa|imagen|foto|ilustraci|pais|ciudad|flecha/, "image_focus"],

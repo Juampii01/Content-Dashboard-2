@@ -46,6 +46,8 @@ type RecipeMoment = RecipeWire["moments"][number] & { id: string };
 
 type CopyState = {
   referenceId: string;
+  /** El pedido de "Edítalo así" que la empezó (para no repetir vueltas del director). */
+  editId?: string | null;
   status: "recipe" | "adapt" | "compose" | "done" | "failed";
   recipe?: Omit<RecipeWire, "moments"> & { moments: RecipeMoment[] };
   mapping?: { moment: string; plan: "compose" | "catalog" | "skip"; from_word: number; to_word: number; reason: string; applied?: string | null }[];
@@ -116,7 +118,7 @@ export function wantsCopy(director: DirectorState): boolean {
 export async function startCopy(projectId: string): Promise<{ step: "recipe" } | null> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx || ctx.director.reference?.status !== "ready") return null;
-  const copy: CopyState = { referenceId: ctx.director.reference.id, status: "recipe" };
+  const copy: CopyState = { referenceId: ctx.director.reference.id, status: "recipe", editId: ctx.director.active?.id ?? ctx.director.pending?.id ?? null };
   await saveDirectorExtra(projectId, ctx.director, { copy, compos: null });
   return { step: "recipe" };
 }

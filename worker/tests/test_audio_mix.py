@@ -81,8 +81,10 @@ def test_sfx_files_exist_and_are_normalized() -> None:
         y = read_wav(render.SFX_DIR / f"{name}.wav")
         win = int(0.1 * RATE)
         loudest = 10 * np.log10(np.convolve(y**2, np.ones(win) / win, mode="valid").max()) if len(y) > win else rms_db(y)
-        # -12 dBFS en la ventana más fuerte, salvo que el tope de pico (-1 dBFS) lo deje un poco más abajo.
-        assert -15.5 <= loudest <= -11.4, (name, loudest)
+        # -12 dBFS en la ventana más fuerte, salvo que el tope de pico (-1 dBFS) lo deje un poco más abajo (los muy
+        # picudos que llegan a ese tope, como los clics o el tecleo, quedan más abajo).
+        capped = 20 * np.log10(np.abs(y).max()) > -1.5
+        assert (-24 if capped else -15.5) <= loudest <= -11.4, (name, loudest)
         assert 20 * np.log10(np.abs(y).max()) <= -0.9
         assert (render.SFX_DIR / f"{name}.wav").stat().st_size < 120_000
 

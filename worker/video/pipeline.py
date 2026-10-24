@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, music_gen, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
 from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
 
@@ -225,7 +225,10 @@ def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: P
     if not sfx and not music_cfg:
         return voice
     music_path = None
-    if music_cfg:
+    if music_cfg and music_cfg.get("gen") is not None:
+        # Música generada de la biblioteca (licencia propia): se arma aquí con el mismo generador que la vista previa.
+        music_path = music_gen.generate(music_cfg.get("gen"), duration, workdir / "musica")
+    elif music_cfg:
         track_id, key = str(music_cfg.get("trackId") or ""), str(music_cfg.get("key") or "")
         if not key.startswith(f"editor/musica/{track_id}/"):
             raise JobError("La música elegida no es válida. Elígela de nuevo en la revisión.", retry=False, detail=f"clave {key}")

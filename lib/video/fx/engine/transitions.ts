@@ -41,10 +41,10 @@ function whip(f: FxFrame, vertical: boolean): void {
   const dist = (vertical ? f.H : f.W) * 0.55 * k * (side < 0 ? 1 : -1) * dir * -1;
   const steps = 5;
   // Desenfoque de movimiento: copias corridas en la dirección del barrido.
-  f.drawBase(f.ctx, { s: 1.08, px: f.W / 2, py: f.H / 2, tx: vertical ? 0 : dist, ty: vertical ? dist : 0 }, blur(4 * k));
+  f.drawBase(f.ctx, { s: 1 + 0.08 * k, px: f.W / 2, py: f.H / 2, tx: vertical ? 0 : dist, ty: vertical ? dist : 0 }, blur(4 * k));
   for (let i = 1; i <= steps && k > 0.05; i++) {
     const o = dist * (1 - (i / steps) * 0.35);
-    f.drawBase(f.ctx, { s: 1.08, px: f.W / 2, py: f.H / 2, tx: vertical ? 0 : o, ty: vertical ? o : 0 }, blur(10 * k), (0.5 * k) / i);
+    f.drawBase(f.ctx, { s: 1 + 0.08 * k, px: f.W / 2, py: f.H / 2, tx: vertical ? 0 : o, ty: vertical ? o : 0 }, blur(10 * k), (0.5 * k) / i);
   }
 }
 
@@ -198,7 +198,7 @@ function shakeT(f: FxFrame): void {
   const { k } = phase(f);
   const r = rng(f.spec.seed + frameIndex(f) * 7);
   const amp = 40 * f.u * k;
-  f.drawBase(f.ctx, { s: 1.08 + 0.08 * k, px: f.faceCx, py: f.faceCy, tx: (r() - 0.5) * 2 * amp, ty: (r() - 0.5) * 2 * amp }, blur(5 * k));
+  f.drawBase(f.ctx, { s: 1 + 0.16 * k, px: f.faceCx, py: f.faceCy, tx: (r() - 0.5) * 2 * amp, ty: (r() - 0.5) * 2 * amp }, blur(5 * k));
   const c = f.spec.cut ?? f.spec.duration / 2;
   const fl = 1 - clamp01(Math.abs(f.t - c) / 0.07);
   if (fl > 0) {

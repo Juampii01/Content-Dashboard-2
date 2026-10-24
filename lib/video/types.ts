@@ -7,6 +7,9 @@
  */
 import type { BrollEditInput } from "./broll-edit";
 import type { FxItem } from "./fx/schema";
+import type { TransitionItem } from "./fx/transitions";
+import type { MusicGenSpec } from "./music-gen/spec";
+import type { SoundCue } from "./sfx";
 import type { GraphicSpec } from "./graphics";
 import type { MotionScene } from "./motion/schema";
 import type { AudioPreviewMedia } from "./studio-audio";
@@ -113,6 +116,8 @@ export type EditPlan = {
   broll: BrollItem[];
   /** Efectos "de firma" sobre rangos de palabras (lib/video/fx). Sin el campo (planes de antes), sin efectos. */
   effects?: FxItem[];
+  /** Transiciones en los cortes (lib/video/fx/transitions). Sin el campo, cortes secos. */
+  transitions?: TransitionItem[];
   /** Zooms y punch-ins del estilo (se calculan en cada render a partir del timeline; aquí solo si van o no). */
   zooms_enabled?: boolean;
   /**
@@ -137,8 +142,10 @@ export type EditPlan = {
   /**
    * `music_asset_id`: pista de Biblioteca → Música (music_tracks.id), `music_db`: su volumen respecto de la voz.
    * `sfx`: efectos de sonido (lib/video/sfx.ts); sin el campo (planes viejos), sin efectos.
+   * `cues`: sonidos de la biblioteca puestos a mano en la pista de Sonido (anclados a palabras).
+   * `music_gen`: música generada de la biblioteca (estilo, semilla y tempo); manda sobre `music_asset_id`.
    */
-  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; studio?: "off" | "soft" | "strong" };
+  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; studio?: "off" | "soft" | "strong"; cues?: SoundCue[]; music_gen?: MusicGenSpec | null };
   /** Recorte para 16:9 → 9:16. offset_x va de -1 (izquierda) a 1 (derecha); 0 es el centro. */
   framing: { mode: "center" | "manual"; offset_x: number };
   /** Palabras que no están en el guion (se marcan, no se cortan). */

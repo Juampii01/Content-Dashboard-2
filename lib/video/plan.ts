@@ -11,6 +11,9 @@ import { confidentRemovals, type Candidate } from "./candidates";
 import { brollEditSchema } from "./broll-edit";
 import { brollGraphicSchema } from "./motion-graphics";
 import { fxIssues, fxListSchema } from "./fx/schema";
+import { transitionListSchema } from "./fx/transitions";
+import { musicGenSchema } from "./music-gen/spec";
+import { soundCueListSchema } from "./sfx";
 import { captionLinesSchema } from "./canvas/captions";
 import { transformSchema } from "./canvas/transform";
 import { buildTimeline, planSegments } from "./timeline";
@@ -87,6 +90,7 @@ export const planSchema = z.object({
   broll: z.array(brollItemSchema).max(20),
   /** Efectos de la biblioteca (opcional: los planes de antes no los tienen). */
   effects: fxListSchema.optional(),
+  transitions: transitionListSchema.optional(),
   zooms_enabled: z.boolean().optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
   zoom_moments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300) })).max(60).optional(),
@@ -106,6 +110,8 @@ export const planSchema = z.object({
     sfx: z.enum(["off", "subtle", "strong"]).optional(),
     /** Audio de estudio (sin el campo: apagado, como en los planes de antes). */
     studio: z.enum(["off", "soft", "strong"]).optional(),
+    cues: soundCueListSchema.optional(),
+    music_gen: musicGenSchema.nullable().optional(),
   }),
   framing: z.object({ mode: z.enum(["center", "manual"]), offset_x: z.number().min(-1).max(1) }),
   off_script: z.array(z.number().int().min(0)).max(20000),
@@ -150,6 +156,8 @@ export function planIssues(plan: EditPlan, wordCount: number): string[] {
   });
   for (const z of plan.zoom_moments ?? []) check("Zoom", z.from_word, z.to_word);
   issues.push(...fxIssues(plan.effects ?? [], wordCount, plan.broll.filter((b) => b.choice)));
+  for (const tr of plan.transitions ?? []) if (tr.at_word >= wordCount) issues.push(`Transición fuera de rango (${tr.at_word}).`);
+  for (const c of plan.audio.cues ?? []) if (c.at_word >= wordCount) issues.push(`Sonido fuera de rango (${c.at_word}).`);
   return issues;
 }
 

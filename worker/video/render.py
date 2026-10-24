@@ -243,7 +243,49 @@ def process_audio(src: Path, out: Path, target: float = -14.0, tp: float = -1.0,
 
 # Efectos de sonido (worker/assets/sfx, generados con scripts/make_sfx.py) y música de fondo bajo la voz.
 SFX_DIR = Path(__file__).resolve().parent.parent / "assets" / "sfx"
-SFX_NAMES = ("whoosh", "pop", "riser")
+# Los 40 de la biblioteca (lib/video/sfx-library.ts; las pruebas comparan las dos listas).
+SFX_NAMES = (
+    "whoosh",
+    "whoosh_soft",
+    "swipe",
+    "swipe_up",
+    "swish",
+    "air",
+    "riser",
+    "riser_long",
+    "downlifter",
+    "reverse_hit",
+    "impact",
+    "boom",
+    "thud",
+    "punch",
+    "slam",
+    "sub_drop",
+    "pop",
+    "pop_soft",
+    "click",
+    "tap",
+    "ding",
+    "ding_double",
+    "notification",
+    "success",
+    "error",
+    "typing",
+    "switch",
+    "bubble",
+    "glitch",
+    "glitch_soft",
+    "digital",
+    "camera",
+    "shimmer",
+    "sparkle",
+    "magic",
+    "coin",
+    "cash",
+    "heartbeat",
+    "tick",
+    "record_scratch",
+)
 # Ducking: con la voz a -14 LUFS (≈ -17 dBFS RMS al hablar) la música baja unos 9 dB mientras hablas y vuelve en
 # las pausas (ataque 20 ms, salida 450 ms: sin "bombeo" entre palabras).
 DUCKING = "sidechaincompress=threshold=0.04:ratio=2:attack=20:release=450:knee=4:makeup=1"
@@ -263,7 +305,7 @@ def mix_audio(
 ) -> dict[str, Any]:
     """Voz (ya normalizada) + efectos + música con ducking. La voz no se toca: los efectos y la música van debajo.
 
-    `sfx`: [{"name": "whoosh" | "pop" | "riser", "at": segundos del inicio del archivo, "gain": dB}].
+    `sfx`: [{"name": uno de SFX_NAMES, "at": segundos del inicio del archivo, "gain": dB}].
     `music_db`: sonoridad de la música respecto del objetivo de la voz (la pista se mide y se lleva a target + db).
     El resultado pasa por un limitador a -1 dBFS que la voz sola no activa (los efectos no pueden recortar).
     """

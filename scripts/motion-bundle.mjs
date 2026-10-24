@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Empaqueta los motores para el worker (Node + skia-canvas): gráficos (lib/video/motion → worker/motion/engine.mjs) y
- * efectos (lib/video/fx/engine → worker/motion/fx-engine.mjs).
+ * efectos (lib/video/fx/engine → worker/motion/fx-engine.mjs) y música generada (lib/video/music-gen →
+ * worker/motion/music-engine.mjs).
  * El worker se construye solo con la carpeta worker/, así que el paquete se guarda en el repo: si cambias el motor,
  * corre `pnpm motion:bundle` (`--check` avisa si quedó viejo; lo usan las pruebas).
  */
@@ -22,6 +23,11 @@ const bundles = [
     entry: "lib/video/fx/engine/index.ts",
     out: "worker/motion/fx-engine.mjs",
     banner: "// Generado por scripts/motion-bundle.mjs desde lib/video/fx/engine (no lo edites a mano).",
+  },
+  {
+    entry: "lib/video/music-gen/index.ts",
+    out: "worker/motion/music-engine.mjs",
+    banner: "// Generado por scripts/motion-bundle.mjs desde lib/video/music-gen (no lo edites a mano). Música generada, licencia propia.",
   },
 ];
 let stale = false;

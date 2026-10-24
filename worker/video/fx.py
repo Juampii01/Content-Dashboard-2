@@ -38,7 +38,8 @@ FX_SCRIPT = motion.MOTION_DIR / "fx.mjs"
 FX_ENGINE = motion.MOTION_DIR / "fx-engine.mjs"
 FPS = 30
 TIMEOUT = 900
-MAX_EFFECTS = 16
+# Efectos (hasta 40) y transiciones (hasta 24) del plan.
+MAX_EFFECTS = 64
 
 
 def enabled() -> bool:

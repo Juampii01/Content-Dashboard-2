@@ -10,6 +10,7 @@
 import { z } from "zod";
 import { FPS, type VideoFormat } from "../types";
 import type { Timeline } from "../timeline";
+import { FX_INFO, isFxKind } from "./catalog";
 import { OUTPUT, type Box, type FxBrand, type FxSpec } from "./compile";
 
 export const TRANSITION_KINDS = [
@@ -74,6 +75,8 @@ export const TRANSITION_INFO: Record<TransitionKind, TransitionInfo> = {
 
 export const TRANSITION_DURATION = { min: 0.3, max: 1.2 } as const;
 export const MAX_TRANSITIONS = 24;
+/** Volumen del sonido de una transición (dB, como "Sutil" de los automáticos: bajo la voz). */
+export const TRANSITION_SOUND_GAIN = -17;
 
 export const transitionItemSchema = z.object({
   id: z.string().min(1).max(40),
@@ -207,4 +210,11 @@ export function searchTransitions(query: string): TransitionKind[] {
     const hay = plain(`${i.label} ${i.description} ${i.keywords} transicion`);
     return terms.every((t) => hay.includes(t));
   });
+}
+
+/** Nombre de lo que dibuja un spec (efecto o transición). */
+export function specLabel(kind: string): string {
+  if (isFxKind(kind)) return FX_INFO[kind].label;
+  if (isTransitionKind(kind)) return `Transición · ${TRANSITION_INFO[kind].label}`;
+  return "Efecto";
 }

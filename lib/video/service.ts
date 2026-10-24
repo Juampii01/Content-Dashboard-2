@@ -19,6 +19,9 @@ import { brollCredits, brollSegments, computeZooms, directorZooms, graphicEntrie
 import { fxSegments } from "./fx/compile";
 import { planDensity } from "./rhythm";
 import { cleanFx } from "./fx/schema";
+import { cleanTransitions, transitionSounds, TRANSITION_SOUND_GAIN } from "./fx/transitions";
+import { musicGenSchema } from "./music-gen/spec";
+import { isSfxName, type SfxName } from "./sfx-library";
 import { ensureFxMasks, fxForRender } from "./fx-service";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
@@ -31,7 +34,7 @@ import { assemblePlan, brollItemSchema, planSchemaFor, rangesFromIds, withDerive
 import { phraseFixesForRender } from "./phrase-fix-service";
 import { alignScript } from "./script-align";
 import { proofreadTranscript } from "./transcript-fix";
-import { hookEnd, MUSIC_DB, sfxCues, sfxLevel, type SfxLevel } from "./sfx";
+import { cleanSoundCues, hookEnd, MUSIC_DB, sfxCues, sfxLevel, soundCueTimes, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
 import type { ZoomMoment } from "./types";
 import type { StyleMetrics } from "./style";
@@ -370,6 +373,12 @@ export type Review = {
   moves?: PlanMove[];
   /** Efectos de la biblioteca tal como quedaron en la revisión. */
   effects?: unknown[];
+  /** Transiciones en los cortes (lib/video/fx/transitions). */
+  transitions?: unknown[];
+  /** Sonidos de la biblioteca puestos a mano en la pista de Sonido. */
+  soundCues?: unknown[];
+  /** Música generada elegida (estilo, semilla y tempo), o null para quitarla. Manda sobre `music.trackId`. */
+  musicGen?: unknown;
   /**
    * Ritmo elegido en la revisión (lib/video/rhythm.ts): la densidad y lo que el relleno de ritmo dejó en la vista
    * previa (punch-ins, pausa máxima y palabras resaltadas); los gráficos y efectos que agregó van en broll y effects.
@@ -439,6 +448,23 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const fx = cleanFx(review.effects, words.length, next.broll.filter((b) => b.choice));
     if (fx.length) next.effects = fx;
     else delete next.effects;
+  }
+  if (review.transitions) {
+    // Solo en cortes que existen con lo que quedó (el corte depende de lo cortado y del gancho).
+    const tr = cleanTransitions(review.transitions, buildTimeline(words, next, duration));
+    if (tr.length) next.transitions = tr;
+    else delete next.transitions;
+  }
+  if (review.soundCues) {
+    const cues = cleanSoundCues(review.soundCues, words.length);
+    const { cues: _c, ...audio } = next.audio;
+    void _c;
+    next.audio = cues.length ? { ...audio, cues } : audio;
+  }
+  if (review.musicGen !== undefined) {
+    const gen = review.musicGen === null ? null : musicGenSchema.safeParse(review.musicGen);
+    next.audio = { ...next.audio, music_gen: gen && gen.success ? gen.data : null };
+    if (next.audio.music_gen) next.audio.music_asset_id = null;
   }
   if (review.rhythm) {
     // Densidad elegida en la revisión: los punch-ins, la pausa máxima y los resaltados que ya se veían en la vista previa.
@@ -555,7 +581,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
   // Efectos de la biblioteca: lo que dibuja el worker (el mismo spec que la vista previa); algunos llevan sus propios
   // subtítulos y ninguno lleva zooms del estilo encima (traen su propia cámara).
-  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections });
+  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections, broll });
   const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans, ...fx.hides]);
   const noZoom = [...broll, ...fx.avoid];
   const zooms =
@@ -595,10 +621,20 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     entries: [...graphicEntries(broll), ...fxSegments(timeline, next.effects ?? []).map((f) => f.start)],
     punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
     dense: planDensity(next) === "reels",
+    // Los que puso la persona en la pista de Sonido y el de cada transición (en su corte).
+    manual: [
+      ...soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+      ...transitionSounds(fx.transitions).filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: TRANSITION_SOUND_GAIN })),
+    ],
   });
-  // Música: solo una pista lista de la biblioteca (la clave sale de la base, no del navegador).
-  const track = next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
-  const music = track?.status === "READY" ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db } : null;
+  // Música: una pista generada (la arma el worker con el mismo generador que la vista previa) o una pista lista de la
+  // biblioteca (la clave sale de la base, no del navegador).
+  const track = !next.audio.music_gen && next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
+  const music = next.audio.music_gen
+    ? { gen: next.audio.music_gen, db: next.audio.music_db }
+    : track?.status === "READY"
+      ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db, ...(track.attribution ? { attribution: track.attribution } : {}) }
+      : null;
   // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
   const phraseFixes = await phraseFixesForRender(projectId);
 

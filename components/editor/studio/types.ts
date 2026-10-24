@@ -12,7 +12,7 @@ import type { Density, RhythmScore } from "@/lib/video/rhythm";
 import type { BrollEdit } from "@/lib/video/broll-edit";
 import type { AudioPreview } from "@/lib/video/studio-audio";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
-import type { Timeline } from "@/lib/video/timeline";
+import type { PauseInfo, Timeline } from "@/lib/video/timeline";
 import type { BrollItem, BrollOption, CaptionBlock, EditPlan, RemovalReason, Word } from "@/lib/video/types";
 import type { WordSpan } from "@/lib/video/studio";
 import type { PickerTab, SignedOption } from "../broll-panel";
@@ -88,6 +88,10 @@ export type StudioApi = {
   maskMissing: Set<string>;
   masks: { pending: boolean; failed: boolean };
   reasons: Map<number, RemovalReason>;
+  /** Pausas largas entre palabras que quedan (las acortadas y las que quedan completas). */
+  pauses: PauseInfo[];
+  /** ¿Lo cortado (palabras o pausas) es distinto de la propuesta? */
+  changedFromProposal: boolean;
   styleZooms: boolean;
   showFraming: boolean;
   time: number;
@@ -118,10 +122,21 @@ export type StudioApi = {
     setGraphic: (id: string, graphic: BrollGraphic) => void;
     changeDensity: (d: Density) => void;
     pickOption: (id: string, option: SignedOption | BrollOption) => void;
-    /** Pone, cambia o quita (null) la transición de un corte (primera palabra del tramo que entra). */
-    setTransition: (word: number, patch: Partial<TransitionItem> | null) => void;
+    /**
+     * Pone, cambia o quita (null) una transición: la de un corte (primera palabra del tramo que entra) o, con `id`, una
+     * libre (en cualquier punto). Lo que la tapa se reemplaza.
+     */
+    setTransition: (word: number, patch: Partial<TransitionItem> | null, id?: string) => void;
     /** Pone o mueve un sonido para que su punto fuerte caiga en `hit` (segundos del video final). */
     placeSound: (id: string | null, name: SfxName, hit: number, gain?: number) => void;
+    /** Deja completa (o vuelve a acortar) la pausa que va antes de la palabra `word`. */
+    setPause: (word: number, keep: boolean) => void;
+    /** "Sin recortes automáticos": todas las palabras y las pausas completas. */
+    restoreAll: () => void;
+    /** Solo las pausas completas (las palabras cortadas siguen cortadas). */
+    restorePauses: () => void;
+    /** Vuelve a lo que propuso el editor (cortes y pausas). */
+    backToProposal: () => void;
   };
 };
 

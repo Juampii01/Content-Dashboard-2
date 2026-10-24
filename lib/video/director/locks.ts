@@ -145,7 +145,7 @@ export function enforceLocks(plan: EditPlan, previous: EditPlan | null, locks: R
   if (locks.pace === "fast") {
     const pause = DENSITY_TARGETS.reels.pause;
     if ((next.pacing?.long_pause ?? 0.5) > pause || next.director?.pace !== "fast") {
-      next = { ...next, pacing: { long_pause: Math.min(next.pacing?.long_pause ?? pause, pause) }, director: { version: 1, pace: "fast" } };
+      next = { ...next, pacing: { ...next.pacing, long_pause: Math.min(next.pacing?.long_pause ?? pause, pause) }, director: { version: 1, pace: "fast" } };
       restored.push("Mantuve el ritmo rápido que pediste.");
     }
   }

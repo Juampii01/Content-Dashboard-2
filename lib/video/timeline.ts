@@ -29,8 +29,23 @@ export function removedIds(plan: Pick<EditPlan, "removals">, wordCount: number):
 
 type Run = { first: number; last: number; start: number; end: number };
 
+/**
+ * Pausas que la persona dejó completas (no se recortan): todas (`keep_all`) o las que van antes de ciertas palabras
+ * (`keep`: id de la palabra que sigue a la pausa).
+ */
+export type PauseKeep = { all: boolean; keep: ReadonlySet<number> };
+
+export function pauseKeepOf(pacing: EditPlan["pacing"] | undefined): PauseKeep {
+  return { all: pacing?.keep_all === true, keep: new Set(pacing?.keep ?? []) };
+}
+
+/** Tolerancia de silencios del plan: la del estilo o el ritmo (si hay), dentro de un rango sensato. */
+export function longPauseOf(pacing: EditPlan["pacing"] | undefined): number {
+  return pacing?.long_pause ? Math.max(0.2, Math.min(1.2, pacing.long_pause)) : TIMING.longPause;
+}
+
 /** Agrupa palabras que quedan en tramos continuos y calcula sus bordes en segundos. */
-function runsFor(words: Word[], keep: (id: number) => boolean, duration: number, longPause: number = TIMING.longPause): Run[] {
+function runsFor(words: Word[], keep: (id: number) => boolean, duration: number, longPause: number = TIMING.longPause, pauses: PauseKeep = { all: false, keep: new Set() }): Run[] {
   const runs: Run[] = [];
   let current: { first: number; last: number } | null = null;
   const close = () => {
@@ -50,7 +65,9 @@ function runsFor(words: Word[], keep: (id: number) => boolean, duration: number,
       close();
       continue;
     }
-    if (current && (w.id !== current.last + 1 || w.start - words[current.last]!.end > longPause)) close();
+    // Una pausa larga se recorta (corta el tramo), salvo que la persona la haya dejado completa.
+    const longGap = current ? w.start - words[current.last]!.end > longPause && !pauses.all && !pauses.keep.has(w.id) : false;
+    if (current && (w.id !== current.last + 1 || longGap)) close();
     if (!current) current = { first: w.id, last: w.id };
     else current.last = w.id;
   }
@@ -134,8 +151,8 @@ export function buildTimeline(
   plan: Pick<EditPlan, "removals" | "hook_candidates" | "selected_hook" | "corrections" | "captions"> & Partial<Pick<EditPlan, "pacing" | "moves">>,
   duration: number,
 ): Timeline {
-  // Tolerancia de silencios: la del estilo (si hay), dentro de un rango sensato.
-  const longPause = plan.pacing?.long_pause ? Math.max(0.2, Math.min(1.2, plan.pacing.long_pause)) : TIMING.longPause;
+  const longPause = longPauseOf(plan.pacing);
+  const pauses = pauseKeepOf(plan.pacing);
   const removed = removedIds(plan, words.length);
   const hook = plan.selected_hook != null ? plan.hook_candidates[plan.selected_hook] : undefined;
   const inHook = (id: number) => Boolean(hook && id >= hook.from_word && id <= hook.to_word);
@@ -144,10 +161,10 @@ export function buildTimeline(
   const toStart = (plan.moves ?? []).some((m) => m.after_word === -1);
   const hookIsOpening = Boolean(hook && firstKept && hook.from_word <= firstKept.id && !toStart);
 
-  const hookRuns = hook && !hookIsOpening ? runsFor(words, (id) => inHook(id) && !removed.has(id), duration, longPause) : [];
+  const hookRuns = hook && !hookIsOpening ? runsFor(words, (id) => inHook(id) && !removed.has(id), duration, longPause, pauses) : [];
   const keepBody = (id: number) => !removed.has(id) && (hookIsOpening || !inHook(id));
   const sequence = plan.moves?.length ? bodySequence(words.length, plan.moves) : [[0, words.length - 1] as [number, number]];
-  const bodyClips = sequence.flatMap(([a, b]) => toClips(runsFor(words, (id) => id >= a && id <= b && keepBody(id), duration, longPause), "body"));
+  const bodyClips = sequence.flatMap(([a, b]) => toClips(runsFor(words, (id) => id >= a && id <= b && keepBody(id), duration, longPause, pauses), "body"));
   const clips = [...toClips(hookRuns, "hook"), ...bodyClips];
 
   const emphasis = new Set(plan.captions.emphasis_words);
@@ -172,6 +189,29 @@ export function buildTimeline(
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Una pausa larga entre dos palabras que quedan seguidas: cuánto dura en el original y si se recorta en el video. */
+export type PauseInfo = { word: number; gap: number; trimmed: boolean };
+
+/**
+ * Pausas largas (más que la tolerancia) entre dos palabras que quedan, una detrás de otra en el original: las que el
+ * timeline recorta y las que la persona dejó completas. `word` es la palabra que sigue a la pausa.
+ */
+export function longPauses(words: Word[], plan: Pick<EditPlan, "removals"> & Partial<Pick<EditPlan, "pacing">>): PauseInfo[] {
+  const longPause = longPauseOf(plan.pacing);
+  const pauses = pauseKeepOf(plan.pacing);
+  const removed = removedIds(plan, words.length);
+  const out: PauseInfo[] = [];
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i]!;
+    const prev = words[i - 1]!;
+    if (removed.has(w.id) || removed.has(prev.id)) continue;
+    const gap = w.start - prev.end;
+    if (gap <= longPause) continue;
+    out.push({ word: w.id, gap: round3(gap), trimmed: !pauses.all && !pauses.keep.has(w.id) });
+  }
+  return out;
+}
 
 /** Segmentos y orden en el formato del plan v2 (para guardarlo legible junto al plan). */
 export function planSegments(clips: Clip[]): { segments: PlanSegment[]; order: string[] } {

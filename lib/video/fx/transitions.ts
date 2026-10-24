@@ -5,7 +5,12 @@
  * eso correría la voz). Lo único que puede sumar es un efecto de sonido en el corte.
  *
  * El corte se identifica por la primera palabra del tramo que entra (`at_word`), así sobrevive a otros cambios del
- * plan; si ese corte desaparece (se restauró lo cortado), la transición no se dibuja. Sin servidor.
+ * plan; si ese corte desaparece (se restauró lo cortado), la transición no se dibuja.
+ *
+ * También van en cualquier punto, en medio de un plano continuo (`offset` presente): se anclan a una palabra
+ * (`at_word`) más un desfase en segundos desde su inicio en el video final, y el mismo dibujo (destello, barrido, zoom,
+ * glitch…) queda centrado en ese instante sobre el plano, igual en la vista previa y en el render. Si esa palabra se
+ * corta, va a la siguiente que queda. Sin servidor.
  */
 import { z } from "zod";
 import { FPS, type VideoFormat } from "../types";
@@ -74,6 +79,8 @@ export const TRANSITION_INFO: Record<TransitionKind, TransitionInfo> = {
 };
 
 export const TRANSITION_DURATION = { min: 0.3, max: 1.2 } as const;
+/** Desfase máximo (s) de una transición libre respecto de su palabra. */
+export const TRANSITION_OFFSET_MAX = 3;
 export const MAX_TRANSITIONS = 24;
 /** Volumen del sonido de una transición (dB, como "Sutil" de los automáticos: bajo la voz). */
 export const TRANSITION_SOUND_GAIN = -17;
@@ -81,8 +88,13 @@ export const TRANSITION_SOUND_GAIN = -17;
 export const transitionItemSchema = z.object({
   id: z.string().min(1).max(40),
   kind: z.enum(TRANSITION_KINDS),
-  /** Primera palabra del tramo que entra (el corte). */
+  /** Primera palabra del tramo que entra (el corte) o, con `offset`, la palabra donde se ancla. */
   at_word: z.number().int().min(0),
+  /**
+   * Transición en cualquier punto (no en un corte): segundos desde el inicio de `at_word` en el video final hasta el
+   * centro de la transición. Sin el campo, va en el corte.
+   */
+  offset: z.number().min(-TRANSITION_OFFSET_MAX).max(TRANSITION_OFFSET_MAX).optional(),
   duration: z.number().min(TRANSITION_DURATION.min).max(TRANSITION_DURATION.max).optional(),
   /** Con su sonido en el corte (por defecto, sí). */
   sound: z.boolean().optional(),
@@ -91,6 +103,38 @@ export const transitionItemSchema = z.object({
 });
 export type TransitionItem = z.infer<typeof transitionItemSchema>;
 export const transitionListSchema = z.array(transitionItemSchema).max(MAX_TRANSITIONS);
+
+/** ¿Va en cualquier punto (anclada a una palabra) en vez de en un corte? */
+export const isFreeTransition = (t: Pick<TransitionItem, "offset">) => t.offset != null;
+
+/** Palabra donde se ancla una transición libre: la suya o, si se cortó, la siguiente que queda. */
+function anchorWord(timeline: Pick<Timeline, "words">, at: number): { id: number; start: number } | null {
+  let best: { id: number; start: number } | null = null;
+  for (const w of timeline.words) {
+    if (w.id === at) return w;
+    if (w.id > at && (!best || w.id < best.id)) best = w;
+  }
+  return best;
+}
+
+/** Centro (s del video final) de una transición: su corte o su palabra más el desfase. null si no tiene dónde ir. */
+export function transitionCenter(timeline: Pick<Timeline, "clips" | "words" | "duration">, item: Pick<TransitionItem, "at_word" | "offset">, cuts = cutPoints(timeline)): number | null {
+  if (!isFreeTransition(item)) return cuts.find((c) => c.word === item.at_word)?.at ?? null;
+  const w = anchorWord(timeline, item.at_word);
+  if (!w) return null;
+  return Math.max(0, Math.min(timeline.duration, w.start + (item.offset ?? 0)));
+}
+
+/**
+ * Ancla para una transición libre en el segundo `t` del video final: la palabra que empieza más cerca y el desfase
+ * hasta `t` (lo que se guarda en el plan).
+ */
+export function freeAnchor(timeline: Pick<Timeline, "words">, t: number): { at_word: number; offset: number } | null {
+  let best: { id: number; start: number } | null = null;
+  for (const w of timeline.words) if (!best || Math.abs(w.start - t) < Math.abs(best.start - t)) best = w;
+  if (!best) return null;
+  return { at_word: best.id, offset: round3(Math.max(-TRANSITION_OFFSET_MAX, Math.min(TRANSITION_OFFSET_MAX, t - best.start))) };
+}
 
 /** Cortes del video final: instante (s) y primera palabra del tramo que entra. */
 export function cutPoints(timeline: Pick<Timeline, "clips">): { at: number; word: number; index: number }[] {
@@ -112,15 +156,18 @@ const snap = (t: number) => Math.round(t * FPS) / FPS;
  * Dónde se dibuja cada transición (segundos del video final): centrada en su corte, sin salirse del video, sin pisar
  * otra transición ni lo que está ocupado (`blocked`: efectos y b-roll, que llevan su propia capa).
  */
-export function transitionSegments(timeline: Pick<Timeline, "clips" | "duration">, items: TransitionItem[], blocked: { start: number; end: number }[] = []): TransitionSegment[] {
+export function transitionSegments(timeline: Pick<Timeline, "clips" | "words" | "duration">, items: TransitionItem[], blocked: { start: number; end: number }[] = []): TransitionSegment[] {
   const cuts = cutPoints(timeline);
   const out: TransitionSegment[] = [];
   const placed = items
-    .map((item) => ({ item, cut: cuts.find((c) => c.word === item.at_word) }))
-    .filter((x): x is { item: TransitionItem; cut: { at: number; word: number; index: number } } => Boolean(x.cut))
-    .sort((a, b) => a.cut.at - b.cut.at);
-  for (const { item, cut } of placed) {
+    .map((item) => ({ item, at: transitionCenter(timeline, item, cuts) }))
+    .filter((x): x is { item: TransitionItem; at: number } => x.at != null)
+    .sort((a, b) => a.at - b.at);
+  for (const { item, at } of placed) {
     const d = Math.min(TRANSITION_DURATION.max, Math.max(TRANSITION_DURATION.min, item.duration ?? TRANSITION_INFO[item.kind].duration));
+    // Una transición libre cerca del principio o del final se corre para entrar entera (su centro sigue en el video).
+    const center = isFreeTransition(item) ? Math.max(Math.min(d / 2, timeline.duration / 2), Math.min(timeline.duration - d / 2, at)) : at;
+    const cut = { at: center };
     let start = snap(Math.max(0, cut.at - d / 2));
     let end = snap(Math.min(timeline.duration, cut.at + d / 2));
     const prev = out[out.length - 1];
@@ -172,18 +219,28 @@ export function compileTransition(input: { segment: TransitionSegment; format: V
   };
 }
 
-/** Transiciones que manda el navegador: forma válida, en un corte que existe, sin repetir corte. */
-export function cleanTransitions(raw: unknown[], timeline: Pick<Timeline, "clips">): TransitionItem[] {
+/**
+ * Transiciones que manda el navegador: forma válida, sin repetir id; las de corte, en un corte que existe y una por
+ * corte; las libres, con una palabra donde anclarse.
+ */
+export function cleanTransitions(raw: unknown[], timeline: Pick<Timeline, "clips" | "words" | "duration">): TransitionItem[] {
   const cuts = new Set(cutPoints(timeline).map((c) => c.word));
   const seen = new Set<number>();
+  const ids = new Set<string>();
   const out: TransitionItem[] = [];
   for (const r of raw) {
     const p = transitionItemSchema.safeParse(r);
     if (!p.success) continue;
     const it = p.data;
-    if (!cuts.has(it.at_word) || seen.has(it.at_word)) continue;
-    seen.add(it.at_word);
-    out.push({ ...it, why: it.why?.slice(0, 300) });
+    if (ids.has(it.id)) continue;
+    if (isFreeTransition(it)) {
+      if (transitionCenter(timeline, it) == null) continue;
+    } else {
+      if (!cuts.has(it.at_word) || seen.has(it.at_word)) continue;
+      seen.add(it.at_word);
+    }
+    ids.add(it.id);
+    out.push({ ...it, ...(it.offset != null ? { offset: round3(it.offset) } : {}), why: it.why?.slice(0, 300) });
     if (out.length >= MAX_TRANSITIONS) break;
   }
   return out;

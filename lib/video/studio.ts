@@ -113,7 +113,13 @@ export function spanAround(timeline: Pick<Timeline, "words">, t: number, seconds
 export const overlaps = (a: WordSpan, b: { from_word: number; to_word: number }) => a.from <= b.to_word && b.from_word <= a.to;
 
 /** Una marca de corte en la línea de tiempo: dónde cae en el video final y qué palabras se sacaron ahí (si hay). */
-export type CutMark = { at: number; removed: WordSpan | null; kind: "corte" | "pausa" | "gancho" | "orden" };
+export type CutMark = {
+  at: number;
+  removed: WordSpan | null;
+  kind: "corte" | "pausa" | "gancho" | "orden";
+  /** Primera palabra del tramo que entra (en una pausa recortada: la palabra que sigue a la pausa). */
+  word: number;
+};
 
 /** Marcas de corte entre tramos: palabras cortadas, pausas recortadas o el salto del gancho a su lugar. */
 export function cutMarks(timeline: Pick<Timeline, "clips">, removed: Set<number>): CutMark[] {
@@ -123,7 +129,7 @@ export function cutMarks(timeline: Pick<Timeline, "clips">, removed: Set<number>
     const prev = timeline.clips[i - 1];
     if (prev) {
       const at = Math.round(acc * 1000) / 1000;
-      if (prev.role === "hook" && c.role === "body") out.push({ at, removed: null, kind: "gancho" });
+      if (prev.role === "hook" && c.role === "body") out.push({ at, removed: null, kind: "gancho", word: c.firstWord });
       else if (c.firstWord > prev.lastWord + 1) {
         let from = -1;
         let to = -1;
@@ -132,9 +138,9 @@ export function cutMarks(timeline: Pick<Timeline, "clips">, removed: Set<number>
           if (from < 0) from = id;
           to = id;
         }
-        out.push({ at, removed: from >= 0 ? { from, to } : null, kind: from >= 0 ? "corte" : "orden" });
-      } else if (c.firstWord <= prev.lastWord) out.push({ at, removed: null, kind: "orden" });
-      else out.push({ at, removed: null, kind: "pausa" });
+        out.push({ at, removed: from >= 0 ? { from, to } : null, kind: from >= 0 ? "corte" : "orden", word: c.firstWord });
+      } else if (c.firstWord <= prev.lastWord) out.push({ at, removed: null, kind: "orden", word: c.firstWord });
+      else out.push({ at, removed: null, kind: "pausa", word: c.firstWord });
     }
     acc += (c.endFrame - c.startFrame) / FPS;
   });
@@ -219,4 +225,47 @@ export function fitSpan(timeline: Pick<Timeline, "words">, t: number, seconds: n
   if (!last) return null;
   const short = snapToWords(timeline, span.start, last.end);
   return short && short.end - short.start >= min ? short : null;
+}
+
+/**
+ * Poner algo en `span` cuando ahí ya hay otra cosa: gana lo nuevo. Lo que cae entero adentro se quita, lo que lo pisa
+ * de un lado se recorta y lo que lo cruza de lado a lado se parte en dos (`reshape` arma cada pedazo: id nuevo para
+ * el de la derecha, bordes, etc.). Los pedazos que ya no valen (`valid`, por ejemplo más cortos que el mínimo) se
+ * quitan. `skip`: lo que no se toca (lo que se está moviendo). Devuelve lo que queda y lo que se reemplazó.
+ */
+export function carveSpan<T extends { from_word: number; to_word: number }>(
+  items: T[],
+  span: WordSpan,
+  opts: { skip?: (item: T) => boolean; reshape?: (item: T, from: number, to: number, side: "left" | "right") => T; valid?: (item: T) => boolean } = {},
+): { items: T[]; replaced: T[] } {
+  const reshape = opts.reshape ?? ((item: T, from: number, to: number) => ({ ...item, from_word: from, to_word: to }));
+  const valid = opts.valid ?? (() => true);
+  const out: T[] = [];
+  const replaced: T[] = [];
+  for (const item of items) {
+    if (opts.skip?.(item) || !overlaps(span, item)) {
+      out.push(item);
+      continue;
+    }
+    replaced.push(item);
+    if (item.from_word < span.from) {
+      const left = reshape(item, item.from_word, span.from - 1, "left");
+      if (valid(left)) out.push(left);
+    }
+    if (item.to_word > span.to) {
+      const right = reshape(item, span.to + 1, item.to_word, "right");
+      if (valid(right)) out.push(right);
+    }
+  }
+  return { items: out.sort((a, b) => a.from_word - b.from_word), replaced };
+}
+
+/** "«A»", "«A» y «B»" o "«A», «B» y 2 más" para el aviso de lo reemplazado. */
+export function replacedLabel(labels: string[]): string {
+  const uniq = [...new Set(labels)];
+  if (!uniq.length) return "";
+  const q = (s: string) => `«${s}»`;
+  if (uniq.length === 1) return q(uniq[0]!);
+  if (uniq.length === 2) return `${q(uniq[0]!)} y ${q(uniq[1]!)}`;
+  return `${q(uniq[0]!)}, ${q(uniq[1]!)} y ${uniq.length - 2} más`;
 }

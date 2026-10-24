@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
+import type { PauseInfo } from "@/lib/video/timeline";
 import type { RemovalReason, Word } from "@/lib/video/types";
 import { reasonLabel } from "./labels";
 
@@ -35,6 +36,8 @@ export function TranscriptEditor({
   activeBroll = null,
   onBrollClick,
   extraActions,
+  pauses,
+  onPause,
 }: {
   words: Word[];
   removed: Set<number>;
@@ -54,6 +57,10 @@ export function TranscriptEditor({
   onBrollClick?: (id: string) => void;
   /** Botones extra para la selección (por ejemplo "Poner b-roll aquí"). */
   extraActions?: (range: Range, clear: () => void) => ReactNode;
+  /** Pausas largas (antes de la palabra `word`): las que se acortan y las que quedan completas. */
+  pauses?: PauseInfo[];
+  /** Deja una pausa completa (`keep`) o vuelve a acortarla. */
+  onPause?: (word: number, keep: boolean) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(0);
@@ -254,6 +261,8 @@ export function TranscriptEditor({
           brollMarks={brollMarks}
           activeBroll={activeBroll}
           onBrollClick={onBrollClick}
+          pauses={pauses}
+          onPause={onPause}
         />
       </div>
 
@@ -317,6 +326,8 @@ const WordList = memo(function WordList({
   brollMarks,
   activeBroll,
   onBrollClick,
+  pauses,
+  onPause,
 }: {
   words: Word[];
   removed: Set<number>;
@@ -334,14 +345,44 @@ const WordList = memo(function WordList({
   brollMarks: BrollMark[];
   activeBroll: string | null;
   onBrollClick?: (id: string) => void;
+  pauses?: PauseInfo[];
+  onPause?: (word: number, keep: boolean) => void;
 }) {
   const nodes = useMemo(() => {
     const out: ReactNode[] = [];
+    const pauseAt = new Map((pauses ?? []).map((p) => [p.word, p]));
     for (let i = 0; i < words.length; i++) {
       const w = words[i]!;
       const prev = words[i - 1];
       const cut = removed.has(w.id);
-      if (prev && w.start - prev.end >= 0.6) {
+      const pause = pauses ? pauseAt.get(w.id) : undefined;
+      if (pause) {
+        const len = `${pause.gap.toFixed(1).replace(".", ",")} s`;
+        out.push(
+          <span
+            key={`p${w.id}`}
+            data-pause={w.id}
+            data-trimmed={pause.trimmed ? "1" : "0"}
+            className={cn(
+              "mx-1 inline-flex items-center gap-1 rounded-md border py-px pr-0.5 pl-1.5 align-middle font-mono text-[10px] leading-5",
+              pause.trimmed ? "border-white/10 bg-white/[0.04] text-placeholder" : "border-accent-hi/40 bg-accent/15 text-accent-glow",
+            )}
+            title={pause.trimmed ? `Pausa de ${len}: en el video final se acorta` : `Pausa de ${len}: queda completa en el video`}
+          >
+            ⏸ {len} {pause.trimmed ? "acortada" : "completa"}
+            {canEdit && onPause && (
+              <button
+                type="button"
+                onClick={() => onPause(w.id, pause.trimmed)}
+                className="rounded px-1 font-sans text-[10px] font-semibold text-accent-hi transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-accent-hi"
+                aria-label={pause.trimmed ? `Dejar la pausa completa (${len})` : `Volver a acortar la pausa (${len})`}
+              >
+                {pause.trimmed ? "Dejar completa" : "Acortar"}
+              </button>
+            )}
+          </span>,
+        );
+      } else if (!pauses && prev && w.start - prev.end >= 0.6) {
         out.push(
           <span key={`p${w.id}`} className="mx-1 inline-flex items-center rounded-md bg-white/[0.04] px-1.5 align-middle font-mono text-[10px] leading-5 text-placeholder" title="Esta pausa se acorta sola en el video final">
             ⏸ {(w.start - prev.end).toFixed(1)} s
@@ -434,7 +475,7 @@ const WordList = memo(function WordList({
       out.push(" ");
     }
     return out;
-  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onWordDoubleClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick]);
+  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onWordDoubleClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick, pauses, onPause]);
   return <>{nodes}</>;
 });
 

@@ -142,14 +142,15 @@ describe("director", () => {
     assert.ok(res.dropped.some((d) => d.includes("No repetí")));
   });
 
-  test("transiciones con moderación: en cortes reales, separadas, sin repetir seguidas y nunca sobre lo ocupado", () => {
+  test("transiciones con moderación: en cortes reales o libres sobre el plano, separadas, sin repetir seguidas y nunca sobre lo ocupado", () => {
     assert.equal(transitionBudget("ninguno", 60), 0);
     assert.equal(transitionBudget("pocos", 120), 1);
     assert.ok(transitionBudget("muchos", 60) <= 8);
     const cuts = cutPoints(timeline);
     const wire = cuts.map((c) => ({ at_word: c.word, kind: "tr_whip" as const, why: "x" }));
     const res = transitionsFromWire([...wire, { at_word: 1, kind: "tr_flash", why: "sin corte" }], { timeline, limits: { ...limits, transitions: 10 }, blocked: [] });
-    assert.ok(res.items.every((t) => cuts.some((c) => c.word === t.at_word)), "solo en cortes");
+    // En un corte o, sin corte, libre en el inicio de su palabra (offset 0).
+    assert.ok(res.items.every((t) => (t.offset == null ? cuts.some((c) => c.word === t.at_word) : t.offset === 0 && !cuts.some((c) => c.word === t.at_word))), "en cortes o libres");
     for (let i = 1; i < res.items.length; i++) assert.notEqual(res.items[i]!.kind, res.items[i - 1]!.kind, "no la misma seguida");
     const blocked = transitionsFromWire(wire, { timeline, limits: { ...limits, transitions: 10 }, blocked: [{ start: 0, end: timeline.duration }] });
     assert.equal(blocked.items.length, 0);

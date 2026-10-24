@@ -137,10 +137,12 @@ function SelectionInspector({ api, sel }: { api: StudioApi; sel: StudioSelection
       return <ClipInspector api={api} index={sel.index} onClose={close} />;
     case "cut":
       return <CutInspector api={api} from={sel.from} to={sel.to} onClose={close} />;
+    case "pause":
+      return <PauseInspector api={api} word={sel.word} onClose={close} />;
     case "range":
       return <RangeInspector api={api} from={sel.from} to={sel.to} onClose={close} />;
     case "transition":
-      return <TransitionInspector api={api} word={sel.word} onClose={close} />;
+      return <TransitionInspector api={api} word={sel.word} id={sel.id} onClose={close} />;
     case "sound":
       return <SoundInspector api={api} id={sel.id} onClose={close} />;
     case "audio":
@@ -539,6 +541,72 @@ function CutInspector({ api, from, to, onClose }: { api: StudioApi; from: number
   );
 }
 
+/** Una pausa larga: cuánto dura, si se acorta y el botón para dejarla completa (o volver a acortarla). */
+function PauseInspector({ api, word, onClose }: { api: StudioApi; word: number; onClose: () => void }) {
+  const pause = api.pauses.find((p) => p.word === word);
+  if (!pause) return <Gone onClose={onClose} />;
+  const edit = api.props.canEdit;
+  const kept = api.timeline.words.find((w) => w.id === word);
+  return (
+    <>
+      <Header eyebrow="Pausa" title={pause.trimmed ? "Pausa acortada" : "Pausa completa"} onClose={onClose}>
+        <p className="mt-0.5 text-xs text-muted">Entre «{api.textOf(Math.max(0, word - 4), Math.max(0, word - 1), 40)}» y «{api.textOf(word, word + 3, 40)}».</p>
+      </Header>
+      <div className="flex flex-col gap-3 p-4">
+        <p className="text-sm text-text">
+          En tu grabación dura <span className="font-semibold text-white">{secondsLabel(pause.gap)}</span>.{" "}
+          {pause.trimmed ? "En el video final se acorta para que no quede un silencio largo." : "Queda completa en el video final."}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {edit && (
+            <Button size="sm" variant={pause.trimmed ? "primary" : "ghost"} icon={pause.trimmed ? <Undo2 className="h-3.5 w-3.5" aria-hidden /> : <Scissors className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.setPause(word, pause.trimmed)}>
+              {pause.trimmed ? "Dejar la pausa completa" : "Volver a acortarla"}
+            </Button>
+          )}
+          <Button size="sm" variant="subtle" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(Math.max(0, (kept?.start ?? 0) - 2), true)}>
+            Escuchar cómo queda
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Lo que el editor sacó del video (palabras y pausas), con los botones para restaurarlo todo o volver a la propuesta. */
+function TrimsGroup({ api }: { api: StudioApi }) {
+  const edit = api.props.canEdit;
+  const trimmed = api.pauses.filter((p) => p.trimmed);
+  const words = api.removedSet.size;
+  const nothing = words === 0 && trimmed.length === 0;
+  return (
+    <Group title="Recortes" icon={<Scissors className="h-4 w-4" aria-hidden />}>
+      <p className="text-sm text-text" data-testid="trims-status">
+        {nothing
+          ? "Sin recortes: el video queda como lo grabaste."
+          : `${formatNumber(words)} ${words === 1 ? "palabra cortada" : "palabras cortadas"} · ${formatNumber(trimmed.length)} ${trimmed.length === 1 ? "pausa acortada" : "pausas acortadas"}.`}
+      </p>
+      <p className="text-xs text-muted">Toca una marca de corte (roja) o de pausa (⏸) en la pista de video para restaurarla, o hazlo desde la Transcripción.</p>
+      {edit && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.restoreAll} disabled={nothing} data-testid="restore-all">
+            Sin recortes automáticos
+          </Button>
+          {trimmed.length > 0 && (
+            <Button size="sm" variant="subtle" onClick={api.actions.restorePauses}>
+              Dejar todas las pausas
+            </Button>
+          )}
+          {api.changedFromProposal && (
+            <Button size="sm" variant="subtle" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.backToProposal} data-testid="back-to-proposal">
+              Volver a la propuesta
+            </Button>
+          )}
+        </div>
+      )}
+    </Group>
+  );
+}
+
 function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: number; to: number; onClose: () => void }) {
   const range = outputRange(api.timeline, from, to);
   const span = { from, to };
@@ -569,7 +637,7 @@ function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: numb
               Poner un efecto aquí
             </Button>
           )}
-          {edit && !api.styleZooms && (
+          {edit && (
             <Button size="sm" variant="ghost" icon={<ZoomIn className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.addZoom(span)}>
               Poner un zoom aquí
             </Button>
@@ -588,27 +656,41 @@ function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: numb
   );
 }
 
-/** Un corte: su transición (o el lugar para poner una), cuánto dura y si suena. */
-function TransitionInspector({ api, word, onClose }: { api: StudioApi; word: number; onClose: () => void }) {
+/**
+ * Una transición: la de un corte (o el lugar para poner una) o una libre, sobre el plano en cualquier instante. Cuál es,
+ * cuánto dura y si suena.
+ */
+function TransitionInspector({ api, word, id, onClose }: { api: StudioApi; word: number; id?: string; onClose: () => void }) {
+  const item = (id ? api.state.transitions.find((t) => t.id === id) : api.state.transitions.find((t) => t.at_word === word && t.offset == null)) ?? null;
   const cut = api.cutList.find((c) => c.word === word);
-  if (!cut) return <Gone onClose={onClose} />;
-  const item = api.state.transitions.find((t) => t.at_word === word) ?? null;
-  const drawn = api.trSegs.some((t) => t.item.at_word === word);
+  const seg = item ? api.trSegs.find((t) => t.item.id === item.id) : null;
+  const free = Boolean(item && item.offset != null);
+  if (id ? !item : !cut) return <Gone onClose={onClose} />;
+  const at = seg?.cut ?? cut?.at ?? 0;
+  const drawn = Boolean(seg);
   const edit = api.props.canEdit;
   const info = item ? TRANSITION_INFO[item.kind] : null;
   const dur = item?.duration ?? info?.duration ?? 0.5;
+  const set = (patch: Parameters<StudioApi["actions"]["setTransition"]>[1]) => api.actions.setTransition(word, patch, item?.id);
+  const selNow = { kind: "transition" as const, word, ...(free && item ? { id: item.id } : {}) };
   return (
     <>
-      <Header eyebrow={`Corte en ${timeLabel(cut.at)}`} title={info ? info.label : "Sin transición"} onClose={onClose}>
-        <p className="mt-0.5 text-xs text-muted">Entre «{api.textOf(Math.max(0, word - 4), Math.max(0, word - 1), 40)}» y «{api.textOf(word, word + 3, 40)}».</p>
+      <Header eyebrow={free ? `Transición en ${timeLabel(at)}` : `Corte en ${timeLabel(at)}`} title={info ? info.label : "Sin transición"} onClose={onClose}>
+        {free ? (
+          <p className="mt-0.5 text-xs text-muted">Sobre el plano, con «{api.textOf(word, word + 3, 40)}».</p>
+        ) : (
+          <p className="mt-0.5 text-xs text-muted">Entre «{api.textOf(Math.max(0, word - 4), Math.max(0, word - 1), 40)}» y «{api.textOf(word, word + 3, 40)}».</p>
+        )}
       </Header>
       <div className="flex flex-col gap-3 p-4">
-        {item && item.source === "director" && <AiNote api={api} why={item.why} sel={{ kind: "transition", word }} />}
-        {item && !drawn && <Notice tone="warning">Esta transición no se ve: en el corte hay un b-roll o un efecto. Muévelo o quítalo para que aparezca.</Notice>}
-        <p className="text-xs text-muted">La transición tapa el corte con imagen: tu voz no se corre ni se pisa.</p>
+        {item && item.source === "director" && <AiNote api={api} why={item.why} sel={selNow} />}
+        {item && !drawn && <Notice tone="warning">Esta transición no se ve ahora: arrástrala un poco o vuelve a elegirla para que reemplace lo que la tapa.</Notice>}
+        <p className="text-xs text-muted">
+          {free ? "Va centrada en ese instante, encima del plano: arrástrala en la pista de efectos para moverla a cualquier punto." : "La transición tapa el corte con imagen: tu voz no se corre ni se pisa."}
+        </p>
         <div aria-label="Transiciones" className="grid grid-cols-3 gap-1.5">
           {TRANSITION_GALLERY_ORDER.map((k) => (
-            <TransitionTile key={k} kind={k} brand={api.fxBrand} selected={item?.kind === k} onPick={edit ? () => api.actions.setTransition(word, { kind: k }) : undefined} />
+            <TransitionTile key={k} kind={k} brand={api.fxBrand} selected={item?.kind === k} onPick={edit ? () => set({ kind: k }) : undefined} />
           ))}
         </div>
         {item && (
@@ -625,7 +707,7 @@ function TransitionInspector({ api, word, onClose }: { api: StudioApi; word: num
               step={0.05}
               value={dur}
               disabled={!edit}
-              onChange={(e) => api.actions.setTransition(word, { duration: Number(e.target.value) })}
+              onChange={(e) => set({ duration: Number(e.target.value) })}
               style={{ ["--pct" as string]: `${((dur - TRANSITION_DURATION.min) / (TRANSITION_DURATION.max - TRANSITION_DURATION.min)) * 100}%` }}
             />
             {info && info.sound !== "none" && (
@@ -634,17 +716,17 @@ function TransitionInspector({ api, word, onClose }: { api: StudioApi; word: num
                   <span className="text-sm text-text">Con su sonido</span>
                   <span className="text-xs text-muted">{SFX_LIBRARY[info.sound as SfxName]?.label ?? "Sonido"} justo en el corte, bajo tu voz.</span>
                 </span>
-                <input type="checkbox" className="h-4 w-4 flex-none accent-[#0070f8]" checked={item.sound !== false} disabled={!edit} onChange={(e) => api.actions.setTransition(word, { sound: e.target.checked })} />
+                <input type="checkbox" className="h-4 w-4 flex-none accent-[#0070f8]" checked={item.sound !== false} disabled={!edit} onChange={(e) => set({ sound: e.target.checked })} />
               </label>
             )}
           </>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="subtle" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(Math.max(0, cut.at - 1), true)}>
-            Ver el corte
+          <Button size="sm" variant="subtle" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(Math.max(0, at - 1), true)}>
+            {free ? "Verla" : "Ver el corte"}
           </Button>
           {item && edit && (
-            <Button size="sm" variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.setTransition(word, null)}>
+            <Button size="sm" variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => set(null)}>
               Quitar la transición
             </Button>
           )}
@@ -752,6 +834,7 @@ function GlobalInspector({ api }: { api: StudioApi }) {
       <Header eyebrow="Ajustes del video" title="Todo el video">
         <p className="mt-0.5 text-xs text-muted">Elige algo en la línea de tiempo para editarlo. Aquí ajustas lo que vale para todo el video.</p>
       </Header>
+      <TrimsGroup api={api} />
       <Group title="Formato y encuadre" icon={<RotateCcw className="h-4 w-4" aria-hidden />}>
         <SegmentedControl
           label="Formato"

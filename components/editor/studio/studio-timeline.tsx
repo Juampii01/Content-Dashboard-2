@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { AudioLines, Captions, Clapperboard, Film, Scissors, Sparkles, ZoomIn } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Film, Pause, Scissors, Sparkles, ZoomIn } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 import { clampDrag, secondsLabel, timeLabel, type CutMark, type SnappedSpan } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
@@ -16,10 +16,12 @@ export type StudioSelection =
   | { kind: "caption"; index: number }
   | { kind: "clip"; index: number }
   | { kind: "cut"; at: number; from: number; to: number }
+  /** Una pausa larga (antes de la palabra `word`): acortada o completa. */
+  | { kind: "pause"; word: number }
   | { kind: "range"; from: number; to: number }
   | { kind: "audio" }
   /** Un corte del video final (la primera palabra del tramo que entra): su transición o el lugar para poner una. */
-  | { kind: "transition"; word: number }
+  | { kind: "transition"; word: number; id?: string }
   /** Un sonido puesto a mano en la pista de Sonido. */
   | { kind: "sound"; id: string };
 
@@ -35,12 +37,14 @@ export function selectionKey(sel: StudioSelection | null): string | null {
       return `${sel.kind}:${sel.index}`;
     case "cut":
       return `cut:${sel.from}`;
+    case "pause":
+      return `pause:${sel.word}`;
     case "range":
       return `range:${sel.from}-${sel.to}`;
     case "audio":
       return "audio";
     case "transition":
-      return `transition:${sel.word}`;
+      return sel.id ? `transition:${sel.id}` : `transition:${sel.word}`;
     case "sound":
       return `sound:${sel.id}`;
   }
@@ -65,6 +69,8 @@ export type TimelineBlock = {
   max?: number;
   /** B-roll sin clip elegido (no sale en el video). */
   empty?: boolean;
+  /** Se mueve en segundos, sin imán a las palabras (una transición en cualquier punto). */
+  free?: boolean;
   selection: StudioSelection;
   thumb?: string | null;
 };
@@ -147,7 +153,10 @@ export function StudioTimeline({
   selection: StudioSelection | null;
   /** Tramo elegido en la pista de video (en segundos), si hay. */
   range: { start: number; end: number } | null;
-  /** Lo que no se puede pisar en cada pista además de sus propios bloques (un tramo lleva b-roll o efecto). */
+  /**
+   * Lo que hay en otras pistas y se reemplaza si se suelta algo encima (un tramo lleva b-roll o efecto): no bloquea,
+   * solo se avisa en la etiqueta del arrastre.
+   */
   obstacles: Partial<Record<TrackKey, { start: number; end: number; label: string }[]>>;
   /** Resuelve un tramo a palabras (null si no se puede poner ahí). Con bloque: aplica sus reglas (duración). */
   snap: (t0: number, t1: number, block: TimelineBlock | null) => SnappedSpan | null;
@@ -257,19 +266,19 @@ export function StudioTimeline({
     if (!dr.moved && Math.abs(dx) < 4) return;
     dr.moved = true;
     if (!canEdit || !dr.block.editable) return;
+    // Se suelta en cualquier lado: lo que queda debajo se reemplaza (el Estudio lo recorta o lo quita, con Deshacer).
     const own = blocks.filter((b) => b.track === dr.block.track && b.key !== dr.block.key);
     const cross = obstacles[dr.block.track] ?? [];
-    const raw = clampDrag({ mode: dr.mode, start: dr.block.start, end: dr.block.end, delta: dx / pps, duration: d, obstacles: [...own, ...cross], min: dr.block.min, max: dr.block.max });
-    const span = snap(raw.start, raw.end, dr.block);
-    // Si el imán cae encima de un vecino, no vale (queda donde estaba).
-    const hit = span ? [...own, ...cross].find((o) => span.start < o.end - 0.02 && o.start < span.end - 0.02) : null;
-    const blocker = cross.find((o) => (dr.mode !== "start" && Math.abs(raw.end - o.start) < 0.05) || (dr.mode !== "end" && Math.abs(raw.start - o.end) < 0.05));
+    const raw = clampDrag({ mode: dr.mode, start: dr.block.start, end: dr.block.end, delta: dx / pps, duration: d, obstacles: [], min: dr.block.min, max: dr.block.max });
+    const span = dr.block.free ? { from: 0, to: 0, start: raw.start, end: raw.end } : snap(raw.start, raw.end, dr.block);
+    const under = span ? [...own.filter((o) => o.track !== "audio"), ...cross].filter((o) => span.start < o.end - 0.02 && o.start < span.end - 0.02) : [];
+    const names = [...new Set(under.map((o) => o.label))];
     setGhost({
       key: dr.block.key,
       start: span?.start ?? raw.start,
       end: span?.end ?? raw.end,
-      span: hit ? null : span,
-      note: hit ? "Ahí ya hay otro bloque." : blocker ? `${blocker.label}: un tramo lleva b-roll o efecto, no los dos.` : !span ? "No se puede poner ahí." : null,
+      span,
+      note: !span ? "No se puede poner ahí." : names.length ? `Reemplaza ${names.length > 2 ? `«${names[0]}» y ${names.length - 1} más` : names.map((n) => `«${n}»`).join(" y ")}` : null,
     });
   }
   function onBlockUp(e: ReactPointerEvent<HTMLElement>) {
@@ -522,13 +531,40 @@ export function StudioTimeline({
                         <span className="block h-full w-0.5 rounded bg-danger" />
                         <Scissors className="absolute top-0.5 h-2.5 w-2.5" aria-hidden />
                       </button>
+                    ) : c.kind === "pausa" ? (
+                      <button
+                        key={`c${c.at}`}
+                        type="button"
+                        data-pause-mark={c.word}
+                        className={cn("group/pause absolute top-0 bottom-0 z-10 grid w-3 -translate-x-1/2 place-items-center outline-none", selKey === `pause:${c.word}` && "z-20")}
+                        style={{ left: x(c.at) }}
+                        aria-label={`Pausa acortada en ${timeLabel(c.at)}: dejarla completa`}
+                        title="Pausa acortada: tócala para dejarla completa"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelect({ kind: "pause", word: c.word });
+                          onSeek(Math.max(0, c.at - 0.6));
+                        }}
+                      >
+                        <span className={cn("block h-full w-0.5 rounded bg-white/45 transition group-hover/pause:bg-accent-hi group-focus-visible/pause:bg-accent-hi", selKey === `pause:${c.word}` && "bg-white")} />
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "absolute top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full border border-white/45 bg-[#040d2c] text-white/80 transition group-hover/pause:scale-125 group-hover/pause:border-accent-hi group-hover/pause:text-accent-glow group-focus-visible/pause:border-accent-hi",
+                            selKey === `pause:${c.word}` && "border-white text-white",
+                          )}
+                        >
+                          <Pause className="h-2 w-2" />
+                        </span>
+                      </button>
                     ) : (
                       <span
                         key={`c${c.at}`}
                         aria-hidden
                         className={cn("pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 -translate-x-1/2 rounded", c.kind === "gancho" ? "bg-accent-glow" : "bg-white/30")}
                         style={{ left: x(c.at) }}
-                        title={c.kind === "gancho" ? "Aquí termina el gancho y sigue el video" : c.kind === "orden" ? "Aquí sigue un bloque movido" : "Pausa recortada"}
+                        title={c.kind === "gancho" ? "Aquí termina el gancho y sigue el video" : "Aquí sigue un bloque movido"}
                       />
                     ),
                   )}

@@ -13,10 +13,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { initialStudioState, toReview, type StudioState } from "../components/editor/studio/use-studio-state";
-import { rangesFromIds } from "../lib/video/plan";
+import { initialStudioState, studioTimelineInput, toReview, withPause, type StudioState } from "../components/editor/studio/use-studio-state";
 import { applyReview, previewMismatch } from "../lib/video/review";
-import { buildTimeline } from "../lib/video/timeline";
+import { buildTimeline, longPauses } from "../lib/video/timeline";
 import type { EditPlan, Word } from "../lib/video/types";
 import { SYNC_DURATION, syncFixture, syncPlan, syncRenderInput, syncWords } from "./video-sync-case";
 
@@ -36,19 +35,7 @@ test("el caso arranca con el gancho y tiene pausas acortadas y un bloque movido"
 
 /** El timeline de la vista previa, como lo arma components/editor/studio/studio.tsx. */
 function previewTimeline(words: Word[], plan: EditPlan, s: StudioState, duration: number) {
-  return buildTimeline(
-    words,
-    {
-      removals: rangesFromIds(s.removed, plan.removals),
-      hook_candidates: plan.hook_candidates,
-      selected_hook: s.selectedHook,
-      corrections: s.corrections,
-      captions: { preset: s.preset, emphasis_words: s.emphasis },
-      pacing: s.pacing,
-      moves: s.moves,
-    },
-    duration,
-  );
+  return buildTimeline(words, studioTimelineInput(plan, s), duration);
 }
 
 function previewOf(plan: EditPlan, s: StudioState, timeline: ReturnType<typeof buildTimeline>) {
@@ -89,6 +76,13 @@ test("la vista previa del Estudio y el render arman los mismos tramos", () => {
       pacing: { long_pause: [0.3, 0.35, 0.5, 0.8][ri(0, 3)]! },
       rhythmTouched: true,
     };
+    // Pausas que se dejan completas (algunas, todas o ninguna), como las deja la persona en el Estudio.
+    const mode = ri(0, 3);
+    if (mode === 3) s.pauses = { keep: [], all: true };
+    else if (mode > 0) {
+      const list = longPauses(words, { removals: plan.removals, pacing: s.pacing }).map((p) => p.word);
+      s.pauses = { keep: list.filter(() => r() < 0.4), all: false };
+    }
     const preview = previewTimeline(words, plan, s, SYNC_DURATION);
     const review = { ...toReview(s, { plan, hasStyle: false, trackIds: [] }), preview: previewOf(plan, s, preview) };
     const next = applyReview(plan, review, words, SYNC_DURATION, "9:16");
@@ -156,3 +150,44 @@ test("buildTimeline no pierde ni repite palabras que quedan (gancho, bloques mov
 });
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+test("las pausas que dejas completas salen completas en la vista previa y en el render", () => {
+  const words = syncWords();
+  const plan = syncPlan();
+  const s0 = initialStudioState(plan, words.length);
+  const pauses = longPauses(words, studioTimelineInput(plan, s0));
+  const trimmed = pauses.filter((p) => p.trimmed);
+  assert.ok(trimmed.length >= 3, "el caso tiene pausas acortadas");
+  const before = previewTimeline(words, plan, s0, SYNC_DURATION);
+
+  // Una pausa completa: un tramo menos y el video dura lo que duraba la pausa de más.
+  const one = withPause(s0, trimmed[0]!.word, true);
+  const t1 = previewTimeline(words, plan, one, SYNC_DURATION);
+  assert.ok(t1.clips.length < before.clips.length);
+  assert.ok(t1.duration > before.duration + trimmed[0]!.gap - 0.5);
+  assert.equal(longPauses(words, studioTimelineInput(plan, one)).find((p) => p.word === trimmed[0]!.word)?.trimmed, false);
+
+  // "Sin recortes automáticos": ninguna pausa acortada ni palabra cortada; el video dura como el original (sin el gancho movido).
+  const all: StudioState = { ...s0, removed: [], pauses: { keep: [], all: true }, selectedHook: null, moves: [] };
+  const tAll = previewTimeline(words, { ...plan, moves: [] }, all, SYNC_DURATION);
+  assert.equal(tAll.clips.length, 1, "un solo tramo: el video como se grabó");
+  assert.equal(longPauses(words, studioTimelineInput(plan, all)).filter((p) => p.trimmed).length, 0);
+
+  // Volver a acortar una con "todas" puesto: las demás siguen completas.
+  const back = withPause(all, trimmed[1]!.word, false, pauses.map((p) => p.word));
+  assert.equal(back.pauses.all, false);
+  assert.ok(!back.pauses.keep.includes(trimmed[1]!.word));
+  assert.ok(back.pauses.keep.includes(trimmed[0]!.word));
+
+  // Lo mismo en el render (applyReview) y se guarda en el plan.
+  for (const st of [one, all, back]) {
+    const p = st === all ? { ...plan, moves: [] } : plan;
+    const preview = previewTimeline(words, p, st, SYNC_DURATION);
+    const review = { ...toReview(st, { plan: p, hasStyle: false, trackIds: [] }), preview: previewOf(p, st, preview) };
+    const next = applyReview(p, review, words, SYNC_DURATION, "9:16");
+    const render = buildTimeline(words, next, SYNC_DURATION);
+    assert.equal(previewMismatch(review.preview, next, render), null);
+    // Al volver a abrir el Estudio con el plan guardado, las pausas siguen igual.
+    assert.deepEqual(initialStudioState(next, words.length).pauses, { keep: [...st.pauses.keep].filter((id) => id > 0).sort((a, b) => a - b), all: st.pauses.all });
+  }
+});

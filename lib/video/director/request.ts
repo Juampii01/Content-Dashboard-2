@@ -719,8 +719,8 @@ export function enforceRequest(plan0: EditPlan, req: ParsedRequest | null | unde
     plan = rest;
     done.push("Quité todos los efectos.");
   }
-  if (o.pace === "fast" && (plan.pacing?.long_pause ?? 0.5) > 0.3) plan = { ...plan, pacing: { long_pause: 0.3 }, director: { version: 1, pace: "fast" } };
-  if (o.pace === "calm" && (plan.pacing?.long_pause ?? 0.5) < 0.65) plan = { ...plan, pacing: { long_pause: 0.7 }, director: { version: 1, pace: "calm" } };
+  if (o.pace === "fast" && (plan.pacing?.long_pause ?? 0.5) > 0.3) plan = { ...plan, pacing: { ...plan.pacing, long_pause: 0.3 }, director: { version: 1, pace: "fast" } };
+  if (o.pace === "calm" && (plan.pacing?.long_pause ?? 0.5) < 0.65) plan = { ...plan, pacing: { ...plan.pacing, long_pause: 0.7 }, director: { version: 1, pace: "calm" } };
   if (o.density && plan.rhythm?.density !== o.density) plan = { ...plan, rhythm: { density: o.density, added: plan.rhythm?.added ?? [] } };
 
   // Lo que pidió conservar vuelve si quedó cortado.

@@ -165,6 +165,8 @@ const reviewSchema = z.object({
   captionPlace: z.object({ transform: z.unknown().optional(), lines: z.unknown().optional() }).optional(),
   // Tramos sin subtítulos (los que quitó la persona y los del director que siguen en pie).
   captionHide: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(60).optional(),
+  // Pausas que la persona dejó completas (id de la palabra que sigue a la pausa) o todas ("Sin recortes automáticos").
+  pauses: z.object({ keep: z.array(z.number().int().min(0)).max(5000), all: z.boolean() }).optional(),
   rhythm: z
     .object({
       density: z.enum(["sobria", "normal", "reels"]),

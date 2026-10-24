@@ -5,15 +5,15 @@ import { Layers, Loader2, PenLine, Play, Scissors, Sparkles, Trash2, UserRound, 
 import { Button } from "@/components/ui/button";
 import { Dialog, Sheet } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
-import { usePrefersReducedMotion } from "@/components/ui/hooks";
 import { formatDuration } from "@/lib/format";
-import { FX_GALLERY_ORDER, FX_INFO, type FxKind } from "@/lib/video/fx/catalog";
+import { FX_INFO, type FxKind } from "@/lib/video/fx/catalog";
 import type { FxBrand, FxSegment } from "@/lib/video/fx/compile";
 import { demoDuration, demoSpec, FX_DEMO } from "@/lib/video/fx/demo";
 import type { FxItem } from "@/lib/video/fx/schema";
 import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { FxDemoCanvas, useImages } from "./fx-canvas";
+import { FxLibraryGrid } from "./fx-library";
 
 /** Reloj compartido de las muestras: corre solo si se ven y si no se pidió reducir movimiento. */
 export function useLoop(active: boolean, reduced: boolean): number {
@@ -91,18 +91,15 @@ export function Badges({ kind }: { kind: FxKind }) {
 }
 
 /**
- * Galería de los 17 efectos: muestras en bucle (como las de subtítulos). Con un tramo elegido, tocar uno lo agrega ahí;
- * sin tramo, sirve para conocerlos.
+ * Galería de los 100 efectos (categorías, buscador y muestras que se animan al pasar el mouse). Con un tramo elegido,
+ * tocar uno lo agrega ahí; sin tramo, sirve para conocerlos.
  */
 export function FxGallery({ open, onClose, brand, onPick, rangeText, current }: { open: boolean; onClose: () => void; brand: FxBrand; onPick: ((kind: FxKind) => void) | null; rangeText: string | null; current?: FxKind | null }) {
-  const reduced = usePrefersReducedMotion();
-  const [ref, inView] = useInView<HTMLDivElement>();
-  const clock = useLoop(open && inView, reduced);
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => !o && onClose()}
-      title={onPick ? (current ? "Cambiar el efecto" : "Elige un efecto") : "Efectos de firma"}
+      title={onPick ? (current ? "Cambiar el efecto" : "Elige un efecto") : "Efectos"}
       description={
         rangeText ? (
           <>
@@ -114,38 +111,7 @@ export function FxGallery({ open, onClose, brand, onPick, rangeText, current }: 
       }
       className="max-w-5xl"
     >
-      <div ref={ref} role={onPick ? "listbox" : "list"} aria-label="Efectos" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {FX_GALLERY_ORDER.map((kind) => {
-          const info = FX_INFO[kind];
-          const body = (
-            <>
-              <FxSample kind={kind} brand={brand} clock={clock} reduced={reduced} />
-              <span className="flex flex-col gap-1 px-1 pb-1">
-                <span className="text-sm font-semibold text-white">{info.label}</span>
-                <span className="line-clamp-3 text-xs text-muted">{info.description}</span>
-                <Badges kind={kind} />
-              </span>
-            </>
-          );
-          return onPick ? (
-            <button
-              key={kind}
-              type="button"
-              role="option"
-              aria-selected={current === kind}
-              onClick={() => onPick(kind)}
-              className={cn("flex flex-col gap-2 rounded-2xl border p-2 text-left transition hover:border-white/30 focus-visible:outline-2 focus-visible:outline-accent-hi", current === kind ? "border-accent bg-accent/12" : "border-white/10")}
-            >
-              {body}
-            </button>
-          ) : (
-            <div key={kind} role="listitem" className="flex flex-col gap-2 rounded-2xl border border-white/10 p-2">
-              {body}
-            </div>
-          );
-        })}
-      </div>
-      {reduced && <p className="mt-3 text-xs text-muted">Tienes activado «reducir movimiento»: las muestras se ven quietas.</p>}
+      <FxLibraryGrid brand={brand} onPick={onPick} current={current ?? null} cols={4} />
     </Dialog>
   );
 }

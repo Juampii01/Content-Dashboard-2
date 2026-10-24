@@ -15,7 +15,7 @@ import { CaptionPicker } from "./caption-picker";
 import { saveEditorDefaultsAction } from "./defaults-actions";
 import type { TrackItem } from "./music-manager";
 import { SegmentedControl } from "@/components/ui/tabs";
-import { FX_FREQUENCIES, FX_FREQUENCY_LABELS, FX_GALLERY_ORDER, FX_INFO, type FxFrequency } from "@/lib/video/fx/catalog";
+import { FX_CATEGORIES, FX_CATEGORY_LABELS, FX_FREQUENCIES, FX_FREQUENCY_LABELS, FX_GALLERY_ORDER, FX_INFO, fxByCategory, type FxFrequency } from "@/lib/video/fx/catalog";
 import { DENSITY_AUTO_LABEL, DENSITY_LABELS, type DensitySetting } from "@/lib/video/rhythm";
 
 const DENSITY_CHOICES: { value: DensitySetting; icon: typeof Gauge; label: string; hint: string }[] = [
@@ -165,8 +165,8 @@ export function EditorDefaultsForm({
         </div>
 
         <fieldset className="flex flex-col gap-3" disabled={!canEdit}>
-          <legend className="text-sm font-semibold text-white">Efectos de firma</legend>
-          <p className="-mt-1 text-xs text-muted">Cuáles puede elegir el director para tus videos y con qué frecuencia. En la revisión puedes agregar cualquiera de los 17.</p>
+          <legend className="text-sm font-semibold text-white">Efectos</legend>
+          <p className="-mt-1 text-xs text-muted">Cuáles puede elegir el director para tus videos y con qué frecuencia. En el Estudio puedes agregar cualquiera de los {FX_GALLERY_ORDER.length}.</p>
           <div className="max-w-xl">
             <SegmentedControl
               label="Frecuencia de los efectos"
@@ -191,22 +191,52 @@ export function EditorDefaultsForm({
                   Ninguno
                 </button>
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Efectos que puede elegir el director">
-                {FX_GALLERY_ORDER.map((k) => {
-                  const on = d.effects.allowed.includes(k);
+              <div className="flex flex-col gap-2" role="group" aria-label="Efectos que puede elegir el director">
+                {FX_CATEGORIES.map((c) => {
+                  const kinds = fxByCategory(c);
+                  const count = kinds.filter((k) => d.effects.allowed.includes(k)).length;
+                  const toggleAll = (on: boolean) => set({ effects: { ...d.effects, allowed: on ? [...new Set([...d.effects.allowed, ...kinds])] : d.effects.allowed.filter((x) => !kinds.includes(x)) } });
                   return (
-                    <label key={k} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition", on ? "border-accent/60 bg-accent/10" : "border-white/10 hover:border-white/25")}>
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 h-4 w-4 flex-none accent-[#0070f8]"
-                        checked={on}
-                        onChange={(e) => set({ effects: { ...d.effects, allowed: e.target.checked ? [...d.effects.allowed, k] : d.effects.allowed.filter((x) => x !== k) } })}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-white">{FX_INFO[k].label}</span>
-                        <span className="line-clamp-2 text-xs text-muted">{FX_INFO[k].description}</span>
-                      </span>
-                    </label>
+                    <details key={c} className="group rounded-xl border border-white/10 open:bg-white/[0.02]">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-white">{FX_CATEGORY_LABELS[c].label}</span>
+                          <span className="block text-xs text-muted">{FX_CATEGORY_LABELS[c].description}</span>
+                        </span>
+                        <span className="flex-none font-mono text-xs text-muted">
+                          {count}/{kinds.length}
+                        </span>
+                      </summary>
+                      <div className="flex flex-col gap-2 px-3 pb-3">
+                        <div className="flex gap-3 text-xs">
+                          <button type="button" className="font-medium text-accent-hi hover:underline" onClick={() => toggleAll(true)}>
+                            Todos
+                          </button>
+                          <button type="button" className="font-medium text-accent-hi hover:underline" onClick={() => toggleAll(false)}>
+                            Ninguno
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {kinds.map((k) => {
+                            const on = d.effects.allowed.includes(k);
+                            return (
+                              <label key={k} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition", on ? "border-accent/60 bg-accent/10" : "border-white/10 hover:border-white/25")}>
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 h-4 w-4 flex-none accent-[#0070f8]"
+                                  checked={on}
+                                  onChange={(e) => set({ effects: { ...d.effects, allowed: e.target.checked ? [...d.effects.allowed, k] : d.effects.allowed.filter((x) => x !== k) } })}
+                                />
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-semibold text-white">{FX_INFO[k].label}</span>
+                                  <span className="line-clamp-2 text-xs text-muted">{FX_INFO[k].description}</span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </details>
                   );
                 })}
               </div>

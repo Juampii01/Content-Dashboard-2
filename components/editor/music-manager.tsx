@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { completeTrackUploadAction, createTrackUploadAction, deleteTrackAction, renameTrackAction } from "./media-actions";
 import { putFile } from "./upload-manager";
 
-export type TrackItem = { id: string; title: string; status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED"; duration: number | null; url: string | null };
+export type TrackItem = { id: string; title: string; status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED"; duration: number | null; url: string | null; attribution?: string | null };
 
 export const AUDIO_ACCEPT = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav", "audio/x-wav", "audio/ogg", "audio/flac", ".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac"];
 const MAX_TRACK = 200 * 1024 ** 2;

@@ -15,7 +15,12 @@ import { graphicKindLabel, isMotionScene, sceneFields, setSceneField, unsupporte
 import { outputRange } from "@/lib/video/timeline";
 import { secondsLabel, timeLabel } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
+import { TRANSITION_DURATION, TRANSITION_GALLERY_ORDER, TRANSITION_INFO } from "@/lib/video/fx/transitions";
+import { soundCueTimes, SOUND_GAIN } from "@/lib/video/sfx";
+import { SFX_CATEGORIES, SFX_CATEGORY_LABELS, SFX_LIBRARY, SFX_NAMES, type SfxName } from "@/lib/video/sfx-library";
 import { AudioPanel } from "../audio-panel";
+import { TransitionTile } from "../fx/fx-library";
+import { playSfx } from "../sound/use-sound";
 import { BrollEditBody } from "../broll-edit-panel";
 import { SourceLine } from "../broll-panel";
 import { CaptionPicker } from "../caption-picker";
@@ -134,6 +139,10 @@ function SelectionInspector({ api, sel }: { api: StudioApi; sel: StudioSelection
       return <CutInspector api={api} from={sel.from} to={sel.to} onClose={close} />;
     case "range":
       return <RangeInspector api={api} from={sel.from} to={sel.to} onClose={close} />;
+    case "transition":
+      return <TransitionInspector api={api} word={sel.word} onClose={close} />;
+    case "sound":
+      return <SoundInspector api={api} id={sel.id} onClose={close} />;
     case "audio":
       return (
         <>
@@ -579,6 +588,143 @@ function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: numb
   );
 }
 
+/** Un corte: su transición (o el lugar para poner una), cuánto dura y si suena. */
+function TransitionInspector({ api, word, onClose }: { api: StudioApi; word: number; onClose: () => void }) {
+  const cut = api.cutList.find((c) => c.word === word);
+  if (!cut) return <Gone onClose={onClose} />;
+  const item = api.state.transitions.find((t) => t.at_word === word) ?? null;
+  const drawn = api.trSegs.some((t) => t.item.at_word === word);
+  const edit = api.props.canEdit;
+  const info = item ? TRANSITION_INFO[item.kind] : null;
+  const dur = item?.duration ?? info?.duration ?? 0.5;
+  return (
+    <>
+      <Header eyebrow={`Corte en ${timeLabel(cut.at)}`} title={info ? info.label : "Sin transición"} onClose={onClose}>
+        <p className="mt-0.5 text-xs text-muted">Entre «{api.textOf(Math.max(0, word - 4), Math.max(0, word - 1), 40)}» y «{api.textOf(word, word + 3, 40)}».</p>
+      </Header>
+      <div className="flex flex-col gap-3 p-4">
+        {item && item.source === "director" && <AiNote api={api} why={item.why} sel={{ kind: "transition", word }} />}
+        {item && !drawn && <Notice tone="warning">Esta transición no se ve: en el corte hay un b-roll o un efecto. Muévelo o quítalo para que aparezca.</Notice>}
+        <p className="text-xs text-muted">La transición tapa el corte con imagen: tu voz no se corre ni se pisa.</p>
+        <div aria-label="Transiciones" className="grid grid-cols-3 gap-1.5">
+          {TRANSITION_GALLERY_ORDER.map((k) => (
+            <TransitionTile key={k} kind={k} brand={api.fxBrand} selected={item?.kind === k} onPick={edit ? () => api.actions.setTransition(word, { kind: k }) : undefined} />
+          ))}
+        </div>
+        {item && (
+          <>
+            <label htmlFor="tr-dur" className="flex items-center justify-between text-sm font-semibold text-white">
+              Duración <span className="font-mono text-xs text-muted">{secondsLabel(dur)}</span>
+            </label>
+            <input
+              id="tr-dur"
+              type="range"
+              className="range"
+              min={TRANSITION_DURATION.min}
+              max={TRANSITION_DURATION.max}
+              step={0.05}
+              value={dur}
+              disabled={!edit}
+              onChange={(e) => api.actions.setTransition(word, { duration: Number(e.target.value) })}
+              style={{ ["--pct" as string]: `${((dur - TRANSITION_DURATION.min) / (TRANSITION_DURATION.max - TRANSITION_DURATION.min)) * 100}%` }}
+            />
+            {info && info.sound !== "none" && (
+              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+                <span className="flex flex-col">
+                  <span className="text-sm text-text">Con su sonido</span>
+                  <span className="text-xs text-muted">{SFX_LIBRARY[info.sound as SfxName]?.label ?? "Sonido"} justo en el corte, bajo tu voz.</span>
+                </span>
+                <input type="checkbox" className="h-4 w-4 flex-none accent-[#0070f8]" checked={item.sound !== false} disabled={!edit} onChange={(e) => api.actions.setTransition(word, { sound: e.target.checked })} />
+              </label>
+            )}
+          </>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="subtle" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(Math.max(0, cut.at - 1), true)}>
+            Ver el corte
+          </Button>
+          {item && edit && (
+            <Button size="sm" variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.setTransition(word, null)}>
+              Quitar la transición
+            </Button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Un sonido de la pista de Sonido: cuál es, su volumen y dónde cae. */
+function SoundInspector({ api, id, onClose }: { api: StudioApi; id: string; onClose: () => void }) {
+  const cue = api.state.soundCues.find((c) => c.id === id);
+  if (!cue) return <Gone onClose={onClose} />;
+  const at = soundCueTimes(api.timeline, [cue])[0]?.hitAt ?? null;
+  const edit = api.props.canEdit;
+  const lib = SFX_LIBRARY[cue.name];
+  const set = (patch: Partial<typeof cue>) => api.update((st) => ({ ...st, soundCues: st.soundCues.map((c) => (c.id === id ? { ...c, ...patch, source: "user" as const } : c)) }), { coalesce: `sound:${id}` });
+  return (
+    <>
+      <Header eyebrow="Sonido" title={lib.label} onClose={onClose}>
+        <p className="mt-0.5 text-xs text-muted">{at == null ? "Su palabra se cortó: no suena." : `Suena en ${timeLabel(at)}, con «${api.textOf(cue.at_word, cue.at_word + 2, 30)}».`}</p>
+      </Header>
+      <div className="flex flex-col gap-3 p-4">
+        {cue.source === "director" && <AiNote api={api} why={null} sel={{ kind: "sound", id }} />}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="snd-name" className="text-sm font-semibold text-white">
+            Cuál
+          </label>
+          <select id="snd-name" className="field h-9 rounded-xl text-sm" value={cue.name} disabled={!edit} onChange={(e) => set({ name: e.target.value as SfxName })}>
+            {SFX_CATEGORIES.map((c) => (
+              <optgroup key={c} label={SFX_CATEGORY_LABELS[c]}>
+                {SFX_NAMES.filter((n) => SFX_LIBRARY[n].category === c).map((n) => (
+                  <option key={n} value={n}>
+                    {SFX_LIBRARY[n].label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        <label htmlFor="snd-gain" className="flex items-center justify-between text-sm font-semibold text-white">
+          Volumen <span className="font-mono text-xs text-muted">{cue.gain} dB</span>
+        </label>
+        <input
+          id="snd-gain"
+          type="range"
+          className="range"
+          min={SOUND_GAIN.min}
+          max={SOUND_GAIN.max}
+          step={1}
+          value={cue.gain}
+          disabled={!edit}
+          onChange={(e) => set({ gain: Number(e.target.value) })}
+          style={{ ["--pct" as string]: `${((cue.gain - SOUND_GAIN.min) / (SOUND_GAIN.max - SOUND_GAIN.min)) * 100}%` }}
+          aria-valuetext={`${cue.gain} decibeles`}
+        />
+        <p className="text-xs text-muted">Con -14 dB queda bajo tu voz; más alto se nota como golpe.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="subtle" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => void playSfx(cue.name, cue.gain)}>
+            Escuchar
+          </Button>
+          {edit && (
+            <>
+              <Button size="sm" variant="ghost" onClick={() => set({ offset: Math.max(-2, Math.round((cue.offset - 0.1) * 100) / 100) })} aria-label="Adelantar una décima">
+                −0,1 s
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => set({ offset: Math.min(2, Math.round((cue.offset + 0.1) * 100) / 100) })} aria-label="Atrasar una décima">
+                +0,1 s
+              </Button>
+              <Button size="sm" variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.removeSelection}>
+                Quitar
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function AudioBlock({ api }: { api: StudioApi }) {
   const { state, props } = api;
   return (
@@ -588,9 +734,9 @@ function AudioBlock({ api }: { api: StudioApi }) {
       audioPreview={props.audioPreview ?? null}
       sfx={state.sfx}
       onSfx={(sfx) => api.update((s) => ({ ...s, sfx }))}
-      musicId={state.music.trackId}
+      musicId={state.musicGen ? null : state.music.trackId}
       musicDb={state.music.db}
-      onMusic={(music) => api.update((s) => ({ ...s, music }), { coalesce: "music" })}
+      onMusic={(music) => api.update((s) => ({ ...s, music, musicGen: music.trackId ? null : s.musicGen }), { coalesce: "music" })}
       tracks={props.tracks ?? []}
       canEdit={props.canEdit}
     />

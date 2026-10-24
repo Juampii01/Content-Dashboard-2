@@ -588,7 +588,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     style && style.preset.zoom.enabled && next.zooms_enabled !== false
       ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: noZoom })
       : directorZooms(timeline, next.zoom_moments, noZoom);
-  const credits = brollCredits(broll);
+  const stockCredits = brollCredits(broll);
   const capLook = isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: look.font, emoji: next.captions.emoji === true }) : null;
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;
   const faceY = focusY ? Math.max(0.25, Math.min(0.6, focusY)) : 0.42;
@@ -635,6 +635,8 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     : track?.status === "READY"
       ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db, ...(track.attribution ? { attribution: track.attribution } : {}) }
       : null;
+  // Créditos: los del b-roll de stock y la atribución que pide la licencia de la música (catálogo CC BY).
+  const credits = [stockCredits, track?.status === "READY" && !next.audio.music_gen && track.attribution ? `Música\n\n${track.attribution}` : ""].filter(Boolean).join("\n\n");
   // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
   const phraseFixes = await phraseFixesForRender(projectId);
 

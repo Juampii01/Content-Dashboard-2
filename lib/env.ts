@@ -83,6 +83,8 @@ const schema = z.object({
   // HeyGen: cada cliente guarda su propia API key en Ajustes (cifrada en la base). Esta variable solo
   // cambia la dirección de la API; sirve para pruebas con un servidor simulado. Por defecto, la oficial.
   HEYGEN_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.heygen.com")),
+  // Música de Jamendo (opcional): el cliente guarda su client_id en Ajustes. Esto solo cambia la dirección (simulador).
+  JAMENDO_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.jamendo.com/v3.0")),
   // Imágenes de Carruseles: cada cliente conecta su ChatGPT (Codex en el worker) o guarda su API key de OpenAI en
   // Ajustes. Estas variables solo cambian modelos y dirección de la API (pruebas con un simulador). Todas opcionales.
   OPENAI_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.openai.com/v1")),

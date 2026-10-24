@@ -16,6 +16,8 @@ export type StudioSelection =
   | { kind: "caption"; index: number }
   | { kind: "clip"; index: number }
   | { kind: "cut"; at: number; from: number; to: number }
+  /** Una pausa larga (antes de la palabra `word`): acortada o completa. */
+  | { kind: "pause"; word: number }
   | { kind: "range"; from: number; to: number }
   | { kind: "audio" }
   /** Un corte del video final (la primera palabra del tramo que entra): su transición o el lugar para poner una. */
@@ -35,6 +37,8 @@ export function selectionKey(sel: StudioSelection | null): string | null {
       return `${sel.kind}:${sel.index}`;
     case "cut":
       return `cut:${sel.from}`;
+    case "pause":
+      return `pause:${sel.word}`;
     case "range":
       return `range:${sel.from}-${sel.to}`;
     case "audio":
@@ -522,13 +526,32 @@ export function StudioTimeline({
                         <span className="block h-full w-0.5 rounded bg-danger" />
                         <Scissors className="absolute top-0.5 h-2.5 w-2.5" aria-hidden />
                       </button>
+                    ) : c.kind === "pausa" ? (
+                      <button
+                        key={`c${c.at}`}
+                        type="button"
+                        data-pause-mark={c.word}
+                        className={cn("group/pause absolute top-0 bottom-0 z-10 grid w-3 -translate-x-1/2 place-items-center outline-none", selKey === `pause:${c.word}` && "z-20")}
+                        style={{ left: x(c.at) }}
+                        aria-label={`Pausa acortada en ${timeLabel(c.at)}: dejarla completa`}
+                        title="Pausa acortada: tócala para dejarla completa"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelect({ kind: "pause", word: c.word });
+                          onSeek(Math.max(0, c.at - 0.6));
+                        }}
+                      >
+                        <span className={cn("block h-full w-0.5 rounded bg-white/35 transition group-hover/pause:bg-accent-hi group-focus-visible/pause:bg-accent-hi", selKey === `pause:${c.word}` && "bg-white")} />
+                        <span aria-hidden className="absolute top-0.5 font-mono text-[8px] leading-none text-white/60 group-hover/pause:text-accent-glow">⏸</span>
+                      </button>
                     ) : (
                       <span
                         key={`c${c.at}`}
                         aria-hidden
                         className={cn("pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 -translate-x-1/2 rounded", c.kind === "gancho" ? "bg-accent-glow" : "bg-white/30")}
                         style={{ left: x(c.at) }}
-                        title={c.kind === "gancho" ? "Aquí termina el gancho y sigue el video" : c.kind === "orden" ? "Aquí sigue un bloque movido" : "Pausa recortada"}
+                        title={c.kind === "gancho" ? "Aquí termina el gancho y sigue el video" : "Aquí sigue un bloque movido"}
                       />
                     ),
                   )}

@@ -113,7 +113,13 @@ export function spanAround(timeline: Pick<Timeline, "words">, t: number, seconds
 export const overlaps = (a: WordSpan, b: { from_word: number; to_word: number }) => a.from <= b.to_word && b.from_word <= a.to;
 
 /** Una marca de corte en la línea de tiempo: dónde cae en el video final y qué palabras se sacaron ahí (si hay). */
-export type CutMark = { at: number; removed: WordSpan | null; kind: "corte" | "pausa" | "gancho" | "orden" };
+export type CutMark = {
+  at: number;
+  removed: WordSpan | null;
+  kind: "corte" | "pausa" | "gancho" | "orden";
+  /** Primera palabra del tramo que entra (en una pausa recortada: la palabra que sigue a la pausa). */
+  word: number;
+};
 
 /** Marcas de corte entre tramos: palabras cortadas, pausas recortadas o el salto del gancho a su lugar. */
 export function cutMarks(timeline: Pick<Timeline, "clips">, removed: Set<number>): CutMark[] {
@@ -123,7 +129,7 @@ export function cutMarks(timeline: Pick<Timeline, "clips">, removed: Set<number>
     const prev = timeline.clips[i - 1];
     if (prev) {
       const at = Math.round(acc * 1000) / 1000;
-      if (prev.role === "hook" && c.role === "body") out.push({ at, removed: null, kind: "gancho" });
+      if (prev.role === "hook" && c.role === "body") out.push({ at, removed: null, kind: "gancho", word: c.firstWord });
       else if (c.firstWord > prev.lastWord + 1) {
         let from = -1;
         let to = -1;
@@ -132,9 +138,9 @@ export function cutMarks(timeline: Pick<Timeline, "clips">, removed: Set<number>
           if (from < 0) from = id;
           to = id;
         }
-        out.push({ at, removed: from >= 0 ? { from, to } : null, kind: from >= 0 ? "corte" : "orden" });
-      } else if (c.firstWord <= prev.lastWord) out.push({ at, removed: null, kind: "orden" });
-      else out.push({ at, removed: null, kind: "pausa" });
+        out.push({ at, removed: from >= 0 ? { from, to } : null, kind: from >= 0 ? "corte" : "orden", word: c.firstWord });
+      } else if (c.firstWord <= prev.lastWord) out.push({ at, removed: null, kind: "orden", word: c.firstWord });
+      else out.push({ at, removed: null, kind: "pausa", word: c.firstWord });
     }
     acc += (c.endFrame - c.startFrame) / FPS;
   });

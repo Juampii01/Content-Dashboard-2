@@ -9,6 +9,8 @@ import type { TransitionItem } from "@/lib/video/fx/transitions";
 import type { MusicGenSpec } from "@/lib/video/music-gen/spec";
 import type { SoundCue } from "@/lib/video/sfx";
 import { cleanCaptionPlacement, type CaptionPlacement } from "@/lib/video/canvas/captions";
+import { rangesFromIds } from "@/lib/video/plan";
+import { TIMING } from "@/lib/video/timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, PlanMove, VideoFormat, ZoomMoment } from "@/lib/video/types";
 
 /**
@@ -49,6 +51,11 @@ export type StudioState = {
   soundCues: SoundCue[];
   /** Música generada elegida (manda sobre la pista subida). */
   musicGen: MusicGenSpec | null;
+  /**
+   * Pausas largas que se dejan completas (no se recortan): `keep` son las palabras que siguen a cada pausa; `all`,
+   * "Sin recortes automáticos" (ninguna pausa se recorta).
+   */
+  pauses: { keep: number[]; all: boolean };
 };
 
 export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_INTEGER): StudioState {
@@ -81,7 +88,46 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     transitions: plan.transitions ?? [],
     soundCues: plan.audio.cues ?? [],
     musicGen: plan.audio.music_gen ?? null,
+    pauses: { keep: [...(plan.pacing?.keep ?? [])].sort((a, b) => a - b), all: plan.pacing?.keep_all === true },
   };
+}
+
+/** El silencio que usa el timeline: la tolerancia del ritmo más las pausas que se dejan completas. */
+export function studioPacing(s: Pick<StudioState, "pacing" | "pauses">): NonNullable<EditPlan["pacing"]> | undefined {
+  if (!s.pauses.all && !s.pauses.keep.length) return s.pacing;
+  return { long_pause: s.pacing?.long_pause ?? TIMING.longPause, ...(s.pauses.keep.length ? { keep: s.pauses.keep } : {}), ...(s.pauses.all ? { keep_all: true } : {}) };
+}
+
+/**
+ * Lo que arma el timeline de la vista previa (lo mismo que el servidor aplica con `applyReview`): las palabras
+ * cortadas, el gancho, las pausas y los bloques movidos.
+ */
+export function studioTimelineInput(plan: EditPlan, s: Pick<StudioState, "removed" | "selectedHook" | "corrections" | "preset" | "emphasis" | "pacing" | "pauses" | "moves">) {
+  return {
+    removals: rangesFromIds(s.removed, plan.removals),
+    hook_candidates: plan.hook_candidates,
+    selected_hook: s.selectedHook,
+    corrections: s.corrections,
+    captions: { preset: s.preset, emphasis_words: s.emphasis },
+    pacing: studioPacing(s),
+    moves: s.moves,
+  };
+}
+
+/**
+ * Deja una pausa completa (`keep`) o vuelve a recortarla. `longOnes`: todas las pausas largas (para volver a recortar
+ * una cuando está puesto "Sin recortes automáticos": las demás siguen completas).
+ */
+export function withPause(s: StudioState, word: number, keep: boolean, longOnes: number[] = []): StudioState {
+  if (s.pauses.all) {
+    if (keep) return s;
+    return { ...s, pauses: { keep: [...new Set([...s.pauses.keep, ...longOnes])].filter((id) => id !== word).sort((a, b) => a - b), all: false } };
+  }
+  const set = new Set(s.pauses.keep);
+  if (keep === set.has(word)) return s;
+  if (keep) set.add(word);
+  else set.delete(word);
+  return { ...s, pauses: { keep: [...set].sort((a, b) => a - b), all: false } };
 }
 
 /** La revisión que se manda al servidor (la misma forma que armaba la revisión anterior). */
@@ -105,6 +151,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     effects: s.effects,
     captionPlace: s.captionPlace,
     captionHide: s.captionHide,
+    pauses: s.pauses,
     ...(s.rhythmTouched ? { rhythm: { density: s.density, added: s.rhythmLog, zoomMoments: s.zoomMoments, longPause: s.pacing?.long_pause ?? 0.5, emphasis: s.emphasis } } : {}),
   };
 }

@@ -28,7 +28,7 @@ import { compileTransition, cutPoints, isTransitionKind, newTransitionId, TRANSI
 import { musicGenLabel } from "@/lib/video/music-gen/catalog";
 import { useGeneratedMusic, useStudioSound } from "../sound/use-sound";
 import { clipOffsets, cutMarks, fitSpan, snapToWords, splitSpan, timeLabel, wordAt, type SnappedSpan, type WordSpan } from "@/lib/video/studio";
-import { buildTimeline, outputRange } from "@/lib/video/timeline";
+import { buildTimeline, longPauses, outputRange } from "@/lib/video/timeline";
 import { FPS, type BrollItem, type BrollOption, type EditPlan, type RemovalReason } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { renderAction, saveReviewAction } from "../actions";
@@ -48,7 +48,7 @@ import { StudioInspector } from "./studio-inspector";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
 import { StudioTimeline, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
-import { toReview, useStudioState, withCut, type StudioState } from "./use-studio-state";
+import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
 
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
@@ -132,23 +132,14 @@ export function Studio(props: StudioProps) {
 
   const review = useMemo(() => toReview(s, { plan, hasStyle: Boolean(style), trackIds }), [s, plan, style, trackIds]);
 
+  const { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves } = s;
   const timeline = useMemo(
-    () =>
-      buildTimeline(
-        words,
-        {
-          removals: rangesFromIds(s.removed, plan.removals),
-          hook_candidates: plan.hook_candidates,
-          selected_hook: s.selectedHook,
-          corrections: s.corrections,
-          captions: { preset: s.preset, emphasis_words: s.emphasis },
-          pacing: s.pacing,
-          moves: s.moves,
-        },
-        duration,
-      ),
-    [words, s.removed, plan.removals, plan.hook_candidates, s.selectedHook, s.corrections, s.preset, s.emphasis, s.pacing, s.moves, duration],
+    () => buildTimeline(words, studioTimelineInput(plan, { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves }), duration),
+    [words, plan, sRemoved, sHook, sCorrections, sPreset, sEmphasis, sPacing, sPauses, sMoves, duration],
   );
+  // Pausas largas entre palabras que quedan: las que se recortan y las que dejaste completas.
+  const pauseList = useMemo(() => longPauses(words, { removals: rangesFromIds(sRemoved, plan.removals), pacing: studioPacing({ pacing: sPacing, pauses: sPauses }) }), [words, sRemoved, plan.removals, sPacing, sPauses]);
+  const trimmedPauses = useMemo(() => pauseList.filter((p) => p.trimmed), [pauseList]);
   const fxSegs = useMemo(() => fxSegments(timeline, s.effects), [timeline, s.effects]);
   // Tramos sin subtítulos (quitados por la persona o por el director), con su índice para poder volver a mostrarlos.
   const captionHides = useMemo(
@@ -378,6 +369,22 @@ export function Studio(props: StudioProps) {
 
   // ─── Acciones ───
   const cut = useCallback((ids: number[], on: boolean) => update((st) => withCut(st, ids, on)), [update]);
+  const pauseWords = useMemo(() => pauseList.map((p) => p.word), [pauseList]);
+  /** Deja completa (o vuelve a acortar) la pausa que va antes de la palabra `word`. */
+  const setPause = useCallback((word: number, keep: boolean) => update((st) => withPause(st, word, keep, pauseWords)), [update, pauseWords]);
+  /** "Sin recortes automáticos": el video como se grabó (todas las palabras y las pausas completas). */
+  const restoreAll = useCallback(() => {
+    update((st) => ({ ...st, removed: [], pauses: { keep: [], all: true } }));
+    setSelection(null);
+    toast.success("Sin recortes: el video queda como lo grabaste.", { description: "Vuelve a la propuesta o deshaz (Ctrl+Z) cuando quieras." });
+  }, [update]);
+  /** Todas las pausas completas (las palabras cortadas siguen cortadas). */
+  const restorePauses = useCallback(() => update((st) => ({ ...st, pauses: { keep: [], all: true } })), [update]);
+  /** Vuelve a la propuesta: los cortes que armó el editor y las pausas recortadas. */
+  const backToProposal = useCallback(() => {
+    update((st) => ({ ...st, removed: [...proposed].sort((a, b) => a - b), pauses: { keep: [], all: false } }));
+    setSelection(null);
+  }, [update, proposed]);
 
   function cutSpan(span: WordSpan) {
     const ids = Array.from({ length: span.to - span.from + 1 }, (_, k) => span.from + k);
@@ -523,7 +530,7 @@ export function Studio(props: StudioProps) {
       broll: s.broll,
       effects: s.effects,
       zoom_moments: s.zoomMoments,
-      ...(s.pacing ? { pacing: s.pacing } : {}),
+      ...(studioPacing(s) ? { pacing: studioPacing(s) } : {}),
       captions: { ...plan.captions, preset: s.preset, emphasis_words: s.emphasis },
       moves: s.moves,
       rhythm: { density: s.density, added: s.rhythmLog },
@@ -538,7 +545,8 @@ export function Studio(props: StudioProps) {
       broll: filled.broll,
       effects: filled.effects ?? [],
       zoomMoments: filled.zoom_moments ?? [],
-      pacing: filled.pacing,
+      // Las pausas completas van aparte (en `pauses`): aquí solo la tolerancia del ritmo.
+      pacing: filled.pacing ? { long_pause: filled.pacing.long_pause } : undefined,
       emphasis: filled.captions.emphasis_words,
       rhythmLog: filled.rhythm?.added ?? [],
       removed: [...removed].sort((a, b) => a - b),
@@ -1112,7 +1120,8 @@ export function Studio(props: StudioProps) {
 
   const rangeSel = selection?.kind === "range" ? outputRange(timeline, selection.from, selection.to) : null;
   const dirty = reviewKey !== savedKey;
-  const changedFromProposal = removedSet.size !== proposed.size || s.removed.some((id) => !proposed.has(id));
+  const changedFromProposal = removedSet.size !== proposed.size || s.removed.some((id) => !proposed.has(id)) || s.pauses.all || s.pauses.keep.length > 0;
+  const nothingTrimmed = removedSet.size === 0 && trimmedPauses.length === 0;
   const cuts = useMemo(() => cutMarks(timeline, removedSet), [timeline, removedSet]);
   // En la pista de subtítulos: dónde no se ven (los ocultó el director, un efecto lleva los suyos o un gráfico los tapa).
   const captionGaps = useMemo(
@@ -1152,6 +1161,8 @@ export function Studio(props: StudioProps) {
     maskMissing,
     masks: { pending: Boolean(masks?.pending), failed: Boolean(masks?.failed) },
     reasons,
+    pauses: pauseList,
+    changedFromProposal,
     styleZooms,
     showFraming,
     time: outTime,
@@ -1181,6 +1192,10 @@ export function Studio(props: StudioProps) {
       pickOption,
       setTransition,
       placeSound,
+      setPause,
+      restoreAll,
+      restorePauses,
+      backToProposal,
     },
   };
 
@@ -1203,7 +1218,7 @@ export function Studio(props: StudioProps) {
           <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={split} title="Dividir lo elegido en el cabezal (S)">
             <span className="hidden xl:inline">Dividir</span>
           </Button>
-          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "cut" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
+          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "cut" || selection.kind === "pause" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
             <span className="hidden xl:inline">Quitar</span>
           </Button>
           {selection?.kind === "range" && (
@@ -1315,21 +1330,22 @@ export function Studio(props: StudioProps) {
                     {leftTab === "texto" && (
                       <div className="flex flex-col gap-3 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs text-muted">
-                            {formatNumber(removedSet.size)} {removedSet.size === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}.
+                          <p className="text-xs text-muted" data-testid="trim-summary">
+                            {formatNumber(removedSet.size)} {removedSet.size === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}
+                            {pauseList.length > 0 && ` · ${formatNumber(trimmedPauses.length)} ${trimmedPauses.length === 1 ? "pausa acortada" : "pausas acortadas"}`}.
                           </p>
                           {canEdit && (
                             <div className="flex flex-wrap gap-1">
-                              {changedFromProposal && proposed.size > 0 && (
-                                <Button size="sm" variant="subtle" className="!px-2" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => update((st) => ({ ...st, removed: [...proposed].sort((a, b) => a - b) }))}>
+                              {changedFromProposal && (
+                                <Button size="sm" variant="subtle" className="!px-2" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={backToProposal}>
                                   Volver a la propuesta
                                 </Button>
                               )}
                               <Button size="sm" variant="subtle" className="!px-2" icon={proofreading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <SpellCheck className="h-3.5 w-3.5" aria-hidden />} onClick={proofread} disabled={proofreading}>
                                 {proofreading ? "Revisando…" : "Ortografía con IA"}
                               </Button>
-                              <Button size="sm" variant="subtle" className="!px-2" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => update((st) => ({ ...st, removed: [] }))} disabled={removedSet.size === 0}>
-                                Restaurar todo
+                              <Button size="sm" variant="subtle" className="!px-2" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={restoreAll} disabled={nothingTrimmed} title="Todas las palabras y las pausas completas, como lo grabaste">
+                                Sin recortes
                               </Button>
                             </div>
                           )}
@@ -1367,6 +1383,8 @@ export function Studio(props: StudioProps) {
                           activeTime={activeTime}
                           canEdit={canEdit}
                           onSetCut={cut}
+                          pauses={pauseList}
+                          onPause={canEdit ? setPause : undefined}
                           onCorrect={(id, text) =>
                             update((st) => {
                               const next = { ...st.corrections };

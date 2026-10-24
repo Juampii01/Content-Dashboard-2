@@ -17,7 +17,11 @@ export type StudioSelection =
   | { kind: "clip"; index: number }
   | { kind: "cut"; at: number; from: number; to: number }
   | { kind: "range"; from: number; to: number }
-  | { kind: "audio" };
+  | { kind: "audio" }
+  /** Un corte del video final (la primera palabra del tramo que entra): su transición o el lugar para poner una. */
+  | { kind: "transition"; word: number }
+  /** Un sonido puesto a mano en la pista de Sonido. */
+  | { kind: "sound"; id: string };
 
 export function selectionKey(sel: StudioSelection | null): string | null {
   if (!sel) return null;
@@ -35,6 +39,10 @@ export function selectionKey(sel: StudioSelection | null): string | null {
       return `range:${sel.from}-${sel.to}`;
     case "audio":
       return "audio";
+    case "transition":
+      return `transition:${sel.word}`;
+    case "sound":
+      return `sound:${sel.id}`;
   }
 }
 
@@ -62,7 +70,13 @@ export type TimelineBlock = {
 };
 
 /** Lo que se arrastra desde la Biblioteca a la línea de tiempo. */
-export type LibraryDrop = { type: "fx"; kind: string } | { type: "broll" } | { type: "graphic"; template?: string } | { type: "zoom" };
+export type LibraryDrop =
+  | { type: "fx"; kind: string }
+  | { type: "broll" }
+  | { type: "graphic"; template?: string }
+  | { type: "zoom" }
+  | { type: "transition"; kind: string }
+  | { type: "sound"; name: string };
 export const LIBRARY_MIME = "application/x-content2-studio";
 
 const TRACKS: { key: TrackKey; label: string; icon: ReactNode; h: number }[] = [
@@ -71,7 +85,7 @@ const TRACKS: { key: TrackKey; label: string; icon: ReactNode; h: number }[] = [
   { key: "broll", label: "Gráficos y b-roll", icon: <Clapperboard className="h-3.5 w-3.5" aria-hidden />, h: 32 },
   { key: "fx", label: "Efectos", icon: <Sparkles className="h-3.5 w-3.5" aria-hidden />, h: 32 },
   { key: "zoom", label: "Zooms", icon: <ZoomIn className="h-3.5 w-3.5" aria-hidden />, h: 24 },
-  { key: "audio", label: "Sonido", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, h: 24 },
+  { key: "audio", label: "Sonido", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, h: 42 },
 ];
 
 type Drag = {
@@ -114,6 +128,7 @@ export function StudioTimeline({
   onRange,
   onDrop,
   toolbar,
+  transitionSlots = [],
 }: {
   duration: number;
   time: number;
@@ -145,6 +160,8 @@ export function StudioTimeline({
   onRange: (span: SnappedSpan) => void;
   onDrop: (item: LibraryDrop, t: number) => void;
   toolbar: ReactNode;
+  /** Cortes sin transición donde se puede poner una (un rombo chico en la pista de efectos). */
+  transitionSlots?: { at: number; word: number }[];
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
@@ -431,7 +448,8 @@ export function StudioTimeline({
                       aria-label={`${b.label}${b.detail ? `: ${b.detail}` : ""}, de ${timeLabel(b.start)} a ${timeLabel(b.end)}${b.ai ? ". Lo puso la IA" : ""}`}
                       title={`${b.label}${b.detail ? ` · ${b.detail}` : ""}`}
                       className={cn(
-                        "group absolute top-[3px] bottom-[3px] flex touch-none items-center overflow-hidden rounded-md border text-left text-[11px] leading-tight font-semibold text-white outline-none select-none focus-visible:ring-2 focus-visible:ring-accent-hi",
+                        "group absolute top-[3px] flex touch-none items-center overflow-hidden rounded-md border text-left text-[11px] leading-tight font-semibold text-white outline-none select-none focus-visible:ring-2 focus-visible:ring-accent-hi",
+                        b.track === "audio" ? "bottom-[17px]" : "bottom-[3px]",
                         b.tone,
                         b.empty && "border-dashed bg-transparent text-warning",
                         b.track !== "video" && b.track !== "captions" && canEdit && b.editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
@@ -523,10 +541,31 @@ export function StudioTimeline({
                   />
                 )}
 
+                {track.key === "fx" &&
+                  canEdit &&
+                  transitionSlots.map((c) => (
+                    <button
+                      key={`ts${c.word}`}
+                      type="button"
+                      className="group/slot absolute top-1/2 z-[5] grid h-4 w-4 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-sm text-transparent outline-none hover:text-accent-glow focus-visible:text-accent-glow"
+                      style={{ left: x(c.at) }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect({ kind: "transition", word: c.word });
+                      }}
+                      aria-label={`Poner una transición en el corte de ${timeLabel(c.at)}`}
+                      title="Poner una transición en este corte"
+                      data-transition-slot={c.word}
+                    >
+                      <span aria-hidden className="block h-2 w-2 rotate-45 rounded-[2px] border border-white/30 bg-[#040d2c] transition group-hover/slot:scale-150 group-hover/slot:border-accent-hi group-hover/slot:bg-accent/40 group-focus-visible/slot:scale-150 group-focus-visible/slot:border-accent-hi" />
+                    </button>
+                  ))}
+
                 {track.key === "audio" && music && (
                   <button
                     type="button"
-                    className={cn("absolute inset-y-[5px] left-0 rounded border border-[#c98500]/50 bg-[#c98500]/20 px-2 text-left text-[10px] font-semibold text-[#ffd27a]", selKey === "audio" && "ring-2 ring-white")}
+                    className={cn("absolute bottom-[3px] left-0 h-[12px] rounded border border-[#c98500]/50 bg-[#c98500]/20 px-2 text-left text-[9px] leading-[10px] font-semibold text-[#ffd27a]", selKey === "audio" && "ring-2 ring-white")}
                     style={{ width: lane }}
                     onClick={() => onSelect({ kind: "audio" })}
                   >
@@ -535,7 +574,7 @@ export function StudioTimeline({
                 )}
                 {track.key === "audio" &&
                   sfx.map((c, i) => (
-                    <span key={`s${i}`} aria-hidden className="pointer-events-none absolute top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-warning" style={{ left: x(c.at) }} />
+                    <span key={`s${i}`} aria-hidden className="pointer-events-none absolute top-[12px] z-10 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-warning/80" style={{ left: x(c.at) }} />
                   ))}
                 {notes?.[track.key] && byTrack[track.key].length === 0 && !(track.key === "audio" && (music || sfx.length)) && (
                   <span className="pointer-events-none sticky inline-block px-2 text-[10px] text-placeholder" style={{ lineHeight: `${track.h}px`, left: LABEL_W + 8 }}>

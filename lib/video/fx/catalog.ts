@@ -1,5 +1,7 @@
+import { MORE_FX_INFO, MORE_FX_KINDS, MORE_FX_MOVABLE } from "./catalog-more";
+
 /**
- * Biblioteca de efectos "de firma" del Editor (17). Cada efecto es una capa del plan sobre un tramo de palabras (como el
+ * Biblioteca de efectos del Editor: los 17 "de firma" de este archivo y 83 más (catalog-more.ts) en categorías. Cada efecto es una capa del plan sobre un tramo de palabras (como el
  * b-roll), con sus textos y su diseño dibujado por el motor de efectos (lib/video/fx/engine), el mismo en la vista
  * previa del navegador y en el worker (skia-canvas).
  *
@@ -7,7 +9,7 @@
  * tus reels), duración, qué textos lleva y cuándo lo elige el director. Sin servidor.
  */
 
-export const FX_KINDS = [
+export const SIGNATURE_FX_KINDS = [
   "cover_story",
   "digital_zoom",
   "checklist",
@@ -26,12 +28,47 @@ export const FX_KINDS = [
   "doodle_boil",
   "vertigo",
 ] as const;
+export const FX_KINDS = [...SIGNATURE_FX_KINDS, ...MORE_FX_KINDS] as const;
 export type FxKind = (typeof FX_KINDS)[number];
+
+/** Categorías de la biblioteca (en este orden en la galería y en Mi marca). */
+export const FX_CATEGORIES = ["firma", "texto", "atencion", "tarjetas", "looks", "camara", "marcos", "recorte"] as const;
+export type FxCategory = (typeof FX_CATEGORIES)[number];
+export const FX_CATEGORY_LABELS: Record<FxCategory, { label: string; description: string }> = {
+  firma: { label: "De firma", description: "Los efectos insignia: portada, checklist, letras de vidrio y más." },
+  texto: { label: "Texto", description: "Palabras y frases animadas con tu tipografía." },
+  atencion: { label: "Atención", description: "Flechas, círculos, lupas, stickers y marcas para señalar." },
+  tarjetas: { label: "Tarjetas", description: "Nombre, cita, cifra, listas, encuesta, comentario y más." },
+  looks: { label: "Looks", description: "Color y textura: grano, VHS, glitch, duotono, cine." },
+  camara: { label: "Cámara", description: "Sacudidas, zooms, paneos e inclinaciones." },
+  marcos: { label: "Marcos", description: "Teléfono, foto instantánea, cuaderno, pantallas y paneles." },
+  recorte: { label: "Con tu recorte", description: "Texto detrás de ti, contorno, sombra, clones y fondos." },
+};
+
+/**
+ * Textos por defecto de los efectos nuevos a partir de lo que se dice (schema.defaultFx): "key" la palabra fuerte,
+ * "KEY" en mayúsculas, "phrase" las primeras palabras de la frase, "sentence" la frase entera, "number" una cifra dicha
+ * (o vacío: nunca se inventa), "question" la pregunta dicha, "words" palabras fuertes (ítems), "phrases" partes de lo
+ * dicho (ítems), "emoji" el emoji que corresponde a lo que se dice, "yesno" SÍ/NO. `{ fixed }` un texto fijo.
+ */
+export type FxAuto = {
+  text?: "key" | "KEY" | "phrase" | "lower-phrase" | "sentence" | "number" | "question" | "emoji" | "yesno" | "" | { fixed: string };
+  items?: "words" | "phrases" | "sentence" | { fixed: string[] };
+  kicker?: string;
+};
 
 export type FxField = { label: string; placeholder: string; max: number };
 export type FxItemsField = FxField & { min: number; count: number };
 
 export type FxInfo = {
+  /** Categoría en la biblioteca. */
+  category: FxCategory;
+  /** Palabras para el buscador de la biblioteca (sin tildes). */
+  keywords?: string;
+  /** Textos por defecto (efectos nuevos; los de firma tienen su caso en schema.defaultFx). */
+  auto?: FxAuto;
+  /** Textos de la muestra animada de la galería. */
+  demo?: { text?: string; items?: string[]; kicker?: string };
   /** Nombre en la galería. */
   label: string;
   /** Una frase: qué se ve. */
@@ -56,7 +93,7 @@ export type FxInfo = {
   spec: "referencia" | "propio";
 };
 
-export const FX_INFO: Record<FxKind, FxInfo> = {
+const SIGNATURE_FX_INFO: Record<(typeof SIGNATURE_FX_KINDS)[number], Omit<FxInfo, "category">> = {
   cover_story: {
     label: "Portada de revista",
     description: "Una palabra gigante en serif detrás de tu cabeza, con fecha y titular de portada.",
@@ -280,6 +317,11 @@ export const FX_INFO: Record<FxKind, FxInfo> = {
   },
 };
 
+export const FX_INFO: Record<FxKind, FxInfo> = {
+  ...(Object.fromEntries(Object.entries(SIGNATURE_FX_INFO).map(([k, v]) => [k, { ...v, category: "firma" as const }])) as Record<(typeof SIGNATURE_FX_KINDS)[number], FxInfo>),
+  ...MORE_FX_INFO,
+};
+
 /**
  * Efectos con un elemento superpuesto que se puede mover, agrandar y animar desde el lienzo de la revisión
  * (lib/video/canvas/transform.ts). Los de pantalla completa, los de cámara y los que van detrás de la persona no:
@@ -290,12 +332,13 @@ export const FX_MOVABLE: Partial<Record<FxKind, { label: string; rotation: boole
   iphone: { label: "Teléfono", rotation: true },
   chart_grow: { label: "Gráfico de la semana", rotation: false },
   cover_story: { label: "Titular de portada", rotation: true },
+  ...MORE_FX_MOVABLE,
 };
 
 export const isFxMovable = (kind: FxKind) => Boolean(FX_MOVABLE[kind]);
 
-/** Orden de la galería: primero los más versátiles. */
-export const FX_GALLERY_ORDER: FxKind[] = [
+/** Orden de los de firma en la galería: primero los más versátiles. */
+const SIGNATURE_ORDER: FxKind[] = [
   "digital_zoom",
   "cover_story",
   "checklist",
@@ -314,6 +357,29 @@ export const FX_GALLERY_ORDER: FxKind[] = [
   "doodle_boil",
   "vertigo",
 ];
+
+/** Orden de la galería: por categoría (los de firma primero, en su orden; el resto como en la ficha). */
+export const FX_GALLERY_ORDER: FxKind[] = [...SIGNATURE_ORDER, ...MORE_FX_KINDS];
+
+/** Efectos de una categoría, en el orden de la galería. */
+export const fxByCategory = (c: FxCategory): FxKind[] => FX_GALLERY_ORDER.filter((k) => FX_INFO[k].category === c);
+
+const plain = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+/** Buscador de la biblioteca: nombre, descripción, cuándo usarlo y palabras clave (sin tildes, todas las palabras). */
+export function searchFx(query: string, kinds: readonly FxKind[] = FX_GALLERY_ORDER): FxKind[] {
+  const terms = plain(query).split(/\s+/).filter(Boolean);
+  if (!terms.length) return [...kinds];
+  return kinds.filter((k) => {
+    const i = FX_INFO[k];
+    const hay = plain(`${i.label} ${i.description} ${i.when} ${i.keywords ?? ""} ${FX_CATEGORY_LABELS[i.category].label} ${k.replace(/_/g, " ")}`);
+    return terms.every((t) => hay.includes(t));
+  });
+}
 
 export const isFxKind = (v: unknown): v is FxKind => typeof v === "string" && (FX_KINDS as readonly string[]).includes(v);
 

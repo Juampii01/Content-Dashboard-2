@@ -6,9 +6,10 @@
 import { outputRange, type Timeline } from "../timeline";
 import { FPS, type VideoFormat } from "../types";
 import { FX_INFO, type FxKind } from "./catalog";
-import type { FxItem } from "./schema";
+import { strongWords, type FxItem } from "./schema";
 import { FX_MOVABLE } from "./catalog";
 import { cleanPlace, type Place } from "../canvas/transform";
+import type { TransitionKind } from "./transitions";
 
 export const FX_VERSION = 1;
 
@@ -19,7 +20,8 @@ export type FxWord = { t0: number; t1: number; text: string; stop: boolean; stro
 export type FxSpec = {
   v: 1;
   id: string;
-  kind: FxKind;
+  /** Un efecto de la biblioteca o una transición (lib/video/fx/transitions). */
+  kind: FxKind | TransitionKind;
   /** Semilla estable (inclinaciones, posiciones, temblor). */
   seed: number;
   start: number;
@@ -225,6 +227,11 @@ export function revealMarks(items: string[], words: FxWord[], duration: number):
   return marks;
 }
 
+/** Efectos con una lista que aparece a medida que se dice. */
+const LIST_KINDS = new Set<FxKind>(["checklist", "green_screen", "numbered_list", "timeline_steps", "word_stack", "pros_cons"]);
+/** Efectos de cámara que golpean en las palabras fuertes. */
+const BEAT_KINDS = new Set<FxKind>(["beat_pulse", "snap_zoom"]);
+
 export function compileFx(input: {
   segment: FxSegment;
   timeline: Pick<Timeline, "words" | "clips" | "duration">;
@@ -246,8 +253,14 @@ export function compileFx(input: {
   const info = FX_INFO[item.kind];
   const items = (item.items ?? []).filter(Boolean);
   let marks: number[] = [];
-  if (item.kind === "checklist" || item.kind === "green_screen") marks = revealMarks(items, words, duration);
+  if (LIST_KINDS.has(item.kind)) marks = revealMarks(items, words, duration);
   else if (item.kind === "digital_zoom") marks = words.filter((w) => w.strong).map((w) => w.t0);
+  else if (BEAT_KINDS.has(item.kind)) {
+    // Los golpes de cámara caen en las palabras fuertes del tramo (las mismas que elegiría el zoom digital).
+    const inside = timeline.words.filter((w) => w.end > seg.start && w.start < seg.end);
+    const ids = new Set(strongWords(inside.map((w) => ({ id: w.id, text: w.text })), item.kind === "beat_pulse" ? 6 : 1));
+    marks = inside.filter((w) => ids.has(w.id)).map((w) => round3(Math.max(0, w.start - seg.start)));
+  }
   // Corte del video final dentro del tramo (para la transición con zoom): el más cercano al centro.
   let cut: number | null = null;
   if (item.kind === "zoom_cut") {

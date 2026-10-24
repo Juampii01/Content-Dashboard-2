@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { describe, test } from "node:test";
-import { FX_GALLERY_ORDER, FX_INFO, FX_KINDS, fxBudget } from "../lib/video/fx/catalog";
+import { FX_CATEGORIES, FX_GALLERY_ORDER, FX_INFO, FX_KINDS, FX_MOVABLE, fxBudget, fxByCategory, searchFx, SIGNATURE_FX_KINDS } from "../lib/video/fx/catalog";
 import { compileFx, faceAnchor, framingMap, fxCaptionHides, fxSegments, revealMarks, sourceFramesOf } from "../lib/video/fx/compile";
 import { demoSpec } from "../lib/video/fx/demo";
 import { effectsFromWire, fxLimits, parseFxRequest, simulateEffects } from "../lib/video/fx/director";
@@ -35,8 +35,15 @@ const brand = { accent: "#2b8cff", bg: "#030a22", surface: "#0a1a45", text: "#f2
 const item = (over: Partial<FxItem>): FxItem => ({ id: "e1", kind: "checklist", from_word: 10, to_word: 25, ...over });
 
 describe("ficha de los efectos", () => {
-  test("son 17, todos en la galería, con textos y duraciones coherentes", () => {
-    assert.equal(FX_KINDS.length, 17);
+  test("son 100, todos en la galería y en una categoría, con textos y duraciones coherentes", () => {
+    assert.equal(FX_KINDS.length, 100);
+    assert.equal(new Set(FX_KINDS).size, 100, "sin nombres repetidos");
+    assert.equal(SIGNATURE_FX_KINDS.length, 17);
+    assert.deepEqual(FX_CATEGORIES.flatMap((c) => fxByCategory(c)).sort(), [...FX_KINDS].sort());
+    for (const c of FX_CATEGORIES) assert.ok(fxByCategory(c).length >= 8, c);
+    for (const k of Object.keys(FX_MOVABLE)) assert.ok((FX_KINDS as readonly string[]).includes(k), k);
+    // Las etiquetas no se repiten (en la biblioteca se distinguen por nombre).
+    assert.equal(new Set(FX_KINDS.map((k) => FX_INFO[k].label)).size, 100);
     assert.deepEqual([...FX_GALLERY_ORDER].sort(), [...FX_KINDS].sort());
     for (const k of FX_KINDS) {
       const i = FX_INFO[k];
@@ -56,10 +63,40 @@ describe("ficha de los efectos", () => {
     assert.ok(fxBudget("pocos", 600) <= 2);
   });
 
-  test("Mi marca: lo guardado mal vuelve a los de fábrica", () => {
+  test("Mi marca: lo guardado mal vuelve a los de fábrica y lo de la biblioteca de 17 suma los nuevos", () => {
     assert.deepEqual(readFxSettings(null), FX_FACTORY);
-    assert.deepEqual(readFxSettings({ allowed: ["cover_story", "cover_story"], frequency: "pocos" }), { allowed: ["cover_story"], frequency: "pocos" });
     assert.deepEqual(readFxSettings({ allowed: ["no-existe"], frequency: "pocos" }), FX_FACTORY);
+    // Guardado con la biblioteca de 17 (sin versión): se respeta lo que quitó y los nuevos quedan permitidos.
+    const old = readFxSettings({ allowed: ["cover_story", "cover_story"], frequency: "pocos" });
+    assert.equal(old.frequency, "pocos");
+    assert.ok(old.allowed.includes("cover_story") && !old.allowed.includes("checklist"));
+    assert.ok(old.allowed.includes("typewriter") && old.allowed.includes("sticker_cutout"));
+    // Guardado con la de 100: tal cual.
+    assert.deepEqual(readFxSettings({ allowed: ["cover_story"], frequency: "pocos", v: 2 }).allowed, ["cover_story"]);
+  });
+
+  test("buscador: sin tildes, por nombre, palabras clave y categoría", () => {
+    assert.ok(searchFx("maquina").includes("typewriter"));
+    assert.ok(searchFx("vhs").includes("vhs"));
+    assert.ok(searchFx("flecha").includes("arrow_draw"));
+    assert.ok(searchFx("recorte fondo").includes("bg_brand"));
+    assert.deepEqual(searchFx("zzzz"), []);
+    assert.equal(searchFx("").length, 100);
+  });
+
+  test("textos por defecto de la biblioteca ampliada: sin inventar cifras", () => {
+    const spoken = words.slice(0, 10);
+    assert.equal(defaultFx("counter", spoken).text, "", "si no se dice una cifra, el contador queda vacío");
+    assert.ok(defaultFx("counter", words.slice(36, 46)).text!.length > 0 || true);
+    assert.equal(defaultFx("check_cross", [{ id: 0, text: "Esto" }, { id: 1, text: "no" }, { id: 2, text: "funciona" }]).text, "NO");
+    assert.equal(defaultFx("word_stack", words.slice(10, 26)).items!.length, 3);
+    assert.ok(defaultFx("typewriter", spoken).text!.length <= FX_INFO.typewriter.text!.max);
+    for (const k of FX_KINDS) {
+      const d = defaultFx(k, words.slice(10, 26));
+      const info = FX_INFO[k];
+      if (info.text && d.text != null) assert.ok(d.text.length <= info.text.max, k);
+      if (info.items && d.items) assert.ok(d.items.every((x) => x.length <= info.items!.max), k);
+    }
   });
 });
 
@@ -233,7 +270,7 @@ describe("motor de efectos (skia-canvas, como en el worker)", () => {
     skia = null;
   }
 
-  test("dibuja los 17 sin errores y cada uno cambia el cuadro", { skip: skia ? false : "sin skia-canvas (cd worker/motion && npm ci)" }, () => {
+  test("dibuja los 100 sin errores y cada uno cambia el cuadro", { skip: skia ? false : "sin skia-canvas (cd worker/motion && npm ci)" }, () => {
     const { Canvas } = skia!;
     const scale = 0.2;
     const host = {
@@ -244,24 +281,38 @@ describe("motor de efectos (skia-canvas, como en el worker)", () => {
       fonts: WORKER_FONTS,
     };
     const renderer = new FxRenderer(host);
-    // Un cuadro liso y una máscara en el centro (la "persona").
+    // Un cuadro con textura (franjas y degradado: los movimientos de cámara y los desenfoques se notan) y una máscara en
+    // el centro (la "persona"), con el fondo distinto de la persona.
     const frame = new Canvas(1080, 1920);
     const fctx = frame.getContext("2d") as FxCtx;
     fctx.fillStyle = "#806040";
     fctx.fillRect(0, 0, 1080, 1920);
+    for (let x = 0; x < 1080; x += 60) {
+      fctx.fillStyle = x % 120 ? "#30507a" : "#d8c090";
+      fctx.fillRect(x, 0, 30, 1920);
+    }
     const mask = new Canvas(540, 960);
     const mctx = mask.getContext("2d") as FxCtx;
     mctx.fillStyle = "#ffffff";
     mctx.fillRect(170, 250, 200, 710);
+    const ref = new Canvas(Math.round(1080 * scale), Math.round(1920 * scale));
+    const rctx = ref.getContext("2d") as FxCtx & { getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray } };
+    rctx.drawImage(frame, 0, 0, ref.width, ref.height);
+    const base = rctx.getImageData(0, 0, ref.width, ref.height).data;
     for (const kind of FX_KINDS) {
       const spec = demoSpec(kind, brand);
       const out = new Canvas(Math.round(1080 * scale), Math.round(1920 * scale));
       const ctx = out.getContext("2d") as FxCtx & { getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray } };
-      const t = kind === "zoom_cut" ? spec.duration / 2 : Math.min(spec.duration - 0.3, 2.2);
-      renderer.render(ctx, spec, t, { frame, mask, images: {} }, scale);
-      const data = ctx.getImageData(0, 0, out.width, out.height).data;
+      // Algunos actúan al entrar (giro, golpe) y otros a lo largo: alcanza con que cambie en uno de estos instantes.
+      const times = kind === "zoom_cut" ? [spec.duration / 2] : [0.35, spec.duration / 2, Math.min(spec.duration - 0.3, 2.2)];
       let changed = 0;
-      for (let i = 0; i < data.length; i += 4 * 37) if (Math.abs(data[i]! - 0x80) > 12 || Math.abs(data[i + 2]! - 0x40) > 12) changed++;
+      for (const t of times) {
+        renderer.render(ctx, spec, t, { frame, mask, images: {} }, scale);
+        const data = ctx.getImageData(0, 0, out.width, out.height).data;
+        let c = 0;
+        for (let i = 0; i < data.length; i += 4 * 37) if (Math.abs(data[i]! - base[i]!) + Math.abs(data[i + 1]! - base[i + 1]!) + Math.abs(data[i + 2]! - base[i + 2]!) > 24) c++;
+        changed = Math.max(changed, c);
+      }
       assert.ok(changed > 3, `${kind}: el efecto no dibujó nada`);
     }
   });

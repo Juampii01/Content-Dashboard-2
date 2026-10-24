@@ -2,20 +2,21 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Bot, Check, Clapperboard, Headphones, Library, Music, Sparkles, WandSparkles } from "lucide-react";
+import { Bot, Check, Clapperboard, Headphones, Library, Sparkles, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
-import { usePrefersReducedMotion } from "@/components/ui/hooks";
-import { SegmentedControl } from "@/components/ui/tabs";
 import { formatDuration, formatNumber } from "@/lib/format";
-import { FX_GALLERY_ORDER, FX_INFO, type FxKind } from "@/lib/video/fx/catalog";
+import { FX_INFO } from "@/lib/video/fx/catalog";
+import { searchTransitions } from "@/lib/video/fx/transitions";
 import { GRAPHIC_TEMPLATES, GRAPHIC_TEMPLATE_KEYS } from "@/lib/video/graphics";
 import { cn } from "@/lib/utils";
 import { DecisionsPanel } from "../director/decisions-panel";
 import { EditRequestCard } from "../director/edit-request";
 import { UnderstandingPanel } from "../director/understanding-panel";
 import { VariantsPanel } from "../director/variants-panel";
-import { FxSample, useInView, useLoop } from "../fx/fx-panel";
+import { FxLibraryGrid, SearchBox, TransitionTile } from "../fx/fx-library";
+import { LibraryMusic } from "./library-music";
+import { LibrarySounds } from "./library-sounds";
 import { LIBRARY_MIME, type LibraryDrop, type StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
@@ -186,8 +187,6 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
   );
 }
 
-type LibTab = "efectos" | "graficos" | "broll" | "musica";
-
 function dragProps(item: LibraryDrop, enabled: boolean) {
   if (!enabled) return {};
   return {
@@ -199,55 +198,71 @@ function dragProps(item: LibraryDrop, enabled: boolean) {
   };
 }
 
+type LibTab = "efectos" | "transiciones" | "graficos" | "broll" | "musica" | "sonidos";
+
 /**
- * Pestaña Biblioteca: los 17 efectos, las plantillas de gráfico, el b-roll y la música. Tocar agrega en el cabezal;
- * también se arrastran a la línea de tiempo.
+ * Pestaña Biblioteca: 100 efectos en categorías con buscador, 20 transiciones, gráficos, b-roll, música (generada, tuya
+ * y de catálogo) y 40 sonidos. Tocar agrega en el cabezal (la transición, en el corte más cercano); también se
+ * arrastran a la línea de tiempo.
  */
 export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: LibraryDrop) => void }) {
   const [tab, setTab] = useState<LibTab>("efectos");
-  const reduced = usePrefersReducedMotion();
-  const [ref, inView] = useInView<HTMLDivElement>();
-  const clock = useLoop(tab === "efectos" && inView, reduced);
-  const { props, state } = api;
+  const [trQ, setTrQ] = useState("");
+  const { props } = api;
   const edit = props.canEdit;
+  const transitions = useMemo(() => searchTransitions(trQ), [trQ]);
   return (
     <div className="flex flex-col gap-3 p-4">
-      <SegmentedControl
-        label="Qué agregar"
-        size="sm"
-        className="max-w-full self-start overflow-x-auto"
-        value={tab}
-        onValueChange={setTab}
-        options={[
-          { value: "efectos", label: "Efectos" },
-          { value: "graficos", label: "Gráficos" },
-          { value: "broll", label: "B-roll" },
-          { value: "musica", label: "Música" },
-        ]}
-      />
-      <p className="text-xs text-muted">{edit ? "Toca para agregarlo donde está el cabezal, o arrástralo a la línea de tiempo." : "Solo lectura: tu usuario no puede editar."}</p>
+      <div role="tablist" aria-label="Qué agregar" className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.02] p-1">
+        {(
+          [
+            ["efectos", "Efectos"],
+            ["transiciones", "Transiciones"],
+            ["graficos", "Gráficos"],
+            ["broll", "B-roll"],
+            ["musica", "Música"],
+            ["sonidos", "Sonidos"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={tab === v}
+            onClick={() => setTab(v)}
+            className={cn("rounded-lg px-2 py-1.5 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-accent-hi", tab === v ? "bg-accent text-white" : "text-muted hover:bg-white/[0.06] hover:text-white")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted">{edit ? (tab === "transiciones" ? "Toca una para ponerla en el corte más cercano al cabezal, o arrástrala a un corte (los rombos de la pista de efectos)." : tab === "musica" ? "Elige la música de fondo: va debajo de tu voz y baja sola cuando hablas." : "Toca para agregarlo donde está el cabezal, o arrástralo a la línea de tiempo.") : "Solo lectura: tu usuario no puede editar."}</p>
 
-      {tab === "efectos" && (
-        <div ref={ref} role="list" aria-label="Efectos" className="grid grid-cols-3 gap-1.5">
-          {FX_GALLERY_ORDER.map((kind: FxKind) => {
-            const info = FX_INFO[kind];
-            return (
-              <button
-                key={kind}
-                type="button"
-                role="listitem"
-                disabled={!edit}
-                onClick={() => onAdd({ type: "fx", kind })}
-                {...dragProps({ type: "fx", kind }, edit)}
-                className="flex flex-col gap-1 rounded-xl border border-white/10 p-1 text-left transition hover:border-white/30 focus-visible:outline-2 focus-visible:outline-accent-hi disabled:cursor-default"
-                aria-label={`Agregar «${info.label}» en el cabezal`}
-                title={info.description}
-              >
-                <FxSample kind={kind} brand={api.fxBrand} clock={clock} reduced={reduced} />
-                <span className="px-0.5 pb-0.5 text-[11px] leading-tight font-semibold text-white">{info.label}</span>
-              </button>
-            );
-          })}
+      {tab === "efectos" && <FxLibraryGrid brand={api.fxBrand} onPick={edit ? (kind) => onAdd({ type: "fx", kind }) : null} dragData={edit ? (kind) => JSON.stringify({ type: "fx", kind } satisfies LibraryDrop) : undefined} />}
+
+      {tab === "transiciones" && (
+        <div className="flex flex-col gap-2.5">
+          <SearchBox value={trQ} onChange={setTrQ} label="Buscar transiciones" placeholder="Buscar en 20 transiciones…" />
+          {transitions.length === 0 ? (
+            <p className="rounded-xl border border-white/10 p-3 text-sm text-muted">Ninguna transición coincide con «{trQ}».</p>
+          ) : (
+            <div aria-label="Transiciones" className="grid grid-cols-3 gap-1.5">
+              {transitions.map((kind) => (
+                <TransitionTile
+                  key={kind}
+                  kind={kind}
+                  brand={api.fxBrand}
+                  onPick={edit ? () => onAdd({ type: "transition", kind }) : undefined}
+                  draggable={edit}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(LIBRARY_MIME, JSON.stringify({ type: "transition", kind } satisfies LibraryDrop));
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                />
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted">Las transiciones tapan el corte con movimiento, luz o color: tu voz no se corre ni se pisa. Cada una trae su sonido (lo puedes apagar).</p>
         </div>
       )}
 
@@ -297,38 +312,9 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
         </div>
       )}
 
-      {tab === "musica" && (
-        <div className="flex flex-col gap-2">
-          {(props.tracks ?? []).length === 0 ? (
-            <p className="rounded-xl border border-white/10 p-3 text-sm text-muted">Todavía no subiste música. Súbela en Editor → Biblioteca y vuelve aquí.</p>
-          ) : (
-            <div role="radiogroup" aria-label="Música de fondo" className="flex flex-col gap-1.5">
-              {[{ id: null as string | null, title: "Sin música", duration: 0 }, ...(props.tracks ?? [])].map((t) => {
-                const active = state.music.trackId === t.id;
-                return (
-                  <button
-                    key={t.id ?? "none"}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    disabled={!edit}
-                    onClick={() => api.update((s) => ({ ...s, music: { ...s.music, trackId: t.id } }))}
-                    className={cn("flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition", active ? "border-accent bg-accent/12 text-white" : "border-white/10 text-text hover:border-white/25")}
-                  >
-                    <Music className="h-3.5 w-3.5 flex-none text-accent-hi" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate">{t.title}</span>
-                    {t.duration ? <span className="font-mono text-[11px] text-muted">{formatDuration(t.duration)}</span> : null}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <p className="text-xs text-muted">El volumen y el audio de estudio se ajustan en «Audio y música» (inspector, sin nada elegido).</p>
-          <Link href="/editor/biblioteca" className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent-hi hover:underline">
-            <Library className="h-3.5 w-3.5" aria-hidden /> Administrar tu música
-          </Link>
-        </div>
-      )}
+      {tab === "musica" && <LibraryMusic api={api} />}
+
+      {tab === "sonidos" && <LibrarySounds canEdit={edit} onAdd={onAdd} />}
     </div>
   );
 }

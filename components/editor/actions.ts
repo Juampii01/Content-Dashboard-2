@@ -10,7 +10,9 @@ import { fileDriver } from "@/lib/storage";
 import { setAutoExport } from "@/lib/video/auto-export";
 import { brollItemSchema } from "@/lib/video/plan";
 import { fxListSchema } from "@/lib/video/fx/schema";
-import { MUSIC_DB, SFX_LEVELS } from "@/lib/video/sfx";
+import { transitionListSchema } from "@/lib/video/fx/transitions";
+import { musicGenSchema } from "@/lib/video/music-gen/spec";
+import { MUSIC_DB, SFX_LEVELS, soundCueListSchema } from "@/lib/video/sfx";
 import { STUDIO_LEVELS } from "@/lib/video/studio-audio";
 import { CAPTION_PRESET_KEYS, type CaptionPresetKey } from "@/lib/video/types";
 import { BUDGET, briefSchema, type Brief } from "@/lib/video/director/types";
@@ -155,6 +157,10 @@ const reviewSchema = z.object({
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
   effects: fxListSchema.optional(),
+  // Transiciones en los cortes, sonidos de la pista de Sonido y música generada (applyReview los vuelve a limpiar).
+  transitions: transitionListSchema.optional(),
+  soundCues: soundCueListSchema.optional(),
+  musicGen: musicGenSchema.nullable().optional(),
   // Lugar de los subtítulos del lienzo (lo limpia applyReview con cleanCaptionPlacement).
   captionPlace: z.object({ transform: z.unknown().optional(), lines: z.unknown().optional() }).optional(),
   // Tramos sin subtítulos (los que quitó la persona y los del director que siguen en pie).

@@ -983,6 +983,13 @@ export const musicTracks = pgTable(
     fileName: text("file_name"),
     fileBytes: bigint("file_bytes", { mode: "number" }),
     duration: real("duration"),
+    /** De dónde viene: "upload" (la sube el cliente) o "jamendo" (catálogo con licencia CC BY, ver lib/video/music-providers). */
+    source: text("source").notNull().default("upload"),
+    /** Id en el catálogo de origen (para no bajarla dos veces). */
+    externalId: text("external_id"),
+    /** Atribución que pide la licencia (va en la descripción del video). */
+    attribution: text("attribution"),
+    licenseUrl: text("license_url"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -1080,7 +1087,7 @@ export const aiUsage = pgTable(
 
 // ─── Claves de servicios del cliente ───────────────────────────────────────
 
-export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI"]);
+export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI", "JAMENDO"]);
 
 /** Claves que carga el propio cliente (por ejemplo su API key de HeyGen), cifradas. */
 export const serviceCredentials = pgTable("service_credentials", {

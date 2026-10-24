@@ -11,7 +11,8 @@
  *
  * Sin servidor: lo usan el servicio del director y las pruebas.
  */
-import { FX_INFO, FX_KINDS, type FxKind } from "../fx/catalog";
+import { FX_INFO, type FxKind } from "../fx/catalog";
+import { fxFromText } from "../fx/request-words";
 import { DENSITY_TARGETS, type Density } from "../rhythm";
 import type { EditPlan } from "../types";
 import type { CriticIssue } from "./types";
@@ -57,7 +58,8 @@ export function parseLocks(instruction: string): RequestLocks {
   const negated = /sin efectos|quita (los |el )?efectos?|saca (los |el )?efectos?/.test(t);
   if (!negated) {
     for (const [re, kind] of FX_NAMES) if (re.test(t)) fx.add(kind);
-    for (const k of FX_KINDS) if (t.includes(plain(FX_INFO[k].label))) fx.add(k);
+    const named = fxFromText(t);
+    if (named) fx.add(named);
   }
   const fast = /pausas al minimo|corta (las )?pausas|mas dinamic|muy dinamic|mucho mas dinamic|ritmo (alto|rapido)|mas rapido|editor de reels|mas ritmo|agil/.test(t);
   const calm = /mas tranquil|mas lento|con calma|sin apuro|mas pausad/.test(t);

@@ -6,36 +6,65 @@
 import { sentences } from "@/lib/ai/prompts/editor";
 import { norm } from "../text";
 import type { Word } from "../types";
-import { FX_FREQUENCY_LABELS, FX_INFO, FX_KINDS, FX_MIN_GAP, fxBudget, type FxFrequency, type FxKind } from "./catalog";
+import { FX_CATEGORIES, FX_CATEGORY_LABELS, FX_FREQUENCY_LABELS, FX_INFO, FX_MIN_GAP, fxBudget, fxByCategory, type FxFrequency, type FxKind } from "./catalog";
+import { cutPoints, newTransitionId, TRANSITION_INFO, TRANSITION_KINDS, type TransitionItem, type TransitionKind } from "./transitions";
+import type { Timeline } from "../timeline";
+import { fxFromText } from "./request-words";
 import { clampFx, defaultFx, newFxId, strongWords, type FxItem, type FxSettings } from "./schema";
 
-export type FxLimits = { allowed: FxKind[]; max: number; minGap: number; frequency: FxFrequency };
+export type FxLimits = { allowed: FxKind[]; max: number; minGap: number; frequency: FxFrequency; /** Transiciones que puede poner (con moderación). */ transitions?: number };
+
+/** Transiciones por video según la frecuencia de Mi marca: pocas (un corte de cada tanto, nunca todos). */
+export function transitionBudget(frequency: FxFrequency, seconds: number): number {
+  if (frequency === "ninguno") return 0;
+  const perMinute = frequency === "pocos" ? 1 : frequency === "normal" ? 2.5 : 5;
+  const cap = frequency === "pocos" ? 1 : frequency === "normal" ? 4 : 8;
+  return Math.max(1, Math.min(cap, Math.round((seconds / 60) * perMinute)));
+}
 
 /** Límites de efectos para un video (lo que permite Mi marca y la duración). */
 export function fxLimits(settings: FxSettings, seconds: number): FxLimits {
   const allowed = settings.frequency === "ninguno" ? [] : settings.allowed;
-  return { allowed, max: allowed.length ? fxBudget(settings.frequency, seconds) : 0, minGap: FX_MIN_GAP[settings.frequency], frequency: settings.frequency };
+  return { allowed, max: allowed.length ? fxBudget(settings.frequency, seconds) : 0, minGap: FX_MIN_GAP[settings.frequency], frequency: settings.frequency, transitions: transitionBudget(settings.frequency, seconds) };
 }
 
-/** Reglas estables (van en el contexto, con caché): la biblioteca completa y cómo usarla. */
-export const FX_DIRECTOR_RULES = `EFECTOS DE FIRMA (effects)
-Una biblioteca de efectos con nombre que se dibujan con la marca sobre un tramo de palabras (como el b-roll, pero la persona sigue a la vista). Úsalos donde suman al sentido, nunca de relleno: un buen efecto subraya un momento (la apertura, un dato, una lista, un giro). Cada uno lleva su "why".
-${FX_KINDS.map((k) => {
+/** Cuántas veces puede ir el mismo efecto en un video (variedad: casi todos, una sola vez). */
+export const FX_REPEAT: Partial<Record<FxKind, number>> = { digital_zoom: 2, snap_zoom: 2, beat_pulse: 2, impact: 2, emoji_bounce: 2, word_pop: 2 };
+
+function fxLine(k: FxKind): string {
   const i = FX_INFO[k];
   const fields = [i.text ? `text = ${i.text.label.toLowerCase()} (máx. ${i.text.max})` : "", i.items ? `items = ${i.items.label.toLowerCase()} (${i.items.count}, máx. ${i.items.max} c/u)` : "", k === "digital_zoom" ? "items = 1 a 3 palabras fuertes TAL COMO SE DICEN en el tramo" : ""].filter(Boolean);
-  return `- ${k} «${i.label}»: ${i.description} Cuándo: ${i.when} Dura ${i.duration.min}–${i.duration.max} s.${i.mask ? " Va detrás de la persona (necesita su cara a cámara en ese tramo)." : ""}${fields.length ? ` Campos: ${fields.join("; ")}.` : ""}`;
-}).join("\n")}
+  return `- ${k} «${i.label}»: ${i.when} ${i.duration.min}–${i.duration.max} s.${i.mask ? " Recorte (cara a cámara)." : ""}${fields.length ? ` ${fields.join("; ")}.` : ""}`;
+}
+
+/** Reglas estables (van en el contexto, con caché): la biblioteca completa por categoría y cómo usarla. */
+export const FX_DIRECTOR_RULES = `EFECTOS DE LA BIBLIOTECA (effects)
+Una biblioteca de ${FX_CATEGORIES.reduce((n, c) => n + fxByCategory(c).length, 0)} efectos con nombre que se dibujan con la marca sobre un tramo de palabras (como el b-roll, pero la persona sigue a la vista). Úsalos donde suman al sentido, nunca de relleno: un buen efecto subraya un momento (la apertura, un dato, una lista, un giro, una emoción). Cada uno lleva su "why".
+${FX_CATEGORIES.map((c) => `${FX_CATEGORY_LABELS[c].label.toUpperCase()} (${FX_CATEGORY_LABELS[c].description})\n${fxByCategory(c).map(fxLine).join("\n")}`).join("\n")}
 REGLAS DE LOS EFECTOS
 - Nunca sobre un b-roll (un tramo lleva b-roll o efecto, no los dos), ni sobre algo importante que se muestra (producto, pantalla, gesto), ni sobre una toma mala.
-- Los que van detrás de la persona, solo donde se la ve a cámara.
-- cover_story y glass_type abren o presentan el tema (cover_story casi siempre en los primeros segundos). checklist cuando enumeras pasos (los ítems son esos pasos, cortos). chart_grow cuando hablas de crecimiento. digital_zoom en una frase con 1 a 3 palabras clave. zoom_cut solo en el cambio entre dos ideas.
+- Los que dicen "Recorte" van detrás de la persona: solo donde se la ve a cámara.
+- VARIEDAD: no repitas un efecto en el mismo video (los zooms y golpes de cámara, como mucho dos veces); alterna categorías (texto, tarjeta, cámara, look…) y no pongas dos de la misma categoría seguidos.
+- Elige por el contenido: una cifra que se dice → counter o big_stat; una lista → checklist o numbered_list; una cita → quote_card; una pregunta al público → poll o question_box; algo del pasado → film_grain, dust o polaroid; un giro → word_slam, impact o glitch; presentarte → lower_third. Los looks (grano, VHS, duotono…) y la cámara (sacudida, pulso…) acompañan un tramo con intención, no todo el video.
+- cover_story y glass_type abren o presentan el tema (cover_story casi siempre en los primeros segundos). zoom_cut solo en el cambio entre dos ideas.
+- Nunca inventes cifras: counter, big_stat y price_tag solo con un número que se dice en ese tramo.
 - Respeta la cantidad y la separación de EFECTOS PERMITIDOS. Si no hay efectos permitidos, effects va vacío.
-- Los textos de los efectos van en el idioma de la marca, cortísimos y sin cifras que no se dicen.`;
+- Los textos de los efectos van en el idioma de la marca, cortísimos.
+
+TRANSICIONES (transition)
+Tapan un corte entre dos tramos con movimiento, luz o color. La voz no se corre: solo cambia la imagen en el corte. Van en la PRIMERA palabra del tramo que entra después de un corte (from_word = to_word = esa palabra): un corte que tú haces o una pausa larga que se recorta.
+${TRANSITION_KINDS.map((k) => `- ${k} «${TRANSITION_INFO[k].label}» (${TRANSITION_INFO[k].energy}): ${TRANSITION_INFO[k].description}`).join("\n")}
+- Con moderación (ver TRANSICIONES PERMITIDAS): solo en el cambio de una parte a otra (del gancho al contenido, entre puntos de una lista, antes de la CTA), nunca en todos los cortes ni dentro de una misma frase.
+- Las suaves para un cambio de tema tranquilo; las fuertes con ritmo alto. No repitas la misma dos veces seguidas. Nunca en un corte con b-roll o efecto encima.
+
+`;
 
 /** Lo que va en la tarea de este video. */
 export function fxTaskText(limits: FxLimits): string {
-  if (!limits.allowed.length || limits.max <= 0) return "EFECTOS PERMITIDOS: ninguno (effects vacío).";
-  return `EFECTOS PERMITIDOS: hasta ${limits.max} en este video, separados al menos ${limits.minGap} s (frecuencia "${FX_FREQUENCY_LABELS[limits.frequency].label}" de Mi marca). Solo estos: ${limits.allowed.join(", ")}.`;
+  const tr = limits.transitions ?? 0;
+  const trText = tr > 0 ? `\nTRANSICIONES PERMITIDAS: hasta ${tr} en este video, en cambios de parte.` : "\nTRANSICIONES PERMITIDAS: ninguna (sin acciones transition).";
+  if (!limits.allowed.length || limits.max <= 0) return `EFECTOS PERMITIDOS: ninguno (effects vacío).${trText}`;
+  return `EFECTOS PERMITIDOS: hasta ${limits.max} en este video, separados al menos ${limits.minGap} s (frecuencia "${FX_FREQUENCY_LABELS[limits.frequency].label}" de Mi marca). Solo estos: ${limits.allowed.join(", ")}.${trText}`;
 }
 
 export type FxWire = { from_word: number; to_word: number; kind: FxKind; text: string; items: string[]; why: string };
@@ -66,6 +95,7 @@ export function effectsFromWire(
   const dropped: string[] = [];
   const out: FxItem[] = [];
   const lastEnd: number[] = [];
+  const used = new Map<FxKind, number>();
   // Los efectos que puso la persona se quedan (salvo que choquen con algo nuevo): el director no los quita solo.
   const keptUser = input.keepUser === false ? [] : (input.base ?? []).filter((b) => b.source === "user" && !input.broll.some((x) => overlaps({ from: x.from_word, to: x.to_word }, { from: b.from_word, to: b.to_word })));
   for (const e of [...wire].sort((a, b) => a.from_word - b.from_word)) {
@@ -75,6 +105,11 @@ export function effectsFromWire(
     if (keptUser.some((u) => overlaps({ from: u.from_word, to: u.to_word }, { from, to }) && !(u.kind === e.kind && u.from_word === from && u.to_word === to))) continue;
     if (!(from >= 0 && to < n) || !limits.allowed.includes(e.kind)) continue;
     const info = FX_INFO[e.kind];
+    // Variedad: el mismo efecto no se repite (salvo los zooms y golpes, hasta dos veces).
+    if ((used.get(e.kind) ?? 0) >= (FX_REPEAT[e.kind] ?? 1) && !input.base?.some((b) => b.kind === e.kind && b.from_word === from && b.to_word === to)) {
+      dropped.push(`No repetí ${info.label}: ya estaba en el video.`);
+      continue;
+    }
     const range = { from, to };
     if (input.broll.some((b) => overlaps({ from: b.from_word, to: b.to_word }, range))) {
       dropped.push(`Quité un efecto (${info.label}) que se pisaba con un b-roll.`);
@@ -100,6 +135,7 @@ export function effectsFromWire(
     const same = input.base?.find((b) => b.kind === e.kind && b.from_word === from && b.to_word === to);
     if (same) {
       out.push({ ...same, why: e.why.slice(0, 300) || same.why });
+      used.set(e.kind, (used.get(e.kind) ?? 0) + 1);
       lastEnd.push(words[to]!.end);
       continue;
     }
@@ -114,6 +150,7 @@ export function effectsFromWire(
       item.words = ids2.length ? ids2.slice(0, 5) : strongWords(spoken, 3);
     }
     out.push(clampFx(item));
+    used.set(e.kind, (used.get(e.kind) ?? 0) + 1);
     lastEnd.push(words[to]!.end);
   }
   for (const u of keptUser) if (!out.some((o) => o.id === u.id)) out.push(u);
@@ -150,10 +187,10 @@ export function parseFxRequest(instruction: string): FxRequest | null {
   const t = instruction.toLowerCase();
   if (/sin efectos|quita (los|el) efectos?|saca (los|el) efectos?/.test(t)) return { none: true };
   if (!/efecto|ponle|pon |agrega|suma/.test(t)) return null;
-  const hit = REQUEST_WORDS.find(([re]) => re.test(t));
-  if (!hit) return null;
+  const kind = REQUEST_WORDS.find(([re]) => re.test(t))?.[1] ?? fxFromText(t.normalize("NFD").replace(/[̀-ͯ]/g, ""));
+  if (!kind) return null;
   const where = /al (principio|inicio|comienzo)|para abrir|de entrada/.test(t) ? "start" : /al final|para cerrar/.test(t) ? "end" : /en el medio|a la mitad/.test(t) ? "middle" : null;
-  return { kind: hit[1], where };
+  return { kind, where };
 }
 
 /**
@@ -214,4 +251,60 @@ export function simulateEffects(input: { words: Word[]; limits: FxLimits; remove
 export function fxPlanText(items: FxItem[]): string {
   if (!items.length) return "Efectos: ninguno.";
   return `Efectos:\n${items.map((e) => `- ${e.kind} [${e.from_word}–${e.to_word}]${e.text ? ` "${e.text}"` : ""}${e.items?.length ? ` (${e.items.join(" / ")})` : ""}${e.source === "user" ? " (lo puso la persona: no lo quites salvo que lo pida)" : ""}`).join("\n")}`;
+}
+
+// ─── Transiciones del director ────────────────────────────────────────────
+
+export type TransitionWire = { at_word: number; kind: TransitionKind; why: string };
+
+/**
+ * Del formato de cable a las transiciones del plan, con reglas duras: solo en cortes que existen en el video final,
+ * sin b-roll ni efecto encima, como mucho las permitidas, separadas al menos 3 s y sin repetir la misma seguida. Las
+ * que puso la persona se quedan.
+ */
+export function transitionsFromWire(
+  wire: TransitionWire[],
+  input: { timeline: Pick<Timeline, "clips">; limits: FxLimits; blocked: { start: number; end: number }[]; base?: TransitionItem[] | null },
+): { items: TransitionItem[]; dropped: string[] } {
+  const cuts = cutPoints(input.timeline);
+  const max = input.limits.transitions ?? 0;
+  const kept = (input.base ?? []).filter((t) => t.source === "user" && cuts.some((c) => c.word === t.at_word));
+  const out: TransitionItem[] = [...kept];
+  const dropped: string[] = [];
+  let added = 0;
+  for (const w of [...wire].sort((a, b) => a.at_word - b.at_word)) {
+    if (added >= max) break;
+    const cut = cuts.find((c) => c.word === w.at_word);
+    if (!cut || !(TRANSITION_KINDS as readonly string[]).includes(w.kind)) continue;
+    if (out.some((t) => t.at_word === w.at_word)) continue;
+    if (input.blocked.some((b) => cut.at > b.start - 0.4 && cut.at < b.end + 0.4)) {
+      dropped.push(`No puse la transición ${TRANSITION_INFO[w.kind].label}: en ese corte hay un b-roll o un efecto.`);
+      continue;
+    }
+    const near = out.map((t) => cuts.find((c) => c.word === t.at_word)).filter(Boolean) as { at: number }[];
+    if (near.some((c) => Math.abs(c.at - cut.at) < 3)) continue;
+    const prev = [...out].filter((t) => t.at_word < w.at_word).sort((a, b) => b.at_word - a.at_word)[0];
+    if (prev && prev.kind === w.kind) continue;
+    out.push({ id: newTransitionId(), kind: w.kind, at_word: w.at_word, source: "director", why: w.why.slice(0, 300) });
+    added++;
+  }
+  return { items: out.sort((a, b) => a.at_word - b.at_word), dropped };
+}
+
+/** Transiciones del director simulado: en el cambio del gancho al cuerpo y entre partes, alternando suaves y fuertes. */
+export function simulateTransitions(input: { words: Word[]; cuts: { from_word: number; to_word: number }[]; limits: FxLimits }): TransitionWire[] {
+  const max = input.limits.transitions ?? 0;
+  if (max <= 0) return [];
+  const rotation: TransitionKind[] = input.limits.frequency === "muchos" ? ["tr_whip", "tr_zoom_in", "tr_glitch", "tr_flash", "tr_slide", "tr_spin"] : ["tr_zoom_in", "tr_blur", "tr_whip", "tr_light_leak", "tr_iris"];
+  const out: TransitionWire[] = [];
+  let lastAt = -99;
+  for (const c of [...input.cuts].sort((a, b) => a.to_word - b.to_word)) {
+    const at = Math.max(c.from_word, c.to_word) + 1;
+    const w = input.words[at];
+    if (!w || w.start - lastAt < 4) continue;
+    out.push({ at_word: at, kind: rotation[out.length % rotation.length]!, why: "Tapa el corte entre dos partes con movimiento." });
+    lastAt = w.start;
+    if (out.length >= max) break;
+  }
+  return out;
 }

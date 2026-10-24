@@ -5,6 +5,9 @@ import { planDensity, type Density, type RhythmAddition } from "@/lib/video/rhyt
 import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
 import { studioLevel, type StudioLevel } from "@/lib/video/studio-audio";
 import type { FxItem } from "@/lib/video/fx/schema";
+import type { TransitionItem } from "@/lib/video/fx/transitions";
+import type { MusicGenSpec } from "@/lib/video/music-gen/spec";
+import type { SoundCue } from "@/lib/video/sfx";
 import { cleanCaptionPlacement, type CaptionPlacement } from "@/lib/video/canvas/captions";
 import type { BrollItem, CaptionPresetKey, EditPlan, PlanMove, VideoFormat, ZoomMoment } from "@/lib/video/types";
 
@@ -40,6 +43,12 @@ export type StudioState = {
   captionHide: { from_word: number; to_word: number; why: string }[];
   /** Se tocó el ritmo (densidad, zooms del director o resaltados): se guarda el bloque `rhythm` de la revisión. */
   rhythmTouched: boolean;
+  /** Transiciones en los cortes. */
+  transitions: TransitionItem[];
+  /** Sonidos de la biblioteca puestos a mano (pista de Sonido). */
+  soundCues: SoundCue[];
+  /** Música generada elegida (manda sobre la pista subida). */
+  musicGen: MusicGenSpec | null;
 };
 
 export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_INTEGER): StudioState {
@@ -69,6 +78,9 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     rhythmTouched: false,
     captionHide: plan.captions.hide ?? [],
     captionPlace: cleanCaptionPlacement({ transform: plan.captions.transform, lines: plan.captions.lines }, wordCount),
+    transitions: plan.transitions ?? [],
+    soundCues: plan.audio.cues ?? [],
+    musicGen: plan.audio.music_gen ?? null,
   };
 }
 
@@ -85,7 +97,10 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     emoji: s.emoji,
     sfx: s.sfx,
     studio: s.studio,
-    music: { trackId: s.music.trackId && ctx.trackIds.includes(s.music.trackId) ? s.music.trackId : null, db: Math.max(-30, Math.min(-8, s.music.db)) },
+    music: { trackId: !s.musicGen && s.music.trackId && ctx.trackIds.includes(s.music.trackId) ? s.music.trackId : null, db: Math.max(-30, Math.min(-8, s.music.db)) },
+    musicGen: s.musicGen,
+    transitions: s.transitions,
+    soundCues: s.soundCues,
     ...(ctx.plan.moves?.length ? { moves: s.moves } : {}),
     effects: s.effects,
     captionPlace: s.captionPlace,

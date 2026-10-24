@@ -6,10 +6,12 @@
 import { cleanCaptionPlacement } from "./canvas/captions";
 import { cleanPlace } from "./canvas/transform";
 import { cleanFx } from "./fx/schema";
+import { cleanTransitions } from "./fx/transitions";
+import { musicGenSchema } from "./music-gen/spec";
 import { brollItemSchema, rangesFromIds, withDerived } from "./plan";
-import { MUSIC_DB, sfxLevel, type SfxLevel } from "./sfx";
+import { cleanSoundCues, MUSIC_DB, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
-import type { Timeline } from "./timeline";
+import { buildTimeline, type Timeline } from "./timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, PlanMove, Transcript, VideoFormat, ZoomMoment } from "./types";
 
 export type Review = {
@@ -34,6 +36,12 @@ export type Review = {
   moves?: PlanMove[];
   /** Efectos de la biblioteca tal como quedaron en la revisión. */
   effects?: unknown[];
+  /** Transiciones en los cortes (lib/video/fx/transitions). */
+  transitions?: unknown[];
+  /** Sonidos de la biblioteca puestos a mano en la pista de Sonido. */
+  soundCues?: unknown[];
+  /** Música generada elegida (estilo, semilla y tempo), o null para quitarla. Manda sobre `music.trackId`. */
+  musicGen?: unknown;
   /**
    * Ritmo elegido en la revisión (lib/video/rhythm.ts): la densidad y lo que el relleno de ritmo dejó en la vista
    * previa (punch-ins, pausa máxima y palabras resaltadas); los gráficos y efectos que agregó van en broll y effects.
@@ -130,6 +138,23 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const fx = cleanFx(review.effects, words.length, next.broll.filter((b) => b.choice));
     if (fx.length) next.effects = fx;
     else delete next.effects;
+  }
+  if (review.transitions) {
+    // Solo en cortes que existen con lo que quedó (el corte depende de lo cortado y del gancho).
+    const tr = cleanTransitions(review.transitions, buildTimeline(words, next, duration));
+    if (tr.length) next.transitions = tr;
+    else delete next.transitions;
+  }
+  if (review.soundCues) {
+    const cues = cleanSoundCues(review.soundCues, words.length);
+    const { cues: _c, ...audio } = next.audio;
+    void _c;
+    next.audio = cues.length ? { ...audio, cues } : audio;
+  }
+  if (review.musicGen !== undefined) {
+    const gen = review.musicGen === null ? null : musicGenSchema.safeParse(review.musicGen);
+    next.audio = { ...next.audio, music_gen: gen && gen.success ? gen.data : null };
+    if (next.audio.music_gen) next.audio.music_asset_id = null;
   }
   if (review.rhythm) {
     // Densidad elegida en la revisión: los punch-ins, la pausa máxima y los resaltados que ya se veían en la vista previa.

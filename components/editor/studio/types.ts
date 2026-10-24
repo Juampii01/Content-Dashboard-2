@@ -3,6 +3,8 @@ import type { DirectorView } from "@/lib/dal/video";
 import type { FxContext } from "@/lib/dal/video-fx";
 import type { OutputBroll, OutputZoom } from "@/lib/video/effects";
 import type { FxSegment, FxBrand } from "@/lib/video/fx/compile";
+import type { TransitionItem, TransitionSegment } from "@/lib/video/fx/transitions";
+import type { SfxName } from "@/lib/video/sfx-library";
 import type { FxKind } from "@/lib/video/fx/catalog";
 import type { GraphicLook } from "@/lib/video/graphics";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
@@ -39,6 +41,8 @@ export type StudioProps = {
   graphicLook: GraphicLook;
   /** Pistas de música listas de la biblioteca. */
   tracks?: TrackItem[];
+  /** Catálogos de música conectados en Ajustes (Jamendo). */
+  musicCatalog?: { jamendo: boolean } | null;
   /** Muestra de 10 s de "Audio de estudio" (antes y después), si ya está. */
   audioPreview?: AudioPreview | null;
   /** Director de edición: lo que entendió, la segunda mirada, el brief, los pedidos y las versiones. */
@@ -73,6 +77,9 @@ export type StudioApi = {
   timeline: Timeline;
   segments: OutputBroll[];
   fxSegs: FxSegment[];
+  /** Transiciones que se dibujan (en su corte) y todos los cortes del video final. */
+  trSegs: TransitionSegment[];
+  cutList: { at: number; word: number; index: number }[];
   zooms: OutputZoom[];
   captions: CaptionBlock[];
   rhythm: RhythmScore;
@@ -111,6 +118,10 @@ export type StudioApi = {
     setGraphic: (id: string, graphic: BrollGraphic) => void;
     changeDensity: (d: Density) => void;
     pickOption: (id: string, option: SignedOption | BrollOption) => void;
+    /** Pone, cambia o quita (null) la transición de un corte (primera palabra del tramo que entra). */
+    setTransition: (word: number, patch: Partial<TransitionItem> | null) => void;
+    /** Pone o mueve un sonido para que su punto fuerte caiga en `hit` (segundos del video final). */
+    placeSound: (id: string | null, name: SfxName, hit: number, gain?: number) => void;
   };
 };
 

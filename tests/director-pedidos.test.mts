@@ -108,7 +108,8 @@ async function pipeline(instruction: string | null, base: EditPlan | null, opts:
   const o = requestOverrides(parsed);
   const limits = { ...baseLimits, count: o.noBroll && o.noGraphics ? 0 : baseLimits.count + o.brollExtra, graphics: !o.noGraphics, stock: !o.noBroll };
   const asked = o.fx.map((f) => f.kind);
-  const fx = o.noFx ? { ...baseFx, allowed: [], max: 0 } : asked.length ? { ...baseFx, allowed: [...new Set([...baseFx.allowed, ...asked])], max: baseFx.max + asked.length, minGap: Math.min(baseFx.minGap, 3) } : baseFx;
+  const fx0 = o.noFx ? { ...baseFx, allowed: [], max: 0 } : asked.length ? { ...baseFx, allowed: [...new Set([...baseFx.allowed, ...asked])], max: baseFx.max + asked.length, minGap: Math.min(baseFx.minGap, 3) } : baseFx;
+  const fx = o.transitions === "off" ? { ...fx0, transitions: 0 } : o.transitions === "more" ? { ...fx0, transitions: Math.max(fx0.transitions ?? 0, 2) + o.transitionKinds.length } : fx0;
   const locks = instruction ? { ...parseLocks(instruction), parsed } : null;
   const w = simulateDirector({ words, duration, format: "9:16", candidates, map, brief, broll: limits, mustKeep: [], preset: "caja", base, issues: [], instruction, fx, request: parsed });
   const out = planFromDirector(w, { words, duration, format: "9:16", preset: "caja", corrections: {}, offScript: [], candidates, map, mustKeep: [], protect: [], style: null, broll: limits, base, fx: { limits: fx, faceWords: null, keepUser: !o.noFx }, density: o.density ?? density });
@@ -283,15 +284,65 @@ describe("pedidos típicos de punta a punta (simulador + cadena del servicio)", 
     assert.ok(c.status === "hecho" || (c.status === "no" && c.detail.length > 10), `${c.status}: ${c.detail}`);
   });
 
-  test("«ponle música»: sin pistas en la biblioteca lo dice; con una, la pone", async () => {
+  test("«ponle música»: sin pistas en la biblioteca pone música generada; con una, la de la biblioteca", async () => {
     const none = await pipeline("ponle música y efectos de sonido marcados", first);
-    assert.equal(none.compliance[0]!.status, "no");
-    assert.ok(none.compliance[0]!.detail.includes("Biblioteca"));
+    assert.equal(none.compliance[0]!.status, "hecho");
+    assert.ok(none.plan.audio.music_gen, "música generada");
+    assert.equal(none.plan.audio.music_asset_id, null);
     assert.equal(none.compliance[1]!.status, "hecho");
     assert.equal(none.plan.audio.sfx, "strong");
     const withTrack = await pipeline("ponle música", first, { musicTrack: "00000000-0000-4000-8000-000000000001" });
     assert.equal(withTrack.plan.audio.music_asset_id, "00000000-0000-4000-8000-000000000001");
     assert.equal(withTrack.compliance[0]!.status, "hecho");
+  });
+
+  test("«música lo-fi»: música generada de ese estilo, aunque haya pistas en la biblioteca; «sin música» la saca", async () => {
+    const r = await pipeline("pon música lo-fi más baja", first, { musicTrack: "00000000-0000-4000-8000-000000000001" });
+    assert.equal(r.parsed!.items[0]!.musicStyle, "lofi");
+    assert.equal(r.plan.audio.music_gen?.style, "lofi");
+    assert.equal(r.plan.audio.music_asset_id, null);
+    assert.ok(r.plan.audio.music_db < first.audio.music_db);
+    assert.equal(r.compliance[0]!.status, "hecho");
+    assert.ok(planSchemaFor(words.length).safeParse(r.plan).success);
+    const off = await pipeline("sin música", r.plan);
+    assert.equal(off.plan.audio.music_gen ?? null, null);
+    assert.equal(off.compliance[0]!.status, "hecho");
+    assert.equal(parseRequest("música épica").items[0]!.musicStyle, "epica");
+    assert.equal(parseRequest("música más suave").items[0]!.musicStyle, undefined, "«más suave» es el volumen");
+  });
+
+  test("«pon transiciones» y «una transición de barrido»: entran aunque Mi marca no tenga; «sin transiciones» las quita", async () => {
+    const parsed = parseRequest("pon una transición de barrido");
+    assert.equal(parsed.items[0]!.kind, "transiciones");
+    assert.equal(parsed.items[0]!.transition, "tr_whip");
+    const cut = await pipeline("corta todo lo que sobra y pon una transición de barrido", first);
+    const tr = cut.compliance.find((c) => c.label.includes("Barrido"))!;
+    assert.ok(cut.plan.transitions?.some((t) => t.kind === "tr_whip"), "quedó el barrido");
+    assert.equal(tr.status, "hecho");
+    const off = await pipeline("sin transiciones", cut.plan);
+    assert.equal(off.plan.transitions?.length ?? 0, 0);
+    assert.equal(off.compliance[0]!.status, "hecho");
+  });
+
+  test("efectos nuevos por su nombre o su categoría, sin confundir subtítulos, música ni audio", async () => {
+    const neon = parseRequest("un efecto de texto con neón al principio");
+    assert.equal(neon.items[0]!.kind, "efecto");
+    assert.equal(neon.items[0]!.fx, "neon_text");
+    assert.equal(neon.items[0]!.where, "start");
+    const cat = parseRequest("ponle un efecto de texto");
+    assert.equal(cat.items[0]!.kind, "efecto_tipo");
+    assert.equal(cat.items[0]!.category, "texto");
+    assert.ok(!parseRequest("subtítulos estilo resaltador").items.some((i) => i.kind === "efecto"));
+    assert.ok(!parseRequest("subtítulos palabra por palabra").items.some((i) => i.kind === "efecto"));
+    assert.ok(!parseRequest("quita el eco").items.some((i) => i.kind === "efecto"));
+    assert.ok(!parseRequest("música retro").items.some((i) => i.kind === "efecto"));
+    assert.equal(parseRequest("ponle un look VHS").items[0]!.fx, "vhs");
+    assert.equal(parseRequest("pon una lista numerada").items[0]!.fx, "numbered_list");
+    const r = await pipeline("ponle un efecto de texto con neón", first);
+    assert.ok(r.plan.effects?.some((e) => e.kind === "neon_text"));
+    assert.equal(r.compliance[0]!.status, "hecho");
+    const c = await pipeline("ponle un efecto de tarjeta", first);
+    assert.equal(c.compliance[0]!.status, "hecho", c.compliance[0]!.detail);
   });
 
   test("«pásalo a horizontal»: cambia el formato y el plan sigue válido", async () => {

@@ -481,13 +481,15 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
   const factor = DENSITY_TARGETS[density].fxFactor;
   const baseFx = fxSettings.max > 0 ? { ...fxSettings, max: Math.max(1, Math.round(fxSettings.max * factor)), minGap: Math.max(2, fxSettings.minGap / factor) } : fxSettings;
   const askedFx = overrides.fx.map((f) => f.kind);
-  const fx = overrides.noFx
+  const fx0 = overrides.noFx
     ? { ...baseFx, allowed: [], max: 0 }
     : askedFx.length
       ? { ...baseFx, allowed: [...new Set([...baseFx.allowed, ...askedFx])], max: baseFx.max + askedFx.length, minGap: Math.min(baseFx.minGap, 3), frequency: baseFx.frequency === "ninguno" ? ("pocos" as const) : baseFx.frequency }
       : fxAsk && "kind" in fxAsk && baseFx.allowed.includes(fxAsk.kind)
         ? { ...baseFx, max: baseFx.max + 1 }
         : baseFx;
+  // Transiciones: el pedido manda sobre Mi marca ("sin transiciones" o "pon transiciones", aunque la frecuencia sea ninguno).
+  const fx = overrides.transitions === "off" ? { ...fx0, transitions: 0 } : overrides.transitions === "more" ? { ...fx0, transitions: Math.max(fx0.transitions ?? 0, 2) + overrides.transitionKinds.length } : fx0;
   const faceWords = faceWordsOf(ctx.eyes, words);
   // Palabras mal transcritas ("desancado" → "estancado"): solo en la primera dirección, en paralelo con el director.
   const proofread = !mode && !base ? proofreadTranscript({ words, brandCtx: ctx.brandCtx, script }) : Promise.resolve({} as Record<string, string>);

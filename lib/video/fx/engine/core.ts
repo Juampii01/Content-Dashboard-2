@@ -18,6 +18,8 @@ export interface FxCtx {
   scale(x: number, y: number): void;
   rotate(a: number): void;
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  /** Multiplica la matriz actual (inclinaciones). */
+  transform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   /** Matriz actual (navegador y skia-canvas la tienen). */
   getTransform?(): { a: number; b: number; c: number; d: number; e: number; f: number };
   globalAlpha: number;
@@ -51,13 +53,16 @@ export interface FxCtx {
   fillRect(x: number, y: number, w: number, h: number): void;
   strokeRect(x: number, y: number, w: number, h: number): void;
   clearRect(x: number, y: number, w: number, h: number): void;
-  fillText(text: string, x: number, y: number): void;
+  fillText(text: string, x: number, y: number, maxWidth?: number): void;
   strokeText(text: string, x: number, y: number): void;
   measureText(text: string): { width: number };
   setLineDash(d: number[]): void;
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): { addColorStop(o: number, c: string): void };
   createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): { addColorStop(o: number, c: string): void };
   drawImage(img: unknown, ...args: number[]): void;
+  /** Píxeles crudos (texturas de grano y polvo, generadas una sola vez por efecto). */
+  createImageData(w: number, h: number): { data: Uint8ClampedArray; width: number; height: number };
+  putImageData(img: { data: Uint8ClampedArray; width: number; height: number }, x: number, y: number): void;
 }
 
 export type Layer = { canvas: ImageLike; ctx: FxCtx };
@@ -366,6 +371,14 @@ export class FxFrame {
     ctx.restore();
   }
 
+  /**
+   * Lienzo auxiliar que se pinta una sola vez y se reutiliza en todos los cuadros (texturas, viñetas). `w`×`h` en
+   * píxeles reales; `paint` recibe el contexto sin escala.
+   */
+  persistent(name: string, w: number, h: number, paint: (l: Layer) => void): Layer {
+    return this.pool.persistent(name, Math.max(1, Math.round(w)), Math.max(1, Math.round(h)), this.host, paint);
+  }
+
   /** Imagen por clave (miniaturas). */
   image(key: string): ImageLike | undefined {
     return this.src.images?.[key];
@@ -394,6 +407,16 @@ export class FxFrame {
 /** Lienzos auxiliares reutilizados entre cuadros (crearlos en cada cuadro es caro, sobre todo en el navegador). */
 export class LayerPool {
   private layers = new Map<string, Layer>();
+  private painted = new Map<string, Layer>();
+  persistent(name: string, w: number, h: number, host: FxHost, paint: (l: Layer) => void): Layer {
+    const key = `${name}|${w}x${h}`;
+    const hit = this.painted.get(key);
+    if (hit) return hit;
+    const l = host.makeCanvas(w, h);
+    paint(l);
+    this.painted.set(key, l);
+    return l;
+  }
   get(name: string, w: number, h: number, host: FxHost): Layer {
     const cur = this.layers.get(name);
     if (cur && cur.canvas.width === w && cur.canvas.height === h) return cur;

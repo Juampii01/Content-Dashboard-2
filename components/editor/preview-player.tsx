@@ -13,11 +13,12 @@ import { FPS, type CaptionBlock, type CaptionPresetKey, type Clip, type VideoFor
 import { BrollLayer, personStyle } from "./broll-layer";
 import { FxVideoLayer } from "./fx/fx-canvas";
 import { usePrefersReducedMotion } from "@/components/ui/hooks";
-import { FX_INFO, type FxSpec } from "@/lib/video/fx";
+import { type FxSpec } from "@/lib/video/fx";
 import { CaptionOverlay, type CaptionBoxReport } from "./caption-overlay";
 import { GraphicCanvas, useMotionScene } from "./graphic-canvas";
 import { graphicHidesCaptions } from "@/lib/video/effects";
-import { FX_MOVABLE } from "@/lib/video/fx/catalog";
+import { FX_MOVABLE, isFxKind } from "@/lib/video/fx/catalog";
+import { specLabel } from "@/lib/video/fx/transitions";
 import { graphicKindLabel } from "@/lib/video/motion-graphics";
 import { placedContentBox } from "@/lib/video/motion";
 import { IDENTITY_TRANSFORM, transformedBox, type Box, type Transform } from "@/lib/video/canvas/transform";
@@ -342,8 +343,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
         textsTitle: "Edita los textos del gráfico",
       });
     }
-    const movable = activeFx ? FX_MOVABLE[activeFx.kind] : null;
-    if (activeFx && movable && fxBox?.id === activeFx.id) {
+    const movable = activeFx && isFxKind(activeFx.kind) ? FX_MOVABLE[activeFx.kind] : null;
+    if (activeFx && isFxKind(activeFx.kind) && movable && fxBox?.id === activeFx.id) {
       out.push({
         id: canvasId({ kind: "effect", key: activeFx.id }),
         kind: "effect",
@@ -465,7 +466,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
           </div>
         )}
         {activeBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeBroll.graphic ? "Gráfico" : "B-roll"}</span>}
-        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{FX_INFO[activeFx.kind].label}</span>}
+        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{specLabel(activeFx.kind)}</span>}
         <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} onBox={canvas ? onCaptionBox : undefined} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">

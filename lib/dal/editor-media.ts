@@ -165,6 +165,8 @@ export type TrackView = {
   fileBytes: number | null;
   /** URL firmada para escucharla en el navegador (vence en una hora). */
   url: string | null;
+  /** Atribución que pide la licencia (pistas de un catálogo, como Jamendo); null en las que sube el cliente. */
+  attribution: string | null;
   createdAt: Date;
 };
 
@@ -185,6 +187,7 @@ export async function listTracks(options: { readyOnly?: boolean } = {}): Promise
       duration: r.duration,
       fileBytes: r.fileBytes,
       url: r.status === "READY" ? await sign(r.fileKey) : null,
+      attribution: r.attribution,
       createdAt: r.createdAt,
     })),
   );

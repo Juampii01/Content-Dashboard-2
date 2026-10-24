@@ -19,7 +19,13 @@
  */
 import { sentences } from "@/lib/ai/prompts/editor";
 import { captionLook, isCaptionStyle } from "../caption-styles";
-import { FX_INFO, FX_KINDS, type FxKind } from "../fx/catalog";
+import { FX_CATEGORY_LABELS, FX_INFO, type FxCategory, type FxKind } from "../fx/catalog";
+import { fxCategoryFromText, fxFromText, musicStyleFromText, transitionFromText } from "../fx/request-words";
+import { cleanTransitions, cutPoints, newTransitionId, TRANSITION_INFO, type TransitionKind } from "../fx/transitions";
+import { fxSegments } from "../fx/compile";
+import { brollSegments } from "../effects";
+import { tracksOf } from "../music-gen/catalog";
+import { MUSIC_STYLE_INFO, type MusicStyle } from "../music-gen/spec";
 import { clampFx, defaultFx, newFxId, type FxItem } from "../fx/schema";
 import { normalizeRemovals, planSchemaFor } from "../plan";
 import { addGraphicsInRange, DENSITY_LABELS, type Density } from "../rhythm";
@@ -43,7 +49,10 @@ export const REQUEST_KINDS = [
   "zooms_fuera",
   "zooms_mas",
   "efecto",
+  "efecto_tipo",
   "sin_efectos",
+  "transiciones",
+  "sin_transiciones",
   "subtitulos_tamano",
   "subtitulos_posicion",
   "subtitulos_estilo",
@@ -75,6 +84,12 @@ export type RequestItem = {
   seconds?: number;
   region?: Region;
   fx?: FxKind;
+  /** "Un efecto de texto": la categoría, sin decir cuál. */
+  category?: FxCategory;
+  /** Transición pedida por su nombre (o ninguna: "pon transiciones"). */
+  transition?: TransitionKind;
+  /** Música generada de un estilo ("música lo-fi"). */
+  musicStyle?: MusicStyle;
   where?: "start" | "end" | "middle" | null;
   /** Subtítulos: factor de tamaño respecto del actual (1,25 = 25 % más grandes). */
   scale?: number;
@@ -116,23 +131,6 @@ export function findLinks(text: string): string[] {
 export function isReferenceLink(url: string): boolean {
   return findLinks(url).length === 1;
 }
-
-const FX_WORDS: [RegExp, FxKind][] = [
-  [/revista|portada/, "cover_story"],
-  [/zoom digital/, "digital_zoom"],
-  [/checklist|lista de (tareas|pasos)/, "checklist"],
-  [/letras de vidrio|vidrio|cristal/, "glass_type"],
-  [/telefono con tareas|iphone/, "iphone"],
-  [/grafico que crece|curva que sube/, "chart_grow"],
-  [/titulares|muro de/, "headline_wall"],
-  [/giro 3d|orbita/, "orbit"],
-  [/pantalla verde|temporizador|pomodoro/, "green_screen"],
-  [/vertigo|dolly/, "vertigo"],
-  [/garabato|doodle/, "doodle_boil"],
-  [/recorte de papel|nota de rescate/, "paper_cut"],
-  [/corte con zoom/, "zoom_cut"],
-  [/zoom out/, "zoom_out"],
-];
 
 const PRESET_WORDS: [RegExp, CaptionPresetKey][] = [
   [/hormozi/, "hormozi"],
@@ -224,18 +222,37 @@ export function parseRequest(instruction: string, extraLinks: string[] = []): Pa
       else if (/menos/.test(c)) add({ kind: "graficos_menos", quote, region: regionOf(c) ?? "todo" });
       else if (/mas|agrega|suma|pon|ponle|llena/.test(c)) add({ kind: "graficos_mas", quote, region: regionOf(c) ?? "todo" });
     }
+    // Transiciones: "pon transiciones", "una transición de barrido", "sin transiciones".
+    const trans = /transicion/.test(c);
+    if (trans) {
+      if (negate) add({ kind: "sin_transiciones", quote });
+      else {
+        const transition = transitionFromText(c.replace(/transicion(es)?/g, " "));
+        add({ kind: "transiciones", quote, ...(transition ? { transition } : {}) });
+      }
+    }
     if (/(sin|quita|saca|elimina) (todos )?(los )?efectos(?! de sonido)/.test(c)) add({ kind: "sin_efectos", quote });
-    else {
-      const fx = FX_WORDS.find(([re]) => re.test(c))?.[1] ?? FX_KINDS.find((k) => c.includes(plain(FX_INFO[k].label)));
-      if (fx && !negate) {
-        const where = /al (principio|inicio|comienzo)|para abrir|de entrada|en el gancho|abre con/.test(c) ? "start" : /al final|para cerrar|en el cierre/.test(c) ? "end" : /en el medio|a la mitad/.test(c) ? "middle" : null;
-        add({ kind: "efecto", quote, fx, where });
+    else if (!trans && !negate) {
+      // Un efecto por su nombre; en una frase de subtítulos o de música solo si dice "efecto" ("subtítulos estilo
+      // resaltador" no es el efecto, "música retro" no es el VHS).
+      const aboutOther = (subs || /musica|lo-?fi|sonido|audio|ruido/.test(c)) && !/efecto/.test(c);
+      const fx = aboutOther ? null : fxFromText(c);
+      const where = /al (principio|inicio|comienzo)|para abrir|de entrada|en el gancho|abre con/.test(c) ? "start" : /al final|para cerrar|en el cierre/.test(c) ? "end" : /en el medio|a la mitad/.test(c) ? "middle" : null;
+      if (fx) add({ kind: "efecto", quote, fx, where });
+      else if (!aboutOther && /efecto|look|tarjeta|marco|filtro/.test(c) && !/efectos de sonido/.test(c)) {
+        const category = fxCategoryFromText(c);
+        if (category) add({ kind: "efecto_tipo", quote, category, where });
       }
     }
     // Audio.
-    if (/musica/.test(c)) {
+    if (/musica|lo-?fi/.test(c)) {
       if (/(sin|quita|saca|apaga) (la )?musica/.test(c)) add({ kind: "musica", quote, on: false });
-      else add({ kind: "musica", quote, on: true, louder: /mas (alta|fuerte)|sube/.test(c) ? true : /mas (baja|suave)|baja/.test(c) ? false : null });
+      else {
+        const louder = /mas (alta|fuerte)|sube/.test(c) ? true : /mas (baja|suave)|baja/.test(c) ? false : null;
+        // "Música más tranquila" pide otro estilo; "más baja" o "más suave" es el volumen.
+        const musicStyle = musicStyleFromText(c.replace(/mas (alta|fuerte|baja|suave)/g, " "));
+        add({ kind: "musica", quote, on: true, louder, ...(musicStyle ? { musicStyle } : {}) });
+      }
     }
     if (/efectos de sonido|sonidos|sfx|whoosh/.test(c)) add({ kind: "sonidos", quote, level: negate ? "off" : /mas|marcad|fuerte|exagerad/.test(c) ? "strong" : "subtle" });
     if (/audio de estudio|ruido|eco|limpia el audio|mejora el audio|que suene mejor|suena mal/.test(c)) add({ kind: "audio_estudio", quote, level: /(sin|apaga) (el )?audio de estudio/.test(c) ? "off" : /fuerte|mucho|bastante|todo el ruido|mas limpio/.test(c) ? "strong" : "soft" });
@@ -295,8 +312,14 @@ export function labelOf(i: Omit<RequestItem, "n" | "label">): string {
       return "Más zooms";
     case "efecto":
       return `Efecto «${FX_INFO[i.fx!].label}»${i.where === "start" ? " al principio" : i.where === "end" ? " al final" : i.where === "middle" ? " en el medio" : ""}`;
+    case "efecto_tipo":
+      return `Un efecto de ${FX_CATEGORY_LABELS[i.category ?? "texto"].label.toLowerCase()}${i.where === "start" ? " al principio" : i.where === "end" ? " al final" : i.where === "middle" ? " en el medio" : ""}`;
     case "sin_efectos":
       return "Sin efectos";
+    case "transiciones":
+      return i.transition ? `Transición «${TRANSITION_INFO[i.transition].label}»` : "Transiciones en los cortes";
+    case "sin_transiciones":
+      return "Sin transiciones";
     case "subtitulos_tamano":
       return (i.scale ?? 1) >= 1 ? "Subtítulos más grandes" : "Subtítulos más chicos";
     case "subtitulos_posicion":
@@ -308,7 +331,7 @@ export function labelOf(i: Omit<RequestItem, "n" | "label">): string {
     case "subtitulos_emoji":
       return i.on === false ? "Sin emojis en los subtítulos" : "Emojis en los subtítulos";
     case "musica":
-      return i.on === false ? "Sin música" : i.louder === true ? "Música más alta" : i.louder === false ? "Música más baja" : "Con música";
+      return i.on === false ? "Sin música" : i.musicStyle ? `Música ${MUSIC_STYLE_INFO[i.musicStyle].label.toLowerCase()}` : i.louder === true ? "Música más alta" : i.louder === false ? "Música más baja" : "Con música";
     case "sonidos":
       return i.level === "off" ? "Sin efectos de sonido" : i.level === "strong" ? "Efectos de sonido marcados" : "Efectos de sonido sutiles";
     case "audio_estudio":
@@ -340,6 +363,12 @@ export type RequestOverrides = {
   noFx: boolean;
   /** Efectos pedidos (entran aunque Mi marca no los tenga elegidos o ya se llegue al tope). */
   fx: { kind: FxKind; where: "start" | "end" | "middle" | null }[];
+  /** "Un efecto de texto": categorías pedidas sin decir cuál efecto. */
+  fxCategories: { category: FxCategory; where: "start" | "end" | "middle" | null }[];
+  /** Transiciones: quitarlas, poner (más) o null si no las nombra. */
+  transitions: "off" | "more" | null;
+  /** Transiciones pedidas por su nombre. */
+  transitionKinds: TransitionKind[];
   seconds: number | null;
   trim: boolean;
   keepTerms: string[];
@@ -361,6 +390,9 @@ export function requestOverrides(req: ParsedRequest | null | undefined): Request
     moreZooms: Boolean(has("zooms_mas")),
     noFx: Boolean(has("sin_efectos")),
     fx: items.filter((i) => i.kind === "efecto" && i.fx).map((i) => ({ kind: i.fx!, where: i.where ?? null })),
+    fxCategories: items.filter((i) => i.kind === "efecto_tipo" && i.category).map((i) => ({ category: i.category!, where: i.where ?? null })),
+    transitions: has("sin_transiciones") ? "off" : has("transiciones") ? "more" : null,
+    transitionKinds: items.flatMap((i) => (i.kind === "transiciones" && i.transition ? [i.transition] : [])),
     seconds: has("duracion")?.seconds ?? null,
     trim: Boolean(has("recortar")),
     keepTerms: items.flatMap((i) => (i.kind === "conservar" ? (i.terms ?? []) : [])),
@@ -398,7 +430,7 @@ export type LookSetting = {
 
 export type PlanSettings = {
   captions?: { preset?: CaptionPresetKey; scale?: number; position?: CaptionPosition; emoji?: boolean; off?: boolean };
-  audio?: { music?: boolean; louder?: boolean | null; musicDb?: number; sfx?: "off" | "subtle" | "strong"; studio?: "off" | "soft" | "strong" };
+  audio?: { music?: boolean; musicStyle?: MusicStyle; louder?: boolean | null; musicDb?: number; sfx?: "off" | "subtle" | "strong"; studio?: "off" | "soft" | "strong" };
   format?: VideoFormat;
   density?: Density;
   zooms?: "off";
@@ -426,7 +458,7 @@ export function settingsFromRequest(req: ParsedRequest | null | undefined): Plan
         out.captions = { ...out.captions, emoji: i.on !== false };
         break;
       case "musica":
-        out.audio = { ...out.audio, music: i.on !== false, louder: i.louder ?? null };
+        out.audio = { ...out.audio, music: i.on !== false, louder: i.louder ?? null, ...(i.musicStyle ? { musicStyle: i.musicStyle } : {}) };
         break;
       case "sonidos":
         out.audio = { ...out.audio, sfx: i.level === "off" ? "off" : i.level === "strong" ? "strong" : "subtle" };
@@ -531,22 +563,35 @@ export function applySettings(plan0: EditPlan, s: PlanSettings, ctx: SettingsCon
   }
   const a = s.audio;
   if (a) {
-    if (a.music === false && plan.audio.music_asset_id) {
+    const hasMusic = () => Boolean(plan.audio.music_asset_id || plan.audio.music_gen);
+    if (a.music === false && hasMusic()) {
       plan.audio.music_asset_id = null;
+      plan.audio.music_gen = null;
       done.push("Saqué la música.");
     } else if (a.music === true) {
-      if (!plan.audio.music_asset_id) {
+      if (a.musicStyle && plan.audio.music_gen?.style !== a.musicStyle) {
+        // Música generada del estilo pedido (nuestra: sin licencias ni atribución).
+        const track = generatedTrack(a.musicStyle, ctx.words.length);
+        plan.audio.music_gen = { style: track.style, seed: track.seed, bpm: track.bpm, title: track.title };
+        plan.audio.music_asset_id = null;
+        done.push(`Puse música ${MUSIC_STYLE_INFO[a.musicStyle].label.toLowerCase()} («${track.title}») bajo la voz.`);
+      } else if (!hasMusic()) {
         if (ctx.musicTrack) {
           plan.audio.music_asset_id = ctx.musicTrack;
           done.push("Puse música de tu biblioteca bajo la voz.");
-        } else failed.push("No tienes música lista en la biblioteca: sube una pista en Biblioteca → Música y vuelve a pedirlo.");
+        } else {
+          // Sin pistas en la biblioteca: una de la música generada.
+          const track = generatedTrack(DEFAULT_MUSIC_STYLE, ctx.words.length);
+          plan.audio.music_gen = { style: track.style, seed: track.seed, bpm: track.bpm, title: track.title };
+          done.push(`Puse música generada («${track.title}», ${MUSIC_STYLE_INFO[DEFAULT_MUSIC_STYLE].label.toLowerCase()}) bajo la voz.`);
+        }
       }
-      if (a.louder != null && plan.audio.music_asset_id) {
+      if (a.louder != null && hasMusic()) {
         plan.audio.music_db = clampN((ctx.baseline?.musicDb ?? plan.audio.music_db) + (a.louder ? 4 : -4), -30, -6);
         done.push(a.louder ? "Subí la música." : "Bajé la música.");
       }
     }
-    if (a.musicDb != null && plan.audio.music_asset_id) plan.audio.music_db = clampN(Math.round(a.musicDb), -30, -6);
+    if (a.musicDb != null && hasMusic()) plan.audio.music_db = clampN(Math.round(a.musicDb), -30, -6);
     if (a.sfx && a.sfx !== (plan.audio.sfx ?? "off")) {
       plan.audio.sfx = a.sfx;
       done.push(a.sfx === "off" ? "Sin efectos de sonido." : a.sfx === "strong" ? "Efectos de sonido marcados." : "Efectos de sonido sutiles.");
@@ -607,6 +652,15 @@ export function applySettings(plan0: EditPlan, s: PlanSettings, ctx: SettingsCon
     if (n) done.push(`Cambié cómo se ven ${n === 1 ? (l.target === "efectos" ? "un efecto" : l.target === "graficos" ? "un gráfico" : "un b-roll") : `${n} ${l.target === "efectos" ? "efectos" : l.target === "graficos" ? "gráficos" : "b-roll"}`}.`);
   }
   return { plan, done, failed, notes };
+}
+
+/** Estilo de la música generada cuando se pide "con música" y la biblioteca está vacía. */
+const DEFAULT_MUSIC_STYLE: MusicStyle = "corporativo";
+
+/** Una pista de la música generada de un estilo (siempre la misma para el mismo video, distinta entre videos). */
+function generatedTrack(style: MusicStyle, salt: number) {
+  const list = tracksOf(style);
+  return list[Math.abs(salt) % list.length]!;
 }
 
 /** Escala relativa de subtítulos: `applySettings` multiplica el tamaño actual; aquí se pasa a absoluto. */
@@ -746,7 +800,61 @@ export function enforceRequest(plan0: EditPlan, req: ParsedRequest | null | unde
       done.push(placed.note);
     }
   }
+  // "Un efecto de texto": si no quedó ninguno de esa categoría, se pone uno que no inventa datos.
+  for (const ask of o.fxCategories) {
+    if ((plan.effects ?? []).some((e) => FX_INFO[e.kind].category === ask.category)) continue;
+    for (const kind of CATEGORY_PICKS[ask.category]) {
+      const placed = placeEffect(plan, kind, ask.where, ctx);
+      if (placed) {
+        plan = placed.plan;
+        done.push(placed.note);
+        break;
+      }
+    }
+  }
+  // Transiciones: fuera si las pidió quitar; la pedida por su nombre (o una, si no quedó ninguna) en un corte libre.
+  if (o.transitions === "off" && plan.transitions?.length) {
+    const { transitions: _t, ...rest } = plan;
+    void _t;
+    plan = rest;
+    done.push("Quité las transiciones.");
+  }
+  if (o.transitions === "more") {
+    const want: TransitionKind[] = o.transitionKinds.length ? o.transitionKinds : (plan.transitions?.length ? [] : ["tr_zoom_in"]);
+    for (const kind of want) {
+      if (plan.transitions?.some((t) => t.kind === kind)) continue;
+      const placed = placeTransition(plan, kind, ctx);
+      if (placed) {
+        plan = placed;
+        done.push(`Puse la transición «${TRANSITION_INFO[kind].label}» en un corte.`);
+      }
+    }
+  }
   return { plan, done };
+}
+
+/** El efecto que se pone para "un efecto de <categoría>" (en orden: el primero que entre). Ninguno inventa cifras. */
+const CATEGORY_PICKS: Record<FxCategory, FxKind[]> = {
+  firma: ["glass_type", "cover_story", "digital_zoom"],
+  texto: ["word_slam", "neon_text", "typewriter", "text_3d"],
+  atencion: ["spotlight", "focus_brackets", "flash_frame"],
+  tarjetas: ["quote_card", "definition", "lower_third"],
+  looks: ["warm_film", "vignette", "film_grain"],
+  camara: ["push_in", "snap_zoom", "slow_pan"],
+  marcos: ["polaroid", "phone_frame", "film_strip"],
+  recorte: ["bg_brand", "glow_outline", "drop_shadow"],
+};
+
+/** Pone una transición en el primer corte libre (sin b-roll ni efecto encima y a 3 s o más de otra). */
+function placeTransition(plan: EditPlan, kind: TransitionKind, ctx: EnforceContext): EditPlan | null {
+  const tl = buildTimeline(ctx.words, plan, ctx.duration);
+  const blocked = [...brollSegments(tl, plan.broll), ...fxSegments(tl, plan.effects ?? [])];
+  const cuts = cutPoints(tl);
+  const used = (plan.transitions ?? []).map((t) => cuts.find((c) => c.word === t.at_word)).filter((c): c is (typeof cuts)[number] => Boolean(c));
+  const cut = cuts.find((c) => !blocked.some((b) => c.at > b.start - 0.4 && c.at < b.end + 0.4) && !used.some((u) => Math.abs(u.at - c.at) < 3));
+  if (!cut) return null;
+  const items = cleanTransitions([...(plan.transitions ?? []), { id: newTransitionId(), kind, at_word: cut.word, source: "director", why: "Lo pediste en «Edítalo así»." }], tl);
+  return items.some((t) => t.at_word === cut.word) ? { ...plan, transitions: items } : null;
 }
 
 function keepRangesOf(terms: string[], words: Word[]): { from: number; to: number }[] {
@@ -891,6 +999,10 @@ export type PlanBaseline = {
   zooms: number;
   zoomsEnabled: boolean;
   fx: { kind: FxKind; t: number }[];
+  /** Transiciones del plan (falta en pedidos guardados antes de que existieran). */
+  transitions?: TransitionKind[];
+  /** Estilo de la música generada, o null. */
+  musicStyle?: string | null;
   captions: { preset: CaptionPresetKey; scale: number; y: number; emoji: boolean };
   music: boolean;
   musicDb: number;
@@ -916,7 +1028,9 @@ export function planBaseline(plan: EditPlan, words: Word[], duration: number): P
     zoomsEnabled: plan.zooms_enabled !== false && Boolean(plan.style_id ? plan.zooms_enabled : false),
     fx: (plan.effects ?? []).map((e) => ({ kind: e.kind, t: at(e.from_word) ?? -1 })),
     captions: { preset: plan.captions.preset, scale: plan.captions.transform?.scale ?? 1, y: plan.captions.transform?.y ?? 0, emoji: Boolean(plan.captions.emoji) },
-    music: Boolean(plan.audio.music_asset_id),
+    transitions: (plan.transitions ?? []).map((t) => t.kind),
+    music: Boolean(plan.audio.music_asset_id || plan.audio.music_gen),
+    musicStyle: plan.audio.music_gen?.style ?? null,
     musicDb: plan.audio.music_db,
     sfx: plan.audio.sfx ?? "off",
     studio: plan.audio.studio ?? "off",
@@ -1039,6 +1153,22 @@ export function checkCompliance(req: ParsedRequest, input: ComplianceInput): Com
         else out.push(res("no", FX_INFO[item.fx!].mask ? `«${name}» necesita verte a cámara y no encontré un tramo así.` : `No encontré un tramo para «${name}» que no tape algo importante.`, !FX_INFO[item.fx!].mask));
         break;
       }
+      case "efecto_tipo": {
+        const cat = item.category ?? "texto";
+        const name = FX_CATEGORY_LABELS[cat].label.toLowerCase();
+        const fx = a.fx.filter((f) => f.t >= 0 && FX_INFO[f.kind].category === cat);
+        out.push(fx.length ? res("hecho", `«${FX_INFO[fx[0]!.kind].label}» en ${formatDuration(fx[0]!.t)}.`) : res("no", `No encontré un tramo para un efecto de ${name} que no tape algo importante.`));
+        break;
+      }
+      case "transiciones": {
+        const now = a.transitions ?? [];
+        if (item.transition) out.push(now.includes(item.transition) ? res("hecho", `Transición «${TRANSITION_INFO[item.transition].label}» en un corte.`) : res("no", now.length ? "Puse otras transiciones: la que pediste no entraba en ningún corte libre." : "No hay un corte libre (sin b-roll ni efecto encima) para una transición."));
+        else out.push(now.length ? res("hecho", now.length === 1 ? "Una transición en un corte." : `${now.length} transiciones en los cortes.`) : res("no", "No hay un corte libre (sin b-roll ni efecto encima) para una transición."));
+        break;
+      }
+      case "sin_transiciones":
+        out.push(!(a.transitions ?? []).length ? res("hecho", "Sin transiciones.") : res("no", `Quedan ${(a.transitions ?? []).length} transiciones.`));
+        break;
       case "sin_efectos":
         out.push(a.fx.length === 0 ? res("hecho", "Sin efectos.") : res("no", `Quedan ${a.fx.length} efectos.`));
         break;
@@ -1069,6 +1199,7 @@ export function checkCompliance(req: ParsedRequest, input: ComplianceInput): Com
         const fail = failedFor(/musica/);
         if (item.on === false) out.push(!a.music ? res("hecho", "Sin música.") : res("no", "La música sigue."));
         else if (fail) out.push(res("no", fail, false));
+        else if (item.musicStyle) out.push(a.musicStyle === item.musicStyle ? res("hecho", `Música ${MUSIC_STYLE_INFO[item.musicStyle].label.toLowerCase()} bajo la voz.`) : res("no", "El estilo de la música no cambió."));
         else if (item.louder != null) out.push(a.music && (item.louder ? a.musicDb > b.musicDb : a.musicDb < b.musicDb) ? res("hecho", item.louder ? "Música más alta." : "Música más baja.") : res("no", "El volumen no cambió."));
         else out.push(a.music ? res("hecho", "Con música bajo la voz.") : res("no", "Sigue sin música."));
         break;

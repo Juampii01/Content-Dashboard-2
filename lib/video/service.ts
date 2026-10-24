@@ -18,6 +18,8 @@ import { brollRenderEdit } from "./broll-edit";
 import { brollCredits, brollSegments, computeZooms, directorZooms, graphicEntries, graphicHidesCaptions } from "./effects";
 import { fxSegments } from "./fx/compile";
 import { planDensity } from "./rhythm";
+import { transitionSounds, TRANSITION_SOUND_GAIN } from "./fx/transitions";
+import { isSfxName, type SfxName } from "./sfx-library";
 import { ensureFxMasks, fxForRender } from "./fx-service";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
@@ -29,7 +31,7 @@ import { assemblePlan, planSchemaFor } from "./plan";
 import { phraseFixesForRender } from "./phrase-fix-service";
 import { alignScript } from "./script-align";
 import { proofreadTranscript } from "./transcript-fix";
-import { hookEnd, sfxCues, sfxLevel } from "./sfx";
+import { hookEnd, sfxCues, sfxLevel, soundCueTimes } from "./sfx";
 import { studioLevel } from "./studio-audio";
 import type { StyleMetrics } from "./style";
 import { stylePreset } from "./styles";
@@ -427,14 +429,14 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
   // Efectos de la biblioteca: lo que dibuja el worker (el mismo spec que la vista previa); algunos llevan sus propios
   // subtítulos y ninguno lleva zooms del estilo encima (traen su propia cámara).
-  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections });
+  const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections, broll });
   const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans, ...fx.hides]);
   const noZoom = [...broll, ...fx.avoid];
   const zooms =
     style && style.preset.zoom.enabled && next.zooms_enabled !== false
       ? computeZooms(timeline, style.preset.zoom, { emphasis: next.captions.emphasis_words, avoid: noZoom })
       : directorZooms(timeline, next.zoom_moments, noZoom);
-  const credits = brollCredits(broll);
+  const stockCredits = brollCredits(broll);
   const capLook = isCaptionStyle(preset) ? captionLook(preset, { format, accent, brandFont: look.font, emoji: next.captions.emoji === true }) : null;
   const focusY = (style?.metrics as StyleMetrics | undefined)?.faces?.center?.y;
   const faceY = focusY ? Math.max(0.25, Math.min(0.6, focusY)) : 0.42;
@@ -467,10 +469,22 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     entries: [...graphicEntries(broll), ...fxSegments(timeline, next.effects ?? []).map((f) => f.start)],
     punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
     dense: planDensity(next) === "reels",
+    // Los que puso la persona en la pista de Sonido y el de cada transición (en su corte).
+    manual: [
+      ...soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+      ...transitionSounds(fx.transitions).filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: TRANSITION_SOUND_GAIN })),
+    ],
   });
-  // Música: solo una pista lista de la biblioteca (la clave sale de la base, no del navegador).
-  const track = next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
-  const music = track?.status === "READY" ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db } : null;
+  // Música: una pista generada (la arma el worker con el mismo generador que la vista previa) o una pista lista de la
+  // biblioteca (la clave sale de la base, no del navegador).
+  const track = !next.audio.music_gen && next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
+  const music = next.audio.music_gen
+    ? { gen: next.audio.music_gen, db: next.audio.music_db }
+    : track?.status === "READY"
+      ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db, ...(track.attribution ? { attribution: track.attribution } : {}) }
+      : null;
+  // Créditos: los del b-roll de stock y la atribución que pide la licencia de la música (catálogo CC BY).
+  const credits = [stockCredits, track?.status === "READY" && !next.audio.music_gen && track.attribution ? `Música\n\n${track.attribution}` : ""].filter(Boolean).join("\n\n");
   // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
   const phraseFixes = await phraseFixesForRender(projectId);
 

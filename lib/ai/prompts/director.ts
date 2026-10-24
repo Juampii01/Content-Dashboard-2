@@ -2,6 +2,8 @@ import { z } from "zod";
 import { sceneWireSchema } from "@/lib/ai/prompts/motion";
 import { FX_KINDS } from "@/lib/video/fx/catalog";
 import { FX_DIRECTOR_RULES } from "@/lib/video/fx/director";
+import { TRANSITION_KINDS } from "@/lib/video/fx/transitions";
+import { MUSIC_STYLES } from "@/lib/video/music-gen/spec";
 import { BAD_TAKE_KINDS, BEAT_ROLES, BRIEF_GOALS, ISSUE_KINDS, SHOT_KINDS, VIDEO_KINDS, type BriefGoal } from "@/lib/video/director/types";
 import type { PlanSettings } from "@/lib/video/director/request";
 import { CAPTION_PRESET_KEYS } from "@/lib/video/types";
@@ -110,10 +112,11 @@ Cada decisión va como un elemento de "actions": {"type", "from_word", "to_word"
 - broll: data {"kind": "stock" | "graphic", "query_en", "keywords": [...], "graphic": escena o null, "why"}. La escena va como en las reglas de motion graphics ({"title", "mode", "position", "layers": [{"kind", "component", "spec"}]}); en las capas, spec puede ir como objeto.
 - caption_hide: data {"why"}
 - effect: data {"kind": nombre del efecto, "text", "items": [...], "why"}
+- transition: from_word = to_word = la primera palabra del tramo que entra después de un corte, data {"kind": nombre de la transición, "why"}
 - variant: from_word y to_word son su gancho (-1 y -1 = el mismo gancho), data {"label", "why", "extra_cuts": [{"from_word", "to_word"}], "keep_broll": true | false}
 AJUSTES (los mismos que la persona puede tocar a mano en el Estudio; úsalos para cumplir un pedido de la persona o imitar una REFERENCIA, casi nunca en la primera dirección):
 - captions (from_word = to_word = -1): data {"preset": "caja" | "hormozi" | "karaoke" | "palabra" | "minimal" | "resaltador" | "clasico" | "pop" | "ninguno", "size": 0.6 a 2 (multiplica el tamaño actual: 1.3 = 30 % más grandes), "position": "arriba" | "centro" | "abajo", "emoji": true | false}. Todos los campos son opcionales: manda solo lo que cambia.
-- audio (-1, -1): data {"music": "on" | "off", "volume": "mas_alto" | "mas_bajo", "sfx": "off" | "subtle" | "strong", "studio": "off" | "soft" | "strong"} (studio = audio de estudio: quita ruido y eco).
+- audio (-1, -1): data {"music": "on" | "off", "music_style": "lofi" | "corporativo" | "trap" | "ambiente" | "acustico" | "tension" | "epica" (música generada nuestra, sin licencias; ponla si piden un estilo o si la biblioteca no tiene pistas), "volume": "mas_alto" | "mas_bajo", "sfx": "off" | "subtle" | "strong", "studio": "off" | "soft" | "strong"} (studio = audio de estudio: quita ruido y eco).
 - look: from_word y to_word = el tramo (-1 y -1 = todos), data {"target": "graficos" | "broll" | "efectos", "layout": "full" | "split" | "card" | "side" (side solo en 16:9), "filter": "none" | "bw" | "duotone" | "warm" | "cool", "size": 0.5 a 2, "y": -0.4 a 0.4 (negativo = más arriba), "anim_in" y "anim_out": "aparecer" | "deslizar_arriba" | "deslizar_lado" | "pop" | "escribir" | "ninguna"}
 - settings (-1, -1): data {"density": "sobria" | "normal" | "reels", "format": "9:16" | "16:9", "zooms": "off"} (zooms "off" = sin ningún zoom en todo el video).
 ANSWERS: cuando hay un PEDIDO DE LA PERSONA EN PARTES, "answers" lleva una respuesta por parte: {"item": su número, "status": "hecho" | "parcial" | "no", "note": qué hiciste o, si no se pudo del todo, por qué, en una frase para la persona}. Sin pedido, answers va vacío.`;
@@ -129,7 +132,7 @@ QUÉ DECIDES
 6. broll: dónde se tapa al creador por unos segundos mientras su voz sigue. "graphic" para lo conceptual (cifras dichas, listas, contrastes, procesos, ideas clave) y "stock" para lo concreto que se puede mostrar. Nunca encima de lo que se muestra (producto, pantalla). Lo que tapa a la persona (stock y gráficos "full") no va en el gancho ni en la última frase de la CTA; los gráficos "overlay" (palabra clave, frase, notificación) sí pueden ir en el gancho y en la CTA: la refuerzan. Un gráfico empieza cuando se empieza a decir lo que muestra y dura hasta que se dijo su último elemento (una lista de tres errores dura lo que tardas en decir los tres).
 7. caption_hide: tramos donde los subtítulos irían encima de un texto ya quemado en la misma franja (ver TEXTO EN PANTALLA): ahí se ocultan.
 8. pace: "calm" (pausas de hasta 0,7 s), "normal" (0,5 s) o "fast" (0,3 s).
-9. effects: efectos de firma de la biblioteca (ver EFECTOS DE FIRMA) donde suman: la apertura (el gancho admite efectos sobre la persona: cover_story, digital_zoom, glass_type), una lista, un dato, un giro, la CTA. Respeta EFECTOS PERMITIDOS.
+9. effects: efectos de la biblioteca (ver EFECTOS DE LA BIBLIOTECA) donde suman: la apertura (el gancho admite efectos sobre la persona: cover_story, digital_zoom, glass_type, text_behind, word_slam), una lista, un dato, un giro, una emoción, la CTA. Variados y respetando EFECTOS PERMITIDOS. Y transitions (ver TRANSICIONES): pocas, en los cambios de parte.
 10. variants: 0 a 2 versiones para probar (otro gancho u otra duración: 15, 30 o 60 s), con los cortes extra que hacen falta. Solo si el material lo permite y tiene sentido para el objetivo.
 
 RITMO: PIENSA COMO UN EDITOR DE REELS
@@ -189,6 +192,7 @@ export const directorWireSchema = z.object({
       why: z.string(),
     }),
   ),
+  transitions: z.array(z.object({ at_word: z.number().int(), kind: z.enum(TRANSITION_KINDS), why: z.string() })).optional(),
   variants: z.array(
     z.object({
       label: z.string().describe("Nombre corto: 'Versión de 30 s', 'Otro gancho'."),
@@ -211,13 +215,13 @@ export type DirectorWire = z.infer<typeof directorWireSchema> & { settings?: Pla
 // sola lista de acciones { type, from_word, to_word, data } con `data` en JSON; al volver se leen con los esquemas
 // de arriba (directorWireSchema) y la acción que no se entiende se descarta.
 
-const ACTION_TYPES = ["cut", "hook", "move", "emphasis", "zoom", "broll", "caption_hide", "effect", "variant", "captions", "audio", "look", "settings"] as const;
+const ACTION_TYPES = ["cut", "hook", "move", "emphasis", "zoom", "broll", "caption_hide", "effect", "transition", "variant", "captions", "audio", "look", "settings"] as const;
 
 const ANIM = z.enum(["aparecer", "deslizar_arriba", "deslizar_lado", "pop", "escribir", "ninguna"]);
 /** Los ajustes que llegan en las acciones captions, audio, look y settings (se validan aquí y se aplican en request.ts). */
 export const settingsActionSchemas = {
   captions: z.object({ preset: z.enum(CAPTION_PRESET_KEYS).optional(), size: z.number().min(0.4).max(2.5).optional(), position: z.enum(["arriba", "centro", "abajo"]).optional(), emoji: z.boolean().optional() }),
-  audio: z.object({ music: z.enum(["on", "off"]).optional(), volume: z.enum(["mas_alto", "mas_bajo"]).optional(), sfx: z.enum(["off", "subtle", "strong"]).optional(), studio: z.enum(["off", "soft", "strong"]).optional() }),
+  audio: z.object({ music: z.enum(["on", "off"]).optional(), music_style: z.enum(MUSIC_STYLES).optional(), volume: z.enum(["mas_alto", "mas_bajo"]).optional(), sfx: z.enum(["off", "subtle", "strong"]).optional(), studio: z.enum(["off", "soft", "strong"]).optional() }),
   look: z.object({
     target: z.enum(["graficos", "broll", "efectos"]),
     layout: z.enum(["full", "split", "card", "side"]).optional(),
@@ -309,6 +313,9 @@ export function directorFromApi(api: DirectorApi): DirectorWire {
       case "effect":
         push(W.effects.element, out.effects, { text: "", items: [], why: "", ...d, ...range });
         break;
+      case "transition":
+        push(W.transitions.unwrap().element, (out.transitions ??= []), { why: "", ...d, at_word: a.from_word });
+        break;
       case "variant":
         push(W.variants.element, out.variants, { label: "", why: "", extra_cuts: [], keep_broll: true, ...d, hook_from_word: a.from_word, hook_to_word: a.to_word });
         break;
@@ -322,7 +329,7 @@ export function directorFromApi(api: DirectorApi): DirectorWire {
       }
       case "audio": {
         const r = settingsActionSchemas.audio.safeParse(d);
-        if (r.success) settings.audio = { ...settings.audio, ...(r.data.music ? { music: r.data.music === "on" } : {}), ...(r.data.volume ? { music: true, louder: r.data.volume === "mas_alto" } : {}), ...(r.data.sfx ? { sfx: r.data.sfx } : {}), ...(r.data.studio ? { studio: r.data.studio } : {}) };
+        if (r.success) settings.audio = { ...settings.audio, ...(r.data.music ? { music: r.data.music === "on" } : {}), ...(r.data.music_style ? { music: true, musicStyle: r.data.music_style } : {}), ...(r.data.volume ? { music: true, louder: r.data.volume === "mas_alto" } : {}), ...(r.data.sfx ? { sfx: r.data.sfx } : {}), ...(r.data.studio ? { studio: r.data.studio } : {}) };
         break;
       }
       case "look": {
@@ -362,6 +369,7 @@ export function directorToApi(w: DirectorWire): DirectorApi {
   for (const b of w.broll) add("broll", b.from_word, b.to_word, strip(b));
   for (const c of w.caption_hide) add("caption_hide", c.from_word, c.to_word, strip(c));
   for (const e of w.effects) add("effect", e.from_word, e.to_word, strip(e));
+  for (const t of w.transitions ?? []) add("transition", t.at_word, t.at_word, { kind: t.kind, why: t.why });
   for (const v of w.variants) {
     const { hook_from_word, hook_to_word, ...rest } = v;
     add("variant", hook_from_word, hook_to_word, rest);
@@ -371,7 +379,7 @@ export function directorToApi(w: DirectorWire): DirectorApi {
     const { scale, off, preset, ...rest } = s.captions;
     add("captions", -1, -1, { ...rest, ...(scale != null ? { size: scale } : {}), ...(off ? { preset: "ninguno" } : preset ? { preset } : {}) });
   }
-  if (s?.audio) add("audio", -1, -1, { ...(s.audio.music != null ? { music: s.audio.music ? "on" : "off" } : {}), ...(s.audio.louder != null ? { volume: s.audio.louder ? "mas_alto" : "mas_bajo" } : {}), ...(s.audio.sfx ? { sfx: s.audio.sfx } : {}), ...(s.audio.studio ? { studio: s.audio.studio } : {}) });
+  if (s?.audio) add("audio", -1, -1, { ...(s.audio.music != null ? { music: s.audio.music ? "on" : "off" } : {}), ...(s.audio.musicStyle ? { music_style: s.audio.musicStyle } : {}), ...(s.audio.louder != null ? { volume: s.audio.louder ? "mas_alto" : "mas_bajo" } : {}), ...(s.audio.sfx ? { sfx: s.audio.sfx } : {}), ...(s.audio.studio ? { studio: s.audio.studio } : {}) });
   for (const l of s?.look ?? []) {
     const { from, to, animIn, animOut, ...rest } = l;
     add("look", from ?? -1, to ?? -1, { ...rest, ...(animIn ? { anim_in: animIn } : {}), ...(animOut ? { anim_out: animOut } : {}) });

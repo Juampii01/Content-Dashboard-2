@@ -7,6 +7,7 @@ import { fileDriver, readUrl } from "@/lib/storage";
 import { FX_INFO } from "./fx/catalog";
 import { compileFx, faceAnchor, fxBrandFromLook, fxCaptionHides, fxSegments, sourceFramesOf, sourceRangesOf, type FxBrand, type FxSpec } from "./fx/compile";
 import { fxMaskKey, maskChunksFor } from "./fx/masks";
+import { compileTransition, transitionSegments, type TransitionSegment } from "./fx/transitions";
 import type { GraphicLook } from "./graphics";
 import type { Timeline } from "./timeline";
 import type { EditPlan, FxMaskMedia, MediaInfo, VideoFormat } from "./types";
@@ -67,9 +68,12 @@ export async function fxForRender(input: {
   eyes: unknown;
   offsetX: number;
   corrections?: Record<string, string>;
-}): Promise<{ items: FxRenderItem[]; hides: { start: number; end: number }[]; avoid: { start: number; end: number }[] }> {
+  /** Tramos con b-roll (las transiciones no van encima: el b-roll lleva su propia capa). */
+  broll?: { start: number; end: number }[];
+}): Promise<{ items: FxRenderItem[]; hides: { start: number; end: number }[]; avoid: { start: number; end: number }[]; transitions: TransitionSegment[] }> {
   const segments = fxSegments(input.timeline, input.plan.effects ?? []);
-  if (!segments.length) return { items: [], hides: [], avoid: [] };
+  const trSegs = transitionSegments(input.timeline, input.plan.transitions ?? [], [...(input.broll ?? []), ...segments]);
+  if (!segments.length && !trSegs.length) return { items: [], hides: [], avoid: [], transitions: [] };
   const needThumbs = segments.some((s) => FX_INFO[s.item.kind].thumbs);
   const thumbs = needThumbs ? await fxThumbs() : [];
   const brand = fxBrand(input.look);
@@ -84,7 +88,13 @@ export async function fxForRender(input: {
     if (spec.thumbs.length) out.images = Object.fromEntries(spec.thumbs.map((k, i) => [k, absolute(thumbs[i]!.url)]));
     return out;
   });
-  return { items, hides: fxCaptionHides(segments), avoid: segments.map((s) => ({ start: s.start, end: s.end })) };
+  // Transiciones: se dibujan con el mismo motor, como una capa más (la unión de tramos y el audio no cambian).
+  for (const segment of trSegs) {
+    const face = faceAnchor(samples, sourceRangesOf(input.timeline, segment.start, segment.end), srcW, srcH, input.format, input.offsetX);
+    items.push({ spec: compileTransition({ segment, format: input.format, brand, face }), sourceFrames: [] });
+  }
+  items.sort((a, b) => a.spec.start - b.spec.start);
+  return { items, hides: fxCaptionHides(segments), avoid: [...segments, ...trSegs].map((s) => ({ start: s.start, end: s.end })), transitions: trSegs };
 }
 
 // ─── Recorte para la vista previa ─────────────────────────────────────────

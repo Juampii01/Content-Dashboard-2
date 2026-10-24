@@ -8,6 +8,7 @@ import { getEditorDefaults } from "@/lib/dal/editor-defaults";
 import { getStyle, listTracks, signedBroll } from "@/lib/dal/editor-media";
 import { getProject } from "@/lib/dal/video";
 import { getFxContext } from "@/lib/dal/video-fx";
+import { getMusicCatalogStatus } from "@/lib/dal/music-catalog";
 import { fileDriver } from "@/lib/storage";
 import { brandGraphicLook } from "@/lib/video/graphics";
 import { readEditorDefaults } from "@/lib/video/defaults";
@@ -32,6 +33,7 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
   const signed = reviewing ? await signedBroll(project.plan!.broll ?? []) : {};
   const tracks = reviewing ? await listTracks({ readyOnly: true }) : [];
   const fxContext = reviewing ? await getFxContext(project.id) : null;
+  const catalog = reviewing ? await getMusicCatalogStatus() : null;
   return (
     <ProjectScreen
       project={{
@@ -45,12 +47,13 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
       }}
       signedBroll={signed}
       fxContext={fxContext}
+      musicCatalog={catalog ? { jamendo: catalog.jamendo.configured } : null}
       rhythmFx={(() => {
         const fx = readEditorDefaults(brand).effects;
         return fx.frequency === "ninguno" ? [] : fx.allowed;
       })()}
       graphicLook={brandGraphicLook(brand)}
-      tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url }))}
+      tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url, attribution: t.attribution }))}
       style={
         style?.status === "READY" && style.preset
           ? { id: style.id, name: style.name, zoom: style.preset.zoom, captions: style.preset.captions, focusY: Math.max(0.25, Math.min(0.6, style.metrics?.faces.center?.y ?? 0.42)) }

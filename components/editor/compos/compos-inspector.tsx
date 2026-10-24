@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, PenLine, Trash2, Wand2, WandSparkles } from "lucide-react";
+import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, PenLine, Trash2, UserRound, Wand2, WandSparkles } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { myEffectStateAction, removeMyEffectAction, renameMyEffectAction, saveToMyEffectsAction } from "../my-effects-actions";
 import { myEffectsChanged } from "../studio/library-mine";
@@ -91,6 +91,16 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   return (
     <>
       <div className="flex flex-col gap-3 p-4">
+        {api.maskMissing.has(item.id) && (
+          <p className="flex items-center gap-1.5 rounded-xl bg-accent/10 px-3 py-2 text-xs text-accent-glow" aria-live="polite" data-testid="compos-mask-wait">
+            {api.masks.pending ? <Loader2 className="h-3.5 w-3.5 flex-none animate-spin motion-reduce:animate-none" aria-hidden /> : <UserRound className="h-3.5 w-3.5 flex-none" aria-hidden />}
+            {api.masks.pending
+              ? "Recortándote del fondo para la vista previa… Mientras tanto se ve el video completo en tu lugar."
+              : api.masks.failed
+                ? "No pudimos recortarte para la vista previa. Al renderizar se vuelve a intentar."
+                : "La vista previa todavía no tiene tu recorte: se ve el video completo en tu lugar."}
+          </p>
+        )}
         {seg ? (
           <p className="font-mono text-[11px] text-muted tabular-nums">
             {timeLabel(seg.start)} – {timeLabel(seg.end)} · {secondsLabel(seg.end - seg.start)}

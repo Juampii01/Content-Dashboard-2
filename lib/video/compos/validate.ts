@@ -27,6 +27,22 @@ function drawsSomething(f: ComposFrame): boolean {
   return f.o.some((op) => Array.isArray(op) && op[0] !== "v" && op[0] !== "p" && op[0] !== "s" && op[0] !== "r");
 }
 
+/**
+ * ¿Dibuja a la persona en este cuadro? `kind`: "pe" la persona recortada, "sil" su silueta. Busca en la lista principal
+ * y en sus capas.
+ */
+export function drawsPerson(f: ComposFrame, kind: "pe" | "sil" = "pe"): boolean {
+  const has = (list: unknown[]) => list.some((op) => Array.isArray(op) && op[0] === kind);
+  return has(f.o) || Object.values(f.l ?? {}).some((l) => Array.isArray(l) && has(l));
+}
+
+/** Qué del recorte usa el código: la persona (drawPerson, env.person, env.popOut), solo su silueta, o nada. */
+export function personUse(code: string): "pe" | "sil" | null {
+  if (/\b(drawPerson|env\.person|popOut)\b/.test(code)) return "pe";
+  if (/\bsilhouette\b/.test(code)) return "sil";
+  return null;
+}
+
 export async function validateComposition(code: string, env: ComposEnvData, opts: { strictTiming?: boolean } = {}): Promise<ComposCheck> {
   const hash = codeHash(code);
   const opened = await NodeSandbox.open(code, env);
@@ -38,6 +54,8 @@ export async function validateComposition(code: string, env: ComposEnvData, opts
     let maxMs = 0;
     let maxOps = 0;
     let drew = false;
+    let personFrames = 0;
+    const use = env.mask ? personUse(code) : null;
     const seen = new Map<number, string>();
     for (const t of times) {
       const r = await sb.frame(t, COMPOS_LIMITS.renderFrameMs);
@@ -49,9 +67,20 @@ export async function validateComposition(code: string, env: ComposEnvData, opts
       }
       maxOps = Math.max(maxOps, r.frame.n);
       drew ||= drawsSomething(r.frame);
+      if (use && drawsPerson(r.frame, use)) personFrames++;
       seen.set(t, JSON.stringify(r.frame));
     }
     if (!drew) return { ok: false, hash, error: "La composición no dibuja nada (solo se ve el video).", line: null, kind: "error" };
+    // Si usa el recorte, la persona tiene que aparecer en buena parte de la animación (si no, queda una tarjeta vacía).
+    if (use && personFrames < Math.ceil(times.length / 3)) {
+      return {
+        ok: false,
+        hash,
+        error: `Usa el recorte de la persona pero casi no ${use === "pe" ? "la dibuja" : "dibuja su silueta"} (aparece en ${personFrames} de ${times.length} cuadros de prueba). Dibújala con ctx.drawPerson() o env.popOut(ctx, { rect, … }) durante la animación, no solo al final.`,
+        line: null,
+        kind: "error",
+      };
+    }
     // Determinista: dos instantes vuelven a dar exactamente lo mismo después de haber dibujado los demás.
     for (const t of [times[Math.floor(times.length / 2)]!, times[1]!]) {
       const again = await sb.frame(t, COMPOS_LIMITS.renderFrameMs);

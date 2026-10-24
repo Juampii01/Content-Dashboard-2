@@ -94,7 +94,6 @@ export function Studio(props: StudioProps) {
   const [gallery, setGallery] = useState<{ range: WordSpan | null; replace: string | null } | null>(null);
   const [fixRange, setFixRange] = useState<WordSpan | null>(null);
   const [help, setHelp] = useState(false);
-  const [masks, setMasks] = useState(fxContext?.masks ?? null);
   const [rendering, startRender] = useTransition();
   const [proofreading, startProofread] = useTransition();
   const phrase = usePhraseFixes(projectId);
@@ -224,25 +223,30 @@ export function Studio(props: StudioProps) {
   );
   // Las transiciones se dibujan con el mismo motor que los efectos (la vista previa toma el spec del instante). Las
   // animaciones van primero: en su tramo mandan (la vista previa dibuja la primera que coincide).
-  const previewSpecs = useMemo(() => {
-    const tr = trSegs.map((segment) => compileTransition({ segment, format: s.format, brand: fxBrand, face: faceAnchor(fxContext?.faces ?? [], sourceRangesOf(timeline, segment.start, segment.end), sourceWidth, sourceHeight, s.format, s.offsetX) }));
-    return [...composSpecs, ...[...fxSpecs, ...tr].sort((a, b) => a.start - b.start)];
-  }, [composSpecs, fxSpecs, trSegs, s.format, fxBrand, fxContext, timeline, sourceWidth, sourceHeight, s.offsetX]);
-  // Imágenes generadas de las animaciones (las del plan y las que llegan de un pedido).
-  const [composImageUrls, setComposImageUrls] = useState<Record<string, string>>(() => fxContext?.composImages ?? {});
-  const fxImages = useImages(useMemo(() => ({ ...Object.fromEntries(thumbs.map((t, i) => [`t${i}`, t.url])), ...composImageUrls }), [thumbs, composImageUrls]));
-  const stripImgs = useImages(useMemo(() => Object.fromEntries(Object.entries(masks?.urls ?? {})), [masks]));
-  const fxStrips = useMemo(() => Object.fromEntries(Object.entries(stripImgs).map(([k, v]) => [Number(k), v])) as Record<number, HTMLImageElement | undefined>, [stripImgs]);
+  // El recorte de la persona para la vista previa: lo calcula el worker por segundos; lo que falta se pide y se consulta.
+  const [masks, setMasks] = useState(fxContext?.masks ?? null);
   const maskMissing = useMemo(() => {
     const ready = new Set(Object.keys(masks?.urls ?? {}).map(Number));
     const out = new Set<string>();
-    for (const spec of fxSpecs) {
+    // Los efectos con recorte y las animaciones que dibujan a la persona (detrás, su silueta o "salir del marco").
+    for (const spec of [...fxSpecs, ...composSpecs]) {
       if (!spec.mask) continue;
       const frames = sourceFramesOf(timeline, spec.start, Math.max(1, Math.round(spec.duration * 30)));
       if (frames.some((f) => !ready.has(Math.floor(f / FX_MASK_CHUNK)))) out.add(spec.id);
     }
     return out;
-  }, [fxSpecs, masks, timeline]);
+  }, [fxSpecs, composSpecs, masks, timeline]);
+  const previewSpecs = useMemo(() => {
+    const tr = trSegs.map((segment) => compileTransition({ segment, format: s.format, brand: fxBrand, face: faceAnchor(fxContext?.faces ?? [], sourceRangesOf(timeline, segment.start, segment.end), sourceWidth, sourceHeight, s.format, s.offsetX) }));
+    // Una animación sin su recorte todavía lo sabe (env.mask.ready) y dibuja su respaldo; cuando llega, se vuelve a dibujar.
+    const comps = composSpecs.map((sp) => (sp.mask && maskMissing.has(sp.id) && sp.compos ? { ...sp, compos: { ...sp.compos, env: { ...sp.compos.env, maskReady: false } } } : sp));
+    return [...comps, ...[...fxSpecs, ...tr].sort((a, b) => a.start - b.start)];
+  }, [composSpecs, fxSpecs, trSegs, s.format, fxBrand, fxContext, timeline, sourceWidth, sourceHeight, s.offsetX, maskMissing]);
+  // Imágenes generadas de las animaciones (las del plan y las que llegan de un pedido).
+  const [composImageUrls, setComposImageUrls] = useState<Record<string, string>>(() => fxContext?.composImages ?? {});
+  const fxImages = useImages(useMemo(() => ({ ...Object.fromEntries(thumbs.map((t, i) => [`t${i}`, t.url])), ...composImageUrls }), [thumbs, composImageUrls]));
+  const stripImgs = useImages(useMemo(() => Object.fromEntries(Object.entries(masks?.urls ?? {})), [masks]));
+  const fxStrips = useMemo(() => Object.fromEntries(Object.entries(stripImgs).map(([k, v]) => [Number(k), v])) as Record<number, HTMLImageElement | undefined>, [stripImgs]);
   const signedOf = useCallback((o: BrollItem["choice"]) => (o ? (signed[optionKey(o)] ?? { ...o, thumbUrl: o.thumb ?? null, previewUrl: o.preview ?? null }) : null), [signed]);
   const previewBroll = useMemo(
     () =>
@@ -764,7 +768,7 @@ export function Studio(props: StudioProps) {
         start: seg.start,
         end: seg.end,
         label: seg.item.name,
-        detail: seg.item.match ? `${seg.item.match.score} % parecido` : undefined,
+        detail: maskMissing.has(seg.id) ? (masks?.pending ? "Recortándote…" : "Sin recorte todavía") : seg.item.match ? `${seg.item.match.score} % parecido` : undefined,
         tone: "border-[#8b5cf6]/70 bg-[#8b5cf6]/50",
         ai: seg.item.source !== "user",
         editable: true,
@@ -857,7 +861,7 @@ export function Studio(props: StudioProps) {
         });
       });
     return out;
-  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder]);
+  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder, maskMissing, masks?.pending]);
 
   // Cortes sin transición donde se puede poner una con un toque (va encima de lo que haya).
   const transitionSlots = useMemo(() => {

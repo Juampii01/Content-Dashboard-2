@@ -151,6 +151,10 @@ class Rec {
   declare textAlign: string;
   declare textBaseline: string;
   declare letterSpacing: string;
+  declare shadowColor: string;
+  declare shadowBlur: number;
+  declare shadowOffsetX: number;
+  declare shadowOffsetY: number;
   _ops: Op[] = [];
   _st: State = DEFAULTS();
   _stack: State[] = [];
@@ -569,6 +573,7 @@ function makeEnv(d: ComposEnvData): G {
     safe: Object.freeze({ x: f.x - mx, y: f.y - my, w: f.w + mx * 2, h: f.h + my * 2 }),
     captions: Object.freeze({ ...d.captions }),
     hasMask: d.mask,
+    mask: Object.freeze({ ready: d.mask && d.maskReady !== false }),
     video: VIDEO,
     person: PERSON,
     assets: Object.freeze(assets),
@@ -768,6 +773,59 @@ function makeEnv(d: ComposEnvData): G {
         ctx.restore();
       }
       out.drawImage(ctx, 0, 0, W, H);
+    },
+    /**
+     * "Salir del marco": tarjeta con sombra y fondo, la persona recortada adentro y la parte que sobresale del borde
+     * superior dibujada por fuera (con sombra). Sin recorte, el video adentro (respaldo) y sin parte afuera.
+     */
+    popOut: (ctx: Rec, o: { rect: { x: number; y: number; w: number; h: number }; background?: string; radius?: number; breakTop?: boolean; shadow?: boolean; person?: { x?: number; y?: number; w?: number; h?: number } }) => {
+      if (!(ctx instanceof Rec)) fail("popOut: el primer argumento es ctx.");
+      const r = o?.rect;
+      if (!r) fail("popOut: falta rect: { x, y, w, h }.");
+      const [x, y, w, h] = nums([r.x, r.y, r.w, r.h], "popOut");
+      const rad = Math.max(0, num(o.radius ?? 28 * u, "popOut"));
+      const bg = o.background ?? d.brand.accent;
+      const px = num(o.person?.x ?? 0, "popOut");
+      const py = num(o.person?.y ?? 0, "popOut");
+      const pw = num(o.person?.w ?? W, "popOut");
+      const ph = num(o.person?.h ?? H, "popOut");
+      const ready = d.mask && d.maskReady !== false;
+      // 1) La tarjeta, con sombra.
+      ctx.save();
+      if (o.shadow !== false) {
+        ctx.shadowColor = "rgba(0,0,0,0.45)";
+        ctx.shadowBlur = 44 * u;
+        ctx.shadowOffsetY = 18 * u;
+      }
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, rad);
+      ctx.fill();
+      ctx.restore();
+      // 2) La persona adentro (con el fondo reemplazado por el de la tarjeta).
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, rad);
+      ctx.clip();
+      ctx.drawImage(ready ? PERSON : VIDEO, px, py, pw, ph);
+      ctx.restore();
+      // 3) Lo que sobresale del borde de arriba (la cabeza), por fuera: solo arriba del borde (sin costura) y con una
+      // sombra suave de su silueta que cae sobre la tarjeta... pero solo fuera de ella (no oscurece la cara).
+      if (o.breakTop !== false && ready && y > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x - w * 0.15, 0, w * 1.3, y);
+        ctx.clip();
+        if (o.shadow !== false) {
+          ctx.save();
+          ctx.globalAlpha *= 0.4;
+          ctx.filter = `blur(${Math.round(14 * u)}px)`;
+          ctx.drawImage((e.silhouette as (c: string, g: number) => unknown)("#000000", 2), px + 6 * u, py + 10 * u, pw, ph);
+          ctx.restore();
+        }
+        ctx.drawImage(PERSON, px, py, pw, ph);
+        ctx.restore();
+      }
     },
     motionBlur: (ctx: Rec, draw: (c: Rec, tt: number) => void, t: number, o: { samples?: number; shutter?: number } = {}) => {
       const n = clamp(Math.round(o.samples ?? 6), 2, 12);

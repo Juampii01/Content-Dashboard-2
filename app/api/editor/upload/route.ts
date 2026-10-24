@@ -8,6 +8,7 @@ import { loadClip } from "@/lib/video/library";
 import { loadTrack } from "@/lib/video/music";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
+import { readDirector } from "@/lib/video/director/types";
 
 /**
  * POST /api/editor/upload — firma la subida directa del navegador a Vercel Blob (store privado).
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
       request,
       getSignedToken: async (pathname, clientPayload) => {
         // clientPayload: el id del proyecto, "estilo:<id>" (referencia de un estilo), "clip:<id>" (biblioteca),
+        // "referencia:<id>" (video de referencia de "Edítalo así"),
         // "musica:<id>" (pista de música) o "largo:<id>" (clips desde un video largo).
         const [kind, ref] = clientPayload?.includes(":") ? clientPayload.split(":", 2) : ["proyecto", clientPayload];
         let size: number | null = null;
@@ -43,6 +45,11 @@ export async function POST(request: NextRequest) {
         } else if (kind === "clip" && ref) {
           const clip = await loadClip(ref);
           if (clip?.status === "UPLOADING" && clip.fileKey === pathname) size = clip.fileBytes ?? 0;
+        } else if (kind === "referencia" && ref) {
+          // Video de referencia de "Edítalo así": solo a la ruta que reservó el Estudio.
+          const project = await loadProject(ref);
+          const up = project ? readDirector(project.director).refUpload : null;
+          if (up && up.key === pathname && (project?.status === "AWAITING_REVIEW" || project?.status === "DONE")) size = up.bytes;
         } else if (audio && ref) {
           const track = await loadTrack(ref);
           if (track?.status === "UPLOADING" && track.fileKey === pathname) size = track.fileBytes ?? 0;

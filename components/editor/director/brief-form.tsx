@@ -69,6 +69,14 @@ export function BriefFields({
       <Field label="Algo que no se puede cortar" htmlFor={`${idPrefix}-keep`} hint={hint("mustKeep") ?? "Por ejemplo: la parte del precio, la demo del producto."}>
         <Input id={`${idPrefix}-keep`} value={value.mustKeep} maxLength={400} disabled={disabled} placeholder={inferred?.mustKeep || "La parte del precio"} onChange={(e) => set("mustKeep", e.target.value)} />
       </Field>
+      <Field
+        label="Video de referencia (opcional)"
+        htmlFor={`${idPrefix}-reference`}
+        hint="Un link de Instagram, TikTok o YouTube editado como te gusta: el director imita su edición, no su contenido."
+        error={value.reference && !/^https:\/\/([a-z0-9-]+\.)*(instagram\.com|tiktok\.com|youtube\.com|youtu\.be)\//i.test(value.reference) ? "Pega un link de Instagram, TikTok o YouTube." : undefined}
+      >
+        <Input id={`${idPrefix}-reference`} type="url" inputMode="url" value={value.reference ?? ""} maxLength={500} disabled={disabled} placeholder="https://www.instagram.com/reel/…" onChange={(e) => set("reference", e.target.value)} />
+      </Field>
       <Field label="Notas para el editor (opcional)" htmlFor={`${idPrefix}-notes`}>
         <Textarea id={`${idPrefix}-notes`} value={value.notes} maxLength={600} disabled={disabled} className="!min-h-20" placeholder="Que se note el producto, tono serio, nada de música…" onChange={(e) => set("notes", e.target.value)} />
       </Field>

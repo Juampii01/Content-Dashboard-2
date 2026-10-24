@@ -48,18 +48,21 @@ class _QuietLogger:
         log.info("yt-dlp: %s", msg[:300])
 
 
-def link_allowed(url: str) -> bool:
+def link_allowed(url: str, extra_hosts: tuple[str, ...] = ()) -> bool:
+    """Solo links https de Instagram, TikTok o YouTube. `extra_hosts` (pruebas con un servidor local) admite http en localhost."""
     try:
         parts = urllib.parse.urlsplit(url)
     except ValueError:
         return False
     host = (parts.hostname or "").lower()
+    if extra_hosts and host in extra_hosts and host in ("localhost", "127.0.0.1") and parts.scheme in ("http", "https"):
+        return True
     return parts.scheme == "https" and any(host == h or host.endswith("." + h) for h in ALLOWED_LINK_HOSTS)
 
 
-def download_link(url: str, dest_dir: Path, *, name: str = "referencia", max_seconds: float = MAX_LINK_SECONDS, max_bytes: int = MAX_LINK_BYTES) -> Path:
-    """Baja el video de un link público con yt-dlp (mejor calidad hasta 1080p, en MP4). También lo usan los clips."""
-    if not link_allowed(url):
+def download_link(url: str, dest_dir: Path, *, name: str = "referencia", max_seconds: float = MAX_LINK_SECONDS, max_bytes: int = MAX_LINK_BYTES, extra_hosts: tuple[str, ...] = ()) -> Path:
+    """Baja el video de un link público con yt-dlp (mejor calidad hasta 1080p, en MP4). También lo usan los clips y la referencia del director."""
+    if not link_allowed(url, extra_hosts):
         raise JobError("Ese link no es de Instagram, TikTok ni YouTube. Descarga el video y súbelo.", retry=False)
     try:
         from yt_dlp import YoutubeDL  # noqa: PLC0415

@@ -15,6 +15,7 @@ import { FX_INFO, FX_KINDS, type FxKind } from "../fx/catalog";
 import { DENSITY_TARGETS, type Density } from "../rhythm";
 import type { EditPlan } from "../types";
 import type { CriticIssue } from "./types";
+import type { ParsedRequest } from "./request";
 
 export type RequestLocks = {
   instruction: string;
@@ -24,6 +25,12 @@ export type RequestLocks = {
   density: Density | null;
   /** Pidió sin b-roll / sin gráficos. */
   noBroll: boolean;
+  /** Pidió quitar todos los zooms (el relleno de ritmo tampoco los vuelve a poner). */
+  noZooms?: boolean;
+  /** Pidió quitar todos los efectos. */
+  noFx?: boolean;
+  /** El pedido en partes (lib/video/director/request.ts): el cierre y las correcciones lo vuelven a aplicar. */
+  parsed?: ParsedRequest | null;
 };
 
 const plain = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -55,10 +62,11 @@ export function parseLocks(instruction: string): RequestLocks {
   const fast = /pausas al minimo|corta (las )?pausas|mas dinamic|muy dinamic|mucho mas dinamic|ritmo (alto|rapido)|mas rapido|editor de reels|mas ritmo|agil/.test(t);
   const calm = /mas tranquil|mas lento|con calma|sin apuro|mas pausad/.test(t);
   const density: Density | null = /editor de reels|mucho mas dinamic|muy dinamic/.test(t) ? "reels" : /sobri|minimalista|pocos cambios/.test(t) ? "sobria" : null;
-  return { instruction: instruction.trim().slice(0, 600), fx: [...fx], pace: fast && !calm ? "fast" : calm && !fast ? "calm" : null, density, noBroll: /sin b-?roll|sin graficos|sin nada encima/.test(t) };
+  const noZooms = /(sin|quita|quitale|saca|sacale|elimina|borra|nada de) (todos )?(los )?zooms?(?! digital)|no (quiero|pongas) zooms?/.test(t);
+  return { instruction: instruction.trim().slice(0, 600), fx: [...fx], pace: fast && !calm ? "fast" : calm && !fast ? "calm" : null, density, noBroll: /sin b-?roll|sin graficos|sin nada encima/.test(t), noZooms, noFx: negated };
 }
 
-export const hasLocks = (l: RequestLocks | null | undefined): l is RequestLocks => Boolean(l && (l.fx.length || l.pace || l.density || l.noBroll));
+export const hasLocks = (l: RequestLocks | null | undefined): l is RequestLocks => Boolean(l && (l.fx.length || l.pace || l.density || l.noBroll || l.noZooms || l.noFx));
 
 /** Texto para el director y el crítico: lo que no se puede deshacer. */
 export function locksText(l: RequestLocks | null | undefined): string {
@@ -68,6 +76,8 @@ export function locksText(l: RequestLocks | null | undefined): string {
     ...(l.pace === "fast" ? ["ritmo rápido: pausas al mínimo (0,3 s) y muletillas fuera; nunca lo bajes"] : l.pace === "calm" ? ["ritmo tranquilo"] : []),
     ...(l.density ? [`densidad «${l.density === "reels" ? "Editor de reels" : l.density === "sobria" ? "Sobria" : "Normal"}»: no la bajes`] : []),
     ...(l.noBroll ? ["sin b-roll ni gráficos"] : []),
+    ...(l.noZooms ? ["sin ningún zoom"] : []),
+    ...(l.noFx ? ["sin efectos de firma"] : []),
   ];
   return `PEDIDO DE LA PERSONA (obligatorio, no se revierte): "${l.instruction}"\n- ${parts.join("\n- ")}`;
 }
@@ -89,6 +99,10 @@ export function guardIssues(issues: CriticIssue[], locks: RequestLocks | null | 
     // Tapar lo que se muestra es un problema técnico real (salvo que hable del plano a cámara o de la apertura).
     const technical = i.kind === "tapa_importante" && !/camara|apertura|plano de|tu cara|la persona/.test(text);
     if (touchesFx && removes && !technical) {
+      dropped.push(i);
+      continue;
+    }
+    if (locks.noZooms && /(agrega|suma|pon|mete|mas) .{0,15}zoom/.test(text)) {
       dropped.push(i);
       continue;
     }
@@ -138,5 +152,15 @@ export function enforceLocks(plan: EditPlan, previous: EditPlan | null, locks: R
     restored.push("Mantuve la densidad que pediste.");
   }
   if (locks.noBroll && next.broll.length) next = { ...next, broll: [] };
+  if (locks.noZooms && ((next.zoom_moments?.length ?? 0) > 0 || next.zooms_enabled)) {
+    const { zoom_moments: _z, ...rest } = next;
+    void _z;
+    next = { ...rest, zooms_enabled: false };
+  }
+  if (locks.noFx && next.effects?.length) {
+    const { effects: _e, ...rest } = next;
+    void _e;
+    next = rest;
+  }
   return { plan: next, restored };
 }

@@ -42,9 +42,10 @@ export const ANALYZE_STAGES = [
 
 /** "Edítalo así": el director aplica el pedido y vuelve a mirar la edición. */
 export const EDIT_STAGES = [
-  { label: "Aplicando tus cambios", until: 40, match: ["Aplicando tus cambios", "Dirigiendo la edición"] },
-  { label: "Armando la vista previa", until: 70, match: ["Armando la vista previa", "Cortando las tomas", "Preparando el b-roll", "Revisando la edición"] },
-  { label: "Revisando el resultado", until: 100, match: ["Corrigiendo lo que encontró la revisión", "Dejando todo listo"] },
+  { label: "Mirando tu referencia", until: 30, match: ["Bajando la referencia", "Mirando la referencia", "Mirando cada momento de la referencia", "Buscando los cortes", "Midiendo los zooms", "Leyendo los subtítulos", "Escuchando el ritmo"] },
+  { label: "Aplicando tus cambios", until: 55, match: ["Aplicando tus cambios", "Dirigiendo la edición"] },
+  { label: "Revisando que se cumpla lo que pediste", until: 85, match: ["Armando la vista previa", "Cortando las tomas", "Preparando el b-roll", "Revisando la edición", "Corrigiendo lo que faltó"] },
+  { label: "Dejando todo listo", until: 100, match: ["Corrigiendo lo que encontró la revisión", "Dejando todo listo"] },
 ];
 
 export const RENDER_STAGES = [

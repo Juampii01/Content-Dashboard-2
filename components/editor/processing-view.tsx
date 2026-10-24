@@ -21,6 +21,7 @@ export function ProcessingView({
   kind,
   canEdit = false,
   autoSummary,
+  withReference = false,
 }: {
   projectId: string;
   initial: LiveStatus;
@@ -29,6 +30,8 @@ export function ProcessingView({
   canEdit?: boolean;
   /** Qué valores usa "Hazlo por mí" (subtítulos, música…), para mostrarlo al lado del interruptor. */
   autoSummary?: string;
+  /** "Edítalo así" con un video de referencia: suma la etapa de mirarlo. */
+  withReference?: boolean;
 }) {
   const router = useRouter();
   const live = useProjectStatus(projectId, initial, { watch: initial.status === "AWAITING_REVIEW" });
@@ -40,7 +43,7 @@ export function ProcessingView({
   const autoMode = Boolean(live.autoExport ?? auto);
   const phase: "analyze" | "render" = live.status === "RENDERING" ? "render" : live.status === "PROCESSING" || live.status === "AWAITING_REVIEW" ? "analyze" : kind === "render" ? "render" : "analyze";
 
-  const { progress, stages, label } = autoMode ? autoProgress(live, phase) : singleProgress(live, kind);
+  const { progress, stages, label } = autoMode ? autoProgress(live, phase) : singleProgress(live, kind, withReference);
 
   function toggle(next: boolean) {
     setAuto(next);
@@ -127,16 +130,15 @@ function stageIndex(stages: readonly { until: number }[], progress: number): num
 }
 
 /** Una etapa por trabajo (análisis o render), como siempre. */
-function singleProgress(live: LiveStatus, kind: "analyze" | "render" | "edit"): { progress: number; stages: Stage[]; label: string } {
+function singleProgress(live: LiveStatus, kind: "analyze" | "render" | "edit", withReference = false): { progress: number; stages: Stage[]; label: string } {
   const job = live.job;
-  const defs = kind === "analyze" ? ANALYZE_STAGES : kind === "edit" ? EDIT_STAGES : RENDER_STAGES;
+  const defs = kind === "analyze" ? ANALYZE_STAGES : kind === "edit" ? (withReference ? EDIT_STAGES : EDIT_STAGES.slice(1)) : RENDER_STAGES;
   const progress = job?.progress ?? 0;
   const queued = !job || job.status === "QUEUED";
   const retrying = job?.status === "QUEUED" && (job.attempts ?? 0) > 0;
-  const activeIndex = Math.max(
-    0,
-    defs.findIndex((s) => (job?.stage && s.match.some((m) => job.stage!.startsWith(m))) || progress < s.until),
-  );
+  // La etapa que nombra el worker manda; si no la nombra, se ubica por el avance.
+  const byStage = job?.stage ? defs.findIndex((s) => s.match.some((m) => job.stage!.startsWith(m))) : -1;
+  const activeIndex = Math.max(0, byStage >= 0 ? byStage : defs.findIndex((s) => progress < s.until));
   return {
     progress,
     label: queued ? (retrying ? (job?.stage ?? "Reintentando") : "En cola") : (job?.stage ?? "Preparando"),

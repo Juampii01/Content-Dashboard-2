@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { workerAuthorized } from "@/lib/jobs";
+import { referencePayloadSchema } from "@/lib/video/director/reference";
 import { directorStep, type DirectorBody } from "@/lib/video/director/service";
 import { VideoError } from "@/lib/video/service";
 
@@ -13,6 +14,12 @@ import { VideoError } from "@/lib/video/service";
 export const maxDuration = 800;
 
 const sheet = z.object({ key: z.string().regex(/^editor\/[0-9a-f-]{36}\/director\/[a-z0-9-]+\.jpg$/), width: z.number().int().min(1).max(4000), height: z.number().int().min(1).max(4000) });
+const referenceSheet = z.object({
+  key: z.string().regex(/^editor\/[0-9a-f-]{36}\/referencia\/[a-z0-9-]+\.jpg$/),
+  width: z.number().int().min(1).max(4000),
+  height: z.number().int().min(1).max(4000),
+  frames: z.array(z.number().int().min(1).max(500)).max(80),
+});
 const bodySchema = z.discriminatedUnion("step", [
   z.object({ step: z.literal("start") }),
   z.object({ step: z.literal("understand") }),
@@ -23,6 +30,8 @@ const bodySchema = z.discriminatedUnion("step", [
   z.object({ step: z.literal("abort"), error: z.string().max(400).optional() }),
   z.object({ step: z.literal("critique"), round: z.number().int().min(1).max(6), sheets: z.array(sheet).max(8) }),
   z.object({ step: z.literal("final"), sheets: z.array(sheet).max(8), frames: z.array(z.object({ t: z.number().min(0), label: z.string().max(300) })).max(60) }),
+  // La referencia de edición ya medida (o el aviso de que no se pudo bajar). Sus hojas van en editor/<id>/referencia/.
+  referencePayloadSchema.extend({ step: z.literal("reference"), sheets: z.array(referenceSheet).max(4).optional() }),
 ]);
 
 export async function POST(request: NextRequest, { params }: RouteContext<"/api/worker/projects/[id]/director">) {
@@ -32,7 +41,8 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
   if (!parsed.success) return NextResponse.json({ error: "Pedido no válido.", retry: false }, { status: 400 });
   // Las hojas tienen que ser de este proyecto.
   const body = parsed.data as DirectorBody;
-  if ("sheets" in body && body.sheets.some((s) => !s.key.startsWith(`editor/${id}/director/`))) return NextResponse.json({ error: "Hoja de otro proyecto.", retry: false }, { status: 400 });
+  const prefix = body.step === "reference" ? `editor/${id}/referencia/` : `editor/${id}/director/`;
+  if ("sheets" in body && body.sheets?.some((s) => !s.key.startsWith(prefix))) return NextResponse.json({ error: "Hoja de otro proyecto.", retry: false }, { status: 400 });
   try {
     const result = await directorStep(id, body);
     return NextResponse.json({ ok: true, ...result });

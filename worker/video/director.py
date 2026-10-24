@@ -34,7 +34,7 @@ STEP_LABELS = {
     "revise": "Corrigiendo lo que encontró la revisión",
     "finalize": "Dejando todo listo",
 }
-MAX_STEPS = 14
+MAX_STEPS = 20  # un pedido puede llevar hasta 3 vueltas del director, cada una con su segunda mirada
 
 
 def see(ctx: JobContext, project: dict[str, Any], workdir: Path, media: dict[str, Any], start: float, end: float) -> None:
@@ -103,7 +103,7 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
             sheets = preview(ctx, project, nxt.get("render") or {}, nxt.get("frames") or [], round_)
             res = ctx.app.director(pid, {"step": "critique", "round": round_, "sheets": sheets})
         else:
-            ctx.stage(STEP_LABELS.get(step, "Dirigiendo la edición"), a, b)
+            ctx.stage(str(nxt.get("label") or STEP_LABELS.get(step, "Dirigiendo la edición"))[:120], a, b)
             res = ctx.app.director(pid, {"step": step})
     raise JobError("El director de edición no terminó. Vamos a reintentarlo.", detail="demasiados pasos")
 

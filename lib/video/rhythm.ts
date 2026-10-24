@@ -540,6 +540,41 @@ export function fillRhythm(plan0: EditPlan, input: FillInput): FillResult {
 
 let rcount = 0;
 
+/**
+ * Gráficos simples (palabra clave o frase sobre el video, sincronizados con la voz) en un tramo del video final: el piso
+ * de un pedido como "más gráficos en la segunda mitad" cuando el director se quedó corto. Frases de 1 a 4,2 s que no
+ * tocan lo prohibido ni otro b-roll o efecto, separadas `minGap` s de lo que ya hay, alternando palabra clave y frase.
+ */
+export function addGraphicsInRange(
+  plan0: EditPlan,
+  input: { words: Word[]; duration: number; format: VideoFormat; theme: MotionThemeInput; forbidden: { from: number; to: number }[]; start: number; end: number; count: number; minGap?: number; why: string },
+): { plan: EditPlan; added: number } {
+  const { words, duration } = input;
+  let plan: EditPlan = { ...plan0, broll: [...plan0.broll] };
+  const timeline = buildTimeline(words, plan, duration);
+  const clauses = clausesOf(timeline.words, words).filter((c) => c.start >= input.start && c.end <= input.end + 0.3 && c.end - c.start >= 1 && c.end - c.start <= 4.2);
+  const gap = input.minGap ?? 1.5;
+  let added = 0;
+  for (const clause of clauses) {
+    if (added >= input.count) break;
+    if (input.forbidden.some((f) => overlapsW(f, clause))) continue;
+    if (plan.broll.some((x) => overlapsW({ from: x.from_word, to: x.to_word }, clause)) || (plan.effects ?? []).some((e) => overlapsW({ from: e.from_word, to: e.to_word }, clause))) continue;
+    const segs = [...brollSegments(buildTimeline(words, plan, duration), plan.broll), ...fxSegments(timeline, plan.effects ?? [])];
+    if (segs.some((s) => clause.start < s.end + gap && s.start - gap < clause.end)) continue;
+    const prevItem = [...plan.broll].filter((x) => x.from_word < clause.from).sort((x, y) => y.from_word - x.from_word)[0];
+    const prev = prevItem ? componentOf(prevItem) : "";
+    let kind: "keyword" | "quote" = clause.ids.length >= 4 && prev !== "quote" ? "quote" : "keyword";
+    if (kind === prev) kind = kind === "keyword" ? "quote" : "keyword";
+    if (kind === "quote" && clause.ids.length < 3) kind = "keyword";
+    const scene = simpleScene(kind, clause, words, plan.corrections, input.theme, input.format, kind === "quote" ? "bottom" : "top");
+    if (!scene) continue;
+    const option = brollGraphicOption(scene);
+    plan = { ...plan, broll: [...plan.broll, { id: `p${(rcount++).toString(36)}${clause.from}`, from_word: clause.from, to_word: clause.to, query_en: "", keywords: [], why: input.why, choice: option, options: [option] }].sort((x, y) => x.from_word - y.from_word) };
+    added++;
+  }
+  return { plan, added };
+}
+
 /** El tema de los gráficos del plan (para que lo agregado se vea igual que lo demás). */
 export function themeOfPlan(plan: Pick<EditPlan, "broll">): MotionThemeInput | null {
   for (const b of plan.broll) {

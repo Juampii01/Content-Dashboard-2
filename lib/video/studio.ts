@@ -227,40 +227,7 @@ export function fitSpan(timeline: Pick<Timeline, "words">, t: number, seconds: n
   return short && short.end - short.start >= min ? short : null;
 }
 
-/**
- * Poner algo en `span` cuando ahí ya hay otra cosa: gana lo nuevo. Lo que cae entero adentro se quita, lo que lo pisa
- * de un lado se recorta y lo que lo cruza de lado a lado se parte en dos (`reshape` arma cada pedazo: id nuevo para
- * el de la derecha, bordes, etc.). Los pedazos que ya no valen (`valid`, por ejemplo más cortos que el mínimo) se
- * quitan. `skip`: lo que no se toca (lo que se está moviendo). Devuelve lo que queda y lo que se reemplazó.
- */
-export function carveSpan<T extends { from_word: number; to_word: number }>(
-  items: T[],
-  span: WordSpan,
-  opts: { skip?: (item: T) => boolean; reshape?: (item: T, from: number, to: number, side: "left" | "right") => T; valid?: (item: T) => boolean } = {},
-): { items: T[]; replaced: T[] } {
-  const reshape = opts.reshape ?? ((item: T, from: number, to: number) => ({ ...item, from_word: from, to_word: to }));
-  const valid = opts.valid ?? (() => true);
-  const out: T[] = [];
-  const replaced: T[] = [];
-  for (const item of items) {
-    if (opts.skip?.(item) || !overlaps(span, item)) {
-      out.push(item);
-      continue;
-    }
-    replaced.push(item);
-    if (item.from_word < span.from) {
-      const left = reshape(item, item.from_word, span.from - 1, "left");
-      if (valid(left)) out.push(left);
-    }
-    if (item.to_word > span.to) {
-      const right = reshape(item, span.to + 1, item.to_word, "right");
-      if (valid(right)) out.push(right);
-    }
-  }
-  return { items: out.sort((a, b) => a.from_word - b.from_word), replaced };
-}
-
-/** "«A»", "«A» y «B»" o "«A», «B» y 2 más" para el aviso de lo reemplazado. */
+/** "«A»", "«A» y «B»" o "«A», «B» y 2 más" para los avisos ("Agregado encima de …"). */
 export function replacedLabel(labels: string[]): string {
   const uniq = [...new Set(labels)];
   if (!uniq.length) return "";

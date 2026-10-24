@@ -332,9 +332,11 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         ass_path.write_text(ass.build_ass(captions, out_w, out_h, fmt), encoding="utf-8")
     # Una entrada por emoji en pantalla (en ffmpeg cada entrada se usa una sola vez; son pocos: solo palabras clave).
     emoji_files = [s["name"] for s in stickers]
-    overlays = [{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected), "edit": b.get("edit")} for i, b in enumerate(broll_items)]
-    overlays += [{"input": 2 + len(broll_items) + i, "start": f["start"], "end": min(f["end"], expected), "edit": FX_EDIT} for i, f in enumerate(fx_layers)]
-    overlays.sort(key=lambda o: o["start"])
+    # Capas (lib/video/layers.ts): b-roll, gráficos, efectos y transiciones de abajo hacia arriba por `z`; lo que se
+    # superpone se dibuja encima, igual que en la vista previa.
+    overlays = [{"input": 2 + i, "start": float(b["start"]), "end": min(float(b["end"]), expected), "edit": b.get("edit"), "z": fx.layer_z(b)} for i, b in enumerate(broll_items)]
+    overlays += [{"input": 2 + len(broll_items) + i, "start": f["start"], "end": min(f["end"], expected), "edit": FX_EDIT, "z": f.get("z", 0)} for i, f in enumerate(fx_layers)]
+    overlays = fx.overlay_order(overlays)
     emoji_base = 2 + len(broll_items) + len(fx_layers)
     graph, _, _ = render.framing_graph(
         media["width"],

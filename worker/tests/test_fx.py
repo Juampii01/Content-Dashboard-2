@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -198,3 +200,63 @@ def test_moved_checklist_card_is_drawn_moved(tmp_path: Path) -> None:
     # La tarjeta baja el 20 % del alto (384 px) y no cambia de tamaño.
     assert np.median(yb) - np.median(ya) == pytest.approx(384, abs=12)
     assert yb.size == pytest.approx(ya.size, rel=0.15)
+
+
+def test_capas_en_orden_de_z():
+    """Lo que se superpone va de abajo hacia arriba por `z` (lo calcula la app); sin `z`, por inicio como antes."""
+    from video import fx as fxmod
+
+    overlays = [
+        {"input": 2, "start": 1.0, "end": 4.0, "z": 2},  # efecto encima
+        {"input": 3, "start": 0.5, "end": 5.0, "z": 0},  # gráfico abajo
+        {"input": 4, "start": 2.0, "end": 3.0, "z": 1},
+    ]
+    assert [o["input"] for o in fxmod.overlay_order(overlays)] == [3, 4, 2]
+    viejos = [{"input": 2, "start": 3.0}, {"input": 3, "start": 1.0}]
+    assert [o["input"] for o in fxmod.overlay_order(viejos)] == [3, 2]
+    assert fxmod.layer_z({"z": "x"}) == 0.0
+
+
+def test_overlapping_layers_render_in_z_order(tmp_path: Path) -> None:
+    """Capas superpuestas en un render de verdad: un efecto, un b-roll y otro efecto a la vez; lo de `z` más alto se ve
+    encima. Con el orden al revés, se ve el otro (igual que la vista previa)."""
+    from video.pipeline import FX_EDIT
+
+    for mark in needs_engine:
+        if mark.args[0]:
+            pytest.skip(mark.kwargs["reason"])
+    video, _ = _video(tmp_path, 1.0, (1080, 1920))
+    specs = json.loads((FIXTURES / "fx-specs.json").read_text(encoding="utf-8"))
+    cover = {"spec": {**specs["cover_story"], "start": 0}, "sourceFrames": list(range(18)), "z": 2}
+    check = {"spec": {**specs["checklist"], "start": 0}, "sourceFrames": list(range(18)), "z": 0}
+    layers = fx.render_effects(_Ctx(), [cover, check], joined=video, mezz=video, src_size=(1080, 1920), total_frames=30, fmt="9:16", offset_x=0.0, workdir=tmp_path, fonts_dir=FONTS)
+    assert [l["z"] for l in layers] == [2, 0]
+    red = tmp_path / "rojo.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=1080x1920:r=30:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(red)], check=True)
+    silence = tmp_path / "silencio.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "1", str(silence)], check=True)
+
+    def frame_at(broll_z: float, name: str) -> np.ndarray:
+        overlays = [{"input": 2, "start": 0.0, "end": 1.0, "edit": None, "z": broll_z}]
+        overlays += [{"input": 3 + i, "start": l["start"], "end": l["end"], "edit": FX_EDIT, "z": l["z"]} for i, l in enumerate(layers)]
+        graph, _, _ = render.framing_graph(1080, 1920, "9:16", 0.0, None, FONTS, broll=fx.overlay_order(overlays))
+        out = tmp_path / f"{name}.mp4"
+        render.final_encode(video, silence, graph, 1.0, out, "ultrafast", lambda _p: None, extra_inputs=[red, *[l["path"] for l in layers]])
+        cap = cv2.VideoCapture(str(out))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 9)
+        ok, img = cap.read()
+        assert ok
+        cv2.imwrite(str(tmp_path / f"{name}.png"), img)
+        return img
+
+    top_fx = frame_at(1, "efecto-encima")  # rojo entre los dos efectos: arriba la portada
+    top_red = frame_at(5, "rojo-encima")  # el b-roll arriba de todo
+    is_red = lambda img: img[..., 2].mean() > 200 and img[..., 1].mean() < 60 and img[..., 0].mean() < 60  # noqa: E731
+    assert not is_red(top_fx), "con el efecto en una capa más alta se ve el efecto"
+    assert is_red(top_red), "con el b-roll arriba se ve el b-roll"
+    out_dir = os.environ.get("LAYER_FRAMES_DIR")
+    if out_dir:
+        for n in ("efecto-encima", "rojo-encima"):
+            shutil.copy(tmp_path / f"{n}.png", Path(out_dir) / f"capas-render-{n}.png")
+
+

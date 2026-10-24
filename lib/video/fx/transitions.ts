@@ -100,6 +100,8 @@ export const transitionItemSchema = z.object({
   sound: z.boolean().optional(),
   why: z.string().max(300).optional(),
   source: z.enum(["director", "user"]).optional(),
+  /** Capa (orden de dibujo): más alta, más arriba. Sin el campo, 0 (planes viejos). Ver lib/video/layers.ts. */
+  layer: z.number().int().min(0).max(999).optional(),
 });
 export type TransitionItem = z.infer<typeof transitionItemSchema>;
 export const transitionListSchema = z.array(transitionItemSchema).max(MAX_TRANSITIONS);
@@ -147,14 +149,15 @@ export function cutPoints(timeline: Pick<Timeline, "clips">): { at: number; word
   return out;
 }
 
-export type TransitionSegment = { id: string; start: number; end: number; cut: number; item: TransitionItem };
+export type TransitionSegment = { id: string; start: number; end: number; cut: number; item: TransitionItem; layer?: number };
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const snap = (t: number) => Math.round(t * FPS) / FPS;
 
 /**
- * Dónde se dibuja cada transición (segundos del video final): centrada en su corte, sin salirse del video, sin pisar
- * otra transición ni lo que está ocupado (`blocked`: efectos y b-roll, que llevan su propia capa).
+ * Dónde se dibuja cada transición (segundos del video final): centrada en su corte o su instante, sin salirse del video
+ * ni pisar lo ocupado (`blocked`, opcional: el director lo usa para no taparlos). En la revisión no
+ * se pasa: una transición se dibuja en su capa sobre lo que haya (lib/video/layers.ts).
  */
 export function transitionSegments(timeline: Pick<Timeline, "clips" | "words" | "duration">, items: TransitionItem[], blocked: { start: number; end: number }[] = []): TransitionSegment[] {
   const cuts = cutPoints(timeline);
@@ -170,13 +173,11 @@ export function transitionSegments(timeline: Pick<Timeline, "clips" | "words" | 
     const cut = { at: center };
     let start = snap(Math.max(0, cut.at - d / 2));
     let end = snap(Math.min(timeline.duration, cut.at + d / 2));
-    const prev = out[out.length - 1];
-    if (prev && start < prev.end) start = prev.end;
     if (end - start < 0.2) continue;
     if (blocked.some((b) => start < b.end && b.start < end)) continue;
     start = round3(start);
     end = round3(end);
-    out.push({ id: item.id, start, end, cut: round3(cut.at), item });
+    out.push({ id: item.id, start, end, cut: round3(cut.at), item, layer: item.layer ?? 0 });
   }
   return out;
 }

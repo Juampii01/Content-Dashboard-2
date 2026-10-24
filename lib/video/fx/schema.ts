@@ -33,6 +33,8 @@ export const fxItemSchema = z.object({
    */
   transform: transformSchema.optional(),
   anim: animSchema.optional(),
+  /** Capa (orden de dibujo): más alta, más arriba. Sin el campo, 0 (planes viejos). Ver lib/video/layers.ts. */
+  layer: z.number().int().min(0).max(999).optional(),
 });
 export type FxItem = z.infer<typeof fxItemSchema>;
 
@@ -255,22 +257,23 @@ export function clampFx(item: FxItem): FxItem {
   const place = movable ? cleanPlace({ transform: item.transform, anim: item.anim }, { rotation: movable.rotation, keepDefaultAnim: true }) : undefined;
   if (place?.transform) out.transform = place.transform;
   if (place?.anim) out.anim = place.anim;
+  if (item.layer != null && Number.isInteger(item.layer) && item.layer >= 0) out.layer = Math.min(999, item.layer);
   return out;
 }
 
-/** Problemas de los efectos del plan (ids, superposiciones entre efectos y con el b-roll). Lista vacía = válido. */
+/**
+ * Problemas de los efectos del plan (ids y rangos). Lista vacía = válido. Superponerse con otro efecto o con un b-roll
+ * no es un problema: van en capas (lib/video/layers.ts).
+ */
 export function fxIssues(items: FxItem[], wordCount: number, broll: { from_word: number; to_word: number }[] = []): string[] {
   const issues: string[] = [];
   const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < wordCount;
   const sorted = [...items].sort((a, b) => a.from_word - b.from_word);
-  sorted.forEach((e, i) => {
+  sorted.forEach((e) => {
     if (!valid(e.from_word) || !valid(e.to_word)) issues.push(`Efecto: ids fuera de rango (${e.from_word}–${e.to_word}).`);
     else if (e.from_word > e.to_word) issues.push(`Efecto: rango invertido (${e.from_word}–${e.to_word}).`);
-    const next = sorted[i + 1];
-    if (next && next.from_word <= e.to_word) issues.push(`Efectos superpuestos (${e.from_word}–${e.to_word} y ${next.from_word}–${next.to_word}).`);
-    const b = broll.find((x) => x.from_word <= e.to_word && e.from_word <= x.to_word);
-    if (b) issues.push(`Un efecto se pisa con un b-roll (${e.from_word}–${e.to_word}).`);
   });
+  void broll;
   return issues;
 }
 
@@ -280,8 +283,8 @@ export function cleanFx(raw: unknown[], wordCount: number, broll: { from_word: n
   const parsed = raw.map((r) => fxItemSchema.safeParse(r)).filter((p) => p.success).map((p) => clampFx(p.data as FxItem));
   for (const e of parsed.sort((a, b) => a.from_word - b.from_word).slice(0, MAX_EFFECTS)) {
     if (e.to_word >= wordCount) continue;
-    if (out.some((o) => e.from_word <= o.to_word && o.from_word <= e.to_word)) continue;
-    if (broll.some((b) => e.from_word <= b.to_word && b.from_word <= e.to_word)) continue;
+    // Se pueden superponer entre sí y con el b-roll: se dibujan en capas (lib/video/layers.ts).
+    void broll;
     out.push(e);
   }
   return out;

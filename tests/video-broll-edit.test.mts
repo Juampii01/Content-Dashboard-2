@@ -181,12 +181,13 @@ describe("tiempo", () => {
     assert.equal(seg!.edit.layout, "full");
   });
 
-  test("entrada y salida se corren, sin salirse del video ni pisar el anterior", () => {
+  test("entrada y salida se corren, sin salirse del video (y se pueden superponer: van en capas)", () => {
     const [base] = brollSegments(timeline, [item()]);
     const [moved] = brollSegments(timeline, [item({ edit: { start_delta: -0.5, end_delta: 1 } })]);
     assert.ok(Math.abs(moved!.start - (base!.start - 0.5)) < 1e-3 && Math.abs(moved!.end - (base!.end + 1)) < 1e-3);
     const two = brollSegments(timeline, [item(), item({ id: "b2", from_word: 16, to_word: 20, edit: { start_delta: -2 } })]);
-    assert.equal(two[1]!.start, two[0]!.end);
+    assert.ok(two[1]!.start < two[0]!.end, "el segundo empieza encima del primero");
+    assert.equal(two[1]!.layer, 0);
     const [edge] = brollSegments(timeline, [item({ from_word: 0, to_word: 3, edit: { start_delta: -3 } })]);
     assert.equal(edge!.start, 0);
   });

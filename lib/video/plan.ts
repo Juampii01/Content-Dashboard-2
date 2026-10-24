@@ -63,6 +63,8 @@ export const brollItemSchema = z.object({
   options: z.array(brollOptionSchema).max(12),
   /** Ubicación, encuadre, look y tiempo. Opcional: los planes viejos no lo tienen. */
   edit: brollEditSchema.optional(),
+  /** Capa (orden de dibujo): más alta, más arriba. Sin el campo, 0 (planes viejos). Ver lib/video/layers.ts. */
+  layer: z.number().int().min(0).max(999).optional(),
 });
 
 export const planSchema = z.object({
@@ -93,7 +95,7 @@ export const planSchema = z.object({
   transitions: transitionListSchema.optional(),
   zooms_enabled: z.boolean().optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
-  zoom_moments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300) })).max(60).optional(),
+  zoom_moments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300), layer: z.number().int().min(0).max(999).optional() })).max(60).optional(),
   director: z.object({ version: z.literal(1), pace: z.enum(["calm", "normal", "fast"]) }).optional(),
   rhythm: z
     .object({
@@ -138,11 +140,8 @@ export function planIssues(plan: EditPlan, wordCount: number): string[] {
   if (plan.selected_hook != null && !plan.hook_candidates[plan.selected_hook]) issues.push("El gancho elegido no existe.");
   plan.captions.emphasis_words.forEach((id) => !valid(id) && issues.push(`Palabra resaltada inexistente (${id}).`));
   const broll = [...plan.broll].sort((a, b) => a.from_word - b.from_word);
-  broll.forEach((b, i) => {
-    check("B-roll", b.from_word, b.to_word);
-    const next = broll[i + 1];
-    if (next && next.from_word <= b.to_word) issues.push(`B-roll superpuestos (${b.from_word}–${b.to_word} y ${next.from_word}–${next.to_word}).`);
-  });
+  // Se pueden superponer (van en capas): solo se revisan los ids.
+  broll.forEach((b) => check("B-roll", b.from_word, b.to_word));
   Object.keys(plan.corrections).forEach((id) => !valid(Number(id)) && issues.push(`Corrección de una palabra inexistente (${id}).`));
   for (const m of plan.moves ?? []) {
     check("Bloque movido", m.from_word, m.to_word);

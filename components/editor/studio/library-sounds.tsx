@@ -6,7 +6,7 @@ import { SFX_CATEGORIES, SFX_CATEGORY_LABELS, SFX_LIBRARY, searchSfx, type SfxCa
 import { cn } from "@/lib/utils";
 import { Chip, SearchBox } from "../fx/fx-library";
 import { playSfx } from "../sound/use-sound";
-import { LIBRARY_MIME, type LibraryDrop } from "./studio-timeline";
+import { startLibraryDrag, type LibraryDrop } from "./studio-timeline";
 
 /** Biblioteca → Sonidos: los 40 efectos de sonido (propios) para escuchar, tocar para poner en el cabezal o arrastrar. */
 export function LibrarySounds({ canEdit, onAdd }: { canEdit: boolean; onAdd: (item: LibraryDrop) => void }) {
@@ -32,8 +32,7 @@ export function LibrarySounds({ canEdit, onAdd }: { canEdit: boolean; onAdd: (it
               key={n}
               draggable={canEdit}
               onDragStart={(e) => {
-                e.dataTransfer.setData(LIBRARY_MIME, JSON.stringify({ type: "sound", name: n } satisfies LibraryDrop));
-                e.dataTransfer.effectAllowed = "copy";
+                startLibraryDrag(e, { type: "sound", name: n });
               }}
               className={cn("flex items-center gap-1.5 rounded-xl border border-white/10 px-1.5 py-1 transition hover:border-white/25", canEdit && "cursor-grab active:cursor-grabbing")}
             >

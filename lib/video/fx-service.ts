@@ -52,7 +52,11 @@ export function fxBrand(look: GraphicLook): FxBrand {
 
 type EyesLike = { samples?: { t: number; face: { x: number; y: number; w: number; h: number } | null }[] } | null;
 
-export type FxRenderItem = { spec: FxSpec; sourceFrames: number[]; images?: Record<string, string> };
+/**
+ * Lo que dibuja el worker por cada efecto o transición. `z`: lugar en el orden de dibujo de todas las capas (b-roll,
+ * gráficos, efectos y transiciones; lib/video/layers.ts): el worker superpone de menor a mayor.
+ */
+export type FxRenderItem = { spec: FxSpec; sourceFrames: number[]; images?: Record<string, string>; z?: number; layer?: number; layerKind?: "fx" | "transition" };
 
 /**
  * Los efectos del plan como los dibuja el worker: el spec (mismo que la vista previa), los cuadros del original de cada
@@ -68,11 +72,11 @@ export async function fxForRender(input: {
   eyes: unknown;
   offsetX: number;
   corrections?: Record<string, string>;
-  /** Tramos con b-roll (las transiciones no van encima: el b-roll lleva su propia capa). */
+  /** Tramos con b-roll (solo para los zooms: las transiciones se dibujan en su capa sobre lo que haya). */
   broll?: { start: number; end: number }[];
 }): Promise<{ items: FxRenderItem[]; hides: { start: number; end: number }[]; avoid: { start: number; end: number }[]; transitions: TransitionSegment[] }> {
   const segments = fxSegments(input.timeline, input.plan.effects ?? []);
-  const trSegs = transitionSegments(input.timeline, input.plan.transitions ?? [], [...(input.broll ?? []), ...segments]);
+  const trSegs = transitionSegments(input.timeline, input.plan.transitions ?? []);
   if (!segments.length && !trSegs.length) return { items: [], hides: [], avoid: [], transitions: [] };
   const needThumbs = segments.some((s) => FX_INFO[s.item.kind].thumbs);
   const thumbs = needThumbs ? await fxThumbs() : [];
@@ -84,14 +88,14 @@ export async function fxForRender(input: {
     const face = faceAnchor(samples, sourceRangesOf(input.timeline, segment.start, segment.end), srcW, srcH, input.format, input.offsetX);
     const spec = compileFx({ segment, timeline: input.timeline, format: input.format, brand, face, thumbs: thumbs.length, cards: thumbs.map((t) => t.title) });
     const frames = Math.max(1, Math.round(spec.duration * 30));
-    const out: FxRenderItem = { spec, sourceFrames: spec.mask ? sourceFramesOf(input.timeline, spec.start, frames) : [] };
+    const out: FxRenderItem = { spec, sourceFrames: spec.mask ? sourceFramesOf(input.timeline, spec.start, frames) : [], layer: segment.layer ?? 0, layerKind: "fx" };
     if (spec.thumbs.length) out.images = Object.fromEntries(spec.thumbs.map((k, i) => [k, absolute(thumbs[i]!.url)]));
     return out;
   });
   // Transiciones: se dibujan con el mismo motor, como una capa más (la unión de tramos y el audio no cambian).
   for (const segment of trSegs) {
     const face = faceAnchor(samples, sourceRangesOf(input.timeline, segment.start, segment.end), srcW, srcH, input.format, input.offsetX);
-    items.push({ spec: compileTransition({ segment, format: input.format, brand, face }), sourceFrames: [] });
+    items.push({ spec: compileTransition({ segment, format: input.format, brand, face }), sourceFrames: [], layer: segment.layer ?? 0, layerKind: "transition" });
   }
   items.sort((a, b) => a.spec.start - b.spec.start);
   return { items, hides: fxCaptionHides(segments), avoid: [...segments, ...trSegs].map((s) => ({ start: s.start, end: s.end })), transitions: trSegs };

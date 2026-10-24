@@ -171,7 +171,7 @@ const reviewSchema = z.object({
     .object({
       density: z.enum(["sobria", "normal", "reels"]),
       added: z.array(z.object({ kind: z.enum(["zoom", "grafico", "efecto", "resaltado", "corte", "pausas"]), from_word: z.number().int().min(0), to_word: z.number().int().min(0), why: z.string().max(300) })).max(120),
-      zoomMoments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300) })).max(60),
+      zoomMoments: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), scale: z.number().min(1).max(1.4), why: z.string().max(300), layer: z.number().int().min(0).max(999).optional() })).max(60),
       longPause: z.number().min(0.2).max(1.2),
       emphasis: z.array(z.number().int().min(0)).max(60),
     })

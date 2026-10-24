@@ -42,6 +42,7 @@ type Spoken = { text: string; emphasis?: boolean };
 
 const clean = (s: string) => s.replace(/[«»"“”¿?¡!.,;:()]/g, "").trim();
 const isUpper = (s: string) => /[A-ZÁÉÍÓÚÑ]/.test(s) && s === s.toUpperCase();
+const TAIL_RE = /^(el|la|los|las|un|una|unos|unas|de|del|al|a|en|y|o|que|con|por|para|sin|es|este|esta|esto|ese|esa|eso|mi|tu|su|tus|sus|mis|se|lo|le|no|si|muy|más|pero)$/i;
 const NUM_RE = /\d[\d.,]*\s*(%|x|k|mil|millones|m)?/i;
 
 /**
@@ -70,7 +71,10 @@ export function fillParams(params: Composition["params"], spoken: Spoken[]): Com
     if (/word|palabra|keyword|clave/.test(key) || wordsInDefault === 1) return { ...p, value: caseLike(strong).slice(0, 160) };
     if (/title|titulo|text|texto|frase|phrase|headline|line|label|quote|cita/.test(key) || wordsInDefault >= 2) {
       const max = Math.max(2, Math.round(wordsInDefault * 1.5));
-      const cut = words.slice(0, max).map((w) => w.text).join(" ");
+      const picked = words.slice(0, max).map((w) => w.text);
+      // Sin palabras sueltas al final ("…calificados este"): corta en la última palabra con peso.
+      while (picked.length > 2 && TAIL_RE.test(picked[picked.length - 1]!)) picked.pop();
+      const cut = picked.join(" ");
       return { ...p, value: caseLike(cut).slice(0, 160) };
     }
     return p;

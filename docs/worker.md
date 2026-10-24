@@ -419,6 +419,22 @@ Costo típico de "Copiar edición" en un reel de 45–60 s con tope de USD 8: di
 receta ~0,35 + adaptación ~0,20 + 9 animaciones × (programar ~0,30 + 1 vuelta de revisión ~0,16) ≈ **USD 6 a 6,5**.
 Con menos tope se hacen menos animaciones o sin vuelta de revisión (nunca se pasa del tope).
 
+### Mis efectos (animaciones guardadas para reusar)
+
+- Al renderizar, la app guarda solas en `created_effects` (migración `0029_mis-efectos.sql`) las animaciones validadas
+  que siguen en el video, sin duplicados (huella del código normalizado; un cambio de la misma animación es versión
+  nueva). Lo que la persona quita de Mis efectos no vuelve solo. También se guardan a mano desde el inspector.
+- **Muestra**: el render recibe `effectSamples` ([{effectId, compId}]) y el worker saca `poster.jpg` y `muestra.webm`
+  (VP9, 3 s, 360 px, sin audio) de la misma capa que dibujó para el video (`worker/video/efectos.py`); los sube a
+  `editor/efectos/<id>/` (dueño `effectId` en `/api/worker/storage`) y avisa en `/api/worker/efectos/<id>/muestra`.
+  Si falla, el video ya está entregado y el efecto queda sin muestra.
+- **Usarlos**: Biblioteca → Efectos → "Mis efectos" (arrastrar a la pista Animaciones). El servidor copia sus imágenes
+  al proyecto, adapta sus textos al tramo (Haiku, o sin IA si falla) y vuelve a validar el código en el sandbox.
+- **Reusar en el taller**: el plan de cada animación (director, pedidos y Copiar edición) recibe hasta 6 candidatos
+  (rotación: nada de lo que ya está en el video, lo usado en los últimos 3 días al final) y puede elegir uno en lugar
+  de escribir código: cuesta solo el plan (~USD 0,02) en vez de ~USD 0,40.
+- Probar: `TEST_DATABASE_URL=… pnpm test:mis-efectos` y `pytest tests/test_efectos.py`.
+
 ## Costos aproximados (5 min de video crudo → reel de 60 s)
 
 | Concepto | Costo |

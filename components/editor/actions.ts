@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { MAX_COMPOSITIONS } from "@/lib/video/compos/schema";
 import { isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
@@ -157,6 +158,8 @@ const reviewSchema = z.object({
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
   effects: fxListSchema.optional(),
+  // Animaciones (composiciones): se limpian y se vuelve a validar su código en el servidor (lib/video/compos/service.ts).
+  compositions: z.array(z.unknown()).max(MAX_COMPOSITIONS).optional(),
   // Transiciones en los cortes, sonidos de la pista de Sonido y música generada (applyReview los vuelve a limpiar).
   transitions: transitionListSchema.optional(),
   soundCues: soundCueListSchema.optional(),

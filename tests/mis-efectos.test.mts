@@ -64,7 +64,7 @@ describe("textos que se adaptan al tramo", () => {
     );
     assert.equal(out[0]!.value, "45%");
     assert.equal(out[1]!.value, "45%".toUpperCase());
-    assert.equal(out[2]!.value, "Crecimos un 45% en ventas sin");
+    assert.equal(out[2]!.value, "Crecimos un 45% en ventas", "sin la palabra suelta del final");
   });
   test("sin cifra dicha, la cifra queda como estaba; las listas no se tocan", () => {
     const out = fillParams(
@@ -136,15 +136,18 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
   const words = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ id: i, text: ["Crecimos", "un", "45%", "en", "ventas", "sin", "pagar", "anuncios"][i]!, start: i * 0.45, end: i * 0.45 + 0.4, emphasis: i === 2, stop: false }));
   const timeline = { words: words.map((w) => ({ ...w })), duration: 3.8, clips: [] } as never;
   const projects: string[] = [];
-  const effects: string[] = [];
   const project = async () => {
     const [p] = await db.insert(schema.videoProjects).values({ title: "mis-efectos-test" } as typeof schema.videoProjects.$inferInsert).returning({ id: schema.videoProjects.id });
     projects.push(p!.id);
     return { id: p!.id, title: "mis-efectos-test", director: null };
   };
+  // Cada corrida usa un código propio (una constante con un número único): así nunca coincide con efectos reales de
+  // la base y la limpieza solo borra lo que creó esta prueba.
+  const nonce = Date.now();
   const comp = (key: string, over: Record<string, unknown> = {}) => {
     const s = sample(key);
-    return { id: `c${key.slice(0, 6)}`, from_word: 1, to_word: 5, name: s.name, code: s.code, params: s.params, source: "director" as const, checked: codeHash(s.code), tags: ["prueba"], ...over };
+    const code = `const pruebaMisEfectos = ${nonce};\n${s.code}`;
+    return { id: `c${key.slice(0, 6)}`, from_word: 1, to_word: 5, name: s.name, code, params: s.params, source: "director" as const, checked: codeHash(code), tags: ["prueba"], ...over };
   };
   const ctx = (projectId: string) => ({
     projectId,
@@ -158,7 +161,7 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
 
   after(async () => {
     const rows = await db.select({ id: schema.createdEffects.id }).from(schema.createdEffects).where(inArray(schema.createdEffects.sourceProjectId, projects.length ? projects : ["00000000-0000-0000-0000-000000000000"]));
-    const ids = [...new Set([...effects, ...rows.map((r) => r.id)])];
+    const ids = rows.map((r) => r.id);
     if (ids.length) await db.delete(schema.createdEffects).where(inArray(schema.createdEffects.id, ids));
     if (projects.length) await db.delete(schema.videoProjects).where(inArray(schema.videoProjects.id, projects));
   });
@@ -167,7 +170,6 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
     const p = await project();
     const a = comp("counter_up");
     const first = await lib.saveComposition(p, a, 3, "auto");
-    effects.push(first.id);
     assert.equal(first.status, "created");
     // Mismo código con otros espacios: el mismo efecto.
     const again = await lib.saveComposition(p, { ...a, code: `${a.code}\n// otra vez\n` }, 3, "auto");
@@ -175,7 +177,6 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
     assert.equal(again.id, first.id);
     // La misma animación del mismo video con otro código: versión 2 de la misma familia.
     const v2 = await lib.saveComposition(p, { ...a, code: a.code.replace("0.5", "0.55") }, 3, "auto");
-    effects.push(v2.id);
     assert.equal(v2.status, "version");
     assert.equal(v2.version, 2);
     const row = await lib.loadEffect(v2.id);
@@ -187,7 +188,6 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
     const p = await project();
     const a = comp("underline_draw");
     const saved = await lib.saveComposition(p, a, 3, "auto");
-    effects.push(saved.id);
     assert.ok(await lib.removeEffect(saved.id));
     assert.equal((await lib.saveComposition(p, a, 3, "auto")).status, "skipped");
     assert.ok(!(await lib.listMyEffects()).some((e) => e.id === saved.id));
@@ -203,7 +203,6 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
     const r1 = await lib.saveFromRender(p, plan, timeline);
     const marked = (r1.plan.compositions ?? []) as { id: string; lib_id?: string }[];
     const libId = marked.find((c) => c.id === "cok")!.lib_id!;
-    effects.push(libId);
     assert.ok(libId);
     assert.equal(marked.find((c) => c.id === "cno")!.lib_id, undefined, "sin validar no se guarda");
     assert.deepEqual(r1.samples, [{ effectId: libId, compId: "cok" }]);
@@ -222,7 +221,6 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
   test("usar un efecto en otro video: textos adaptados y código validado otra vez (lo alterado no pasa)", async () => {
     const p = await project();
     const saved = await lib.saveComposition(p, comp("card3d_stat"), 3, "manual");
-    effects.push(saved.id);
     const other = await project();
     const row = (await lib.loadEffect(saved.id))!;
     const params = await lib.adaptParams(ctx(other.id), row, 1, 6, false);
@@ -240,7 +238,6 @@ describe("Mis efectos contra la base", { skip: !url && "TEST_DATABASE_URL no est
   test("candidatos: sin los quitados, con rotación y solo los que entran en el tramo", async () => {
     const p = await project();
     const s = await lib.saveComposition(p, comp("zoom_motion_blur"), 2.5, "manual");
-    effects.push(s.id);
     const near = await lib.effectCandidates({ brief: "zoom con desenfoque de movimiento", said: "", exclude: [], duration: 2.5, limit: 50 });
     assert.ok(near.some((e) => e.id === s.id));
     assert.ok(!(await lib.effectCandidates({ brief: "zoom", said: "", exclude: [s.id], duration: 2.5, limit: 50 })).some((e) => e.id === s.id));

@@ -27,7 +27,7 @@ import { CaptionPicker } from "../caption-picker";
 import { FxEditorBody } from "../fx/fx-panel";
 import { reasonLabel } from "../labels";
 import { RhythmPanel } from "../rhythm-panel";
-import { AskAnimation, ComposInspectorBody } from "../compos/compos-inspector";
+import { AskAnimation, ComposInspectorBody, RequestsPanel } from "../compos/compos-inspector";
 import type { StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
@@ -149,6 +149,18 @@ function SelectionInspector({ api, sel }: { api: StudioApi; sel: StudioSelection
       return <BrollInspector api={api} id={sel.id} onClose={close} />;
     case "fx":
       return <FxInspector api={api} id={sel.id} onClose={close} />;
+    case "request": {
+      const req = api.compos.requests.find((r) => r.id === sel.id);
+      return (
+        <>
+          <Header eyebrow="Animación en curso" title={req?.request?.instruction.slice(0, 80) ?? "Pedido de animación"} onClose={close} />
+          <div className="flex flex-col gap-3 p-4">
+            <RequestsPanel api={api} only={sel.id} />
+            <p className="text-xs text-muted">Cuando termine, aparece sola en este lugar, encima de lo que haya, en su propia capa. Puedes seguir editando y pedir otras.</p>
+          </div>
+        </>
+      );
+    }
     case "compos": {
       const item = api.state.compositions.find((c) => c.id === sel.id);
       if (!item) return <Gone onClose={close} />;

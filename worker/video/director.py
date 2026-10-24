@@ -10,6 +10,8 @@ La IA vive en la app (lib/video/director). El worker:
 
 from __future__ import annotations
 
+import contextlib
+
 import logging
 import shutil
 import subprocess
@@ -86,11 +88,17 @@ def see(ctx: JobContext, project: dict[str, Any], workdir: Path, media: dict[str
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
-def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end: float) -> dict[str, Any]:
-    """Maneja al director hasta que termina. Devuelve la última respuesta de la app."""
+def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end: float, extra: dict[str, Any] | None = None, heavy: Any = None) -> dict[str, Any]:
+    """Maneja al director hasta que termina. Devuelve la última respuesta de la app.
+
+    `extra` va en cada llamada (por ejemplo `workId`: un pedido de animación del Estudio). `heavy`: un candado para los
+    pasos pesados del worker (imágenes con la única cuenta de ChatGPT, cuadros armando el video), cuando corren varios
+    pedidos a la vez en hilos; los pasos de IA (en la app) sí van en paralelo."""
     pid = str(project["id"])
     span = end - start
-    res = ctx.app.director(pid, {"step": first})
+    extra = extra or {}
+    lock = heavy if heavy is not None else contextlib.nullcontext()
+    res = ctx.app.director(pid, {"step": first, **extra})
     for k in range(MAX_STEPS):
         nxt = res.get("next")
         if not nxt:
@@ -104,22 +112,24 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
             round_ = int(nxt.get("round") or 1)
             ctx.stage(f"Revisando la edición (vuelta {round_})", a, b)
             sheets = preview(ctx, project, nxt.get("render") or {}, nxt.get("frames") or [], round_)
-            res = ctx.app.director(pid, {"step": "critique", "round": round_, "sheets": sheets})
+            res = ctx.app.director(pid, {"step": "critique", "round": round_, "sheets": sheets, **extra})
         elif step == "compos-images":
             from . import compos  # noqa: PLC0415
 
             ctx.stage(str(nxt.get("label") or "Generando imágenes con IA")[:120], a, b)
-            results = compos.generate_images(ctx, pid, nxt.get("items") or [], ctx.workdir(pid))
-            res = ctx.app.director(pid, {"step": "compos-images-done", "results": results})
+            with lock:
+                results = compos.generate_images(ctx, pid, nxt.get("items") or [], ctx.workdir(pid))
+            res = ctx.app.director(pid, {"step": "compos-images-done", "results": results, **extra})
         elif step == "compos-stills":
             from . import compos  # noqa: PLC0415
 
             ctx.stage(str(nxt.get("label") or "Mirando las animaciones")[:120], a, b)
-            sheets = compos.stills(ctx, project, nxt.get("render") or {}, nxt.get("items") or [])
-            res = ctx.app.director(pid, {"step": "compos-look", "sheets": sheets})
+            with lock:
+                sheets = compos.stills(ctx, project, nxt.get("render") or {}, nxt.get("items") or [])
+            res = ctx.app.director(pid, {"step": "compos-look", "sheets": sheets, **extra})
         else:
             ctx.stage(str(nxt.get("label") or STEP_LABELS.get(step, "Dirigiendo la edición"))[:120], a, b)
-            res = ctx.app.director(pid, {"step": step})
+            res = ctx.app.director(pid, {"step": step, **extra})
     raise JobError("El director de edición no terminó. Vamos a reintentarlo.", detail="demasiados pasos")
 
 

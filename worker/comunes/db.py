@@ -112,6 +112,52 @@ def fail(conn: psycopg.Connection, job: dict[str, Any], worker: str, message: st
     return False
 
 
+ADOPT_SQL = """
+UPDATE jobs SET
+  status = 'RUNNING',
+  locked_by = %(worker)s,
+  locked_until = now() + make_interval(secs => %(lease)s),
+  attempts = attempts + 1,
+  started_at = coalesce(started_at, now())
+WHERE id = (
+  SELECT id FROM jobs
+  WHERE type = 'VIDEO_COMPOS' AND video_project_id = %(project)s
+    AND status = 'QUEUED' AND run_after <= now() AND input ? 'workId'
+  ORDER BY created_at
+  FOR UPDATE SKIP LOCKED
+  LIMIT 1
+)
+RETURNING *
+"""
+
+
+def adopt_compos(conn: psycopg.Connection, worker: str, project_id: str, lease: int) -> dict[str, Any] | None:
+    """Toma otro pedido de animación en cola del mismo video para correrlo en paralelo (lease largo: el hilo lateral
+    solo renueva el trabajo principal)."""
+    return conn.execute(ADOPT_SQL, {"worker": worker, "project": project_id, "lease": lease}).fetchone()
+
+
+def finish_adopted(conn: psycopg.Connection, job_id: str, worker: str, error: str | None) -> None:
+    """Cierra un pedido adoptado. Un pedido fallido no marca el video como fallido (el aviso va en el pedido)."""
+    if error is None:
+        succeed(conn, job_id, worker, {"parallel": True})
+        return
+    conn.execute(
+        """UPDATE jobs SET status = 'FAILED', error_message = %s, finished_at = now(), locked_until = NULL
+           WHERE id = %s AND locked_by = %s""",
+        (error[:1000], job_id, worker),
+    )
+
+
+def fail_compos_request(conn: psycopg.Connection, work_id: str, message: str) -> None:
+    """Un pedido de animación que no se pudo terminar: el aviso queda en su fila (los demás siguen)."""
+    conn.execute(
+        """UPDATE compos_requests SET status = 'failed', error = %s, updated_at = now()
+           WHERE id = %s AND status IN ('queued', 'running')""",
+        (message[:400], work_id),
+    )
+
+
 def release(conn: psycopg.Connection, job: dict[str, Any], worker: str) -> None:
     """Devuelve el trabajo a la cola sin contar el intento (apagado ordenado)."""
     conn.execute(

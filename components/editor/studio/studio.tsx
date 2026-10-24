@@ -19,7 +19,7 @@ import { FX_MASK_CHUNK } from "@/lib/video/fx/masks";
 import { defaultFx, newFxId, type FxItem } from "@/lib/video/fx/schema";
 import { defaultGraphic, type GraphicTemplate } from "@/lib/video/graphics";
 import { compileComposition, composCaptionHides, composSegments, composSounds, type Composition } from "@/lib/video/compos/schema";
-import { useComposWork, type ComposRequest } from "../compos/use-compos-work";
+import { isActive, requestStage, useComposRequests, type ComposRequest, type LiveRequest } from "../compos/use-compos-work";
 import { placeMyEffectAction } from "../my-effects-actions";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
@@ -31,7 +31,7 @@ import { compileTransition, cutPoints, freeAnchor, isFreeTransition, isTransitio
 import { musicGenLabel } from "@/lib/video/music-gen/catalog";
 import { useGeneratedMusic, useStudioSound } from "../sound/use-sound";
 import { clipOffsets, cutMarks, replacedLabel, snapToWords, spanAround, splitSpan, timeLabel, wordAt, type SnappedSpan, type WordSpan } from "@/lib/video/studio";
-import { layerKey, layerOf, restack, stackIndex, stackSort, type LayerKind } from "@/lib/video/layers";
+import { layerKey, layerOf, nextLayer, restack, stackIndex, stackSort, type LayerKind } from "@/lib/video/layers";
 import { buildTimeline, longPauses, outputRange } from "@/lib/video/timeline";
 import { FPS, type BrollItem, type BrollOption, type EditPlan, type RemovalReason, type ZoomMoment } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
@@ -1218,12 +1218,16 @@ export function Studio(props: StudioProps) {
   const [savedKey, setSavedKey] = useState(reviewKey);
   const [saving, setSaving] = useState<"idle" | "saving" | "error">("idle");
   const sending = useRef(false);
+  // Pedidos de animaciones entregados: se marcan en el servidor después del primer guardado que ya los incluye.
+  const acksApi = useRef<{ take: () => string[]; confirm: (ids: string[], ok: boolean) => void } | null>(null);
   useEffect(() => {
     if (!canEdit || reviewKey === savedKey) return;
     const timer = setTimeout(async () => {
       if (sending.current) return;
       setSaving("saving");
+      const acks = acksApi.current?.take() ?? [];
       const result = await saveReviewAction(projectId, review, s.format);
+      acksApi.current?.confirm(acks, result.ok);
       if (result.ok) {
         setSavedKey(reviewKey);
         setSaving("idle");
@@ -1407,42 +1411,88 @@ export function Studio(props: StudioProps) {
     duration: timeline.duration,
   });
 
-  // Pedidos de animaciones (Estudio): cuando el taller termina, la animación entra en la línea de tiempo encima de lo
-  // que haya ahí (en capas: nada se quita) y se puede deshacer.
-  const composWork = useComposWork(projectId, (made, images, work) => {
-    if (Object.keys(images).length) setComposImageUrls((prev) => ({ ...prev, ...images }));
-    const task = work.tasks[0];
-    if (!made.length) {
-      toast.error(task?.error ? `No pudimos hacer la animación: ${task.error}` : "No pudimos hacer la animación. Prueba de nuevo con otras palabras.");
-      return;
-    }
-    const under: string[] = [];
-    const placed = made.map((m) => {
-      // Si rehace una animación que ya estaba, queda en su misma capa; si es nueva, encima de lo que se le superpone.
-      const old = s.compositions.find((c) => c.id === m.id);
-      if (old) return { ...m, layer: old.layer };
-      const seg = composSegments(timeline, [m])[0];
-      const top = seg ? layerOnTop(seg.start, seg.end, layerKey("compos", m.id)) : { layer: undefined, under: [] };
-      under.push(...top.under);
-      const out: Composition = { ...m, layer: top.layer };
-      if (out.layer == null) delete out.layer;
-      return out;
-    });
-    update((st) => {
-      const ids = new Set(placed.map((m) => m.id));
-      return { ...st, compositions: [...st.compositions.filter((c) => !ids.has(c.id)), ...placed].sort((a, b) => a.from_word - b.from_word) };
-    });
-    const first = made[0]!;
-    setSelection({ kind: "compos", id: first.id });
-    const r = outputRange(timeline, first.from_word, first.to_word);
-    if (r) seek(r.start);
-    toast.success(work.request?.replaceId ? `Listo: cambiamos «${first.name}».` : `Listo: «${first.name}» ya está en tu video.`, { description: [work.cannot, task?.note].filter(Boolean).join(" ") || undefined });
-    notifyOnTop(under);
-  });
+  // Pedidos de animaciones (Estudio), varios a la vez: cada uno aparece como un bloque fantasma en la pista Animaciones
+  // y, cuando termina, entra sobre lo que la persona tenga en ese momento (con deshacer), en su propia capa: encima de
+  // todo lo que se le superpone, también de las otras animaciones que acaban de llegar. Nunca reemplaza nada.
+  const deliver = useCallback(
+    (req: LiveRequest, images: Record<string, string>) => {
+      if (Object.keys(images).length) setComposImageUrls((prev) => ({ ...prev, ...images }));
+      const made = req.made;
+      if (!made.length) return;
+      const fixed = visualStack.filter((v) => v.kind !== "compos");
+      const firstSeg = composSegments(timeline, [made[0]!])[0];
+      const under = firstSeg ? visualStack.filter((v) => v.key !== layerKey("compos", made[0]!.id) && v.start < firstSeg.end - 0.01 && firstSeg.start < v.end - 0.01).map((v) => v.label) : [];
+      update((st) => {
+        const list = [...st.compositions];
+        for (const m of made) {
+          const at = list.findIndex((c) => c.id === m.id);
+          if (at >= 0) {
+            // "Pídele un cambio": la misma animación, en su misma capa.
+            if (list[at]!.code !== m.code || list[at]!.request !== m.request) list[at] = { ...m, layer: list[at]!.layer };
+            continue;
+          }
+          const seg = composSegments(timeline, [m])[0];
+          const layer = seg ? nextLayer([...fixed, ...composSegments(timeline, list)], seg) : undefined;
+          const out: Composition = { ...m };
+          if (layer != null) out.layer = layer;
+          else delete out.layer;
+          list.push(out);
+        }
+        return { ...st, compositions: list.sort((a, b) => a.from_word - b.from_word) };
+      });
+      const first = made[0]!;
+      const r = outputRange(timeline, first.from_word, first.to_word);
+      const task = req.tasks[0];
+      toast.success(req.request?.replaceId ? `Listo: cambiamos «${first.name}».` : `Listo: «${first.name}» ya está en tu video.`, {
+        description: [task?.note].filter(Boolean).join(" ") || undefined,
+        action: {
+          label: "Ver",
+          onClick: () => {
+            setSelection({ kind: "compos", id: first.id });
+            if (r) seek(r.start);
+          },
+        },
+      });
+      notifyOnTop(under);
+    },
+    [visualStack, update, timeline, seek],
+  );
+  const failed = useCallback((req: LiveRequest) => {
+    toast.error(`No pudimos hacer «${(req.request?.instruction ?? "la animación").slice(0, 60)}»`, { description: req.error ?? req.tasks[0]?.error ?? "Prueba de nuevo con otras palabras." });
+  }, []);
+  const composWork = useComposRequests(projectId, deliver, failed);
+  // Bloques fantasma: cada pedido en curso, en su tramo de la pista Animaciones, con su progreso (encima de todo, cada
+  // uno en su carril si se pisan). Al terminar se reemplazan por la animación real.
+  const ghostBlocks = useMemo<TimelineBlock[]>(
+    () =>
+      composWork.requests.flatMap((r, i) => {
+        if (!isActive(r) || !r.request) return [];
+        const seg = composSegments(timeline, [{ id: r.id, from_word: r.request.from_word, to_word: r.request.to_word, name: "x", code: "x", params: [], source: "user" }])[0];
+        if (!seg) return [];
+        return [
+          {
+            key: `req:${r.id}`,
+            track: "anim" as const,
+            start: seg.start,
+            end: seg.end,
+            label: r.request.instruction,
+            detail: requestStage(r),
+            tone: "border-[#a78bfa]/80",
+            pending: true,
+            z: 100_000 + i,
+            selection: { kind: "request" as const, id: r.id },
+          },
+        ];
+      }),
+    [composWork.requests, timeline],
+  );
+  const allBlocks = useMemo(() => (ghostBlocks.length ? [...blocks, ...ghostBlocks] : blocks), [blocks, ghostBlocks]);
+  useEffect(() => {
+    acksApi.current = { take: composWork.takeAcks, confirm: composWork.confirmAcks };
+  }, [composWork.takeAcks, composWork.confirmAcks]);
   async function requestAnimation(req: ComposRequest): Promise<boolean> {
-    if (dirty) toast.info("Guardando tus cambios antes de pedir la animación…");
     const ok = await composWork.request(req);
-    if (ok) toast.success("Estamos creando la animación. Puedes seguir editando: aparece sola cuando termina (1 a 3 minutos).");
+    if (ok) toast.success("Creando la animación: aparece sola cuando termina. Puedes pedir otras mientras tanto.", { duration: 3000 });
     return ok;
   }
 
@@ -1457,7 +1507,7 @@ export function Studio(props: StudioProps) {
     segments,
     fxSegs,
     composSegs,
-    compos: { work: composWork.work, running: composWork.running, error: composWork.error, request: requestAnimation, imageUrls: composImageUrls },
+    compos: { requests: composWork.requests, legacy: composWork.legacy, sending: composWork.sending, error: composWork.error, request: requestAnimation, cancel: composWork.cancel, dismiss: composWork.dismiss, imageUrls: composImageUrls },
     trSegs,
     cutList,
     zooms,
@@ -1859,7 +1909,7 @@ export function Studio(props: StudioProps) {
                 playing={playing}
                 zoom={zoom}
                 onZoom={setZoom}
-                blocks={blocks}
+                blocks={allBlocks}
                 cuts={cuts}
                 sfx={sfxMarks}
                 music={s.musicGen ? { label: `Música · ${musicGenLabel(s.musicGen)}` } : musicTrack ? { label: `Música · ${musicTrack.title}` } : null}

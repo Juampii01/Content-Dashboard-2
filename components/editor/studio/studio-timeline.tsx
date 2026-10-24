@@ -26,7 +26,9 @@ export type StudioSelection =
   /** Un corte del video final (la primera palabra del tramo que entra): su transición o el lugar para poner una. */
   | { kind: "transition"; word: number; id?: string }
   /** Un sonido puesto a mano en la pista de Sonido. */
-  | { kind: "sound"; id: string };
+  | { kind: "sound"; id: string }
+  /** Un pedido de animación en curso (bloque fantasma en la pista Animaciones). */
+  | { kind: "request"; id: string };
 
 export function selectionKey(sel: StudioSelection | null): string | null {
   if (!sel) return null;
@@ -51,6 +53,8 @@ export function selectionKey(sel: StudioSelection | null): string | null {
       return sel.id ? `transition:${sel.id}` : `transition:${sel.word}`;
     case "sound":
       return `sound:${sel.id}`;
+    case "request":
+      return `request:${sel.id}`;
   }
 }
 
@@ -77,6 +81,8 @@ export type TimelineBlock = {
   free?: boolean;
   /** Orden de dibujo (más alto = encima): con bloques superpuestos, define el carril (arriba = encima). */
   z?: number;
+  /** Fantasma: algo que se está creando (un pedido de animación en curso). No se mueve. */
+  pending?: boolean;
   selection: StudioSelection;
   thumb?: string | null;
 };
@@ -553,6 +559,7 @@ export function StudioTimeline({
                         "group absolute flex touch-none items-center overflow-hidden rounded-md border text-left text-[11px] leading-tight font-semibold text-white outline-none select-none focus-visible:ring-2 focus-visible:ring-accent-hi",
                         b.tone,
                         b.empty && "border-dashed bg-transparent text-warning",
+                        b.pending && "border-dashed bg-[#8b5cf6]/15 text-[#e4dbff] animate-pulse motion-reduce:animate-none",
                         b.track !== "video" && b.track !== "captions" && canEdit && b.editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                         selected && "z-10 ring-2 ring-white",
                         g && "z-20 opacity-90 shadow-[0_6px_18px_rgba(0,0,0,.45)]",

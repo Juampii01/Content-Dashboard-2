@@ -14,7 +14,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import threading
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 
@@ -164,9 +167,41 @@ def stills(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], items
     return uploaded
 
 
+PARALLEL = max(1, min(4, int(os.environ.get("COMPOS_PARALLEL", "3") or 3)))
+ADOPT_LEASE = 2 * 3600
+# Imágenes (una sola cuenta de ChatGPT) y cuadros (arman el video en la carpeta del proyecto): de a uno.
+HEAVY = threading.Lock()
+# La conexión a la base del trabajo se usa de a un hilo por vez.
+DBLOCK = threading.Lock()
+
+
+def _one(ctx: JobContext, project: dict[str, Any], work_id: str) -> str | None:
+    """Un pedido de punta a punta. Devuelve el error (si falló) para dejarlo en su fila; nunca tumba a los demás."""
+    from comunes import db  # noqa: PLC0415
+
+    try:
+        director.run(ctx, project, "compos", 0.0, 1.0, extra={"workId": work_id}, heavy=HEAVY)
+        return None
+    except Cancelled:
+        raise
+    except JobError as e:
+        log.warning("pedido %s: %s", work_id, e.detail or e.user_message)
+        message = e.user_message
+    except Exception:  # noqa: BLE001
+        log.exception("pedido %s: error inesperado", work_id)
+        message = "No pudimos terminar esta animación. Prueba de nuevo."
+    with DBLOCK:
+        db.fail_compos_request(ctx.conn, work_id, message)
+    return message
+
+
 @register("VIDEO_COMPOS")
 def compos_job(ctx: JobContext) -> dict[str, Any]:
-    """Pedido del Estudio: el taller de animaciones paso a paso. El video sigue en revisión."""
+    """Pedidos del Estudio: el taller de animaciones paso a paso. El video sigue en revisión.
+
+    Cada pedido tiene su trabajo; este toma además los otros pedidos en cola del mismo video y corre hasta
+    COMPOS_PARALLEL (3) a la vez en hilos (los pasos de IA, que son lo lento, van en paralelo; imágenes y cuadros, de a
+    uno). Un pedido que falla deja su aviso en su fila y no marca el video como fallido."""
     from comunes import db  # noqa: PLC0415
 
     project = db.get_project(ctx.conn, ctx.input["projectId"])
@@ -174,8 +209,42 @@ def compos_job(ctx: JobContext) -> dict[str, Any]:
         raise JobError("El proyecto ya no existe.", retry=False)
     if project["status"] not in ("AWAITING_REVIEW", "DONE"):
         return {"skipped": project["status"]}
-    res = director.run(ctx, project, "compos", 0.0, 1.0)
-    return {"status": res.get("status")}
+    own = str(ctx.input.get("workId") or "")
+    if not own:
+        # Taller del director (estado viejo, un solo pedido).
+        res = director.run(ctx, project, "compos", 0.0, 1.0)
+        return {"status": res.get("status")}
+    pid = str(project["id"])
+    ctx.stage("Creando animaciones", 0.0, 0.95)
+    done: list[str] = []
+    failed: list[str] = []
+    with ThreadPoolExecutor(max_workers=PARALLEL, thread_name_prefix="pedido") as pool:
+        running: dict[Future[str | None], tuple[str | None, str]] = {pool.submit(_one, ctx, project, own): (None, own)}
+        while running:
+            # Más pedidos del mismo video en cola: se toman mientras haya lugar.
+            while len(running) < PARALLEL and not ctx_stopped():
+                with DBLOCK:
+                    job = db.adopt_compos(ctx.conn, ctx.config.worker_id, pid, ADOPT_LEASE)
+                if not job:
+                    break
+                wid = str((job.get("input") or {}).get("workId") or "")
+                log.info("pedido %s en paralelo (trabajo %s)", wid, job["id"])
+                running[pool.submit(_one, ctx, project, wid)] = (str(job["id"]), wid)
+            finished, _ = wait(list(running), timeout=2.0, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                job_id, wid = running.pop(fut)
+                error = fut.result()  # Cancelled se propaga y corta todo (el trabajo principal se canceló)
+                (failed if error else done).append(wid)
+                if job_id:
+                    with DBLOCK:
+                        db.finish_adopted(ctx.conn, job_id, ctx.config.worker_id, error)
+    return {"done": done, "failed": failed}
+
+
+def ctx_stopped() -> bool:
+    from comunes.ffmpeg import stop_event  # noqa: PLC0415
+
+    return stop_event.is_set()
 
 
 __all__ = ["generate_images", "stills", "eyes", "fx_mask"]

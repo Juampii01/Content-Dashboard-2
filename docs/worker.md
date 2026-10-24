@@ -419,6 +419,20 @@ Costo típico de "Copiar edición" en un reel de 45–60 s con tope de USD 8: di
 receta ~0,35 + adaptación ~0,20 + 9 animaciones × (programar ~0,30 + 1 vuelta de revisión ~0,16) ≈ **USD 6 a 6,5**.
 Con menos tope se hacen menos animaciones o sin vuelta de revisión (nunca se pasa del tope).
 
+### Varias animaciones a la vez (pedidos del Estudio)
+
+- Cada "Pide una animación aquí" o "Pídele un cambio" es una fila de `compos_requests` (migración
+  `0030_pedidos-animaciones.sql`) con su taller y su trabajo `VIDEO_COMPOS` (`input.workId`). Al encolarse reserva su
+  costo estimado del tope de IA del video con la fila del video bloqueada (`SELECT … FOR UPDATE`); si no alcanza,
+  ese pedido queda fallido con el aviso y los demás siguen.
+- El worker toma un pedido y, mientras tanto, los otros en cola del mismo video: hasta `COMPOS_PARALLEL` (3) en hilos.
+  Los pasos de IA van en paralelo; las imágenes (una cuenta de ChatGPT) y los cuadros de revisión, de a uno. Un pedido
+  que falla deja su aviso en su fila y no marca el video como fallido.
+- Cada paso escribe solo su fila: nadie pisa a nadie. El resultado no va al plan: el Estudio lo agrega sobre lo que la
+  persona tenga en ese momento (con deshacer), en la siguiente capa libre, y lo marca entregado después del primer
+  guardado que lo incluye. Al recargar, los pedidos en curso siguen y los terminados se entregan.
+- Probar: `TEST_DATABASE_URL=… pnpm test:pedidos` y `pytest tests/test_compos_pedidos.py`.
+
 ### Mis efectos (animaciones guardadas para reusar)
 
 - Al renderizar, la app guarda solas en `created_effects` (migración `0029_mis-efectos.sql`) las animaciones validadas

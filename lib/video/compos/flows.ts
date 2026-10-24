@@ -15,7 +15,6 @@ import {
   type RecipeWire,
 } from "@/lib/ai/prompts/compos";
 import { getDb, schema } from "@/lib/db";
-import { enqueueJob } from "@/lib/jobs";
 import { readBytes } from "@/lib/storage";
 import { FX_INFO, FX_KINDS, type FxKind } from "../fx/catalog";
 import { defaultFx, newFxId, type FxItem } from "../fx/schema";
@@ -29,6 +28,7 @@ import type { DirectorState } from "../director/types";
 import type { EditPlan, Word } from "../types";
 import { compositionSchema, type Composition } from "./schema";
 import { fakeAdapt, fakeKeyMoments, fakeRecipe, fakeRequestPlan } from "./fake";
+import { activeCount, enqueueRequest } from "./requests";
 import { loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type WorkCtx } from "./work";
 
 /**
@@ -367,41 +367,53 @@ export class ComposRequestError extends Error {}
  * Pedido desde el Estudio: una animación nueva en un tramo ("Pide una animación aquí") o un cambio a una existente
  * ("Pídele un cambio a esta animación"). Arma el taller y encola VIDEO_COMPOS; el video sigue en revisión.
  */
-export async function startStudioRequest(projectId: string, input: { from_word: number; to_word: number; instruction: string; replace: unknown | null }, userId: string | null): Promise<{ workId: string }> {
+/** Pedidos activos a la vez por video (cada uno con su trabajo; el worker corre hasta 3 en paralelo). */
+export const MAX_ACTIVE_REQUESTS = 8;
+
+/**
+ * Pedido del Estudio ("Pide una animación aquí" o "Pídele un cambio a esta animación"). Varios pueden correr a la vez:
+ * cada uno es su propia fila con su reserva del tope de IA y su trabajo VIDEO_COMPOS (lib/video/compos/requests.ts).
+ * Si no alcanza el tope, el pedido queda fallido con el aviso (`error`) sin frenar a los demás.
+ */
+export async function startStudioRequest(projectId: string, input: { from_word: number; to_word: number; instruction: string; replace: unknown | null }, userId: string | null): Promise<{ workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
   if (!aiConfigured()) throw new ComposRequestError("Falta configurar la IA en esta instalación.");
-  const current = readWork(ctx.director);
-  if (current && !current.done && Date.now() - new Date(current.startedAt).getTime() < 30 * 60_000) throw new ComposRequestError("Ya hay una animación en curso. Espera a que termine.");
   const instruction = input.instruction.trim().slice(0, 600);
   if (instruction.length < 3) throw new ComposRequestError("Escribe qué animación quieres.");
   const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < ctx.words.length;
   if (!valid(input.from_word) || !valid(input.to_word) || input.from_word > input.to_word) throw new ComposRequestError("Elige un tramo del video.");
-  if (ctx.cap - ctx.spent < STAGE_COST.code + STAGE_COST.plan) throw new ComposRequestError(`No queda tope de IA para este video (usaste USD ${ctx.spent.toFixed(2)} de ${ctx.cap.toFixed(2)}). Súbelo en el brief del director.`);
+  if ((await activeCount(projectId)) >= MAX_ACTIVE_REQUESTS) throw new ComposRequestError(`Ya hay ${MAX_ACTIVE_REQUESTS} animaciones en curso en este video. Espera a que termine alguna.`);
   let base: Composition | null = null;
   if (input.replace) {
     const parsed = compositionSchema.safeParse(input.replace);
     base = parsed.success ? parsed.data : (ctx.plan.compositions ?? []).find((c) => c.id === (input.replace as { id?: string })?.id) ?? null;
     if (!base) throw new ComposRequestError("No encontramos esa animación. Recarga la página.");
   }
-  const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
   // Un cambio chico no necesita planear imágenes, salvo que las pida.
-  if (base && !ANIMATION_RE.test(instruction)) task.status = "code";
-  const left = ctx.cap - ctx.spent;
-  const work: ComposWork = {
-    id: newWorkId(),
-    mode: "request",
-    tasks: [task],
-    startedAt: new Date().toISOString(),
-    spentAtStart: ctx.spent,
-    lookRounds: left > 2 ? 2 : left > 1.2 ? 1 : 0,
-    done: false,
-    request: { instruction, from_word: input.from_word, to_word: input.to_word, replaceId: base?.id ?? null },
-  };
-  await saveDirectorExtra(projectId, ctx.director, { compos: work });
-  await enqueueJob({ type: "VIDEO_COMPOS", videoProjectId: projectId, createdBy: userId, stage: "En cola", maxAttempts: 2, input: { projectId, workId: work.id } });
-  return { workId: work.id };
+  const needsPlan = !(base && !ANIMATION_RE.test(instruction));
+  return enqueueRequest({
+    projectId,
+    userId,
+    cap: ctx.cap,
+    spent: ctx.spent,
+    needsPlan,
+    build: (lookRounds) => {
+      const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
+      if (!needsPlan) task.status = "code";
+      return {
+        id: newWorkId(),
+        mode: "request",
+        tasks: [task],
+        startedAt: new Date().toISOString(),
+        spentAtStart: ctx.spent,
+        lookRounds,
+        done: false,
+        request: { instruction, from_word: input.from_word, to_word: input.to_word, replaceId: base?.id ?? null },
+      };
+    },
+  });
 }
 
 // ─── Variedad (sin referencia) ───────────────────────────────────────────

@@ -413,6 +413,8 @@ export function Studio(props: StudioProps) {
       const r = carveSpan(next.broll, range, {
         skip: (b) => b.id === keep.broll || (what.broll === "chosen" && !b.choice),
         reshape: (b, from, to, side) => {
+          // Un gráfico no se parte en dos (las dos copias mostrarían lo mismo): queda solo su primera parte.
+          if (side === "right" && b.choice?.source === "graphic") return { ...b, from_word: to + 1, to_word: to };
           const edit = resolveEdit(b.edit);
           const e = side === "left" ? { ...edit, end_delta: 0 } : { ...edit, start_delta: 0 };
           const part: BrollItem = { ...b, id: side === "right" ? newBrollId() : b.id, from_word: from, to_word: to };
@@ -420,7 +422,7 @@ export function Studio(props: StudioProps) {
           else part.edit = e;
           return part;
         },
-        valid: (b) => outLen(b) >= 0.5,
+        valid: (b) => b.from_word <= b.to_word && outLen(b) >= 0.5,
       });
       labels.push(...r.replaced.map(brollLabel));
       next = { ...next, broll: r.items };
@@ -453,6 +455,18 @@ export function Studio(props: StudioProps) {
       }
     }
     return { st: next, labels };
+  }
+
+  /**
+   * Un gráfico se queda en pantalla hasta su último elemento (aunque sus palabras terminen antes): si así todavía tapa
+   * el efecto nuevo, se quita entero (un tramo lleva b-roll o efecto, igual en la vista previa y en el render).
+   */
+  function clearBrollOverFx(st: StudioState, item: FxItem): { st: StudioState; labels: string[] } {
+    const seg = fxSegments(timeline, [item])[0];
+    if (!seg) return { st, labels: [] };
+    const hit = new Set(brollSegments(timeline, st.broll).filter((b) => b.start < seg.end && seg.start < b.end).map((b) => b.id));
+    if (!hit.size) return { st, labels: [] };
+    return { st: { ...st, broll: st.broll.filter((b) => !hit.has(b.id)) }, labels: st.broll.filter((b) => hit.has(b.id)).map(brollLabel) };
   }
 
   /** Aviso breve de lo que se reemplazó, con "Deshacer". */
@@ -503,9 +517,11 @@ export function Studio(props: StudioProps) {
     const spoken = words.slice(range.from, range.to + 1).map((w) => ({ id: w.id, text: s.corrections[String(w.id)] ?? w.text }));
     const item: FxItem = { id: replace ?? newFxId(), kind, from_word: range.from, to_word: range.to, ...defaultFx(kind, spoken), source: "user" };
     const base = { ...s, effects: s.effects.filter((e) => e.id !== replace) };
-    const { st, labels } = clearUnder(base, range, { broll: "chosen", fx: true, transitions: true });
+    const cleared = clearUnder(base, range, { broll: "chosen", fx: true, transitions: true });
+    const extra = clearBrollOverFx(cleared.st, item);
+    const st = extra.st;
     update(() => ({ ...st, effects: [...st.effects, item].sort((a, b) => a.from_word - b.from_word) }));
-    notifyReplaced(labels);
+    notifyReplaced([...cleared.labels, ...extra.labels]);
     setSelection({ kind: "fx", id: item.id });
     const seg = fxSegments(timeline, [item])[0];
     if (seg) seek(seg.start, true);
@@ -857,21 +873,33 @@ export function Studio(props: StudioProps) {
   function clearForTransition(st: StudioState, item: TransitionItem): { st: StudioState; labels: string[] } {
     const seg = transitionSegments(timeline, [item])[0];
     if (!seg) return { st, labels: [] };
-    const touching = timeline.words.filter((w) => w.end > seg.start - 0.05 && w.start < seg.end + 0.05);
-    const near = touching.length ? touching : [wordAt(timeline, seg.cut)].filter((w): w is NonNullable<typeof w> => Boolean(w));
-    let from = near[0]?.id ?? 0;
-    let to = from;
-    for (const w of near) if (w.id >= from && w.id <= to + 1) to = Math.max(to, w.id);
-    if (!near.length) return { st, labels: [] };
-    from = Math.min(from, to);
-    let { st: next, labels } = clearUnder(st, { from, to }, { broll: "chosen", fx: true });
-    // Lo que todavía la tapa (los bloques tienen aire en los bordes) se quita entero.
+    const list = timeline.words;
+    // Palabras (en el orden del video final) que toca la transición; si cae en un silencio, la más cercana.
+    let a = list.findIndex((w) => w.end > seg.start - 0.05 && w.start < seg.end + 0.05);
+    let b = a;
+    if (a < 0) {
+      const near = wordAt(timeline, seg.cut);
+      a = b = near ? list.indexOf(near) : -1;
+    } else while (b + 1 < list.length && list[b + 1]!.start < seg.end + 0.05 && list[b + 1]!.id === list[b]!.id + 1) b++;
+    if (a < 0) return { st, labels: [] };
     const over = (x: { start: number; end: number }) => x.start < seg.end && seg.start < x.end;
-    const brollHit = new Set(brollSegments(timeline, next.broll).filter(over).map((b) => b.id));
+    // Se recorta por palabras y, si el bloque todavía la tapa (tiene aire en los bordes), se abre una palabra más a cada
+    // lado (hasta tres); lo que siga tapándola se quita entero.
+    let next = st;
+    let labels: string[] = [];
+    for (let grow = 0; grow <= 3; grow++) {
+      const from = list[Math.max(0, a - grow)]!.id;
+      const to = list[Math.min(list.length - 1, b + grow)]!.id;
+      const r = clearUnder(st, { from: Math.min(from, to), to: Math.max(from, to) }, { broll: "chosen", fx: true });
+      next = r.st;
+      labels = r.labels;
+      if (!brollSegments(timeline, next.broll).some(over) && !fxSegments(timeline, next.effects).some(over)) break;
+    }
+    const brollHit = new Set(brollSegments(timeline, next.broll).filter(over).map((x) => x.id));
     const fxHit = new Set(fxSegments(timeline, next.effects).filter(over).map((f) => f.id));
     if (brollHit.size || fxHit.size) {
-      labels = [...labels, ...next.broll.filter((b) => brollHit.has(b.id)).map(brollLabel), ...next.effects.filter((e) => fxHit.has(e.id)).map((e) => FX_INFO[e.kind].label)];
-      next = { ...next, broll: next.broll.filter((b) => !brollHit.has(b.id)), effects: next.effects.filter((e) => !fxHit.has(e.id)) };
+      labels = [...labels, ...next.broll.filter((x) => brollHit.has(x.id)).map(brollLabel), ...next.effects.filter((e) => fxHit.has(e.id)).map((e) => FX_INFO[e.kind].label)];
+      next = { ...next, broll: next.broll.filter((x) => !brollHit.has(x.id)), effects: next.effects.filter((e) => !fxHit.has(e.id)) };
     }
     const others = new Set(transitionSegments(timeline, next.transitions.filter((t) => t.id !== item.id)).filter((t) => over(t)).map((t) => t.item.id));
     if (others.size) {
@@ -969,9 +997,12 @@ export function Studio(props: StudioProps) {
       const item = s.effects.find((e) => e.id === sel.id);
       if (!item) return false;
       const range = fitFxSpan(item.kind, rawRange);
-      const { st, labels } = clearUnder(s, range, { broll: "chosen", fx: true, transitions: true }, { fx: sel.id });
-      update(() => ({ ...st, effects: st.effects.map((e) => (e.id === sel.id ? { ...e, from_word: range.from, to_word: range.to, words: e.words?.filter((w) => w >= range.from && w <= range.to) } : e)).sort((a, b) => a.from_word - b.from_word) }));
-      notifyReplaced(labels);
+      const moved: FxItem = { ...item, from_word: range.from, to_word: range.to, words: item.words?.filter((w) => w >= range.from && w <= range.to) };
+      const cleared = clearUnder(s, range, { broll: "chosen", fx: true, transitions: true }, { fx: sel.id });
+      const extra = clearBrollOverFx(cleared.st, moved);
+      const st = extra.st;
+      update(() => ({ ...st, effects: st.effects.map((e) => (e.id === sel.id ? moved : e)).sort((a, b) => a.from_word - b.from_word) }));
+      notifyReplaced([...cleared.labels, ...extra.labels]);
       setSelection(sel);
       return true;
     }

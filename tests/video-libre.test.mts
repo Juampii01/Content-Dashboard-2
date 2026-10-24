@@ -72,7 +72,7 @@ describe("transiciones en cualquier punto", () => {
     assert.ok(Math.abs((seg.start + seg.end) / 2 - seg.cut) < 0.04, "centrada en el instante");
     const spec = compileTransition({ segment: seg, format: "9:16", brand: { accent: "#0070f8", bg: "#030a22", surface: "#07163f", text: "#fff", muted: "#aaa", accentText: "#fff", font: "Inter" } as never, face: { x: 0, y: 0, w: 1, h: 1 } as never });
     assert.equal(spec.kind, "tr_flash");
-    assert.ok(Math.abs(spec.cut - (seg.cut - seg.start)) < 0.001);
+    assert.ok(Math.abs((spec.cut ?? -1) - (seg.cut - seg.start)) < 0.001);
   });
   test("el ancla sobrevive a los cortes: si su palabra se corta, va a la siguiente que queda", () => {
     const item: TransitionItem = { id: "t1", kind: "tr_whip", at_word: 4, offset: 0 };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { AudioLines, Captions, Clapperboard, Film, Scissors, Sparkles, ZoomIn } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Film, Pause, Scissors, Sparkles, ZoomIn } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 import { clampDrag, secondsLabel, timeLabel, type CutMark, type SnappedSpan } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
@@ -547,8 +547,16 @@ export function StudioTimeline({
                           onSeek(Math.max(0, c.at - 0.6));
                         }}
                       >
-                        <span className={cn("block h-full w-0.5 rounded bg-white/35 transition group-hover/pause:bg-accent-hi group-focus-visible/pause:bg-accent-hi", selKey === `pause:${c.word}` && "bg-white")} />
-                        <span aria-hidden className="absolute top-0.5 font-mono text-[8px] leading-none text-white/60 group-hover/pause:text-accent-glow">⏸</span>
+                        <span className={cn("block h-full w-0.5 rounded bg-white/45 transition group-hover/pause:bg-accent-hi group-focus-visible/pause:bg-accent-hi", selKey === `pause:${c.word}` && "bg-white")} />
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "absolute top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full border border-white/45 bg-[#040d2c] text-white/80 transition group-hover/pause:scale-125 group-hover/pause:border-accent-hi group-hover/pause:text-accent-glow group-focus-visible/pause:border-accent-hi",
+                            selKey === `pause:${c.word}` && "border-white text-white",
+                          )}
+                        >
+                          <Pause className="h-2 w-2" />
+                        </span>
                       </button>
                     ) : (
                       <span

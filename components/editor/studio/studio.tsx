@@ -842,7 +842,10 @@ export function Studio(props: StudioProps) {
   function render() {
     sending.current = true;
     startRender(async () => {
-      const result = await renderAction(projectId, review, s.format);
+      // Con lo que se ve en la vista previa (tramos y gancho): el servidor no exporta si su timeline da otra cosa.
+      const hook = s.selectedHook != null ? plan.hook_candidates[s.selectedHook] : undefined;
+      const preview = { clips: timeline.clips.map((c) => [c.startFrame, c.endFrame] as [number, number]), hook: hook ? { from_word: hook.from_word, to_word: hook.to_word } : null };
+      const result = await renderAction(projectId, { ...review, preview }, s.format);
       if (!result.ok) {
         sending.current = false;
         toast.error(result.error);

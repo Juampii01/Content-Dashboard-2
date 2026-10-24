@@ -14,7 +14,9 @@ import { fallbackHooks, hookIsValid, normalizeRemovals, trimHook, withDerived, t
 import { buildTimeline, removedIds } from "../timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, HookCandidate, PlanMove, Removal, VideoFormat, Word, ZoomMoment } from "../types";
 import type { PlanVariant, VideoMap } from "./types";
-import { effectsFromWire, type FxLimits } from "../fx/director";
+import { effectsFromWire, transitionsFromWire, type FxLimits } from "../fx/director";
+import { brollSegments } from "../effects";
+import { fxSegments } from "../fx/compile";
 import { DENSITY_TARGETS, type Density } from "../rhythm";
 import { coverForbidden, effectsForbidden } from "./protect";
 
@@ -265,6 +267,14 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     ...(style ? { zooms_enabled: style.zoom, style_id: style.id } : {}),
   };
   const derived = withDerived(plan, words, input.duration);
+  // 7 bis. Transiciones: solo en cortes del video final ya armado, sin b-roll ni efecto encima.
+  if (input.fx) {
+    const tl = buildTimeline(words, derived, input.duration);
+    const blocked = [...brollSegments(tl, derived.broll), ...fxSegments(tl, derived.effects ?? [])];
+    const tr = transitionsFromWire(ai.transitions ?? [], { timeline: tl, limits: input.fx.limits, blocked, base: base?.transitions ?? null });
+    if (tr.items.length) derived.transitions = tr.items;
+    dropped.push(...tr.dropped);
+  } else if (base?.transitions?.length) derived.transitions = base.transitions;
 
   // 8. Versiones para probar.
   const variants: PlanVariant[] = [];

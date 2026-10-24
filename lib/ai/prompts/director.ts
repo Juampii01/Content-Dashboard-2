@@ -2,6 +2,7 @@ import { z } from "zod";
 import { sceneWireSchema } from "@/lib/ai/prompts/motion";
 import { FX_KINDS } from "@/lib/video/fx/catalog";
 import { FX_DIRECTOR_RULES } from "@/lib/video/fx/director";
+import { TRANSITION_KINDS } from "@/lib/video/fx/transitions";
 import { BAD_TAKE_KINDS, BEAT_ROLES, BRIEF_GOALS, ISSUE_KINDS, SHOT_KINDS, VIDEO_KINDS, type BriefGoal } from "@/lib/video/director/types";
 
 /**
@@ -108,6 +109,7 @@ Cada decisión va como un elemento de "actions": {"type", "from_word", "to_word"
 - broll: data {"kind": "stock" | "graphic", "query_en", "keywords": [...], "graphic": escena o null, "why"}. La escena va como en las reglas de motion graphics ({"title", "mode", "position", "layers": [{"kind", "component", "spec"}]}); en las capas, spec puede ir como objeto.
 - caption_hide: data {"why"}
 - effect: data {"kind": nombre del efecto, "text", "items": [...], "why"}
+- transition: from_word = to_word = la primera palabra del tramo que entra después de un corte, data {"kind": nombre de la transición, "why"}
 - variant: from_word y to_word son su gancho (-1 y -1 = el mismo gancho), data {"label", "why", "extra_cuts": [{"from_word", "to_word"}], "keep_broll": true | false}`;
 
 export const DIRECTOR_RULES = `Eres el director de edición de este creador: un editor humano senior que cobra por video y cuida que cada decisión tenga sentido para la historia. Ya miraste el video (MAPA) y conoces la marca. Decides TODA la edición junta, con una comprensión común de la historia: cortes, orden, gancho, b-roll, gráficos, palabras resaltadas, zooms, ritmo y versiones. Cada decisión lleva su "why" corto para la persona (qué ganas con eso).
@@ -121,7 +123,7 @@ QUÉ DECIDES
 6. broll: dónde se tapa al creador por unos segundos mientras su voz sigue. "graphic" para lo conceptual (cifras dichas, listas, contrastes, procesos, ideas clave) y "stock" para lo concreto que se puede mostrar. Nunca encima de lo que se muestra (producto, pantalla). Lo que tapa a la persona (stock y gráficos "full") no va en el gancho ni en la última frase de la CTA; los gráficos "overlay" (palabra clave, frase, notificación) sí pueden ir en el gancho y en la CTA: la refuerzan. Un gráfico empieza cuando se empieza a decir lo que muestra y dura hasta que se dijo su último elemento (una lista de tres errores dura lo que tardas en decir los tres).
 7. caption_hide: tramos donde los subtítulos irían encima de un texto ya quemado en la misma franja (ver TEXTO EN PANTALLA): ahí se ocultan.
 8. pace: "calm" (pausas de hasta 0,7 s), "normal" (0,5 s) o "fast" (0,3 s).
-9. effects: efectos de firma de la biblioteca (ver EFECTOS DE FIRMA) donde suman: la apertura (el gancho admite efectos sobre la persona: cover_story, digital_zoom, glass_type), una lista, un dato, un giro, la CTA. Respeta EFECTOS PERMITIDOS.
+9. effects: efectos de la biblioteca (ver EFECTOS DE LA BIBLIOTECA) donde suman: la apertura (el gancho admite efectos sobre la persona: cover_story, digital_zoom, glass_type, text_behind, word_slam), una lista, un dato, un giro, una emoción, la CTA. Variados y respetando EFECTOS PERMITIDOS. Y transitions (ver TRANSICIONES): pocas, en los cambios de parte.
 10. variants: 0 a 2 versiones para probar (otro gancho u otra duración: 15, 30 o 60 s), con los cortes extra que hacen falta. Solo si el material lo permite y tiene sentido para el objetivo.
 
 RITMO: PIENSA COMO UN EDITOR DE REELS
@@ -181,6 +183,7 @@ export const directorWireSchema = z.object({
       why: z.string(),
     }),
   ),
+  transitions: z.array(z.object({ at_word: z.number().int(), kind: z.enum(TRANSITION_KINDS), why: z.string() })).optional(),
   variants: z.array(
     z.object({
       label: z.string().describe("Nombre corto: 'Versión de 30 s', 'Otro gancho'."),
@@ -202,7 +205,7 @@ export type DirectorWire = z.infer<typeof directorWireSchema>;
 // sola lista de acciones { type, from_word, to_word, data } con `data` en JSON; al volver se leen con los esquemas
 // de arriba (directorWireSchema) y la acción que no se entiende se descarta.
 
-const ACTION_TYPES = ["cut", "hook", "move", "emphasis", "zoom", "broll", "caption_hide", "effect", "variant"] as const;
+const ACTION_TYPES = ["cut", "hook", "move", "emphasis", "zoom", "broll", "caption_hide", "effect", "transition", "variant"] as const;
 
 export const directorApiSchema = z.object({
   summary: z.string().describe("Qué hiciste y por qué, en 2 o 3 frases para la persona."),
@@ -277,6 +280,9 @@ export function directorFromApi(api: DirectorApi): DirectorWire {
       case "effect":
         push(W.effects.element, out.effects, { text: "", items: [], why: "", ...d, ...range });
         break;
+      case "transition":
+        push(W.transitions.unwrap().element, (out.transitions ??= []), { why: "", ...d, at_word: a.from_word });
+        break;
       case "variant":
         push(W.variants.element, out.variants, { label: "", why: "", extra_cuts: [], keep_broll: true, ...d, hook_from_word: a.from_word, hook_to_word: a.to_word });
         break;
@@ -303,6 +309,7 @@ export function directorToApi(w: DirectorWire): DirectorApi {
   for (const b of w.broll) add("broll", b.from_word, b.to_word, strip(b));
   for (const c of w.caption_hide) add("caption_hide", c.from_word, c.to_word, strip(c));
   for (const e of w.effects) add("effect", e.from_word, e.to_word, strip(e));
+  for (const t of w.transitions ?? []) add("transition", t.at_word, t.at_word, { kind: t.kind, why: t.why });
   for (const v of w.variants) {
     const { hook_from_word, hook_to_word, ...rest } = v;
     add("variant", hook_from_word, hook_to_word, rest);

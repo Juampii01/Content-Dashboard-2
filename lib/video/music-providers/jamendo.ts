@@ -26,8 +26,9 @@ type JamendoTrack = {
 
 export class JamendoError extends Error {}
 
-export function jamendoProvider(clientId: string, fetcher: typeof fetch = fetch): MusicProvider {
-  const base = env().JAMENDO_API_BASE.replace(/\/$/, "");
+export function jamendoProvider(clientId: string, opts: { fetcher?: typeof fetch; base?: string } = {}): MusicProvider {
+  const fetcher = opts.fetcher ?? fetch;
+  const base = (opts.base ?? env().JAMENDO_API_BASE).replace(/\/$/, "");
   async function call(params: Record<string, string>): Promise<JamendoTrack[]> {
     const qs = new URLSearchParams({ client_id: clientId, format: "json", include: "licenses musicinfo", audioformat: "mp32", audiodlformat: "mp32", ccnc: "false", ccnd: "false", ccsa: "false", ...params });
     const res = await fetcher(`${base}/tracks/?${qs}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(12_000) }).catch(() => null);

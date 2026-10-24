@@ -16,7 +16,7 @@ import { captionBand } from "./checks";
 import { wordsInSpan } from "./context";
 import type { KeyFrame } from "./keyframes";
 import type { Brief, CriticIssue, VideoMap } from "./types";
-import { simulateEffects, type FxLimits } from "../fx/director";
+import { simulateEffects, simulateTransitions, type FxLimits } from "../fx/director";
 
 const overlaps = (a: { from: number; to: number }, b: { from: number; to: number }) => a.from <= b.to && b.from <= a.to;
 
@@ -289,6 +289,7 @@ export function simulateDirector(input: SimDirectorInput): DirectorWire {
     broll,
     caption_hide,
     effects,
+    transitions: input.fx ? simulateTransitions({ words, cuts: finalCuts, limits: input.fx }) : [],
     variants,
     changes: [...new Set(changes)],
   };

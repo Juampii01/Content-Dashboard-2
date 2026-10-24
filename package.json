@@ -31,6 +31,7 @@
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",
     "vercel-build": "pnpm preparar && next build",
     "demo": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/demo.ts",
+    "test:musica": "node --conditions=react-server --import tsx --test tests/music-catalog.test.mts",
     "test:director": "node --import tsx --test tests/director.test.mts tests/rhythm.test.mts"
   },
   "dependencies": {

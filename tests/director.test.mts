@@ -434,6 +434,9 @@ describe("formato que va a la API", () => {
     });
     const api = directorToApi(wire);
     assert.deepEqual(directorFromApi(api), wire);
+    // Las transiciones viajan como acción "transition" en la primera palabra después del corte.
+    const withTr = { ...wire, transitions: [{ at_word: 16, kind: "tr_whip" as const, why: "t" }] };
+    assert.deepEqual(directorFromApi(directorToApi(withTr)).transitions, withTr.transitions);
     const broken = directorFromApi({ ...api, actions: [...api.actions, { type: "cut", from_word: 1, to_word: 2, data: "{no json" }, { type: "zoom", from_word: 1, to_word: 2, data: JSON.stringify({ strength: "rarísimo" }) }] });
     assert.equal(broken.cuts.length, 1, "un cut sin JSON válido se descarta");
     assert.equal(broken.zooms.length, 1, "un zoom con valores fuera de la lista se descarta");

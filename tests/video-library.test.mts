@@ -9,6 +9,8 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { describe, test } from "node:test";
 import { FxRenderer, WORKER_FONTS, type FxCtx } from "../lib/video/fx";
+import { effectsFromWire, fxLimits, FX_DIRECTOR_RULES, simulateTransitions, transitionBudget, transitionsFromWire } from "../lib/video/fx/director";
+import { FX_KINDS } from "../lib/video/fx/catalog";
 import { cleanTransitions, compileTransition, cutPoints, searchTransitions, TRANSITION_INFO, TRANSITION_KINDS, transitionSegments, transitionSounds, type TransitionItem } from "../lib/video/fx/transitions";
 import { MUSIC_LIBRARY, musicGenLabel, tracksOf } from "../lib/video/music-gen/catalog";
 import { bodyRms, renderMusic, sectionOf } from "../lib/video/music-gen/engine";
@@ -122,6 +124,37 @@ describe("transiciones", () => {
       assert.ok(diff(kind, 0.6) < 4, `${kind}: al terminar, el cuadro tal cual (${diff(kind, 0.6).toFixed(1)})`);
       assert.ok(Math.max(diff(kind, 0.28), diff(kind, 0.32)) > 6, `${kind}: en el corte cambia`);
     }
+  });
+});
+
+describe("director", () => {
+  const limits = fxLimits({ allowed: [...FX_KINDS], frequency: "normal" }, 60);
+
+  test("conoce los 100 efectos y las 20 transiciones", () => {
+    for (const k of FX_KINDS) assert.ok(FX_DIRECTOR_RULES.includes(`- ${k} «`), k);
+    for (const k of TRANSITION_KINDS) assert.ok(FX_DIRECTOR_RULES.includes(`- ${k} «`), k);
+  });
+
+  test("variedad: no repite un efecto (los zooms, hasta dos veces)", () => {
+    const wire = [0, 7, 14, 21].map((f) => ({ from_word: f, to_word: f + 3, kind: "glitch" as const, text: "", items: [], why: "x" }));
+    const res = effectsFromWire(wire, { words, limits: { ...limits, max: 10, minGap: 0 }, broll: [], forbidden: [], removed: new Set() });
+    assert.equal(res.items.length, 1);
+    assert.ok(res.dropped.some((d) => d.includes("No repetí")));
+  });
+
+  test("transiciones con moderación: en cortes reales, separadas, sin repetir seguidas y nunca sobre lo ocupado", () => {
+    assert.equal(transitionBudget("ninguno", 60), 0);
+    assert.equal(transitionBudget("pocos", 120), 1);
+    assert.ok(transitionBudget("muchos", 60) <= 8);
+    const cuts = cutPoints(timeline);
+    const wire = cuts.map((c) => ({ at_word: c.word, kind: "tr_whip" as const, why: "x" }));
+    const res = transitionsFromWire([...wire, { at_word: 1, kind: "tr_flash", why: "sin corte" }], { timeline, limits: { ...limits, transitions: 10 }, blocked: [] });
+    assert.ok(res.items.every((t) => cuts.some((c) => c.word === t.at_word)), "solo en cortes");
+    for (let i = 1; i < res.items.length; i++) assert.notEqual(res.items[i]!.kind, res.items[i - 1]!.kind, "no la misma seguida");
+    const blocked = transitionsFromWire(wire, { timeline, limits: { ...limits, transitions: 10 }, blocked: [{ start: 0, end: timeline.duration }] });
+    assert.equal(blocked.items.length, 0);
+    const sim = simulateTransitions({ words, cuts: [{ from_word: 4, to_word: 4 }], limits });
+    assert.equal(sim[0]?.at_word, 5);
   });
 });
 

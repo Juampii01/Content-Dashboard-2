@@ -8,7 +8,7 @@ Entrada: {trackId, sourceKind: "link" | "upload", url?, sourceKey?}
    y borra el archivo subido. La voz no se guarda.
 
 Medido con una mezcla de voz y música conocidas: la voz sale con 18 dB de SDR y la música con 21 dB (la voz que queda
-en la música está 21 dB por debajo). Tarda menos que la duración del audio en 4 núcleos.
+en la música está 21 dB por debajo). En 4 núcleos tarda ~4 s por cada 7,8 s de audio y usa ~1,4 GB de memoria.
 La separación de cada tramo sigue `infer.py` de huggingface.co/adowu/htdemucs-onnx (MIT): ventanas de 7,8 s que se
 pisan un cuarto y se mezclan con un fundido (aquí sin fundido en el principio y el final del audio, que allá quedaban
 en silencio).
@@ -82,7 +82,11 @@ def separate(mix: np.ndarray, model: Path, *, run: Callable[[np.ndarray], np.nda
         import onnxruntime as ort  # noqa: PLC0415
 
         opts = ort.SessionOptions()
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # Sin optimizar el grafo y sin la arena de memoria: con las optimizaciones el modelo ocupa más de 6 GB al cargar
+        # (la máquina tiene 8 y el worker ya usa parte); así queda en ~1,4 GB de pico y tarda ~20 % más (medido).
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        opts.enable_cpu_mem_arena = False
+        opts.enable_mem_pattern = False
         session = ort.InferenceSession(str(model), sess_options=opts, providers=["CPUExecutionProvider"])
 
         def run(x: np.ndarray) -> np.ndarray:

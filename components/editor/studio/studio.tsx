@@ -1863,6 +1863,21 @@ export function Studio(props: StudioProps) {
                             canEdit
                               ? (range, clear) => (
                                   <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        // El pedido se escribe en el inspector del tramo (a la derecha), con el cuadro ya enfocado.
+                                        setSelection({ kind: "range", from: range.from, to: range.to });
+                                        clear();
+                                        setTimeout(() => {
+                                          const box = document.getElementById("ask-animation");
+                                          box?.scrollIntoView({ block: "center", behavior: "smooth" });
+                                          box?.focus({ preventScroll: true });
+                                        }, 120);
+                                      }}
+                                    >
+                                      Pide una animación aquí
+                                    </Button>
                                     <Button size="sm" variant="ghost" onClick={() => (addBroll(range), clear())}>
                                       Poner b-roll aquí
                                     </Button>

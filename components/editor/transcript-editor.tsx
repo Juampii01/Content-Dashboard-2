@@ -232,7 +232,7 @@ export function TranscriptEditor({
             <span className="mr-1 text-xs font-semibold text-white">
               {selIds.length === 1 ? "1 palabra seleccionada" : `${selIds.length} palabras seleccionadas`}
             </span>
-            <Button size="sm" icon={copied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />} onClick={() => void copySelection()}>
+            <Button size="sm" variant="ghost" icon={copied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />} onClick={() => void copySelection()}>
               {copied ? "Copiado" : "Copiar"}
             </Button>
             {canEdit && selCut > 0 && (

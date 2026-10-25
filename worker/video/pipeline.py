@@ -71,8 +71,11 @@ def prepare(ctx: JobContext, project: dict[str, Any], start: float, end: float, 
             probe = ffmpeg.probe(src)
         info = ingest.analyze_probe(probe)
         ingest.build_mezzanine(src, info, mezz, ctx.progress)
-        ingest.extract_audio(src, info, wav)
+        audio_ts = ingest.extract_audio(src, info, wav)
+        if audio_ts.get("squeezedSeconds") or audio_ts.get("gapSeconds"):
+            log.warning("audio del original con tiempos irregulares en %s: %s", pid, audio_ts)
     else:
+        audio_ts = {}
         info = (project.get("media") or {}).get("source")
 
     mprobe = ffmpeg.probe(mezz)
@@ -83,6 +86,9 @@ def prepare(ctx: JobContext, project: dict[str, Any], start: float, end: float, 
     media.update({"duration": round(duration, 3), "width": width, "height": height, "mezzanine": {"width": width, "height": height, "fps": ingest.FPS}})
     if info:
         media["source"] = {k: info[k] for k in ("width", "height", "fps", "vfr", "hdr", "rotation", "codec", "hasAudio")}
+    if audio_ts:
+        # Tiempos del audio del original: audio "apretado" (se decodifica seguido) y huecos (se rellenan con silencio).
+        media["audioTimeline"] = audio_ts
 
     if need_proxy and not media.get("proxyKey"):
         proxy, poster = workdir / "proxy.mp4", workdir / "poster.jpg"

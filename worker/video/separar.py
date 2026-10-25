@@ -8,7 +8,7 @@ Entrada: {trackId, sourceKind: "link" | "upload", url?, sourceKey?}
    y borra el archivo subido. La voz no se guarda.
 
 Medido con una mezcla de voz y música conocidas: la voz sale con 18 dB de SDR y la música con 21 dB (la voz que queda
-en la música está 21 dB por debajo). En 4 núcleos tarda ~4 s por cada 7,8 s de audio y usa ~1,4 GB de memoria.
+en la música está 21 dB por debajo). En el worker de Fly tarda ~1,7 veces la duración del audio (20 s en 34 s) y usa ~1,4 GB de memoria.
 La separación de cada tramo sigue `infer.py` de huggingface.co/adowu/htdemucs-onnx (MIT): ventanas de 7,8 s que se
 pisan un cuarto y se mezclan con un fundido (aquí sin fundido en el principio y el final del audio, que allá quedaban
 en silencio).

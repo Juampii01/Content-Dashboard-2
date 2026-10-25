@@ -1424,7 +1424,16 @@ export function Studio(props: StudioProps) {
       const under = firstSeg ? visualStack.filter((v) => v.key !== layerKey("compos", made[0]!.id) && v.start < firstSeg.end - 0.01 && firstSeg.start < v.end - 0.01).map((v) => v.label) : [];
       update((st) => {
         const list = [...st.compositions];
-        for (const m of made) {
+        const replaceId = req.request?.replaceId ?? null;
+        for (const [i, m] of made.entries()) {
+          // "Pídele un cambio": la primera animación que llega reemplaza a la que se pidió cambiar (aunque el servidor
+          // le haya dado otro id), en su mismo lugar y capa. Si la original ya no está, entra como nueva.
+          const target = i === 0 && replaceId ? list.findIndex((c) => c.id === replaceId) : -1;
+          if (target >= 0) {
+            list[target] = { ...m, id: replaceId!, layer: list[target]!.layer };
+            if (list[target]!.layer == null) delete list[target]!.layer;
+            continue;
+          }
           const at = list.findIndex((c) => c.id === m.id);
           if (at >= 0) {
             // "Pídele un cambio": la misma animación, en su misma capa.
@@ -1448,7 +1457,7 @@ export function Studio(props: StudioProps) {
         action: {
           label: "Ver",
           onClick: () => {
-            setSelection({ kind: "compos", id: first.id });
+            setSelection({ kind: "compos", id: req.request?.replaceId ?? first.id });
             if (r) seek(r.start);
           },
         },
@@ -1467,6 +1476,8 @@ export function Studio(props: StudioProps) {
     () =>
       composWork.requests.flatMap((r, i) => {
         if (!isActive(r) || !r.request) return [];
+        // Un cambio sobre una animación que sigue en el video se muestra sobre ese mismo bloque, no como uno nuevo.
+        if (r.request.replaceId && s.compositions.some((c) => c.id === r.request!.replaceId)) return [];
         const seg = composSegments(timeline, [{ id: r.id, from_word: r.request.from_word, to_word: r.request.to_word, name: "x", code: "x", params: [], source: "user" }])[0];
         if (!seg) return [];
         return [
@@ -1484,9 +1495,24 @@ export function Studio(props: StudioProps) {
           },
         ];
       }),
-    [composWork.requests, timeline],
+    [composWork.requests, timeline, s.compositions],
   );
-  const allBlocks = useMemo(() => (ghostBlocks.length ? [...blocks, ...ghostBlocks] : blocks), [blocks, ghostBlocks]);
+  // Animaciones con un cambio en curso: el mismo bloque, punteado y con el avance del pedido.
+  const changing = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const r of composWork.requests) if (isActive(r) && r.request?.replaceId) out.set(r.request.replaceId, requestStage(r));
+    return out;
+  }, [composWork.requests]);
+  const allBlocks = useMemo(() => {
+    const base = changing.size
+      ? blocks.map((b) => {
+          const id = b.key.startsWith("compos:") ? b.key.slice(7) : null;
+          const stage = id ? changing.get(id) : undefined;
+          return stage == null ? b : { ...b, pending: true, detail: `Cambiando · ${stage}` };
+        })
+      : blocks;
+    return ghostBlocks.length ? [...base, ...ghostBlocks] : base;
+  }, [blocks, ghostBlocks, changing]);
   useEffect(() => {
     acksApi.current = { take: composWork.takeAcks, confirm: composWork.confirmAcks };
   }, [composWork.takeAcks, composWork.confirmAcks]);

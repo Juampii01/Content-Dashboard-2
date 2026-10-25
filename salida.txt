@@ -1,0 +1,4 @@
+disable-noarena carga MB 299 pico MB 1399 s/tramo 4.12
+fp32-disable-noarena carga MB 546 pico MB 1246 s/tramo 4.16
+fp32-all-noarena carga MB 6178 pico MB 6178 s/tramo 3.66
+fp32-basic-noarena carga MB 6178 pico MB 6178 s/tramo 3.66

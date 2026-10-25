@@ -110,6 +110,8 @@ const sentencesText = (words: Word[]) =>
  * chico, menos momentos o sin revisión.
  */
 function copyBudget(ctx: WorkCtx): { compose: number; lookRounds: number } {
+  // Con la suscripción de Claude no se gasta la API: se copian todos los momentos de la referencia (hasta 40).
+  if (ctx.planOn) return { compose: 40, lookRounds: 1 };
   const usable = Math.max(0, ctx.cap - ctx.spent - 0.6);
   const perTask = STAGE_COST.plan + STAGE_COST.code * 1.15;
   for (const rounds of [3, 2, 1]) {

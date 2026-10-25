@@ -103,7 +103,7 @@ ${input.sentences}
 
 ${input.taken ? `YA OCUPADO POR LA EDICIÓN BASE (si un momento de la receta va justo ahí, la animación va encima: conviven en capas):\n${input.taken}\n` : ""}
 Lleva cada momento de la receta al video nuevo POR FUNCIÓN, no por segundo: el gancho al gancho, una enumeración a la enumeración, una cifra a donde se dice una cifra, la promesa a la promesa, la CTA a la CTA. Respeta el orden y la densidad de la referencia (si la referencia tiene un momento cada 3 s, este también).
-- Hasta ${input.maxCompose} momentos con plan "compose" (los de importancia 3 y 2 primero). Los que son solo ritmo, zooms simples o subtítulos van como "catalog".
+${input.maxCompose >= 20 ? `- Copia TODO: cada momento de la receta que se pueda dibujar (textos, tarjetas, gráficos, imágenes, transiciones con forma, recortes de la persona, looks) va con plan "compose", aunque sea de importancia 1. Solo van como "catalog" los que son nada más ritmo, zooms simples o el estilo de los subtítulos.` : `- Hasta ${input.maxCompose} momentos con plan "compose" (los de importancia 3 y 2 primero). Los que son solo ritmo, zooms simples o subtítulos van como "catalog".`}
 - Cada tramo: de 0,8 a ${COMPOS_LIMITS.maxSeconds} s, sin pisarse entre sí.
 - Si un momento no tiene dónde ir (no hay una cifra que mostrar, por ejemplo), "skip" con la razón. Nunca inventes datos.`;
 }

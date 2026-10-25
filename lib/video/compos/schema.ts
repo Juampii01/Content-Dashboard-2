@@ -65,7 +65,8 @@ export const compositionSchema = z.object({
 });
 export type Composition = z.infer<typeof compositionSchema>;
 
-export const MAX_COMPOSITIONS = 24;
+/** Hasta 60 por video: «Animar todo» y «Copiar edición» con la suscripción pueden poner una cada pocos segundos. */
+export const MAX_COMPOSITIONS = 60;
 export const compositionListSchema = z.array(compositionSchema).max(MAX_COMPOSITIONS);
 
 // ─── Tramos ──────────────────────────────────────────────────────────────

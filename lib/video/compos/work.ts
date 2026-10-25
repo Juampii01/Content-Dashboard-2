@@ -181,6 +181,8 @@ export type WorkCtx = {
   brandCtx: string;
   fx: ReturnType<typeof fxBrand>;
   cap: number;
+  /** Suscripción de Claude conectada: las etapas no gastan la API (el tope en USD no las frena). */
+  planOn: boolean;
   spent: number;
   media: MediaInfo;
   /** Pedido del Estudio que se está avanzando (su fila en compos_requests); sin él, el taller del director. */
@@ -217,6 +219,7 @@ export async function loadWorkCtx(projectId: string): Promise<WorkCtx | null> {
     brandCtx: await brandContext(brand),
     fx: fxBrand(brandGraphicLook(brand)),
     cap: clampBudget(project.aiBudgetUsd),
+    planOn: await claudePlanConnected().catch(() => false),
     spent: await spentOn(projectId),
     media,
   };
@@ -366,6 +369,8 @@ export const STAGE_COST = { plan: 0.02, vision: 0.04, code: 0.4, look: 0.2, reus
  */
 function remaining(ctx: WorkCtx, work?: ComposWork): number {
   const video = ctx.cap - ctx.spent;
+  // Con la suscripción, las etapas no cuestan: solo frena si lo que se fue por la API (sin cupo del plan) pasó el tope.
+  if (ctx.planOn) return video > 0 ? 1000 : video;
   if (!ctx.requestId || !work || work.reservedUsd == null) return video;
   return Math.min(video + (work.reservedUsd - (work.usedUsd ?? 0)), work.reservedUsd - (work.usedUsd ?? 0));
 }

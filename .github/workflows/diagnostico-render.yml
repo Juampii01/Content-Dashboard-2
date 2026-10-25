@@ -1,0 +1,38 @@
+# Diagnóstico de un render, solo lectura: corre worker/diag_render.py en la máquina del worker (lo que mandó la app y
+# las duraciones de los archivos de trabajo) y muestra los últimos registros del worker. A mano desde Actions.
+name: Diagnóstico de render
+
+on:
+  workflow_dispatch:
+    inputs:
+      proyecto:
+        description: "Id del proyecto del Editor"
+        required: true
+        type: string
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Validar el id
+        run: echo "${{ inputs.proyecto }}" | grep -Eq '^[0-9a-f-]{36}$'
+      - name: Encender la máquina
+        run: |
+          for id in $(flyctl machines list --config fly.toml --json | jq -r '.[].id'); do flyctl machines start "$id" --config fly.toml || true; done
+          sleep 20
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Diagnóstico
+        run: flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ inputs.proyecto }}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Registros del worker
+        run: flyctl logs --config fly.toml --no-tail | grep -Ei "sincron|render|tramo|audio|error" | tail -200
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

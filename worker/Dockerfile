@@ -50,7 +50,7 @@ COPY scripts/fetch_cutout_model.py scripts/
 RUN python scripts/fetch_cutout_model.py /app/models
 ENV HF_HUB_OFFLINE=1
 
-COPY main.py .
+COPY main.py diag_render.py ./
 COPY comunes comunes
 COPY video video
 # Efectos de sonido (generados con scripts/make_sfx.py) y emojis de los subtítulos (Noto Emoji, OFL).

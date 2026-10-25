@@ -59,6 +59,8 @@ export type StudioState = {
    * "Sin recortes automáticos" (ninguna pausa se recorta).
    */
   pauses: { keep: number[]; all: boolean };
+  /** Divisiones del video («Dividir» o la tecla C): id de la palabra con la que empieza cada parte. */
+  splits: number[];
 };
 
 export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_INTEGER): StudioState {
@@ -93,6 +95,7 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     musicGen: plan.audio.music_gen ?? null,
     pauses: { keep: [...(plan.pacing?.keep ?? [])].sort((a, b) => a - b), all: plan.pacing?.keep_all === true },
     compositions: plan.compositions ?? [],
+    splits: plan.splits ?? [],
   };
 }
 
@@ -157,6 +160,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     captionPlace: s.captionPlace,
     captionHide: s.captionHide,
     pauses: s.pauses,
+    splits: s.splits,
     ...(s.rhythmTouched ? { rhythm: { density: s.density, added: s.rhythmLog, zoomMoments: s.zoomMoments, longPause: s.pacing?.long_pause ?? 0.5, emphasis: s.emphasis } } : {}),
   };
 }

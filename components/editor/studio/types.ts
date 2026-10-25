@@ -101,6 +101,8 @@ export type StudioApi = {
   cutList: { at: number; word: number; index: number }[];
   zooms: OutputZoom[];
   captions: CaptionBlock[];
+  /** Palabras que la persona quitó de los subtítulos (el video no se corta). */
+  subsHidden: Set<number>;
   rhythm: RhythmScore;
   fxBrand: FxBrand;
   thumbsCount: number;
@@ -137,6 +139,10 @@ export type StudioApi = {
     openPhraseFix: (span: WordSpan) => void;
     removeSelection: () => void;
     split: () => void;
+    /** Divide el video en el cabezal (solo el video: subtítulos, b-roll y animaciones quedan igual). */
+    splitVideo: () => void;
+    /** Quita palabras de los subtítulos (o las vuelve a mostrar) sin cortar el video. */
+    setSubsHidden: (ids: number[], hidden: boolean) => void;
     accept: (sel: StudioSelection) => void;
     setBrollEdit: (id: string, edit: BrollEdit) => void;
     applyLookToAll: (id: string) => void;

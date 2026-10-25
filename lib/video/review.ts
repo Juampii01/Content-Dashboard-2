@@ -58,6 +58,8 @@ export type Review = {
    * (`all`: "Sin recortes automáticos"). Sin el campo, se deja lo que ya tenía el plan.
    */
   pauses?: { keep: number[]; all: boolean };
+  /** Divisiones del video en la revisión (id de la palabra con la que empieza cada parte). */
+  splits?: number[];
   /**
    * Lugar y tamaño de los subtítulos desde el lienzo (lib/video/canvas/captions.ts): de todos y, opcional, por línea
    * (id de la primera palabra del bloque). Sin el campo, se deja lo que ya tenía el plan.
@@ -130,12 +132,13 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const merged: typeof spans = [];
     for (const h of spans) {
       const last = merged[merged.length - 1];
-      if (last && h.from_word <= last.to_word + 1) last.to_word = Math.max(last.to_word, h.to_word);
+      // Solo se unen los del mismo origen: los que quitó la persona se quitan palabra por palabra en los subtítulos.
+      if (last && last.why === h.why && h.from_word <= last.to_word + 1) last.to_word = Math.max(last.to_word, h.to_word);
       else merged.push({ ...h });
     }
     const { hide: _h, ...rest } = next.captions;
     void _h;
-    next.captions = merged.length ? { ...rest, hide: merged.slice(0, 60) } : rest;
+    next.captions = merged.length ? { ...rest, hide: merged.slice(0, 400) } : rest;
   }
   if (review.captionPlace) {
     // Lienzo: lugar de los subtítulos, limpio (sin rotación, ids válidos, dentro de los límites).
@@ -189,6 +192,11 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     void _k;
     void _a;
     next.pacing = { ...pacing, ...(keep.length ? { keep } : {}), ...(review.pauses.all ? { keep_all: true } : {}) };
+  }
+  if (review.splits) {
+    const splits = [...new Set(review.splits.filter((id) => Number.isInteger(id) && id > 0 && id < words.length))].sort((a, b) => a - b).slice(0, 500);
+    if (splits.length) next.splits = splits;
+    else delete next.splits;
   }
   if (review.moves) {
     // Solo se pueden quitar bloques movidos (no inventar nuevos desde el navegador).

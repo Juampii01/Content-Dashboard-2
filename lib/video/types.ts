@@ -148,6 +148,11 @@ export type EditPlan = {
    * (`keep`: id de la palabra que sigue a la pausa) o todos (`keep_all`, "Sin recortes automáticos").
    */
   pacing?: { long_pause: number; keep?: number[]; keep_all?: boolean };
+  /**
+   * Divisiones del video hechas en la revisión («Dividir» o la tecla C): id de la palabra con la que empieza cada parte.
+   * Solo marcan partes en la línea de tiempo para poder elegirlas y quitarlas; no cambian el render.
+   */
+  splits?: number[];
   /** Estilo con el que se armó el plan (id de video_styles), si hay. */
   style_id?: string | null;
   /**

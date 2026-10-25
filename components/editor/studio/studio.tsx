@@ -684,14 +684,27 @@ export function Studio(props: StudioProps) {
     setSelection(null);
   }
 
+  /**
+   * Divide el video en el cabezal: la parte nueva empieza en la palabra que suena. Solo el video (subtítulos, b-roll y
+   * animaciones quedan igual); después se puede elegir una parte y quitarla con Supr.
+   */
+  function splitVideo() {
+    if (!canEdit) return;
+    const t = outRef.current + 0.01;
+    const w = wordAt(timeline, t);
+    if (!w) return void toast.info("Pon el cabezal sobre el video, donde quieres dividirlo.");
+    const clip = timeline.clips.find((c) => w.id >= c.firstWord && w.id <= c.lastWord);
+    const first = timeline.words.find((x) => clip && x.id >= clip.firstWord && x.id <= clip.lastWord);
+    if (!clip || first?.id === w.id || s.splits.includes(w.id)) return void toast.info("Ahí ya hay un corte. Mueve el cabezal a otra palabra.");
+    update((st) => ({ ...st, splits: [...st.splits, w.id].sort((a, b) => a - b) }));
+    toast.success("Video dividido.", { description: "Toca una parte en la pista de video y bórrala con Supr si no la quieres." });
+  }
+
   /** Divide lo elegido en el cabezal (la segunda parte empieza en la palabra que suena). */
   function split() {
     const sel = selection;
     if (!canEdit) return;
-    if (!sel || !["broll", "fx", "zoom"].includes(sel.kind)) {
-      toast.info("Elige un b-roll, un efecto o un zoom en la línea de tiempo y pon el cabezal donde quieres dividirlo.");
-      return;
-    }
+    if (!sel || !["broll", "fx", "zoom"].includes(sel.kind)) return splitVideo();
     const w = wordAt(timeline, outRef.current + 0.01);
     if (!w) return;
     if (sel.kind === "broll") {
@@ -748,10 +761,32 @@ export function Studio(props: StudioProps) {
   const blocks = useMemo<TimelineBlock[]>(() => {
     const out: TimelineBlock[] = [];
     const offsets = clipOffsets(timeline);
+    const splitSet = new Set(s.splits);
     timeline.clips.forEach((c, i) => {
       const start = offsets[i]!;
       const kept = timeline.words.filter((w) => w.id >= c.firstWord && w.id <= c.lastWord);
       const text = kept.map((w) => w.text).join(" ");
+      const clipEnd = start + (c.endFrame - c.startFrame) / FPS;
+      // Un tramo dividido («Dividir» o C) se muestra en partes: cada una se elige y se quita por separado.
+      const cuts = kept.filter((w, k) => k > 0 && splitSet.has(w.id));
+      if (cuts.length) {
+        const heads = [kept[0]!, ...cuts];
+        heads.forEach((h, k) => {
+          const next = heads[k + 1];
+          const words = kept.filter((w) => w.id >= h.id && (!next || w.id < next.id));
+          const last = words[words.length - 1] ?? h;
+          out.push({
+            key: `clip${i}:${h.id}`,
+            track: "video",
+            start: k === 0 ? start : h.start,
+            end: next ? next.start : clipEnd,
+            label: (c.role === "hook" && k === 0 ? "Gancho · " : "") + (words.map((w) => w.text).join(" ") || "Parte"),
+            tone: c.role === "hook" ? "border-accent-hi/60 bg-accent/40 font-normal" : "border-white/15 bg-accent/10 font-normal",
+            selection: { kind: "range", from: h.id, to: last.id },
+          });
+        });
+        return;
+      }
       out.push({
         key: `clip${i}`,
         track: "video",
@@ -888,7 +923,7 @@ export function Studio(props: StudioProps) {
         });
       });
     return out;
-  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder, maskMissing, masks?.pending]);
+  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder, maskMissing, masks?.pending, s.splits]);
 
   // Cortes sin transición donde se puede poner una con un toque (va encima de lo que haya).
   const transitionSlots = useMemo(() => {
@@ -1369,6 +1404,11 @@ export function Studio(props: StudioProps) {
           e.preventDefault();
           split();
           return;
+        case "c":
+        case "C":
+          e.preventDefault();
+          splitVideo();
+          return;
         case "Delete":
         case "Backspace":
           if (!selection) return;
@@ -1565,6 +1605,7 @@ export function Studio(props: StudioProps) {
     cutList,
     zooms,
     captions,
+    subsHidden,
     rhythm,
     fxBrand,
     thumbsCount: thumbs.length,
@@ -1595,6 +1636,8 @@ export function Studio(props: StudioProps) {
       openPhraseFix: (span) => setFixRange(span),
       removeSelection,
       split,
+      splitVideo,
+      setSubsHidden,
       accept: acceptSel,
       setBrollEdit,
       applyLookToAll,
@@ -1628,7 +1671,7 @@ export function Studio(props: StudioProps) {
       {canEdit && (
         <>
           <span className="mx-1 h-5 w-px bg-white/10" aria-hidden />
-          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={split} title="Dividir lo elegido en el cabezal (S)">
+          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={splitVideo} title="Dividir el video en el cabezal (C)">
             <span className="hidden xl:inline">Dividir</span>
           </Button>
           <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "cut" || selection.kind === "pause" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
@@ -1641,7 +1684,7 @@ export function Studio(props: StudioProps) {
           )}
         </>
       )}
-      <p className="ml-2 hidden min-w-0 flex-1 truncate text-[11px] text-placeholder lg:block">{canEdit ? "Arrastra sobre la pista de video para elegir un tramo. Arrastra los bloques para moverlos y sus bordes para estirarlos." : "Solo lectura: tu usuario no puede editar."}</p>
+      <p className="ml-2 hidden min-w-0 flex-1 truncate text-[11px] text-placeholder lg:block">{canEdit ? "Pon el cabezal y toca Dividir (C) para cortar el video; elige la parte que sobra y bórrala con Supr." : "Solo lectura: tu usuario no puede editar."}</p>
       <div className="ml-auto flex items-center gap-1">
         <button type="button" className="btn-ghost !h-8 !w-8 !p-0" onClick={() => setZoom((z) => Math.max(1, z / 1.5))} disabled={zoom <= 1} aria-label="Alejar la línea de tiempo (−)" title="Alejar (−)">
           <Minus className="h-3.5 w-3.5" aria-hidden />
@@ -1802,7 +1845,6 @@ export function Studio(props: StudioProps) {
                           canEdit={canEdit}
                           onSetCut={cut}
                           subsHidden={subsHidden}
-                          onSetSubsHidden={canEdit ? setSubsHidden : undefined}
                           pauses={pauseList}
                           onPause={canEdit ? setPause : undefined}
                           onCorrect={(id, text) =>
@@ -2053,7 +2095,8 @@ const SHORTCUTS: [string, string][] = [
   ["J · K · L", "Atrás 2 s · pausar · reproducir (otra vez L: más rápido)"],
   ["← →", "Un cuadro atrás o adelante"],
   ["Mayús + ← →", "Palabra anterior o siguiente"],
-  ["S", "Dividir lo elegido en el cabezal"],
+  ["C", "Dividir el video en el cabezal"],
+  ["S", "Dividir lo elegido (b-roll, efecto o zoom) en el cabezal"],
   ["Alt + ← →", "Mover lo elegido una palabra"],
   ["Supr", "Quitar lo elegido (en un tramo de video: cortarlo)"],
   ["Esc", "Soltar la selección"],

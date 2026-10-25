@@ -456,11 +456,16 @@ function CaptionInspector({ api, index, onClose }: { api: StudioApi; index: numb
   if (!block) return <Gone onClose={onClose} />;
   const sel: StudioSelection = { kind: "caption", index };
   const emphasis = new Set(state.emphasis);
+  // Palabras quitadas a mano entre el subtítulo anterior y este (o hasta el final, si es el último).
+  const prevLast = api.captions[index - 1]?.words.at(-1)?.id ?? -1;
+  const lastId = block.words.at(-1)?.id ?? 0;
+  const nextFirst = api.captions[index + 1]?.words[0]?.id ?? Number.MAX_SAFE_INTEGER;
+  const hidden = [...api.subsHidden].filter((id) => id > prevLast && id < nextFirst && (id <= lastId || index === api.captions.length - 1)).sort((a, b) => a - b);
   return (
     <>
       <Header eyebrow="Subtítulo" title={`${timeLabel(block.start)} – ${timeLabel(block.end)}`} onClose={onClose} />
       <div className="flex flex-col gap-3 p-4">
-        <p className="text-xs text-muted">Cambia cómo se escribe cada palabra en los subtítulos (el audio queda igual). La estrella la resalta con el color de tu marca.</p>
+        <p className="text-xs text-muted">Cambia cómo se escribe cada palabra en los subtítulos (el audio queda igual). La estrella la resalta con el color de tu marca y la × la quita solo de los subtítulos: el video no se corta.</p>
         <ul className="flex flex-col gap-2">
           {block.words.map((w) => {
             const original = props.words[w.id]?.text ?? w.text;
@@ -498,10 +503,41 @@ function CaptionInspector({ api, index, onClose }: { api: StudioApi; index: numb
                 >
                   ★
                 </button>
+                {props.canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => api.actions.setSubsHidden([w.id], true)}
+                    className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-white/10 text-muted transition hover:border-danger/50 hover:text-danger"
+                    aria-label={`Quitar «${value}» de los subtítulos`}
+                    title="Quitar de los subtítulos (el video no se corta)"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                  </button>
+                )}
               </li>
             );
           })}
         </ul>
+        {hidden.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold text-muted">Quitadas de este subtítulo</p>
+            <div className="flex flex-wrap gap-1.5">
+              {hidden.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={!props.canEdit}
+                  onClick={() => api.actions.setSubsHidden([id], false)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-muted line-through decoration-placeholder hover:border-white/30 hover:text-white hover:no-underline"
+                  title="Volver a mostrar en los subtítulos"
+                >
+                  <Undo2 className="h-3 w-3" aria-hidden />
+                  {state.corrections[String(id)] ?? props.words[id]?.text ?? ""}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="ghost" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(block.start, true)}>
             Escuchar
@@ -524,7 +560,7 @@ function CaptionInspector({ api, index, onClose }: { api: StudioApi; index: numb
             Quitar todos los subtítulos del video
           </button>
         )}
-        <p className="text-xs text-muted">Para corregir una palabra en todas las veces que aparece, haz doble clic sobre ella en Transcripción. Un subtítulo quitado deja un tramo rayado en su pista: tócalo para volver a mostrarlo.</p>
+        <p className="text-xs text-muted">Para corregir una palabra en todas las veces que aparece, tócala en Transcripción. Un subtítulo quitado deja un tramo rayado en su pista: tócalo para volver a mostrarlo.</p>
       </div>
       <TransformSlot api={api} sel={sel} />
     </>
@@ -542,7 +578,7 @@ function ClipInspector({ api, index, onClose }: { api: StudioApi; index: number;
       <Header eyebrow="Tramo de video" title={clip.role === "hook" ? "Gancho (va al principio)" : `Tramo ${index + 1} de ${api.timeline.clips.length}`} onClose={onClose} />
       <div className="flex flex-col gap-3 p-4">
         <Spoken text={kept.map((w) => w.text).join(" ")} start={start} end={end} />
-        <p className="text-xs text-muted">Para cortar solo una parte, arrastra sobre la pista de video y elige el tramo; o toca palabras en Transcripción.</p>
+        <p className="text-xs text-muted">Para cortar solo una parte, pon el cabezal y toca Dividir (C): el tramo queda en partes y quitas la que sobra con Supr.</p>
         <div className="flex flex-wrap gap-2">
           {api.props.canEdit && (
             <Button size="sm" variant="ghost" icon={<Scissors className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.cut(kept.map((w) => w.id), true)}>
@@ -656,15 +692,22 @@ function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: numb
   const range = outputRange(api.timeline, from, to);
   const span = { from, to };
   const edit = api.props.canEdit;
+  const after = api.timeline.words.find((w) => w.id > to);
+  const part = api.state.splits.includes(from) || Boolean(after && api.state.splits.includes(after.id));
   return (
     <>
-      <Header eyebrow="Tramo elegido" title={range ? `${timeLabel(range.start)} – ${timeLabel(range.end)}` : "Tramo"} onClose={onClose} />
+      <Header eyebrow={part ? "Parte del video" : "Tramo elegido"} title={range ? `${timeLabel(range.start)} – ${timeLabel(range.end)}` : "Tramo"} onClose={onClose} />
       <div className="flex flex-col gap-3 p-4">
         <Spoken text={api.textOf(from, to, 240)} start={range?.start} end={range?.end} />
         <div className="grid grid-cols-1 gap-2">
           {edit && (
             <Button size="sm" icon={<Scissors className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.cutSpan(span)}>
-              Cortar este tramo
+              {part ? "Quitar esta parte (Supr)" : "Cortar este tramo"}
+            </Button>
+          )}
+          {edit && api.state.splits.includes(from) && (
+            <Button size="sm" variant="ghost" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => (api.update((st) => ({ ...st, splits: st.splits.filter((id) => id !== from) })), api.select(null))}>
+              Unir con la parte anterior
             </Button>
           )}
           {edit && (

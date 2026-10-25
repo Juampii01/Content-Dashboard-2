@@ -1,0 +1,21 @@
+name: Prueba de memoria de la separación
+on:
+  push:
+    branches: [prueba-memoria]
+permissions:
+  contents: write
+jobs:
+  mem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install onnxruntime==1.31.0 numpy
+      - run: mkdir -p modelo && curl -sSfL -o modelo/htdemucs_fp16weights.onnx https://huggingface.co/adowu/htdemucs-onnx/resolve/e6b688a9a9f977e2efaba79d0f18b9b0cfc606ea/htdemucs_fp16weights.onnx
+      - run: for v in all all-noarena basic basic-noarena; do python mem.py $v 2>&1 | grep -v onnxruntime | tee -a salida.txt; done
+      - if: always()
+        run: |
+          git config user.name "prueba" && git config user.email "prueba@users.noreply.github.com"
+          git checkout --orphan prueba-memoria-salida && git rm -rq --cached . && git add salida.txt && git commit -qm salida && git push -qf origin prueba-memoria-salida

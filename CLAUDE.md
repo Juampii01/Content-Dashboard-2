@@ -172,6 +172,10 @@ success #1f7a4d · warning #8a5a00 · danger #c0362c
 
 **Mis efectos:** ✅ las animaciones que crea la IA se guardan solas al renderizar (sin duplicados, con versiones, muestra en bucle sacada del mismo render) o a mano desde el inspector; se arrastran desde la Biblioteca a otros videos con sus textos adaptados y el código validado otra vez, y el taller las reusa cuando encajan (más barato, con rotación) (`lib/video/compos/library*.ts`, `worker/video/efectos.py`).
 
+**Sacar la música de un reel:** ✅ Biblioteca → Música: link (Instagram, TikTok, YouTube) o archivo; el worker (`AUDIO_SPLIT`, `worker/video/separar.py`) separa la voz con HT-Demucs en ONNX (Meta, MIT, CPU, sin PyTorch) y guarda la música con sus efectos, sin la voz, como una pista más (`lib/video/music-split.ts`). La voz y el archivo subido no se guardan.
+
+**Animar todo el video:** ✅ «Animar todo» en el Estudio: Claude propone un estilo común y un pedido por momento (`lib/ai/prompts/compos.ts`, `planWholeVideo` en `lib/video/compos/flows.ts`), se revisan y se crean todos. Disposiciones: con tu cara (alterna), sobre tu cara, mitad y mitad, fondo blanco arriba y pantalla completa. Los pedidos de una tanda esperan (`compos_requests.status = waiting`) y entran de a 8 en el servidor (`promoteWaiting`). El Editor también acepta un audio solo: el worker arma un fondo liso (`ingest.video_from_audio`). Con la suscripción de Claude conectada, el tope en USD no limita las animaciones y «Copiar edición» copia todos los momentos de la referencia (hasta 40; máximo 60 animaciones por video).
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

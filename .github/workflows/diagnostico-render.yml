@@ -34,7 +34,10 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Diagnóstico
-        run: flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ steps.pid.outputs.pid }}" | sed -E 's#https?://[^" ]+#<url>#g' | tee /tmp/diag.txt
+        run: |
+          flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ steps.pid.outputs.pid }}" | sed -E 's#https?://[^" ]+#<url>#g' | tee /tmp/diag.txt
+          # Separación de voz (Biblioteca → Sacar la música de un reel): el modelo carga y cuánto tarda en esta máquina.
+          flyctl ssh console --config fly.toml -C "sh -c 'cd /app && python diag_separar.py'" 2>&1 | tail -5 | tee -a /tmp/diag.txt || true
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Registros del worker

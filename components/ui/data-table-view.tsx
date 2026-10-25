@@ -129,7 +129,7 @@ export function DataTableView<T>({
 
   return (
     <div
-      className={cn("card overflow-auto overscroll-x-contain !bg-[#06102f]", className)}
+      className={cn("card overflow-auto overscroll-x-contain !bg-card", className)}
       style={maxHeight ? ({ maxHeight } as CSSProperties) : undefined}
       // Contenedor con scroll: enfocable para poder desplazarse con el teclado.
       tabIndex={0}
@@ -243,7 +243,7 @@ export function DataTableView<T>({
                           className={cn(
                             pad,
                             column.numeric && "text-right whitespace-nowrap tabular-nums",
-                            column.sticky && "sticky left-0 z-[1] bg-[#06102f]",
+                            column.sticky && "sticky left-0 z-[1] bg-card",
                             column.className,
                           )}
                         >

@@ -47,7 +47,7 @@ export function LongVideoList({ videos }: { videos: LongVideoItem[] }) {
                     <Film className="h-7 w-7" aria-hidden />
                   </span>
                 )}
-                {v.duration != null && <span className="absolute right-2 bottom-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-white">{formatDuration(v.duration)}</span>}
+                {v.duration != null && <span className="absolute right-2 bottom-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-paper">{formatDuration(v.duration)}</span>}
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
                 <div className="flex items-center justify-between gap-2">

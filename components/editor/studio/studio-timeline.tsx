@@ -651,7 +651,7 @@ export function StudioTimeline({
                         <span
                           aria-hidden
                           className={cn(
-                            "absolute top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full border border-white/45 bg-[#040d2c] text-white/80 transition group-hover/pause:scale-125 group-hover/pause:border-accent-hi group-hover/pause:text-accent-glow group-focus-visible/pause:border-accent-hi",
+                            "absolute top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full border border-white/45 bg-[#040d2c] text-paper/80 transition group-hover/pause:scale-125 group-hover/pause:border-accent-hi group-hover/pause:text-accent-glow group-focus-visible/pause:border-accent-hi",
                             selKey === `pause:${c.word}` && "border-white text-white",
                           )}
                         >
@@ -732,7 +732,7 @@ export function StudioTimeline({
                   // Su nombre y cuánto dura, siempre a la vista (aunque el bloque sea angosto).
                   <span
                     data-testid="drop-ghost-label"
-                    className="pointer-events-none absolute z-40 rounded-md border border-accent-hi/60 bg-[#081a4a] px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap text-white shadow-lg"
+                    className="pointer-events-none absolute z-40 rounded-md border border-accent-hi/60 bg-[#081a4a] px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap text-paper shadow-lg"
                     style={{ left: x(dropGhost.start), top: -18 }}
                   >
                     {dropGhost.label} · {secondsLabel(dropGhost.end - dropGhost.start)}
@@ -750,7 +750,7 @@ export function StudioTimeline({
           </div>
 
           {ghost && (
-            <div className="pointer-events-none absolute top-6 z-50 -translate-x-1/2 rounded-lg border border-white/15 bg-[#081a4a] px-2 py-1 text-[11px] whitespace-nowrap text-white shadow-lg" style={{ left: LABEL_W + x((ghost.start + ghost.end) / 2) }} role="status">
+            <div className="pointer-events-none absolute top-6 z-50 -translate-x-1/2 rounded-lg border border-white/15 bg-[#081a4a] px-2 py-1 text-[11px] whitespace-nowrap text-paper shadow-lg" style={{ left: LABEL_W + x((ghost.start + ghost.end) / 2) }} role="status">
               <span className="font-mono tabular-nums">
                 {timeLabel(ghost.start)} – {timeLabel(ghost.end)} · {secondsLabel(ghost.end - ghost.start)}
               </span>

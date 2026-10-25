@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
 import "./globals.css";
+
+// Geist (SIL OFL), autoalojada: el paquete trae los archivos y next/font los sirve desde la app.
 
 const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Content Studio";
 
@@ -11,12 +15,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es" className="h-full">
-      <head>
-        {/* Las dos variantes latinas se usan en todas las pantallas: se precargan para evitar el salto de fuente. */}
-        <link rel="preload" href="/fonts/f07.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
-        <link rel="preload" href="/fonts/f48.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
-      </head>
+    <html lang="es" className={`h-full ${GeistSans.variable} ${GeistMono.variable}`}>
       <body className="min-h-full">{children}</body>
     </html>
   );

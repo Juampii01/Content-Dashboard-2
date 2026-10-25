@@ -113,29 +113,27 @@ docs/                 # decisiones y guías de instalación por cliente
 - **Suscripción de Claude del cliente (animaciones):** en Ajustes el cliente toca «Conectar mi Claude» (trabajo `CLAUDE_LOGIN`: el worker corre `claude setup-token`, muestra el enlace oficial y recibe el código que se pega en la pantalla) o pega el token. Se guarda cifrado (`claude.oauth`). Con eso, el código de cada animación lo escribe un agente en el worker (`worker/video/compos_agent.py`, SDK de agentes de Claude) que prueba con el mismo validador de la app, mira la animación sobre el video y entrega; gasta el uso semanal del plan del cliente, no la API. Sin cupo o con el token vencido, esa animación sigue por la API. El uso queda en `ai_usage` con `provider = "claude-plan"` y costo 0.
 - **Plantillas desde referencia:** el cliente sube las imágenes de un carrusel (o pega su link; el worker lo baja con `gallery-dl`). El worker mide con Tesseract y k-means (`worker/carruseles/medidas.py`), la app arma un borrador determinista (`lib/carousels/style/draft.ts`) y Claude con visión lo corrige (`carruseles.estilo`). Se guarda solo el diseño (`carousel_templates.spec`, Zod en `lib/carousels/template-spec.ts`); las referencias se borran al terminar y nunca se muestran ni se mandan al generador de imágenes.
 
-## 6. Diseño: estética MaestrIA
+## 6. Diseño: estética Content Studio (clara)
 
-Misma estética que **Crea tu Agencia** (`eternitydevzz/creatuagencia-maestria`): oscura, minimalista, superficies planas, bordes finos, un solo acento azul y casi sin brillos. Tiene que verse premium, legible y fácil de entender.
+Clara, limpia y premium: fondo gris muy claro, superficies blancas con bordes finos, texto en tinta casi negra, botón principal negro y un solo acento azul. Tiene que verse profesional, legible y fácil de entender. El Estudio del editor sigue oscuro (clase `.theme-dark`), como los editores de video profesionales.
 
-### Tokens
+### Tokens (`app/globals.css`)
 ```
-bg            #030a22    fondo de la app
-bg-deep       #02061a    fondo profundo, barras de scroll
-card          #07163f    superficies sólidas
-accent        #0070f8    acento principal (botones, activo)
-accent-hi     #4da3ff    acento claro (foco, iconos, progreso)
-accent-glow   #8cc6ff    eyebrows y detalles
-text          #dce7f7    texto principal
-muted         #a7b9d4    texto secundario
-line          rgba(91,156,225,.32)
-line-strong   rgba(91,156,225,.8)
-placeholder   #6f84a8
+bg            #f6f6f4    fondo de la app
+card          #ffffff    superficies
+white         #16171b    la tinta: text-white, bg-white/5 y border-white/10 dan texto, tintes y bordes sobre lo claro
+paper         #ffffff    blanco de verdad (texto sobre botones negros, sobre video o fotos)
+text          #2a2c31    texto principal
+muted         #6a6e75    texto secundario
+accent        #2457f5    acento (enlaces, foco, iconos activos)
+line          #e7e6e2    bordes
+success #1f7a4d · warning #8a5a00 · danger #c0362c
 ```
-- **Tipografía:** Inter (texto y títulos, títulos en blanco con `letter-spacing: -.02em`) y JetBrains Mono (eyebrows, números de pasos, cifras técnicas). Fuentes autoalojadas, igual que en Crea tu Agencia.
-- **Fondo:** degradado radial azul suave arriba (`rgba(0,112,248,.16)`) más una grilla de 48 px casi invisible.
-- **Componentes base** (portar desde `src/index.css` de Crea tu Agencia): `.card`, `.card-lift`, `.hero-panel`, `.tile-hero`, `.tile-icon`, `.section-shell`, `.btn` (degradado `#2b92ff → #0070f8`), `.btn-ghost`, `.field`, `.eyebrow`, `.pill`, `.skeleton`, `.bar-shine`, `.stagger`, `.range`, y la ruta de pasos (`.step-list`, `.step`, `.step-node`) para los flujos de varios pasos (crear clon, editar video, crear carrusel).
+- **Tipografía:** Geist y Geist Mono (autoalojadas con el paquete `geist`).
+- **Botones:** `.btn` negro con texto blanco; `.btn-ghost` blanco con borde fino. Chips activos en negro.
+- **Oscuro:** `.theme-dark` vuelve a los tokens oscuros de antes dentro de un contenedor (hoy, el Estudio). Para texto blanco sobre fondos de color o video usa `text-paper`, nunca `text-white`.
 - **Radios:** `rounded-xl` en controles, `rounded-2xl` en tarjetas y secciones.
-- **Animaciones:** solo las de Crea tu Agencia (`step-in`, `pop-in`, `shimmer`, `ping-soft`, `float`) y siempre respetando `prefers-reduced-motion`.
+- **Animaciones:** `step-in`, `pop-in`, `shimmer`, `ping-soft`, `float`, siempre respetando `prefers-reduced-motion`.
 - Iconos de `lucide-react`.
 
 ### Reglas de UX

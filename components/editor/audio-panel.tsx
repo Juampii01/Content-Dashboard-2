@@ -137,7 +137,7 @@ export function AudioPanel({
                   type="button"
                   onClick={() => player.toggle(track.id, track.url)}
                   disabled={!track.url}
-                  className={cn("grid h-10 w-10 flex-none place-items-center rounded-xl border transition", player.playing === track.id ? "border-accent bg-accent text-white" : "border-white/15 text-accent-hi hover:border-accent/60")}
+                  className={cn("grid h-10 w-10 flex-none place-items-center rounded-xl border transition", player.playing === track.id ? "border-accent bg-accent text-paper" : "border-white/15 text-accent-hi hover:border-accent/60")}
                   aria-label={player.playing === track.id ? "Pausar la música" : "Escuchar la música"}
                 >
                   {player.playing === track.id ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="ml-0.5 h-4 w-4" aria-hidden />}

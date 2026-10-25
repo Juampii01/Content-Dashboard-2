@@ -479,8 +479,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
             </div>
           ),
         )}
-        {topBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{topBroll.graphic ? "Gráfico" : "B-roll"}{activeBrolls.length > 1 ? ` +${activeBrolls.length - 1}` : ""}</span>}
-        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{activeFx.kind === "composition" ? `Animación · ${activeFx.text}` : specLabel(activeFx.kind)}{activeFxs.length > 1 ? ` +${activeFxs.length - 1}` : ""}</span>}
+        {topBroll && <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-paper">{topBroll.graphic ? "Gráfico" : "B-roll"}{activeBrolls.length > 1 ? ` +${activeBrolls.length - 1}` : ""}</span>}
+        {activeFx && <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-paper">{activeFx.kind === "composition" ? `Animación · ${activeFx.text}` : specLabel(activeFx.kind)}{activeFxs.length > 1 ? ` +${activeFxs.length - 1}` : ""}</span>}
         <CaptionOverlay block={block} time={out} preset={preset} format={format} accent={accent} height={height} captionStyle={captionStyle} look={captionLook} onBox={canvas ? onCaptionBox : undefined} />
         {(!src || error) && (
           <div className="absolute inset-0 grid place-items-center bg-bg/80 p-6 text-center text-sm text-text">

@@ -135,7 +135,7 @@ export function NotificationBell({ align = "left" }: { align?: "left" | "right" 
       >
         <Bell className="h-5 w-5" />
         {current.unread > 0 && (
-          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 font-mono text-[10px] font-bold leading-none text-white">
+          <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 font-mono text-[10px] font-bold leading-none text-paper">
             {current.unread > 9 ? "9+" : current.unread}
           </span>
         )}

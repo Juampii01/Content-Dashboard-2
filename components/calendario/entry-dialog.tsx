@@ -496,7 +496,7 @@ function ScriptPicker({ scriptId, scriptTitle, disabled, onChange }: { scriptId:
 function Thumb({ src, className }: { src: string | null; className?: string }) {
   const [broken, setBroken] = useState(false);
   return (
-    <span className={cn("relative block flex-none overflow-hidden rounded-lg bg-[#0a1a45] bg-[radial-gradient(circle_at_30%_20%,rgba(0,112,248,0.3),transparent_60%)]", className)}>
+    <span className={cn("relative block flex-none overflow-hidden rounded-lg bg-white/[0.06] bg-[radial-gradient(circle_at_30%_20%,rgba(36,87,245,0.12),transparent_60%)]", className)}>
       {src && !broken && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" onError={() => setBroken(true)} />

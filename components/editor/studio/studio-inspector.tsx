@@ -763,7 +763,7 @@ function TransitionInspector({ api, word, id, onClose }: { api: StudioApi; word:
                   <span className="text-sm text-text">Con su sonido</span>
                   <span className="text-xs text-muted">{SFX_LIBRARY[info.sound as SfxName]?.label ?? "Sonido"} justo en el corte, bajo tu voz.</span>
                 </span>
-                <input type="checkbox" className="h-4 w-4 flex-none accent-[#0070f8]" checked={item.sound !== false} disabled={!edit} onChange={(e) => set({ sound: e.target.checked })} />
+                <input type="checkbox" className="h-4 w-4 flex-none accent-[var(--color-accent)]" checked={item.sound !== false} disabled={!edit} onChange={(e) => set({ sound: e.target.checked })} />
               </label>
             )}
           </>
@@ -943,7 +943,7 @@ function GlobalInspector({ api }: { api: StudioApi }) {
               <span className="text-sm text-text">Emojis en las palabras clave</span>
               <span className="text-xs text-muted">Uno por frase, solo donde encaja (dinero, tiempo, idea…).</span>
             </span>
-            <input type="checkbox" className="h-4 w-4 flex-none accent-[#0070f8]" checked={state.emoji} disabled={!props.canEdit} onChange={(e) => api.update((s) => ({ ...s, emoji: e.target.checked }))} />
+            <input type="checkbox" className="h-4 w-4 flex-none accent-[var(--color-accent)]" checked={state.emoji} disabled={!props.canEdit} onChange={(e) => api.update((s) => ({ ...s, emoji: e.target.checked }))} />
           </label>
         )}
       </Group>
@@ -961,7 +961,7 @@ function GlobalInspector({ api }: { api: StudioApi }) {
                 <ZoomIn className="h-4 w-4 text-accent-hi" aria-hidden />
                 Zooms del estilo {state.zoomsOn ? `(${formatNumber(api.zooms.length)})` : ""}
               </span>
-              <input type="checkbox" className="h-4 w-4 accent-[#0070f8]" checked={state.zoomsOn} disabled={!props.canEdit} onChange={(e) => api.update((s) => ({ ...s, zoomsOn: e.target.checked }))} />
+              <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={state.zoomsOn} disabled={!props.canEdit} onChange={(e) => api.update((s) => ({ ...s, zoomsOn: e.target.checked }))} />
             </label>
           ) : (
             <p className="text-xs text-muted">La referencia no usa zooms.</p>

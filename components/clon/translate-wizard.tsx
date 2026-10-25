@@ -157,7 +157,7 @@ function SourceCard({ source, selected, onSelect }: { source: TranslationSource;
           </span>
         )}
         {source.seconds != null && (
-          <span className="absolute right-2 bottom-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-white">{formatDuration(source.seconds)}</span>
+          <span className="absolute right-2 bottom-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-paper">{formatDuration(source.seconds)}</span>
         )}
       </div>
       <div className="flex flex-col gap-0.5 p-3">

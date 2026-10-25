@@ -65,7 +65,7 @@ export function CarouselCard({ item, look, canEdit }: { item: CarouselCardItem; 
         ) : (
           <div className="grid aspect-[4/5] place-items-center text-sm text-muted">Sin slides</div>
         )}
-        <span className="absolute top-2 right-2 rounded-md bg-black/70 px-2 py-1 font-mono text-[11px] font-bold text-white backdrop-blur">{item.slideCount} slides</span>
+        <span className="absolute top-2 right-2 rounded-md bg-black/70 px-2 py-1 font-mono text-[11px] font-bold text-paper backdrop-blur">{item.slideCount} slides</span>
       </Link>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <div className="flex items-center justify-between gap-2">

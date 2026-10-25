@@ -404,7 +404,7 @@ export function NewCloneVideoWizard({
                   <p className="mt-2 text-xs text-muted">Más rápido = video más corto y más barato. Entre 1× y 1.1× suena natural.</p>
                 </div>
                 <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 p-4 transition hover:border-white/25">
-                  <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#0070f8]" />
+                  <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--color-accent)]" />
                   <span>
                     <span className="block text-sm font-semibold text-white">Quemar subtítulos en el video</span>
                     <span className="text-xs text-muted">Siempre recibes el archivo SRT. Si lo vas a pasar por el editor, mejor sin quemar: allí les das tu estilo.</span>

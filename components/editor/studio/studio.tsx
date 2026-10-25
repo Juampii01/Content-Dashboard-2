@@ -1629,7 +1629,7 @@ export function Studio(props: StudioProps) {
 
   return (
     <HumanizeProvider value={humanize}>
-      <div className="fixed inset-0 z-40 flex flex-col bg-bg text-text" data-testid="studio">
+      <div className="theme-dark fixed inset-0 z-40 flex flex-col bg-bg text-text" data-testid="studio">
         {/* Barra superior */}
         <header className="flex h-14 flex-none items-center gap-2 border-b border-white/10 bg-[#030a22] px-2 sm:px-3">
           <ButtonLink href="/editor" variant="subtle" size="sm" className="!px-2" icon={<ArrowLeft className="h-4 w-4" aria-hidden />} aria-label="Volver al Editor">

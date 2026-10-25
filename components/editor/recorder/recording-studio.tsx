@@ -377,7 +377,7 @@ export function RecordingStudio({
               </div>
             )}
             {phase === "recording" && (
-              <span className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 font-mono text-sm font-semibold text-white" role="timer" aria-live="off">
+              <span className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 font-mono text-sm font-semibold text-paper" role="timer" aria-live="off">
                 <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-danger motion-reduce:animate-none" aria-hidden /> {formatTimecode(elapsed)}
               </span>
             )}
@@ -429,7 +429,7 @@ export function RecordingStudio({
                     type="button"
                     onClick={record}
                     disabled={camera.state.status !== "ready" || phase === "countdown"}
-                    className="inline-flex h-14 items-center gap-2.5 rounded-full bg-gradient-to-b from-[#2b92ff] to-accent px-7 text-base font-semibold text-white shadow-[0_8px_24px_rgba(0,112,248,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-14 items-center gap-2.5 rounded-full bg-gradient-to-b from-[#2b92ff] to-accent px-7 text-base font-semibold text-paper shadow-[0_8px_24px_rgba(0,112,248,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="h-3.5 w-3.5 rounded-full bg-danger ring-2 ring-white/80" aria-hidden /> {phase === "countdown" ? "Prepárate…" : "Grabar"}
                   </button>
@@ -465,7 +465,7 @@ export function RecordingStudio({
                       </button>
                     </div>
                     <label className="flex cursor-pointer items-center gap-2 text-sm text-text" title="Se detiene cuando haces una pausa y sigue cuando vuelves a hablar. No reconoce palabras: si te saltas una frase, muévelo con la rueda o el dedo.">
-                      <input type="checkbox" className="h-4 w-4 accent-[#0070f8]" checked={prefs.followVoice} onChange={(e) => updatePrefs({ followVoice: e.target.checked })} />
+                      <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={prefs.followVoice} onChange={(e) => updatePrefs({ followVoice: e.target.checked })} />
                       Seguir mi voz
                     </label>
                   </div>
@@ -501,7 +501,7 @@ export function RecordingStudio({
                     </Select>
                   </Field>
                   <label className="flex cursor-pointer items-center gap-2 text-sm text-text sm:col-span-2">
-                    <input type="checkbox" className="h-4 w-4 accent-[#0070f8]" checked={prefs.mirror} onChange={(e) => updatePrefs({ mirror: e.target.checked })} />
+                    <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={prefs.mirror} onChange={(e) => updatePrefs({ mirror: e.target.checked })} />
                     <FlipHorizontal2 className="h-4 w-4 text-muted" aria-hidden /> Verme como en un espejo (el video sale sin espejar)
                   </label>
                   {camera.state.status === "ready" && (
@@ -623,7 +623,7 @@ function SessionList({
                     <span
                       className={cn(
                         "mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full border-2 font-mono text-[11px] font-bold",
-                        take ? "border-accent-hi bg-accent-hi text-bg" : isNext ? "border-accent-hi bg-accent text-white" : "border-white/20 text-muted",
+                        take ? "border-accent-hi bg-accent-hi text-bg" : isNext ? "border-accent-hi bg-accent text-paper" : "border-white/20 text-muted",
                       )}
                       aria-hidden
                     >

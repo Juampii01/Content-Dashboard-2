@@ -93,7 +93,7 @@ function IdeaCard({ idea, messageId, canEdit, citations }: { idea: StrategistIde
 function Sources({ citations }: { citations: StrategistCitation[] }) {
   if (citations.length === 0) return null;
   return (
-    <details className="group rounded-xl border border-white/10 bg-black/10 px-3 py-2 text-sm">
+    <details className="group rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm">
       <summary className="cursor-pointer list-none text-xs font-semibold text-muted transition hover:text-white [&::-webkit-details-marker]:hidden">
         <span className="inline-flex items-center gap-1.5">
           Fuentes ({citations.length}) <span className="font-normal text-placeholder group-open:hidden">· ver de dónde sale cada dato</span>

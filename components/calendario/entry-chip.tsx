@@ -71,7 +71,7 @@ export function ChipBody({ entry, variant = "compact", showTime = true }: { entr
 }
 
 const chipClass =
-  "group/chip relative flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-white/10 bg-[#0a1c4d] py-1.5 pr-1.5 pl-3 text-left transition-colors hover:border-white/25 hover:bg-[#0d2460] focus-visible:outline-2 focus-visible:outline-accent-hi";
+  "group/chip relative flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-white/10 bg-card py-1.5 pr-1.5 pl-3 text-left transition-colors hover:border-white/25 hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:outline-accent-hi";
 
 /** Pieza dentro del calendario. Se arrastra con mouse, toque (manteniendo) o teclado (Espacio). Enter o clic la abre. */
 export function EntryChip({

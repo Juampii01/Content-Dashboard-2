@@ -66,8 +66,8 @@ export function ReferencePicker({ files, onChange, disabled, title }: { files: P
             <li key={f.id} className="relative overflow-hidden rounded-lg border border-white/10">
               {/* eslint-disable-next-line @next/next/no-img-element -- miniatura local (blob:) que no sale del navegador */}
               <img src={f.url} alt={`Slide ${i + 1}`} className="aspect-[4/5] w-full object-cover" />
-              <span className="absolute top-1 left-1 rounded bg-black/70 px-1.5 font-mono text-[10px] font-bold text-white">{i + 1}</span>
-              <button type="button" onClick={() => remove(f.id)} disabled={disabled} aria-label={`Quitar la imagen ${i + 1}`} className="absolute top-1 right-1 grid h-6 w-6 place-items-center rounded-full bg-black/70 text-white transition hover:bg-black">
+              <span className="absolute top-1 left-1 rounded bg-black/70 px-1.5 font-mono text-[10px] font-bold text-paper">{i + 1}</span>
+              <button type="button" onClick={() => remove(f.id)} disabled={disabled} aria-label={`Quitar la imagen ${i + 1}`} className="absolute top-1 right-1 grid h-6 w-6 place-items-center rounded-full bg-black/70 text-paper transition hover:bg-black">
                 <X className="h-3.5 w-3.5" aria-hidden />
               </button>
             </li>

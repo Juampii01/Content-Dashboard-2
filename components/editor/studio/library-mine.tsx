@@ -147,7 +147,7 @@ export function MyEffectsSection({ canEdit, onAdd }: { canEdit: boolean; onAdd: 
                   type="button"
                   aria-pressed={cat === c.key}
                   onClick={() => setCat(c.key)}
-                  className={cn("rounded-lg px-2 py-0.5 text-[11px] font-semibold transition focus-visible:outline-2 focus-visible:outline-accent-hi", cat === c.key ? "bg-[#8b5cf6] text-white" : "bg-white/[0.04] text-muted hover:text-white")}
+                  className={cn("rounded-lg px-2 py-0.5 text-[11px] font-semibold transition focus-visible:outline-2 focus-visible:outline-accent-hi", cat === c.key ? "bg-[#8b5cf6] text-paper" : "bg-white/[0.04] text-muted hover:text-paper")}
                 >
                   {c.label}
                 </button>
@@ -226,7 +226,7 @@ function MyEffectCard({ effect: e, canEdit, onAdd, onFav, onRename, onRemove }: 
             </span>
           </span>
         )}
-        {e.usedCount > 0 && <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-white">{e.usedCount === 1 ? "1 video" : `${formatNumber(e.usedCount)} videos`}</span>}
+        {e.usedCount > 0 && <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-paper">{e.usedCount === 1 ? "1 video" : `${formatNumber(e.usedCount)} videos`}</span>}
       </button>
       {canEdit && (
         <button
@@ -234,7 +234,7 @@ function MyEffectCard({ effect: e, canEdit, onAdd, onFav, onRename, onRemove }: 
           onClick={onFav}
           aria-pressed={e.favorite}
           aria-label={e.favorite ? `Quitar «${e.name}» de favoritos` : `Marcar «${e.name}» como favorito`}
-          className={cn("absolute top-1.5 right-1.5 grid h-7 w-7 place-items-center rounded-lg bg-black/55 transition focus-visible:outline-2 focus-visible:outline-accent-hi", e.favorite ? "text-warning" : "text-white/80 hover:text-white")}
+          className={cn("absolute top-1.5 right-1.5 grid h-7 w-7 place-items-center rounded-lg bg-black/55 transition focus-visible:outline-2 focus-visible:outline-accent-hi", e.favorite ? "text-warning" : "text-paper/80 hover:text-paper")}
         >
           <Star className={cn("h-3.5 w-3.5", e.favorite && "fill-current")} aria-hidden />
         </button>

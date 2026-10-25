@@ -45,7 +45,7 @@ function StageTracker({ status, translation, sent }: { status: CloneVideoItem["s
               className={cn(
                 "grid h-7 w-7 flex-none place-items-center rounded-full border-2 font-mono text-[11px] font-bold",
                 done && "border-accent-hi bg-accent-hi text-bg",
-                active && "animate-ping-soft border-accent-hi bg-accent text-white motion-reduce:animate-none",
+                active && "animate-ping-soft border-accent-hi bg-accent text-paper motion-reduce:animate-none",
                 !done && !active && "border-white/20 text-muted",
               )}
             >

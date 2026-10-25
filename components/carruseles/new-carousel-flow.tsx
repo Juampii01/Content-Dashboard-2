@@ -337,7 +337,7 @@ export function NewCarouselFlow({
                 </div>
                 {custom.spec.structure.length >= 3 && (
                   <label className="flex cursor-pointer items-start gap-3">
-                    <input type="checkbox" checked={respect} onChange={(e) => setRespect(e.target.checked)} className="mt-1 h-4 w-4 accent-[#0070f8]" />
+                    <input type="checkbox" checked={respect} onChange={(e) => setRespect(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--color-accent)]" />
                     <span>
                       <span className="block text-sm font-semibold text-white">Respetar la estructura de la referencia ({custom.spec.structure.length} slides)</span>
                       <span className="text-xs text-muted">{custom.spec.structure.map((s) => SLIDE_TYPES[s.type]).join(" · ")}</span>

@@ -140,7 +140,7 @@ export function PlanDialog({ open, onOpenChange, canPlan, onDone }: { open: bool
                   checked={r.keep}
                   onChange={(e) => setRows((list) => list!.map((x) => (x.key === r.key ? { ...x, keep: e.target.checked } : x)))}
                   aria-label={`Incluir “${r.title}”`}
-                  className="mt-1 h-4 w-4 flex-none accent-[#0070f8]"
+                  className="mt-1 h-4 w-4 flex-none accent-[var(--color-accent)]"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-white">{r.title}</p>

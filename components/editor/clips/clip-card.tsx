@@ -107,7 +107,7 @@ export function ClipCard({ clip, total, canEdit }: { clip: ClipView; total: numb
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-3">
+          <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
             <p className="eyebrow mb-1 !text-[10px]">Texto de gancho sugerido</p>
             <p className="text-base font-semibold text-white">“{clip.hookText}”</p>
           </div>
@@ -276,7 +276,7 @@ function ScoreDetailView({ clip }: { clip: ClipView }) {
   const d = clip.detail;
   const f = d.features;
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/20 p-4">
+    <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
       <ul className="flex flex-col gap-2" aria-label="Reglas medidas">
         {(Object.keys(RULE_LABEL) as RuleKey[]).map((k) => (
           <Bar key={k} label={RULE_LABEL[k]} value={d.parts[k]} />
@@ -364,7 +364,7 @@ function ClipPlayer({ clip, start, end }: { clip: ClipView; start: number; end: 
           aria-label={`Vista previa del clip ${clip.title}`}
         />
         <button type="button" onClick={toggle} className="group absolute inset-0 grid place-items-center focus-visible:outline-none" aria-label={playing ? "Pausar" : "Reproducir el clip"}>
-          <span className={cn("grid h-14 w-14 place-items-center rounded-full bg-black/55 text-white backdrop-blur transition group-focus-visible:ring-2 group-focus-visible:ring-accent-hi", playing && "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100")}>
+          <span className={cn("grid h-14 w-14 place-items-center rounded-full bg-black/55 text-paper backdrop-blur transition group-focus-visible:ring-2 group-focus-visible:ring-accent-hi", playing && "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100")}>
             {playing ? <Pause className="h-6 w-6" aria-hidden /> : <Play className="ml-0.5 h-6 w-6" aria-hidden />}
           </span>
         </button>
@@ -450,7 +450,7 @@ function RangeEditor({
         <EdgeControl label="Inicio" time={first?.start} onPrev={() => step("from", -1)} onNext={() => step("from", 1)} />
         <EdgeControl label="Fin" time={last?.end} onPrev={() => step("to", -1)} onNext={() => step("to", 1)} />
       </div>
-      <div ref={list} className="max-h-48 overflow-y-auto rounded-lg border border-white/10 bg-black/30 p-3 text-sm leading-7" role="group" aria-label="Palabras del tramo">
+      <div ref={list} className="max-h-48 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.04] p-3 text-sm leading-7" role="group" aria-label="Palabras del tramo">
         {words.map((w) => {
           const inside = w.id >= range.from && w.id <= range.to;
           const isEdge = w.id === range.from || w.id === range.to;
@@ -509,7 +509,7 @@ function RangeEditor({
 
 function EdgeControl({ label, time, onPrev, onNext }: { label: string; time: number | undefined; onPrev: () => void; onNext: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
       <span className="text-xs text-muted">
         {label} <span className="ml-1 font-mono text-white">{time != null ? formatTimecode(time) : "—"}</span>
       </span>

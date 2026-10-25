@@ -97,7 +97,7 @@ export function ProcessingView({
                 className={cn(
                   "grid h-7 w-7 flex-none place-items-center rounded-full border-2 font-mono text-[11px] font-bold",
                   s.state === "done" && "border-accent-hi bg-accent-hi text-bg",
-                  s.state === "active" && "border-accent-hi bg-accent text-white",
+                  s.state === "active" && "border-accent-hi bg-accent text-paper",
                   s.state === "pending" && "border-white/20",
                 )}
                 aria-hidden

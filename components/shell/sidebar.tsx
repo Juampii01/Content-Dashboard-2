@@ -135,14 +135,14 @@ export function SidebarView({
                     className={cn(
                       "flex items-center gap-3 rounded-xl border px-3 py-2 text-sm font-medium transition",
                       active
-                        ? "border-accent/40 bg-accent/15 font-semibold text-white"
+                        ? "border-transparent bg-white/[0.06] font-semibold text-white"
                         : "border-transparent text-muted hover:bg-white/5 hover:text-white",
                     )}
                   >
                     <Icon
                       className={cn(
                         "h-[18px] w-[18px]",
-                        active ? "text-accent-hi" : "",
+                        active ? "text-white" : "",
                       )}
                     />
                     {label}
@@ -193,7 +193,7 @@ export function SidebarView({
           />
           <aside
             ref={panelRef}
-            className="absolute inset-y-0 left-0 flex w-72 animate-step-in flex-col gap-6 overflow-y-auto border-r border-white/10 bg-bg-deep p-4"
+            className="absolute inset-y-0 left-0 flex w-72 animate-step-in flex-col gap-6 overflow-y-auto border-r border-white/[0.08] bg-card p-4"
           >
             <div className="flex items-center justify-between">
               {brand}
@@ -213,7 +213,7 @@ export function SidebarView({
       )}
 
       {/* Barra lateral fija */}
-      <aside className="sticky top-0 hidden h-screen w-64 flex-none flex-col gap-8 overflow-y-auto border-r border-white/10 bg-bg-deep/60 px-3 py-5 backdrop-blur-xl lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 flex-none flex-col gap-8 overflow-y-auto border-r border-white/[0.08] bg-card px-3 py-5 lg:flex">
         <div className="flex items-center justify-between gap-2">
           {brand}
           {bell}

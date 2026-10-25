@@ -249,7 +249,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
             role="tab"
             aria-selected={tab === v}
             onClick={() => setTab(v)}
-            className={cn("rounded-lg px-2 py-1.5 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-accent-hi", tab === v ? "bg-accent text-white" : "text-muted hover:bg-white/[0.06] hover:text-white")}
+            className={cn("rounded-lg px-2 py-1.5 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-accent-hi", tab === v ? "bg-accent text-paper" : "text-muted hover:bg-white/[0.06] hover:text-paper")}
           >
             {label}
           </button>

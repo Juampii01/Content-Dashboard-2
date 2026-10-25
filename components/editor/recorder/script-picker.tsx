@@ -140,7 +140,7 @@ function Group({
                 onClick={() => onToggle(s.id)}
                 className={cn("flex w-full items-start gap-3 rounded-2xl border p-3.5 text-left transition", on ? "border-accent bg-accent/12" : "border-white/10 hover:border-white/25")}
               >
-                <span className={cn("mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-lg border font-mono text-[11px] font-bold", on ? "border-accent-hi bg-accent text-white" : "border-white/25 text-transparent")} aria-hidden>
+                <span className={cn("mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-lg border font-mono text-[11px] font-bold", on ? "border-accent-hi bg-accent text-paper" : "border-white/25 text-transparent")} aria-hidden>
                   {on ? order + 1 : <Check className="h-3.5 w-3.5" />}
                 </span>
                 <span className="min-w-0 flex-1">

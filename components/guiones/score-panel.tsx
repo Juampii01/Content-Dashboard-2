@@ -267,7 +267,7 @@ export function ScorePanel({
                   </ul>
                 )}
                 {explanation.data.hookRewrite && (
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
                     <span className="text-white">«{explanation.data.hookRewrite}»</span>
                     <Button variant="subtle" size="sm" onClick={() => copy(explanation.data.hookRewrite!)} icon={<Copy className="h-3.5 w-3.5" aria-hidden />}>
                       Copiar

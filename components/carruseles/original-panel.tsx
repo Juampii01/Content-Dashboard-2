@@ -19,7 +19,7 @@ export function OriginalPanel({ original, index }: { original: NonNullable<Carou
       </summary>
       <div className="mt-3 flex flex-col gap-2 text-sm">
         <p className="eyebrow">Texto</p>
-        <p className="rounded-lg bg-black/25 p-2.5 font-mono text-xs leading-relaxed whitespace-pre-line text-muted">{original.text || "(sin texto)"}</p>
+        <p className="rounded-lg bg-white/[0.04] p-2.5 font-mono text-xs leading-relaxed whitespace-pre-line text-muted">{original.text || "(sin texto)"}</p>
         {original.visual && (
           <>
             <p className="eyebrow mt-1">Cómo se veía</p>

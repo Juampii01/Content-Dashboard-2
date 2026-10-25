@@ -648,7 +648,7 @@ export function CarouselEditor({
               className={cn("relative w-[104px] flex-none overflow-hidden rounded-xl border-2 transition sm:w-[120px]", s.id === selected?.id ? "border-accent-hi" : "border-white/10 hover:border-white/30")}
             >
               <ScaledSlide slide={s} index={i} total={slides.length} template={templateOf(s)} theme={resolved} identity={look.identity} label={`Slide ${i + 1}`} />
-              <span className="absolute top-1 left-1 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">{i + 1}</span>
+              <span className="absolute top-1 left-1 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10px] font-bold text-paper">{i + 1}</span>
               {slideWarnings(s.id).length > 0 && (
                 <span className="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded-full bg-warning text-[10px] font-bold text-bg" title="Tiene avisos">
                   !
@@ -945,7 +945,7 @@ export function CarouselEditor({
                   value={resolved.accent}
                   disabled={!canEdit}
                   onChange={(e) => (setTheme((t) => ({ ...t, accent: e.target.value })), touch())}
-                  className="h-[46px] w-14 cursor-pointer rounded-xl border border-white/10 bg-black/30 p-1"
+                  className="h-[46px] w-14 cursor-pointer rounded-xl border border-white/10 bg-white/[0.04] p-1"
                 />
               </Field>
             </div>

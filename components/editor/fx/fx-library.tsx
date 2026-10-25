@@ -92,7 +92,7 @@ export function FxTile({ kind, brand, onPick, selected, draggable, onDragStart, 
     >
       <span className="relative block aspect-[9/16] w-full overflow-hidden rounded-lg bg-[#121a33]">
         {spec && images.frame ? <FxDemoCanvas spec={spec} time={time} frame={images.frame} mask={images.mask} reducedMotion={reduced} /> : <span className="skeleton absolute inset-0" />}
-        {info.mask && <span className="absolute top-1 right-1 rounded bg-black/55 px-1 font-mono text-[8px] leading-[14px] text-white/85">recorte</span>}
+        {info.mask && <span className="absolute top-1 right-1 rounded bg-black/55 px-1 font-mono text-[8px] leading-[14px] text-paper/85">recorte</span>}
       </span>
       <span className={cn("px-0.5 pb-0.5 leading-tight font-semibold text-white", compact ? "text-[10.5px]" : "text-[11px]")}>{info.label}</span>
     </button>

@@ -290,7 +290,7 @@ function LastRequest({ edit, humanize }: { edit: EditRequest; humanize: (t: stri
             {compliance.map((c) => {
               const st = STATUS[c.status];
               return (
-                <li key={c.n} className="flex gap-2 rounded-lg bg-black/15 p-2">
+                <li key={c.n} className="flex gap-2 rounded-lg bg-white/[0.04] p-2">
                   <span className={cn("mt-0.5 flex-none", st.className)} aria-hidden>
                     {st.icon}
                   </span>

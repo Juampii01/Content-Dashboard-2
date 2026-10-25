@@ -182,7 +182,7 @@ function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
         )}
         <span className="absolute top-2 left-2">
           {clip.status === "READY" ? (
-            <span className="rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-white">{formatDuration(clip.duration)}</span>
+            <span className="rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-paper">{formatDuration(clip.duration)}</span>
           ) : (
             <StatusBadge tone={clip.status === "FAILED" ? "danger" : "info"}>{clip.status === "FAILED" ? "Con error" : clip.status === "UPLOADING" ? "Subida incompleta" : "Preparando"}</StatusBadge>
           )}

@@ -40,8 +40,8 @@ export function MonthGrid({
 }: Common & { days: string[]; month: string; today: string; byDay: Map<string, CalendarEntry[]>; onMore: (day: string) => void }) {
   const weeks = Array.from({ length: days.length / 7 }, (_, i) => days.slice(i * 7, i * 7 + 7));
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050d2b]/70" aria-label="Calendario del mes" role="region">
-      <div aria-hidden className="grid grid-cols-7 border-b border-white/10 bg-[#061238]">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-card" aria-label="Calendario del mes" role="region">
+      <div aria-hidden className="grid grid-cols-7 border-b border-white/10 bg-bg">
         {days.slice(0, 7).map((d) => (
           <div key={d} className="px-2 py-2.5 text-center font-mono text-[11px] font-semibold tracking-[0.12em] text-muted uppercase">
             {weekdayShort(d)}
@@ -61,13 +61,13 @@ export function MonthGrid({
                 key={day}
                 id={dropId.day(day)}
                 label={dayLong(day)}
-                className={cn("group/cell relative flex min-h-[7.75rem] flex-col gap-1 border-r border-white/[0.07] p-1.5 transition-colors last:border-r-0", outside && "bg-black/20", isToday && "bg-accent/[0.07]")}
+                className={cn("group/cell relative flex min-h-[7.75rem] flex-col gap-1 border-r border-white/[0.07] p-1.5 transition-colors last:border-r-0", outside && "bg-white/[0.04]", isToday && "bg-accent/[0.07]")}
               >
                 <div aria-label={`${dayLong(day)}${isToday ? ", hoy" : ""}: ${list.length === 0 ? "nada programado" : `${list.length} pieza${list.length === 1 ? "" : "s"}`}`} className="flex items-center justify-between">
                   <span
                     className={cn(
                       "grid h-6 min-w-6 place-items-center rounded-full px-1 font-mono text-xs font-semibold tabular-nums",
-                      isToday ? "bg-accent text-white" : outside ? "text-placeholder/70" : "text-muted",
+                      isToday ? "bg-accent text-paper" : outside ? "text-placeholder/70" : "text-muted",
                     )}
                   >
                     {Number(day.slice(8))}
@@ -125,14 +125,14 @@ export function WeekGrid({ days, today, byDay, ...common }: Common & { days: str
   const at = (day: string, hour: number | null) => (byDay.get(day) ?? []).filter((e) => (hour == null ? !e.scheduledTime : e.scheduledTime && Number(e.scheduledTime.slice(0, 2)) === hour));
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050d2b]/70">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-card">
       <div role="region" aria-label="Calendario de la semana">
-        <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-white/10 bg-[#061238]" aria-hidden>
+        <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-white/10 bg-bg" aria-hidden>
           <div />
           {days.map((d) => (
             <div key={d} className={cn("flex flex-col items-center gap-0.5 px-1 py-2", d === today && "text-white")}>
               <span className="font-mono text-[10px] font-semibold tracking-[0.12em] text-muted uppercase">{weekdayShort(d)}</span>
-              <span className={cn("grid h-7 min-w-7 place-items-center rounded-full px-1 text-sm font-semibold tabular-nums", d === today ? "bg-accent text-white" : "text-white")}>{Number(d.slice(8))}</span>
+              <span className={cn("grid h-7 min-w-7 place-items-center rounded-full px-1 text-sm font-semibold tabular-nums", d === today ? "bg-accent text-paper" : "text-paper")}>{Number(d.slice(8))}</span>
             </div>
           ))}
         </div>
@@ -213,7 +213,7 @@ export function Agenda({ days, today, byDay, showEmptyDays, onOpen, onCreate, ca
             <div className="mb-2 flex items-center justify-between gap-2">
               <h3 className={cn("text-sm font-semibold first-letter:uppercase", d === today ? "text-white" : "text-muted")}>
                 {dayLong(d)}
-                {d === today && <span className="ml-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold tracking-wide text-white uppercase normal-case">Hoy</span>}
+                {d === today && <span className="ml-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold tracking-wide text-paper uppercase normal-case">Hoy</span>}
               </h3>
               {canEdit && (
                 <button type="button" onClick={() => onCreate(d)} aria-label={`Agregar pieza el ${dayLong(d)}`} className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-white/5 hover:text-white">
@@ -274,7 +274,7 @@ function AgendaCard({ entry, onOpen }: { entry: CalendarEntry; onOpen: (id: stri
 
 export function UndatedPanel({ entries, canEdit, onOpen, onCreate, className }: Common & { entries: CalendarEntry[]; className?: string }) {
   return (
-    <Droppable id={dropId.undated} label="Sin fecha" className={cn("flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#050d2b]/70 p-3.5 transition-colors", className)}>
+    <Droppable id={dropId.undated} label="Sin fecha" className={cn("flex flex-col gap-3 rounded-2xl border border-white/10 bg-card p-3.5 transition-colors", className)}>
       <div className="flex items-center justify-between gap-2">
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold text-white">

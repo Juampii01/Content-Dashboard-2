@@ -121,7 +121,7 @@ export function EditorDefaultsForm({
             </div>
             {isCaptionStyle(d.captions) && (
               <label className="flex cursor-pointer items-center gap-2 text-sm text-text">
-                <input type="checkbox" className="h-4 w-4 accent-[#0070f8]" checked={d.emoji} disabled={!canEdit} onChange={(e) => set({ emoji: e.target.checked })} />
+                <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={d.emoji} disabled={!canEdit} onChange={(e) => set({ emoji: e.target.checked })} />
                 Emojis en las palabras clave
               </label>
             )}
@@ -223,7 +223,7 @@ export function EditorDefaultsForm({
                               <label key={k} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition", on ? "border-accent/60 bg-accent/10" : "border-white/10 hover:border-white/25")}>
                                 <input
                                   type="checkbox"
-                                  className="mt-0.5 h-4 w-4 flex-none accent-[#0070f8]"
+                                  className="mt-0.5 h-4 w-4 flex-none accent-[var(--color-accent)]"
                                   checked={on}
                                   onChange={(e) => set({ effects: { ...d.effects, allowed: e.target.checked ? [...d.effects.allowed, k] : d.effects.allowed.filter((x) => x !== k) } })}
                                 />

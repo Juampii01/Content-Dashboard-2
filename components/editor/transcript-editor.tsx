@@ -298,7 +298,7 @@ export function TranscriptEditor({
             />
             {twins.length > 0 && (
               <label className="flex items-center gap-2 text-sm text-text">
-                <input type="checkbox" checked={everywhere} onChange={(e) => setEverywhere(e.target.checked)} className="h-4 w-4 accent-[#0070f8]" />
+                <input type="checkbox" checked={everywhere} onChange={(e) => setEverywhere(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
                 {twins.length === 1 ? "Corregirla también la otra vez que aparece" : `Corregirla también las otras ${twins.length} veces que aparece`}
               </label>
             )}

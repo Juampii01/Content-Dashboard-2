@@ -327,7 +327,7 @@ function Processing({ live }: { live: Live }) {
                   className={cn(
                     "grid h-7 w-7 flex-none place-items-center rounded-full border-2 font-mono text-[11px] font-bold",
                     state === "done" && "border-accent-hi bg-accent-hi text-bg",
-                    state === "active" && "border-accent-hi bg-accent text-white",
+                    state === "active" && "border-accent-hi bg-accent text-paper",
                     state === "pending" && "border-white/20",
                   )}
                   aria-hidden

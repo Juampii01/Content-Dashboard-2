@@ -179,7 +179,7 @@ function TrackRow({ track, canEdit, playing, onToggle }: { track: TrackItem; can
         type="button"
         onClick={onToggle}
         disabled={!ready || !track.url}
-        className={cn("grid h-9 w-9 flex-none place-items-center rounded-full border transition", playing ? "border-accent bg-accent text-white" : "border-white/15 text-accent-hi hover:border-accent/60")}
+        className={cn("grid h-9 w-9 flex-none place-items-center rounded-full border transition", playing ? "border-accent bg-accent text-paper" : "border-white/15 text-accent-hi hover:border-accent/60")}
         aria-label={playing ? `Pausar ${track.title}` : `Escuchar ${track.title}`}
       >
         {playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="ml-0.5 h-4 w-4" aria-hidden />}

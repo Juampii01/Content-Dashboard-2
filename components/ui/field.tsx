@@ -42,5 +42,5 @@ export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
 }
 
 export function Select({ className, ...props }: ComponentProps<"select">) {
-  return <select className={cn("field appearance-none bg-black/30", className)} {...props} />;
+  return <select className={cn("field appearance-none", className)} {...props} />;
 }

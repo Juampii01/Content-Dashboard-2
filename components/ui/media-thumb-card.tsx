@@ -59,7 +59,7 @@ export function MediaThumbCard({
   const interactive = Boolean(href || onClick);
 
   const media = (
-    <span className={cn("@container relative block overflow-hidden rounded-xl bg-[#0a1a45]", aspectClass[aspect])}>
+    <span className={cn("@container relative block overflow-hidden rounded-xl bg-white/[0.06]", aspectClass[aspect])}>
       {showImage ? (
         // Miniaturas de dominios de terceros que cambian y vencen: next/image necesitaría declarar cada dominio.
         // eslint-disable-next-line @next/next/no-img-element
@@ -86,7 +86,7 @@ export function MediaThumbCard({
       <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 to-transparent" />
 
       {platform && (
-        <span className="absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur">
+        <span className="absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-full border border-paper/15 bg-black/55 px-2 py-1 text-[10px] font-semibold text-paper backdrop-blur">
           <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", platformMeta[platform].dot)} />
           {/* Con insignia a la derecha, en tarjetas angostas solo queda el punto para que no se pisen. */}
           <span className={cn(badge && "sr-only @[11rem]:not-sr-only")}>{platformMeta[platform].label}</span>
@@ -105,7 +105,7 @@ export function MediaThumbCard({
           <span />
         )}
         {duration != null && (
-          <span className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums">
+          <span className="rounded bg-black/60 text-paper px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums">
             <span className="sr-only">Duración </span>
             {formatDuration(duration)}
           </span>

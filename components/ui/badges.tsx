@@ -121,7 +121,7 @@ export function OutlierBadge({ ratio, className }: { ratio: number; className?: 
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md border border-accent-hi/50 bg-[#03205a]/90 px-1.5 py-0.5 font-mono text-[11px] font-bold text-white tabular-nums backdrop-blur",
+        "inline-flex items-center rounded-md border border-paper/20 bg-black/70 px-1.5 py-0.5 font-mono text-[11px] font-bold text-paper tabular-nums backdrop-blur",
         className,
       )}
       title={`Rinde ${formatMultiplier(ratio)} su promedio`}

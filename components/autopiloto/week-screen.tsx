@@ -454,7 +454,7 @@ function SettingsCard({ view }: { view: AutopilotView }) {
           </Select>
           <p className="text-xs text-muted">Una por día como máximo. Si la semana ya empezó, solo se usan los días que quedan.</p>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-muted">
+        <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-relaxed text-muted">
           <p>
             <span className="font-semibold text-white">Consumo estimado:</span> ≈ {formatNumber(view.estimatedTokens)} tokens de IA por semana.
           </p>

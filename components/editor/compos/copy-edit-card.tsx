@@ -149,7 +149,7 @@ export function CopyReportView({ report }: { report: CopyReport }) {
           {report.moments.map((m) => {
             const st = STATUS[m.status];
             return (
-              <li key={m.id} className="flex gap-2 rounded-lg bg-black/15 p-2">
+              <li key={m.id} className="flex gap-2 rounded-lg bg-white/[0.04] p-2">
                 <span className={cn("mt-0.5 flex-none", st.className)} aria-hidden>
                   {st.icon}
                 </span>

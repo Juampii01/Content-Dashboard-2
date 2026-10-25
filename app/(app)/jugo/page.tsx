@@ -87,7 +87,7 @@ async function FromSource({ params }: { params: Params }) {
             </p>
           </div>
         </div>
-        <blockquote className="max-h-56 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-relaxed whitespace-pre-line text-text/85">{source.text.slice(0, 1500)}{source.text.length > 1500 ? "…" : ""}</blockquote>
+        <blockquote className="max-h-56 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.04] p-4 text-sm leading-relaxed whitespace-pre-line text-text/85">{source.text.slice(0, 1500)}{source.text.length > 1500 ? "…" : ""}</blockquote>
         {source.blocked ? (
           <Notice tone="warning">{source.blocked}</Notice>
         ) : source.words < 60 ? (

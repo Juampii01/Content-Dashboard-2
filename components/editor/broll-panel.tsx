@@ -360,18 +360,18 @@ export function BrollPicker({
                         <Clapperboard className="m-auto h-6 w-6 text-placeholder" aria-hidden />
                       )}
                     </button>
-                    {chosen && <span className="pointer-events-none absolute top-2 left-2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-semibold text-white">Elegido</span>}
+                    {chosen && <span className="pointer-events-none absolute top-2 left-2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-semibold text-paper">Elegido</span>}
                     {(o.previewUrl || o.graphic) && (
                       <button
                         type="button"
                         onClick={() => setPreviewing(previewing === key ? null : key)}
-                        className="absolute top-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                        className="absolute top-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-paper hover:bg-black/80"
                         aria-label={previewing === key ? "Detener la vista previa" : o.graphic ? "Ver el gráfico animado" : "Ver el clip"}
                       >
                         <Play className="h-3.5 w-3.5" aria-hidden />
                       </button>
                     )}
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pt-6 pb-1.5 text-[11px] text-white">
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pt-6 pb-1.5 text-[11px] text-paper">
                       {o.graphic ? (
                         <span className="inline-flex items-center gap-1">
                           <Sparkles className="h-3 w-3" aria-hidden /> Gráfico · {graphicKindLabel(o.graphic)}

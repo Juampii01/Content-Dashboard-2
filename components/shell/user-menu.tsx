@@ -16,7 +16,7 @@ export async function UserMenu() {
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
-      <span className="grid h-9 w-9 flex-none place-items-center rounded-lg bg-accent font-mono text-xs font-bold text-white">
+      <span className="grid h-9 w-9 flex-none place-items-center rounded-lg bg-accent font-mono text-xs font-bold text-paper">
         {initials}
       </span>
       <span className="min-w-0 flex-1 leading-tight">

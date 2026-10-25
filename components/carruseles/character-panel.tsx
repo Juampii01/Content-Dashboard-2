@@ -183,7 +183,7 @@ export function CharacterPanel({
                       </span>
                     )}
                     {isPrimary && (
-                      <span className="absolute right-0.5 bottom-0.5 grid h-4 w-4 place-items-center rounded-full bg-accent text-white" aria-hidden>
+                      <span className="absolute right-0.5 bottom-0.5 grid h-4 w-4 place-items-center rounded-full bg-accent text-paper" aria-hidden>
                         <Check className="h-3 w-3" />
                       </span>
                     )}

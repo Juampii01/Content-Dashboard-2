@@ -8,6 +8,11 @@ import {
   COPY_RULES,
   keyMomentsTask,
   keyMomentsWireSchema,
+  WHOLE_LAYOUT,
+  WHOLE_RULES,
+  wholeVideoTask,
+  wholeVideoWireSchema,
+  type WholeMode,
   recipeTask,
   recipeWireSchema,
   requestPlanTask,
@@ -21,14 +26,14 @@ import { defaultFx, newFxId, type FxItem } from "../fx/schema";
 import { TRANSITION_KINDS, type TransitionKind } from "../fx/transitions";
 import { fxSegments } from "../fx/compile";
 import { planSchemaFor } from "../plan";
-import { removedIds } from "../timeline";
+import { outputRange, removedIds } from "../timeline";
 import { referenceSummary } from "../director/reference";
 import { mapText } from "../director/context";
 import type { DirectorState } from "../director/types";
 import type { EditPlan, Word } from "../types";
 import { compositionSchema, type Composition } from "./schema";
 import { fakeAdapt, fakeKeyMoments, fakeRecipe, fakeRequestPlan } from "./fake";
-import { activeCount, enqueueRequest } from "./requests";
+import { activeCount, enqueueRequest, MAX_ACTIVE, promoteWaiting } from "./requests";
 import { loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type WorkCtx } from "./work";
 
 /**
@@ -368,7 +373,7 @@ export class ComposRequestError extends Error {}
  * ("Pídele un cambio a esta animación"). Arma el taller y encola VIDEO_COMPOS; el video sigue en revisión.
  */
 /** Pedidos activos a la vez por video (cada uno con su trabajo; el worker corre hasta 3 en paralelo). */
-export const MAX_ACTIVE_REQUESTS = 8;
+export const MAX_ACTIVE_REQUESTS = MAX_ACTIVE;
 
 /**
  * Pedido del Estudio ("Pide una animación aquí" o "Pídele un cambio a esta animación"). Varios pueden correr a la vez:
@@ -384,7 +389,8 @@ export async function startStudioRequest(projectId: string, input: { from_word: 
   if (instruction.length < 3) throw new ComposRequestError("Escribe qué animación quieres.");
   const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < ctx.words.length;
   if (!valid(input.from_word) || !valid(input.to_word) || input.from_word > input.to_word) throw new ComposRequestError("Elige un tramo del video.");
-  if ((await activeCount(projectId)) >= MAX_ACTIVE_REQUESTS) throw new ComposRequestError(`Ya hay ${MAX_ACTIVE_REQUESTS} animaciones en curso en este video. Espera a que termine alguna.`);
+  // Con los lugares llenos (por ejemplo, durante «Animar todo el video»), el pedido queda en espera y entra solo.
+  const full = (await activeCount(projectId)) >= MAX_ACTIVE_REQUESTS;
   let base: Composition | null = null;
   if (input.replace) {
     const parsed = compositionSchema.safeParse(input.replace);
@@ -399,6 +405,7 @@ export async function startStudioRequest(projectId: string, input: { from_word: 
     cap: ctx.cap,
     spent: ctx.spent,
     needsPlan,
+    wait: full,
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
       if (!needsPlan) task.status = "code";
@@ -483,4 +490,140 @@ export async function startVariety(projectId: string, mapTextOverride?: string):
   const work: ComposWork = { id: newWorkId(), mode: "variety", tasks, startedAt: new Date().toISOString(), spentAtStart: ctx.spent, lookRounds: left > 5 ? 1 : 0, done: false };
   await saveDirectorExtra(projectId, ctx.director, { compos: work, recentFamilies: recent.families });
   return true;
+}
+
+// ─── Animar todo el video ────────────────────────────────────────────────
+
+export type WholeMoment = { from_word: number; to_word: number; start: number; end: number; said: string; title: string; prompt: string };
+export type WholePlan = { mode: WholeMode; style: string; moments: WholeMoment[] };
+
+/** Cuántas animaciones según el modo y la duración (una cada ~5 s con la cara; una cada ~5 s a pantalla completa). */
+export function wholeCount(mode: WholeMode, seconds: number): { min: number; max: number } {
+  if (mode !== "face") return { min: Math.max(2, Math.ceil(seconds / 9)), max: Math.min(30, Math.max(3, Math.ceil(seconds / 3.5))) };
+  return { min: Math.min(20, Math.max(2, Math.round(seconds / 9))), max: Math.min(20, Math.max(3, Math.round(seconds / 5))) };
+}
+
+/**
+ * Ordena, recorta y limpia lo que propuso la IA: ids válidos y de palabras que quedan, sin superposiciones; en pantalla
+ * completa, además, sin huecos (cada una llega hasta la siguiente y cubren de la primera a la última palabra).
+ */
+export function cleanWhole(mode: WholeMode, words: Word[], raw: { from_word: number; to_word: number; title: string; prompt: string }[], max: number): Omit<WholeMoment, "start" | "end" | "said">[] {
+  if (!words.length) return [];
+  const ids = words.map((w) => w.id);
+  const snap = (id: number, dir: 1 | -1) => {
+    if (dir > 0) return ids.find((x) => x >= id) ?? ids[ids.length - 1]!;
+    return [...ids].reverse().find((x) => x <= id) ?? ids[0]!;
+  };
+  const sorted = raw
+    .filter((m) => Number.isInteger(m.from_word) && Number.isInteger(m.to_word) && m.prompt.trim().length >= 20)
+    .map((m) => ({ from_word: snap(Math.min(m.from_word, m.to_word), 1), to_word: snap(Math.max(m.from_word, m.to_word), -1), title: m.title.trim().slice(0, 80) || "Animación", prompt: m.prompt.trim().slice(0, 1100) }))
+    .filter((m) => m.from_word <= m.to_word)
+    .sort((a, b) => a.from_word - b.from_word);
+  const out: typeof sorted = [];
+  for (const m of sorted) {
+    const last = out[out.length - 1];
+    if (last && m.from_word <= last.to_word) {
+      if (mode !== "face") m.from_word = last.to_word + 1;
+      else continue;
+      if (m.from_word > m.to_word) continue;
+    }
+    out.push(m);
+    if (out.length >= max) break;
+  }
+  // Todos los modos menos «Con tu cara» cubren el video entero (la disposición de la pantalla es la misma siempre).
+  if (mode !== "face" && out.length) {
+    out[0]!.from_word = ids[0]!;
+    for (let i = 0; i < out.length - 1; i++) {
+      const nextStart = out[i + 1]!.from_word;
+      out[i]!.to_word = [...ids].reverse().find((x) => x < nextStart) ?? out[i]!.to_word;
+    }
+    out[out.length - 1]!.to_word = ids[ids.length - 1]!;
+  }
+  return out;
+}
+
+/** «Animar todo el video», paso 1: Claude lee el video y propone el estilo y un pedido por momento (para revisar). */
+export async function planWholeVideo(projectId: string, input: { mode: WholeMode; notes: string }): Promise<WholePlan> {
+  const ctx = await loadWorkCtx(projectId);
+  if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
+  if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
+  if (!aiConfigured()) throw new ComposRequestError("Falta configurar la IA en esta instalación.");
+  const words = keptWords(ctx);
+  if (words.length < 4) throw new ComposRequestError("El video tiene muy poco texto para armar animaciones.");
+  const count = wholeCount(input.mode, ctx.timeline.duration);
+  const out = (w: Word) => ctx.timeline.words.find((x) => x.id === w.id);
+  const text = sentences(words)
+    .map((f) => {
+      const a = out(words.find((w) => w.id === f.from)!);
+      const b = out(words.find((w) => w.id === f.to)!);
+      return `[${f.from}–${f.to}] ${(a?.start ?? f.start).toFixed(1)}–${(b?.end ?? f.end).toFixed(1)} s: ${f.text}`;
+    })
+    .join("\n");
+  let wire: { style: string; moments: { from_word: number; to_word: number; title: string; prompt: string }[] };
+  try {
+    wire = await generateStructured({
+      feature: "video.compos.todo",
+      model: "main",
+      thinking: { effort: "medium" },
+      context: `${WHOLE_RULES}\n\n${ctx.brandCtx}`,
+      task: wholeVideoTask({ mode: input.mode, duration: ctx.timeline.duration, format: ctx.format, sentences: text, map: mapText(ctx.director.map, ctx.words), notes: input.notes.trim().slice(0, 800), count }),
+      schema: wholeVideoWireSchema,
+      maxTokens: 20000,
+      timeoutMs: 280_000,
+      videoProjectId: projectId,
+      fake: () => ({
+        style: "Fondo negro con grano, blanco y el color de la marca, tipografía serif grande, movimientos de cámara lentos y golpes de sonido graves.",
+        moments: sentences(words).slice(0, count.max).map((f) => ({ from_word: f.from, to_word: f.to, title: f.text.split(" ").slice(0, 4).join(" "), prompt: `Animación sobre «${f.text}»: la frase aparece palabra por palabra en serif blanca sobre un fondo que se mueve lento, con un destello del color de la marca al final.` })),
+      }),
+    });
+  } catch (error) {
+    console.error("[compos] todo el video:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
+    throw new ComposRequestError(error instanceof AiError ? error.message : "No pudimos armar el plan con IA. Prueba de nuevo.");
+  }
+  const moments = cleanWhole(input.mode, words, wire.moments, count.max).map((m) => {
+    const r = outputRange(ctx.timeline, m.from_word, m.to_word);
+    return { ...m, start: r?.start ?? 0, end: r?.end ?? 0, said: words.filter((w) => w.id >= m.from_word && w.id <= m.to_word).map((w) => w.text).join(" ").slice(0, 300) };
+  });
+  if (!moments.length) throw new ComposRequestError("La IA no propuso animaciones para este video. Prueba de nuevo.");
+  return { mode: input.mode, style: wire.style.trim().slice(0, 500), moments };
+}
+
+/**
+ * «Animar todo el video», paso 2: un pedido por momento (ya revisado), todos en espera; entran a la cola de a varios y
+ * cada uno aparece en la pista Animaciones cuando termina. Los que había antes siguen.
+ */
+export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string }[] }, userId: string | null): Promise<{ count: number }> {
+  const ctx = await loadWorkCtx(projectId);
+  if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
+  if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
+  if (!aiConfigured()) throw new ComposRequestError("Falta configurar la IA en esta instalación.");
+  const words = keptWords(ctx);
+  const moments = cleanWhole(plan.mode, words, plan.moments.map((m) => ({ ...m, title: "" })), 30);
+  if (!moments.length) throw new ComposRequestError("No quedó ninguna animación para crear.");
+  const style = plan.style.trim().slice(0, 500);
+  const layout = WHOLE_LAYOUT[plan.mode] ? `${WHOLE_LAYOUT[plan.mode]} ` : "";
+  for (const m of moments) {
+    // El pedido primero (es lo que se lee en la pista mientras se crea); el modo y el estilo común, después.
+    const instruction = `${m.prompt.slice(0, 1100)}\n\n${layout}${style ? `ESTILO COMÚN DEL VIDEO: ${style}` : ""}`.trim().slice(0, 1500);
+    await enqueueRequest({
+      projectId,
+      userId,
+      cap: ctx.cap,
+      spent: ctx.spent,
+      needsPlan: true,
+      wait: true,
+      build: () => ({
+        id: newWorkId(),
+        mode: "request",
+        tasks: [newTask({ from_word: m.from_word, to_word: m.to_word, brief: instruction, source: "user", request: instruction })],
+        startedAt: new Date().toISOString(),
+        spentAtStart: ctx.spent,
+        lookRounds: 0,
+        done: false,
+        request: { instruction, from_word: m.from_word, to_word: m.to_word, replaceId: null },
+      }),
+    });
+  }
+  await promoteWaiting(projectId, { cap: ctx.cap, spent: ctx.spent });
+  return { count: moments.length };
 }

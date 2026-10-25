@@ -14,6 +14,8 @@ import { brandGraphicLook } from "@/lib/video/graphics";
 import { readEditorDefaults } from "@/lib/video/defaults";
 
 export const metadata: Metadata = { title: "Video" };
+// Las acciones del Estudio que esperan a la IA (por ejemplo, el plan de «Animar todo el video») pueden tardar minutos.
+export const maxDuration = 300;
 
 const DEFAULT_ACCENT = "#FFD84D";
 

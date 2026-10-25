@@ -8,7 +8,7 @@ import { scriptAsText } from "@/lib/ai/prompts/guiones";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { cancelProjectJobs, enqueueJob } from "@/lib/jobs";
-import { deleteKeys, deletePrefix, fileDriver, fileInfo, MAX_VIDEO_BYTES, VIDEO_EXTENSIONS, VIDEO_TYPES } from "@/lib/storage";
+import { AUDIO_EXTENSIONS, AUDIO_TYPES, deleteKeys, deletePrefix, fileDriver, fileInfo, MAX_VIDEO_BYTES, VIDEO_EXTENSIONS, VIDEO_TYPES } from "@/lib/storage";
 import { storedKey } from "@/lib/storage/copy";
 import { planBroll } from "./broll";
 import { detectCandidates } from "./candidates";
@@ -60,11 +60,12 @@ export async function loadProject(id: string): Promise<Project | null> {
 
 const keyPrefix = (id: string) => `editor/${id}/`;
 
+/** Extensión del original: un video o (para animarlo a pantalla completa) un audio solo. */
 function extensionFor(name: string, type: string): string | null {
-  const byType = VIDEO_TYPES[type.toLowerCase()];
+  const byType = VIDEO_TYPES[type.toLowerCase()] ?? AUDIO_TYPES[type.toLowerCase()];
   if (byType) return byType;
   const ext = name.toLowerCase().match(/\.[a-z0-9]+$/)?.[0];
-  return ext && VIDEO_EXTENSIONS.includes(ext) ? ext.slice(1) : null;
+  return ext && (VIDEO_EXTENSIONS.includes(ext) || AUDIO_EXTENSIONS.includes(ext)) ? ext.slice(1) : null;
 }
 
 /** Idioma de la transcripción según Mi marca. */
@@ -90,7 +91,7 @@ export async function createProject(input: {
 }): Promise<{ id: string; key: string }> {
   if (!fileDriver()) throw new VideoError("Falta configurar el almacenamiento de videos en esta instalación. Avísale a soporte.");
   const ext = extensionFor(input.fileName, input.fileType);
-  if (!ext) throw new VideoError("Ese formato no es compatible. Sube un video MP4, MOV, WEBM o MKV.");
+  if (!ext) throw new VideoError("Ese formato no es compatible. Sube un video (MP4, MOV, WEBM o MKV) o un audio (MP3, M4A o WAV).");
   if (input.fileSize <= 0) throw new VideoError("El archivo está vacío.");
   if (input.fileSize > MAX_VIDEO_BYTES) throw new VideoError("El video pesa más de 8 GB. Expórtalo en una calidad menor y vuelve a intentarlo.");
   const id = randomUUID();

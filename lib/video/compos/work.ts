@@ -31,6 +31,7 @@ import { clampBudget } from "../director/cost";
 import { COMPOS_LIMITS } from "./contract";
 import { compileComposition, composSegments, newComposId, type ComposImage, type Composition } from "./schema";
 import { codeHash, validateComposition } from "./validate";
+import { promoteWaiting } from "./requests";
 
 /**
  * Cola de cada pedido de imagen: si es una foto, que no se note la IA (sin posar, sin brillo de plástico, con grano).
@@ -237,6 +238,8 @@ async function saveTarget(ctx: WorkCtx, work: ComposWork, extra: Partial<typeof 
         error: failed ? (work.tasks.find((t) => t.error)?.error ?? work.error ?? "No pudimos hacer la animación.").slice(0, 400) : null,
       })
       .where(and(eq(schema.composRequests.id, ctx.requestId), inArray(schema.composRequests.status, ["queued", "running"])));
+    // Terminó uno: entra el siguiente de una tanda en espera («Animar todo el video»).
+    if (work.done) await promoteWaiting(ctx.projectId, { cap: ctx.cap, spent: ctx.spent }).catch((e) => console.error("[animaciones] en espera:", e instanceof Error ? e.message : e));
     return;
   }
   await saveWork(ctx.projectId, ctx.director, work, extra);

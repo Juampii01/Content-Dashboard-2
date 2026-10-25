@@ -74,6 +74,32 @@ def analyze_probe(probe: dict[str, Any], *, max_duration: float = MAX_DURATION, 
     return info
 
 
+def audio_only(probe: dict[str, Any]) -> bool:
+    """Un audio solo (o con una carátula): el proyecto se anima a pantalla completa sobre un fondo."""
+    streams = probe.get("streams", [])
+    has_video = any(s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic") for s in streams)
+    return not has_video and any(s.get("codec_type") == "audio" for s in streams)
+
+
+def video_from_audio(src: Path, out: Path, *, vertical: bool = True, on_progress: Callable[[float], None] | None = None) -> Path:
+    """Arma un video con fondo oscuro liso (1080×1920 o 1920×1080, 30 cuadros) y el audio tal cual: así un audio solo
+    pasa por el mismo camino que un video (transcripción, revisión, animaciones a pantalla completa y render)."""
+    if _done(out):
+        return out
+    size = "1080x1920" if vertical else "1920x1080"
+    probe = ffmpeg.probe(src)
+    duration = float(probe.get("format", {}).get("duration") or 0)
+    tmp = _atomic(out)
+    ffmpeg.run(
+        ["-f", "lavfi", "-i", f"color=c=0x0e0f12:s={size}:r={FPS}", "-i", str(src), "-map", "0:v", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "28", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(tmp)],
+        duration=duration or None,
+        on_progress=on_progress,
+        what="video desde el audio",
+    )
+    os.replace(tmp, out)
+    return out
+
+
 def probe_duration(probe: dict[str, Any]) -> float:
     """Duración que trae la cabecera (0 si no la trae)."""
     streams = probe.get("streams", [])

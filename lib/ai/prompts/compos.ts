@@ -368,3 +368,61 @@ No hay límite de largo para el código salvo el del sandbox; prioriza que se ve
 export function composAgentTask(input: Parameters<typeof composCodeTask>[0]): string {
   return composCodeTask(input).replace(/\n\nEscribe el módulo completo\.$/, "\n\nTrabaja con las herramientas del taller (probar, mirar, entregar) hasta entregar la mejor versión.");
 }
+
+// ─── Animar todo el video ────────────────────────────────────────────────
+
+export type WholeMode = "face" | "over" | "split" | "top" | "full";
+
+/** Cómo se reparte la pantalla en cada modo (va en cada pedido, para el motion designer). */
+export const WHOLE_LAYOUT: Record<WholeMode, string> = {
+  face: "",
+  over: "SOBRE TU CARA: se ve el video de la persona a pantalla completa todo el tiempo y la animación va encima, alrededor de la cara (textos, tarjetas, gráficos, objetos), sin taparla nunca (usa env.face y env.freeY).",
+  split: "MITAD Y MITAD: la pantalla se divide en dos. Arriba (la mitad superior) va la animación con su propio fondo; abajo va la persona: dibuja el video con ctx.drawVideo recortado y encuadrado en la cara (env.face) para que la cara quede centrada en la mitad de abajo. Una línea o borde fino separa las dos mitades.",
+  top: "FONDO BLANCO ARRIBA: la persona va recortada en la parte de abajo (dibuja el video con ctx.drawVideo en el 45 % inferior, encuadrado en la cara) y arriba hay un panel blanco liso (#ffffff) de donde nacen y se mueven todas las animaciones (textos en tinta oscura y el acento de la marca, objetos, fotos). El panel blanco está siempre, igual en todas.",
+  full: "PANTALLA COMPLETA: la animación ocupa todo el cuadro con un fondo propio opaco; no se ve el video de abajo ni a la persona.",
+};
+
+export const WHOLE_RULES = `Eres el director de arte y motion designer de un reel de una marca personal. Te pasan la transcripción completa con los ids de sus palabras y armas el plan para animar TODO el video: un estilo común y un pedido por momento, que otro motion designer ejecuta sin ver nada más que ese pedido y el estilo.
+
+Cada pedido:
+- Va en español neutro, escrito como para un motion designer: qué se ve, cómo se mueve y en qué palabra pasa cada cosa (cita las palabras exactas entre comillas: «En "plata": …»).
+- Se entiende solo (no dice "como la anterior").
+- Cuenta UNA idea visual fuerte de lo que se dice en ese tramo, sin inventar cifras, nombres ni datos que la persona no dice. Si dice un número, se puede mostrar ese número.
+- Tiene movimiento continuo (sin momentos quietos) y, si sirve, un sonido marcado ("whoosh al entrar", "golpe grave en…").
+- Puede pedir hasta dos imágenes creadas con IA. Si son fotos, que parezcan fotos reales: foto documental o fotograma de 35 mm, una luz con motivo, grano; mejor lugares y objetos que gente; si hay gente, de espaldas, lejos o desenfocada, nunca posando.
+- Nada de emojis ni íconos de caricatura salvo que el estilo lo pida.
+- Entre 300 y 1000 caracteres.
+
+El estilo común (máximo 400 caracteres): look, paleta en #hex (usa los colores de la marca), tipografía, tipo de movimiento y de sonido. Se repite al principio de cada pedido para que todo el video se vea como una sola pieza.`;
+
+export function wholeVideoTask(input: { mode: WholeMode; duration: number; format: string; sentences: string; map: string; notes: string; count: { min: number; max: number } }): string {
+  const continuous = `Las animaciones cubren el video entero, una detrás de otra, sin huecos: la primera empieza en la primera palabra y cada una termina justo antes de la siguiente; la última termina en la última palabra. Cada una dura entre 3 y 9 s. Entre ${input.count.min} y ${input.count.max} animaciones. Que se encadenen: cada una sale como la siguiente necesita entrar.`;
+  const mode =
+    input.mode === "full"
+      ? `MODO PANTALLA COMPLETA (solo la voz): la persona NO se ve nunca. ${continuous} Cada pedido dice que la animación ocupa toda la pantalla con un fondo propio opaco (no se ve el video de abajo).`
+      : input.mode !== "face"
+        ? `MODO ${WHOLE_LAYOUT[input.mode].split(":")[0]}: ${WHOLE_LAYOUT[input.mode].split(":").slice(1).join(":").trim()} Esta disposición es igual en todas las animaciones (no hace falta repetirla en cada pedido: se agrega sola). ${continuous}`
+        : `MODO CON TU CARA: la persona habla a cámara y se la ve entre animación y animación. Anima los momentos que más ganan con algo en pantalla (el gancho, cifras, comparaciones, listas, el cierre), de 2 a 6 s cada uno, con al menos 2 s de cara entre una y otra. Alterna: algunas a pantalla completa, otras sobre el video (textos, tarjetas, gráficos al costado) y alguna que se achica a una tarjeta con esquinas redondeadas para dejar ver la cara. La primera va en el gancho. Entre ${input.count.min} y ${input.count.max} animaciones.`;
+  return `VIDEO: ${input.duration.toFixed(1)} s, ${input.format}.
+${mode}
+${input.notes ? `\nLO QUE PIDE LA PERSONA PARA ESTE VIDEO: ${input.notes}\n` : ""}
+${input.map ? `MAPA DEL VIDEO (historia y partes):\n${input.map}\n` : ""}
+FRASES CON LOS IDS DE SUS PALABRAS ([desde–hasta] segundos: texto):
+${input.sentences}
+
+Arma el estilo y la lista de momentos en orden, con from_word y to_word de las frases de arriba.`;
+}
+
+export const wholeVideoWireSchema = z.object({
+  style: z.string().describe("Estilo común de todas las animaciones (máximo 400 caracteres)."),
+  moments: z
+    .array(
+      z.object({
+        from_word: z.number().int(),
+        to_word: z.number().int(),
+        title: z.string().describe("Nombre corto de la animación (3 a 6 palabras)."),
+        prompt: z.string().describe("El pedido para el motion designer (300 a 1000 caracteres)."),
+      }),
+    )
+    .max(30),
+});

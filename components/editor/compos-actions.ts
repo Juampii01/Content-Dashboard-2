@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { isDenied, requireEditor } from "@/lib/auth";
-import { ComposRequestError, startStudioRequest } from "@/lib/video/compos/flows";
+import { ComposRequestError, planWholeVideo, startStudioRequest, startWholeVideo, type WholePlan } from "@/lib/video/compos/flows";
 import { composStatus, type ComposStatus } from "@/lib/video/compos/service";
 import { ackRequests, cancelRequest } from "@/lib/video/compos/requests";
 import { loadProject } from "@/lib/video/service";
@@ -68,4 +68,46 @@ export async function ackAnimationsAction(projectId: string, workIds: string[]):
   if (!idSchema.safeParse(projectId).success) return { ok: false, error: "Pedido no válido." };
   await ackRequests(projectId, ids);
   return { ok: true };
+}
+
+// ─── Animar todo el video ────────────────────────────────────────────────
+
+const modeSchema = z.enum(["face", "over", "split", "top", "full"]);
+
+/** Paso 1: Claude propone el estilo y un pedido por momento. Tarda hasta un par de minutos. */
+export async function planWholeVideoAction(projectId: string, mode: z.infer<typeof modeSchema>, notes: string): Promise<{ ok: true; plan: WholePlan } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(projectId).success || !modeSchema.safeParse(mode).success) return { ok: false, error: "Pedido no válido." };
+  try {
+    return { ok: true, plan: await planWholeVideo(projectId, { mode, notes: String(notes ?? "").slice(0, 800) }) };
+  } catch (error) {
+    if (error instanceof ComposRequestError) return { ok: false, error: error.message };
+    console.error("[animaciones] plan de todo el video:", error instanceof Error ? error.message : error);
+    return { ok: false, error: "No pudimos armar el plan. Prueba de nuevo." };
+  }
+}
+
+const wholeSchema = z.object({
+  mode: modeSchema,
+  style: z.string().max(600),
+  moments: z
+    .array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), prompt: z.string().trim().min(20, "Cada animación necesita un pedido (al menos una frase).").max(1100, "Un pedido es demasiado largo: resúmelo.") }))
+    .min(1, "No hay animaciones para crear.")
+    .max(30),
+});
+
+/** Paso 2: crea todas (en espera; entran a la cola de a varias y aparecen solas en la línea de tiempo). */
+export async function startWholeVideoAction(projectId: string, plan: z.input<typeof wholeSchema>): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = wholeSchema.safeParse(plan);
+  if (!idSchema.safeParse(projectId).success || !parsed.success) return { ok: false, error: parsed.error?.issues[0]?.message ?? "Pedido no válido." };
+  try {
+    return { ok: true, ...(await startWholeVideo(projectId, parsed.data, user.id)) };
+  } catch (error) {
+    if (error instanceof ComposRequestError) return { ok: false, error: error.message };
+    console.error("[animaciones] todo el video:", error instanceof Error ? error.message : error);
+    return { ok: false, error: "No pudimos empezar las animaciones. Prueba de nuevo." };
+  }
 }

@@ -65,6 +65,10 @@ def prepare(ctx: JobContext, project: dict[str, Any], start: float, end: float, 
             ctx.app.download(pid, key, src, ctx.progress)
         ctx.stage("Preparando el video", start + span * 0.15, start + span * (0.75 if need_proxy else 0.95))
         probe = ffmpeg.probe(src)
+        if ingest.audio_only(probe):
+            # Un audio solo: fondo liso del formato del proyecto, para animarlo a pantalla completa.
+            src = ingest.video_from_audio(src, workdir / "original.audio.mp4", vertical=project.get("format") != "16:9", on_progress=ctx.progress)
+            probe = ffmpeg.probe(src)
         if ingest.needs_remux(probe):
             # Grabado en el navegador (WebM sin duración): se re-empaqueta sin recodificar antes de seguir.
             src = ingest.remux_for_duration(src, workdir / "original.fixed.mkv")

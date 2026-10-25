@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { createFromCloneAction, createProjectAction, discardDraftAction } from "./actions";
 import { AutoExportToggle } from "./auto-export-toggle";
 import { CaptionPicker } from "./caption-picker";
-import { MAX_VIDEO_BYTES_CLIENT, VIDEO_ACCEPT } from "./constants";
+import { MAX_VIDEO_BYTES_CLIENT, PROJECT_ACCEPT } from "./constants";
 import { cancelUpload, startUpload, submitUpload, useUpload } from "./upload-manager";
 import { BriefFields, BudgetField } from "./director/brief-form";
 import { BUDGET, EMPTY_BRIEF, type Brief } from "@/lib/video/director/types";
@@ -218,8 +218,8 @@ export function NewProjectFlow({
                 </div>
               ) : (
                 <UploadDropzone
-                  accept={VIDEO_ACCEPT}
-                  acceptLabel="un video MP4, MOV, WEBM o MKV"
+                  accept={PROJECT_ACCEPT}
+                  acceptLabel="un video (MP4, MOV, WEBM o MKV) o un audio solo (MP3, M4A o WAV)"
                   maxSize={MAX_VIDEO_BYTES_CLIENT}
                   status={uploadStatus}
                   progress={uploadPct}

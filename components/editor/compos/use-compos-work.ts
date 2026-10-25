@@ -13,6 +13,7 @@ export type LiveRequest = Pick<RequestView, "id" | "status" | "request" | "tasks
 
 /** Texto del progreso de un pedido ("En cola", "Escribiendo…", "Revisando…"). */
 export function requestStage(r: LiveRequest): string {
+  if (r.status === "waiting") return "En espera";
   if (r.status === "queued") return "En cola";
   if (r.status === "failed") return "No se pudo";
   if (r.status === "canceled") return "Cancelado";
@@ -22,7 +23,7 @@ export function requestStage(r: LiveRequest): string {
   return t ? (step[t.status] ?? "Escribiendo…") : "Empezando…";
 }
 
-export const isActive = (r: LiveRequest) => r.status === "queued" || r.status === "running";
+export const isActive = (r: LiveRequest) => r.status === "waiting" || r.status === "queued" || r.status === "running";
 
 /**
  * Pedidos de animaciones del Estudio, varios a la vez: los manda, consulta el estado cada pocos segundos mientras haya
@@ -137,7 +138,7 @@ export function useComposRequests(projectId: string, onDeliver: (req: LiveReques
   );
 
   const visible = requests.filter((r) => isActive(r) || r.status === "failed");
-  return { requests: visible, legacy, sending, error, request, cancel, dismiss, takeAcks, confirmAcks, clearError: () => setError(null) };
+  return { requests: visible, legacy, sending, error, request, cancel, dismiss, takeAcks, confirmAcks, refresh: poll, clearError: () => setError(null) };
 }
 
 export type ComposRequestsApi = ReturnType<typeof useComposRequests>;

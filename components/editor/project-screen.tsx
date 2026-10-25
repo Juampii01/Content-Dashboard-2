@@ -12,7 +12,7 @@ import { UploadDropzone } from "@/components/ui/upload-dropzone";
 import type { ProjectView } from "@/lib/dal/video";
 import { formatBytes, formatDate } from "@/lib/format";
 import type { CaptionPresetKey } from "@/lib/video/types";
-import { MAX_VIDEO_BYTES_CLIENT, VIDEO_ACCEPT } from "./constants";
+import { MAX_VIDEO_BYTES_CLIENT, PROJECT_ACCEPT } from "./constants";
 import { deleteAction, reopenAction, retryAction } from "./actions";
 import { statusLabel, statusTone, type ProjectStatus } from "./labels";
 import { ProcessingView } from "./processing-view";
@@ -239,8 +239,8 @@ function UploadPending({ project }: { project: View }) {
         {upload?.error ?? "Se cerró la página antes de terminar de subir el video."} Vuelve a elegir el mismo archivo para continuar.
       </Notice>
       <UploadDropzone
-        accept={VIDEO_ACCEPT}
-        acceptLabel="el mismo video (MP4, MOV, WEBM o MKV)"
+        accept={PROJECT_ACCEPT}
+        acceptLabel="el mismo archivo (video o audio)"
         maxSize={MAX_VIDEO_BYTES_CLIENT}
         error={error}
         disabled={!project.canEdit}

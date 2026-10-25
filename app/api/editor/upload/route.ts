@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
         const audio = kind === "musica";
         // "separar:<id>": video o audio del que se saca la música (Biblioteca → Música → Sacar la música de un reel).
         const split = kind === "separar";
+        let project = false;
         if (kind === "estilo" && ref) {
           const style = await loadStyle(ref);
           if (style?.status === "UPLOADING" && style.sourceKey === pathname) size = style.sourceBytes ?? 0;
@@ -60,14 +61,16 @@ export async function POST(request: NextRequest) {
           const track = await loadTrack(ref);
           if (track?.status === "UPLOADING" && track.fileKey === pathname) size = track.fileBytes ?? 0;
         } else if (ref) {
-          const project = await loadProject(ref);
-          if (project?.status === "UPLOADING" && project.sourceKey === pathname) size = project.sourceBytes ?? 0;
+          const row = await loadProject(ref);
+          if (row?.status === "UPLOADING" && row.sourceKey === pathname) size = row.sourceBytes ?? 0;
+          // El original de un proyecto puede ser un video o un audio solo.
+          project = true;
         }
         if (size == null) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
         return {
-          token: await uploadDelegation(pathname, split ? "media" : audio ? "audio" : "video"),
+          token: await uploadDelegation(pathname, split || project ? "media" : audio ? "audio" : "video"),
           urlOptions: {
-            allowedContentTypes: Object.keys(split ? SPLIT_TYPES : audio ? AUDIO_TYPES : VIDEO_TYPES),
+            allowedContentTypes: Object.keys(split || project ? SPLIT_TYPES : audio ? AUDIO_TYPES : VIDEO_TYPES),
             maximumSizeInBytes: size || undefined,
             allowOverwrite: true,
             addRandomSuffix: false,

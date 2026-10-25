@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, Clapperboard, Copy, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
+import { ArrowLeft, Bot, Clapperboard, Copy, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2, WandSparkles } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SegmentedControl } from "@/components/ui/tabs";
@@ -19,6 +19,7 @@ import { FX_MASK_CHUNK } from "@/lib/video/fx/masks";
 import { defaultFx, newFxId, type FxItem } from "@/lib/video/fx/schema";
 import { defaultGraphic, type GraphicTemplate } from "@/lib/video/graphics";
 import { compileComposition, composCaptionHides, composSegments, composSounds, type Composition } from "@/lib/video/compos/schema";
+import { WholeVideoDialog } from "../compos/whole-video-dialog";
 import { isActive, requestStage, useComposRequests, type ComposRequest, type LiveRequest } from "../compos/use-compos-work";
 import { placeMyEffectAction } from "../my-effects-actions";
 import { humanize as humanizeText } from "@/lib/video/human-text";
@@ -94,6 +95,7 @@ export function Studio(props: StudioProps) {
   const [gallery, setGallery] = useState<{ range: WordSpan | null; replace: string | null } | null>(null);
   const [fixRange, setFixRange] = useState<WordSpan | null>(null);
   const [help, setHelp] = useState(false);
+  const [wholeOpen, setWholeOpen] = useState(false);
   const [rendering, startRender] = useTransition();
   const [proofreading, startProofread] = useTransition();
   const phrase = usePhraseFixes(projectId);
@@ -1739,6 +1741,11 @@ export function Studio(props: StudioProps) {
             </button>
             {props.menu}
             {canEdit && (
+              <Button variant="ghost" className="!px-3 !py-2" icon={<WandSparkles className="h-4 w-4" aria-hidden />} onClick={() => setWholeOpen(true)} title="La IA anima todo el video, momento por momento">
+                <span className="hidden lg:inline">Animar todo</span>
+              </Button>
+            )}
+            {canEdit && (
               <Button variant="ghost" className="!px-3 !py-2" icon={<Copy className="h-4 w-4" aria-hidden />} onClick={() => (setLeftTab("ia"), setLeftOpen(true))} title="Haz la misma edición que un video de referencia">
                 <span className="hidden lg:inline">Copiar edición</span>
               </Button>
@@ -2108,6 +2115,7 @@ export function Studio(props: StudioProps) {
         }}
       />
       <ShortcutsHelp open={help} onClose={() => setHelp(false)} />
+      {canEdit && <WholeVideoDialog projectId={projectId} open={wholeOpen} onOpenChange={setWholeOpen} onStarted={() => void composWork.refresh()} />}
     </HumanizeProvider>
   );
 }

@@ -176,3 +176,18 @@ def test_registrado_y_en_capacidades() -> None:
 
     assert "AUDIO_SPLIT" in _handlers
     assert "AUDIO_SPLIT" in Config.__dataclass_fields__["capabilities"].default_factory()
+
+
+def test_un_audio_solo_se_vuelve_video(tmp_path: Path) -> None:
+    from comunes import ffmpeg  # noqa: PLC0415
+    from video import ingest  # noqa: PLC0415
+
+    audio = tmp_path / "voz.m4a"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=3", "-c:a", "aac", str(audio)], check=True)
+    probe = ffmpeg.probe(audio)
+    assert ingest.audio_only(probe)
+    out = ingest.video_from_audio(audio, tmp_path / "original.audio.mp4", vertical=True)
+    info = ingest.analyze_probe(ffmpeg.probe(out))
+    assert (info["width"], info["height"]) == (1080, 1920) and info["hasAudio"]
+    assert abs(info["duration"] - 3.0) < 0.2
+    assert not ingest.audio_only(ffmpeg.probe(out))

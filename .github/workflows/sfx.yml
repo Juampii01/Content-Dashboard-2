@@ -1,0 +1,21 @@
+name: Sonidos CC0
+on:
+  push:
+    branches: [sfx-kenney]
+permissions:
+  contents: write
+jobs:
+  sfx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg && pip install numpy
+      - run: python procesar.py 2>&1 | tail -40 | tee log.txt
+      - if: always()
+        run: |
+          git config user.name "sfx" && git config user.email "sfx@users.noreply.github.com"
+          mkdir -p salida && cp log.txt salida/ || true
+          git checkout --orphan sfx-kenney-salida && git rm -rq --cached . && git add salida && git commit -qm salida && git push -qf origin sfx-kenney-salida

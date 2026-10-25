@@ -565,7 +565,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           feature: "video.compos.codigo",
           model: "deep",
           // Razonamiento medio (alto se comía el tope y el tiempo de la función con los pedidos grandes); al reintentar, bajo.
-          thinking: { effort: task.attempts > 0 ? "low" : "medium" },
+          thinking: { effort: "low" },
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
           task: composCodeTask({
             brief: `${brief}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}`,
@@ -589,8 +589,9 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           schema: composCodeWireSchema,
           // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
           // salían cortadas a la mitad ("Unterminated string").
-          maxTokens: 48000,
-          timeoutMs: 700_000,
+          // Con más, los pedidos grandes pasaban los 13 minutos de la función y el worker perdía la conexión.
+          maxTokens: 32000,
+          timeoutMs: 540_000,
           videoProjectId: ctx.projectId,
           fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0 }),
         });

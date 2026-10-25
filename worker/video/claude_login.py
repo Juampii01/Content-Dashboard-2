@@ -168,11 +168,19 @@ def login(ctx: JobContext, term_factory: Any = Terminal) -> str:
         _set_output(ctx, {"url": url, "waiting": "token"})
         ctx.stage("Terminando la conexión", 0.9, 0.98)
         start = len(term.raw)
-        term.write(code + "\r")
+        # El código y el Enter van por separado: juntos, la CLI los toma como un pegado y el Enter queda como texto.
+        term.write(code)
+        term.read(1.0)
+        term.write("\r")
         end = time.monotonic() + WAIT_TOKEN_S
+        enters = 1
         while time.monotonic() < end:
             ctx.check()
             text = clean(term.read(1.0)[start:])
+            # Si a los pocos segundos sigue esperando, un Enter más (hasta 3).
+            if enters < 3 and time.monotonic() > end - WAIT_TOKEN_S + 8 * enters and not TOKEN_RE.search(text.replace("\r", "").replace("\n", "")):
+                term.write("\r")
+                enters += 1
             found = TOKEN_RE.search(text.replace("\r", "").replace("\n", ""))
             if found:
                 return found.group(0)
@@ -181,8 +189,10 @@ def login(ctx: JobContext, term_factory: Any = Terminal) -> str:
                 break
             if not term.alive():
                 break
-        tail = clean(term.raw[start:])[-200:]
-        log.warning("setup-token sin token (%s)", re.sub(r"[A-Za-z0-9_-]{24,}", "…", tail))
+        # Lo que mostró la CLI después del código, sin los asteriscos del campo ni nada que parezca un token.
+        tail = re.sub(r"\*{3,}", "[código]", clean(term.raw[start:]))
+        tail = re.sub(r"sk-ant-[A-Za-z0-9_-]+|[A-Za-z0-9_-]{32,}", "…", tail).replace("\r", " ")
+        log.warning("setup-token sin token (%s Enter): %s", enters, " ".join(tail.split())[-600:])
         raise JobError("Claude no aceptó ese código. Vuelve a empezar y pega el código completo apenas te lo muestre.", retry=False)
     finally:
         term.close()

@@ -32,7 +32,10 @@ class FakeTerm:
 
     def write(self, text: str) -> None:
         self.sent.append(text)
-        self.raw += self.script.get("after", "")
+        if text == "\r":
+            self.raw += self.script.get("after", "")
+        else:
+            self.raw += "*" * len(text)
 
     def alive(self) -> bool:
         return True
@@ -74,7 +77,7 @@ def test_login_shows_the_link_takes_the_code_and_returns_the_token(tmp_path: Pat
     token = claude_login.login(Ctx(tmp_path), term_factory=lambda argv, env: term)
     assert token == TOKEN
     assert db["outputs"][0] == {"url": URL, "waiting": "code"}
-    assert term.sent == ["codigo-de-prueba-123#estado\r"]
+    assert term.sent[:2] == ["codigo-de-prueba-123#estado", "\r"]
     assert db["forgot"] is True
     # La carpeta temporal (HOME de la CLI) se borra.
     assert not list(tmp_path.glob("claude-login-*"))

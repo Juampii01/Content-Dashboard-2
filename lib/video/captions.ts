@@ -84,6 +84,31 @@ export function toSrt(words: TimedWord[]): string {
     .join("\n");
 }
 
+/** Lo que la persona quitó a mano de los subtítulos (palabras o frases): se marca así en captions.hide. */
+export const USER_CAPTION_HIDE = "Lo quitaste tú.";
+
+/** Ids de las palabras que la persona quitó de los subtítulos. */
+export function userHiddenWords(hide: { from_word: number; to_word: number; why: string }[] | undefined): Set<number> {
+  const out = new Set<number>();
+  for (const h of hide ?? []) {
+    if (h.why !== USER_CAPTION_HIDE) continue;
+    for (let id = Math.min(h.from_word, h.to_word); id <= Math.max(h.from_word, h.to_word); id++) out.add(id);
+  }
+  return out;
+}
+
+/**
+ * Quita palabras de los subtítulos sin tocar el video: el bloque sigue en su lugar y con sus tiempos, solo sin esas
+ * palabras (si se queda sin ninguna, desaparece). Es lo que pide la persona al quitar una palabra del subtítulo.
+ */
+export function dropWords(blocks: CaptionBlock[], ids: Set<number>): CaptionBlock[] {
+  if (!ids.size) return blocks;
+  return blocks.flatMap((b) => {
+    const words = b.words.filter((w) => !ids.has(w.id));
+    return words.length ? [{ ...b, words }] : [];
+  });
+}
+
 /**
  * Mientras se ve un gráfico, el gráfico ya cuenta lo que se dice: los subtítulos se ocultan para no tapar ni
  * competir. Recorta los bloques a lo que queda fuera de esos tramos (con un margen chico).

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { Clapperboard, Headphones, PenLine, Scissors, Sparkles, Undo2, X } from "lucide-react";
+import { Captions, CaptionsOff, Clapperboard, Headphones, PenLine, Scissors, Sparkles, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
@@ -38,6 +38,8 @@ export function TranscriptEditor({
   extraActions,
   pauses,
   onPause,
+  subsHidden,
+  onSetSubsHidden,
 }: {
   words: Word[];
   removed: Set<number>;
@@ -61,6 +63,10 @@ export function TranscriptEditor({
   pauses?: PauseInfo[];
   /** Deja una pausa completa (`keep`) o vuelve a acortarla. */
   onPause?: (word: number, keep: boolean) => void;
+  /** Palabras quitadas de los subtítulos (se siguen diciendo en el video). */
+  subsHidden?: Set<number>;
+  /** Quita palabras de los subtítulos (o las vuelve a mostrar) sin cortar el video. */
+  onSetSubsHidden?: (ids: number[], hidden: boolean) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(0);
@@ -69,6 +75,9 @@ export function TranscriptEditor({
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [everywhere, setEverywhere] = useState(true);
+  // Qué hace tocar una palabra: cortarla del video o quitarla solo de los subtítulos.
+  const [mode, setMode] = useState<"cut" | "subs">("cut");
+  const subsMode = mode === "subs" && Boolean(onSetSubsHidden);
   const dragged = useRef(false);
 
   /** Abre "Corregir cómo se escribe" para una palabra (botón de la selección o doble clic). */
@@ -129,7 +138,9 @@ export function TranscriptEditor({
     }
     setAnchor(id);
     setSelection(null);
-    if (canEdit) onSetCut([id], !removed.has(id));
+    if (!canEdit) return;
+    if (subsMode) onSetSubsHidden!([id], !subsHidden?.has(id));
+    else onSetCut([id], !removed.has(id));
   }
 
   function onMouseUp() {
@@ -195,6 +206,7 @@ export function TranscriptEditor({
 
   const selIds = selection ? ids(selection) : [];
   const selCut = selIds.filter((id) => removed.has(id)).length;
+  const selSubsHidden = selIds.filter((id) => subsHidden?.has(id)).length;
 
   return (
     <div className="flex flex-col gap-3">
@@ -214,6 +226,16 @@ export function TranscriptEditor({
                 Restaurar
               </Button>
             )}
+            {canEdit && onSetSubsHidden && selSubsHidden < selIds.length && (
+              <Button size="sm" variant="ghost" icon={<CaptionsOff className="h-3.5 w-3.5" aria-hidden />} onClick={() => (onSetSubsHidden(selIds, true), setSelection(null))}>
+                Quitar de los subtítulos
+              </Button>
+            )}
+            {canEdit && onSetSubsHidden && selSubsHidden > 0 && (
+              <Button size="sm" variant="ghost" icon={<Captions className="h-3.5 w-3.5" aria-hidden />} onClick={() => (onSetSubsHidden(selIds, false), setSelection(null))}>
+                Mostrar en los subtítulos
+              </Button>
+            )}
             {canEdit && selIds.length === 1 && (
               <Button
                 size="sm"
@@ -231,9 +253,25 @@ export function TranscriptEditor({
             <Button size="sm" variant="subtle" icon={<X className="h-3.5 w-3.5" aria-hidden />} onClick={() => setSelection(null)} aria-label="Quitar la selección" />
           </>
         ) : (
-          <p className="text-xs text-muted">
-            {canEdit ? "Toca una palabra para cortarla o restaurarla. Doble clic para corregir cómo se escribe en los subtítulos. Arrastra (o Mayús + clic) para elegir un tramo." : "Solo lectura: tu usuario no puede editar."}
-          </p>
+          <div className="flex flex-col gap-2">
+            {canEdit && onSetSubsHidden && (
+              <div className="segmented self-start" role="radiogroup" aria-label="Qué hace tocar una palabra">
+                <button type="button" role="radio" aria-checked={mode === "cut"} className="segmented-item" onClick={() => setMode("cut")}>
+                  <Scissors className="h-3.5 w-3.5" aria-hidden /> Cortar video
+                </button>
+                <button type="button" role="radio" aria-checked={mode === "subs"} className="segmented-item" onClick={() => setMode("subs")}>
+                  <CaptionsOff className="h-3.5 w-3.5" aria-hidden /> Quitar subtítulo
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-muted">
+              {!canEdit
+                ? "Solo lectura: tu usuario no puede editar."
+                : subsMode
+                  ? "Toca una palabra para quitarla solo de los subtítulos (se sigue escuchando en el video). Tócala otra vez para volver a mostrarla."
+                  : "Toca una palabra para cortarla o restaurarla. Doble clic para corregir cómo se escribe en los subtítulos. Arrastra (o Mayús + clic) para elegir un tramo."}
+            </p>
+          </div>
         )}
       </div>
 
@@ -263,6 +301,7 @@ export function TranscriptEditor({
           onBrollClick={onBrollClick}
           pauses={pauses}
           onPause={onPause}
+          subsHidden={subsHidden}
         />
       </div>
 
@@ -328,6 +367,7 @@ const WordList = memo(function WordList({
   onBrollClick,
   pauses,
   onPause,
+  subsHidden,
 }: {
   words: Word[];
   removed: Set<number>;
@@ -347,6 +387,7 @@ const WordList = memo(function WordList({
   onBrollClick?: (id: string) => void;
   pauses?: PauseInfo[];
   onPause?: (word: number, keep: boolean) => void;
+  subsHidden?: Set<number>;
 }) {
   const nodes = useMemo(() => {
     const out: ReactNode[] = [];
@@ -466,6 +507,7 @@ const WordList = memo(function WordList({
             inSel && "bg-accent/35 text-white",
             offScript.has(w.id) && !cut && "underline decoration-warning/60 decoration-dotted underline-offset-4",
             corrected && !cut && "underline decoration-accent-hi decoration-dotted underline-offset-4",
+            subsHidden?.has(w.id) && !cut && "!bg-transparent text-placeholder line-through decoration-placeholder decoration-2 opacity-70",
             inBroll && !cut && !corrected && "underline decoration-success/70 decoration-2 underline-offset-[6px]",
           )}
         >
@@ -475,7 +517,7 @@ const WordList = memo(function WordList({
       out.push(" ");
     }
     return out;
-  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onWordDoubleClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick, pauses, onPause]);
+  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onWordDoubleClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick, pauses, onPause, subsHidden]);
   return <>{nodes}</>;
 });
 

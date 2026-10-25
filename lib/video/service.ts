@@ -13,7 +13,7 @@ import { storedKey } from "@/lib/storage/copy";
 import { planBroll } from "./broll";
 import { detectCandidates } from "./candidates";
 import { captionLook, captionTracks, isCaptionStyle } from "./caption-styles";
-import { captionBlocks, hideDuring, toSrt } from "./captions";
+import { captionBlocks, dropWords, hideDuring, toSrt, USER_CAPTION_HIDE, userHiddenWords } from "./captions";
 import { brollRenderEdit } from "./broll-edit";
 import { brollCredits, brollSegments, computeZooms, directorZooms, graphicEntries, graphicHidesCaptions } from "./effects";
 import { fxSegments } from "./fx/compile";
@@ -449,11 +449,13 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
   const broll = await verifiedBroll(brollSegments(timeline, next.broll), look);
   // Durante un gráfico no hay subtítulos: el gráfico ya muestra la idea. Tampoco donde el director los ocultó (texto quemado).
   const graphicSpans = broll.filter((b) => b.option.source === "graphic" && graphicHidesCaptions(b.option.graphic));
-  const hiddenSpans = (next.captions.hide ?? []).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
+  // Lo que quitó la persona sale palabra por palabra (el bloque sigue); lo que ocultó el director, por tramos de tiempo.
+  const userHidden = userHiddenWords(next.captions.hide);
+  const hiddenSpans = (next.captions.hide ?? []).filter((h) => h.why !== USER_CAPTION_HIDE).map((h) => outputRange(timeline, h.from_word, h.to_word)).filter((r): r is { start: number; end: number } => Boolean(r));
   // Efectos de la biblioteca: lo que dibuja el worker (el mismo spec que la vista previa); algunos llevan sus propios
   // subtítulos y ninguno lleva zooms del estilo encima (traen su propia cámara).
   const fx = await fxForRender({ plan: next, timeline, format, look, media: (project.media ?? {}) as MediaInfo, eyes: project.eyes, offsetX: next.framing.offset_x, corrections: next.corrections, broll, projectId, captionsVisible: preset !== "ninguno" });
-  const blocks = preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, preset, captionStyle), [...graphicSpans, ...hiddenSpans, ...fx.hides]);
+  const blocks = preset === "ninguno" ? [] : hideDuring(dropWords(captionBlocks(timeline.words, preset, captionStyle), userHidden), [...graphicSpans, ...hiddenSpans, ...fx.hides]);
   const noZoom = [...broll, ...fx.avoid];
   const zooms =
     style && style.preset.zoom.enabled && next.zooms_enabled !== false

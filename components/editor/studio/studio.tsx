@@ -10,7 +10,7 @@ import { toast } from "@/components/ui/toast";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-edit";
 import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
-import { captionBlocks, hideDuring } from "@/lib/video/captions";
+import { captionBlocks, dropWords, hideDuring, USER_CAPTION_HIDE, userHiddenWords } from "@/lib/video/captions";
 import { protectedZones } from "@/lib/video/director/protect";
 import { brollSegments, computeZooms, directorZooms, graphicEntries, graphicHidesCaptions } from "@/lib/video/effects";
 import { FX_INFO, type FxKind } from "@/lib/video/fx/catalog";
@@ -158,8 +158,35 @@ export function Studio(props: StudioProps) {
     [s.captionHide, timeline],
   );
   const hiddenCaptions = useMemo(() => captionHides.map(({ start, end }) => ({ start, end })), [captionHides]);
+  // Lo que quitó la persona sale palabra por palabra (el bloque sigue en su lugar); lo que ocultó el director, por tramos.
+  const subsHidden = useMemo(() => userHiddenWords(s.captionHide), [s.captionHide]);
+  const directorHidden = useMemo(() => captionHides.filter((h) => s.captionHide[h.index]?.why !== USER_CAPTION_HIDE).map(({ start, end }) => ({ start, end })), [captionHides, s.captionHide]);
   // Sin subtítulos donde el director los ocultó ni durante los efectos que llevan los suyos, igual que en el render.
-  const captions = useMemo(() => (s.preset === "ninguno" ? [] : hideDuring(captionBlocks(timeline.words, s.preset, captionStyle), [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...composCaptionHides(composSegs)])), [timeline, s.preset, captionStyle, hiddenCaptions, fxSegs, composSegs]);
+  const captions = useMemo(
+    () => (s.preset === "ninguno" ? [] : hideDuring(dropWords(captionBlocks(timeline.words, s.preset, captionStyle), subsHidden), [...directorHidden, ...fxCaptionHides(fxSegs), ...composCaptionHides(composSegs)])),
+    [timeline, s.preset, captionStyle, subsHidden, directorHidden, fxSegs, composSegs],
+  );
+  /** Quita palabras de los subtítulos (o las vuelve a mostrar) sin cortar el video. */
+  const setSubsHidden = useCallback(
+    (ids: number[], hidden: boolean) =>
+      update((st) => {
+        const set = userHiddenWords(st.captionHide);
+        for (const id of ids) {
+          if (hidden) set.add(id);
+          else set.delete(id);
+        }
+        // Tramos seguidos, como los guarda el plan (los del director quedan igual).
+        const sorted = [...set].sort((a, b) => a - b);
+        const runs: { from_word: number; to_word: number; why: string }[] = [];
+        for (const id of sorted) {
+          const last = runs[runs.length - 1];
+          if (last && id === last.to_word + 1) last.to_word = id;
+          else runs.push({ from_word: id, to_word: id, why: USER_CAPTION_HIDE });
+        }
+        return { ...st, captionHide: [...st.captionHide.filter((h) => h.why !== USER_CAPTION_HIDE), ...runs] };
+      }),
+    [update],
+  );
   const capLook = useMemo(() => (isCaptionStyle(s.preset) ? captionLook(s.preset, { format: s.format, accent, brandFont: graphicLook.font, emoji: s.emoji }) : null), [s.preset, s.format, accent, graphicLook.font, s.emoji]);
   const segments = useMemo(() => brollSegments(timeline, s.broll), [timeline, s.broll]);
   // Transiciones: cada una en su instante y en su capa, encima de lo que haya (lib/video/layers.ts).
@@ -1774,6 +1801,8 @@ export function Studio(props: StudioProps) {
                           activeTime={activeTime}
                           canEdit={canEdit}
                           onSetCut={cut}
+                          subsHidden={subsHidden}
+                          onSetSubsHidden={canEdit ? setSubsHidden : undefined}
                           pauses={pauseList}
                           onPause={canEdit ? setPause : undefined}
                           onCorrect={(id, text) =>

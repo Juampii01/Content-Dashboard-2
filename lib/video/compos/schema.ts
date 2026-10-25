@@ -94,6 +94,14 @@ export function composSegments(timeline: Pick<Timeline, "words" | "duration">, i
     if (end - start < COMPOS_LIMITS.minSeconds) continue;
     out.push({ id: item.id, start: round3(start), end: round3(end), item, layer: item.layer ?? 0 });
   }
+  // Dos animaciones casi pegadas (una detrás de otra, como en «Animar todo» a pantalla completa): la primera llega
+  // hasta la segunda, así entre las dos no asoma un instante del video.
+  for (let i = 0; i < out.length - 1; i++) {
+    const cur = out[i]!;
+    const next = out[i + 1]!;
+    const gap = next.start - cur.end;
+    if (gap > 0 && gap < 0.6 && next.start - cur.start <= COMPOS_LIMITS.maxSeconds) cur.end = round3(next.start);
+  }
   return out;
 }
 

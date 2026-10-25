@@ -29,7 +29,7 @@ export function ComposProgress({ api, compId, from, to }: { api: StudioApi; comp
   return (
     <ul className="flex flex-col gap-1" aria-live="polite">
       {list.map((r) => (
-        <li key={r.id} className="flex items-center gap-2 rounded-xl bg-[#8b5cf6]/10 px-3 py-2 text-xs text-[#c4b5fd]">
+        <li key={r.id} className="flex items-center gap-2 rounded-xl bg-[#8b5cf6]/10 px-3 py-2 text-xs text-[#5b3fd1]">
           <Loader2 className="h-3.5 w-3.5 flex-none animate-spin motion-reduce:animate-none" aria-hidden />
           <span className="min-w-0 flex-1 truncate">
             {requestStage(r)} <span className="text-muted">«{r.request?.instruction}»</span>
@@ -51,7 +51,7 @@ export function RequestsPanel({ api, only }: { api: StudioApi; only?: string }) 
     <section className="flex flex-col gap-2 rounded-xl border border-[#8b5cf6]/35 bg-[#8b5cf6]/[0.06] p-3" aria-label="Animaciones en curso" data-testid="compos-requests">
       {!only && (
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
-          <WandSparkles className="h-4 w-4 text-[#c4b5fd]" aria-hidden /> Animaciones en curso
+          <WandSparkles className="h-4 w-4 text-[#5b3fd1]" aria-hidden /> Animaciones en curso
           <span className="font-mono text-[11px] font-normal text-muted">{list.filter(isActive).length}</span>
         </h3>
       )}
@@ -61,7 +61,7 @@ export function RequestsPanel({ api, only }: { api: StudioApi; only?: string }) 
           const failed = r.status === "failed";
           return (
             <li key={r.id} className={cn("flex items-start gap-2 rounded-lg border px-2.5 py-2 text-xs", failed ? "border-danger/40 bg-danger/[0.06]" : "border-white/10 bg-white/[0.03]")} data-testid="compos-request">
-              {failed ? <X className="mt-0.5 h-3.5 w-3.5 flex-none text-danger" aria-hidden /> : <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-none animate-spin text-[#c4b5fd] motion-reduce:animate-none" aria-hidden />}
+              {failed ? <X className="mt-0.5 h-3.5 w-3.5 flex-none text-danger" aria-hidden /> : <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-none animate-spin text-[#5b3fd1] motion-reduce:animate-none" aria-hidden />}
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-semibold text-white">{r.request?.replaceId ? "Cambio: " : ""}{r.request?.instruction}</span>
                 <span className="block truncate text-muted">
@@ -103,7 +103,7 @@ export function AskAnimation({ api, from, to }: { api: StudioApi; from: number; 
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-[#8b5cf6]/40 bg-[#8b5cf6]/[0.08] p-3">
       <label htmlFor="ask-animation" className="flex items-center gap-1.5 text-sm font-semibold text-white">
-        <WandSparkles className="h-4 w-4 text-[#c4b5fd]" aria-hidden /> Pide una animación aquí
+        <WandSparkles className="h-4 w-4 text-[#5b3fd1]" aria-hidden /> Pide una animación aquí
       </label>
       <p className="text-xs text-muted">Descríbela como a un motion designer: qué se ve, cómo se mueve y cuándo. Puede llevar imágenes creadas con IA. La programamos a medida para este tramo.</p>
       <Textarea id="ask-animation" value={text} onChange={(e) => setText(e.target.value)} maxLength={1500} className="!min-h-20 text-sm" placeholder="Ej.: un mapa del mundo creado con IA, zoom a Francia, la remarca y una flecha que diga «el mejor país del mundo»" onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void send()} />
@@ -159,7 +159,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           <p className="text-xs text-warning">Cae sobre palabras cortadas: no se ve en el video.</p>
         )}
         <div className="flex flex-col gap-2 rounded-xl border border-[#8b5cf6]/35 bg-[#8b5cf6]/[0.08] p-3 text-xs">
-          <p className="flex items-center gap-1.5 font-semibold text-[#c4b5fd]">
+          <p className="flex items-center gap-1.5 font-semibold text-[#5b3fd1]">
             {src.icon} {src.label}
           </p>
           {item.why && <p className="text-text">{api.humanize(item.why)}</p>}
@@ -300,7 +300,7 @@ function MyEffectControls({ api, item }: { api: StudioApi; item: Composition }) 
   if (state?.saved)
     return (
       <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3" data-testid="my-effect-saved">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-[#c4b5fd]">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-[#5b3fd1]">
           <BookmarkPlus className="h-3.5 w-3.5" aria-hidden /> Está en Mis efectos
         </p>
         <form

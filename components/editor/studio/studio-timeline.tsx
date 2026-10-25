@@ -464,8 +464,8 @@ export function StudioTimeline({
       >
         <div className="relative" style={{ width: LABEL_W + lane + 24 }}>
           {/* Regla */}
-          <div className="sticky top-0 z-30 flex h-6 border-b border-white/10 bg-[#030a22]">
-            <div className="sticky left-0 z-10 flex-none border-r border-white/10 bg-[#030a22]" style={{ width: LABEL_W }} />
+          <div className="sticky top-0 z-30 flex h-6 border-b border-white/10 bg-card">
+            <div className="sticky left-0 z-10 flex-none border-r border-white/10 bg-card" style={{ width: LABEL_W }} />
             <div
               role="slider"
               tabIndex={0}
@@ -498,7 +498,7 @@ export function StudioTimeline({
             const h = lanes * track.lane + track.extra;
             return (
             <div key={track.key} className="flex border-b border-white/[0.06]" style={{ height: h }} data-lanes={layout[track.key].count}>
-              <div className="sticky left-0 z-20 flex flex-none items-center gap-1.5 border-r border-white/10 bg-[#040d2c] px-2.5 text-[11px] font-semibold text-muted" style={{ width: LABEL_W }} title={notes?.[track.key]}>
+              <div className="sticky left-0 z-20 flex flex-none items-center gap-1.5 border-r border-white/10 bg-card px-2.5 text-[11px] font-semibold text-muted" style={{ width: LABEL_W }} title={notes?.[track.key]}>
                 <span className="text-accent-hi">{track.icon}</span>
                 <span className="truncate">{track.label}</span>
               </div>
@@ -559,7 +559,7 @@ export function StudioTimeline({
                         "group absolute flex touch-none items-center overflow-hidden rounded-md border text-left text-[11px] leading-tight font-semibold text-white outline-none select-none focus-visible:ring-2 focus-visible:ring-accent-hi",
                         b.tone,
                         b.empty && "border-dashed bg-transparent text-warning",
-                        b.pending && "border-dashed bg-[#8b5cf6]/15 text-[#e4dbff] animate-pulse motion-reduce:animate-none",
+                        b.pending && "border-dashed bg-[#8b5cf6]/15 text-[#3d2a9a] animate-pulse motion-reduce:animate-none",
                         b.track !== "video" && b.track !== "captions" && canEdit && b.editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                         selected && "z-10 ring-2 ring-white",
                         g && "z-20 opacity-90 shadow-[0_6px_18px_rgba(0,0,0,.45)]",
@@ -651,7 +651,7 @@ export function StudioTimeline({
                         <span
                           aria-hidden
                           className={cn(
-                            "absolute top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full border border-white/45 bg-[#040d2c] text-paper/80 transition group-hover/pause:scale-125 group-hover/pause:border-accent-hi group-hover/pause:text-accent-glow group-focus-visible/pause:border-accent-hi",
+                            "absolute top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full border border-white/45 bg-card text-paper/80 transition group-hover/pause:scale-125 group-hover/pause:border-accent-hi group-hover/pause:text-accent-glow group-focus-visible/pause:border-accent-hi",
                             selKey === `pause:${c.word}` && "border-white text-white",
                           )}
                         >
@@ -694,14 +694,14 @@ export function StudioTimeline({
                       title="Poner una transición en este corte"
                       data-transition-slot={c.word}
                     >
-                      <span aria-hidden className="block h-2 w-2 rotate-45 rounded-[2px] border border-white/30 bg-[#040d2c] transition group-hover/slot:scale-150 group-hover/slot:border-accent-hi group-hover/slot:bg-accent/40 group-focus-visible/slot:scale-150 group-focus-visible/slot:border-accent-hi" />
+                      <span aria-hidden className="block h-2 w-2 rotate-45 rounded-[2px] border border-white/30 bg-card transition group-hover/slot:scale-150 group-hover/slot:border-accent-hi group-hover/slot:bg-accent/40 group-focus-visible/slot:scale-150 group-focus-visible/slot:border-accent-hi" />
                     </button>
                   ))}
 
                 {track.key === "audio" && music && (
                   <button
                     type="button"
-                    className={cn("absolute bottom-[3px] left-0 h-[12px] rounded border border-[#c98500]/50 bg-[#c98500]/20 px-2 text-left text-[9px] leading-[10px] font-semibold text-[#ffd27a]", selKey === "audio" && "ring-2 ring-white")}
+                    className={cn("absolute bottom-[3px] left-0 h-[12px] rounded border border-[#c98500]/50 bg-[#c98500]/20 px-2 text-left text-[9px] leading-[10px] font-semibold text-warning", selKey === "audio" && "ring-2 ring-white")}
                     style={{ width: lane }}
                     onClick={() => onSelect({ kind: "audio" })}
                   >
@@ -732,7 +732,7 @@ export function StudioTimeline({
                   // Su nombre y cuánto dura, siempre a la vista (aunque el bloque sea angosto).
                   <span
                     data-testid="drop-ghost-label"
-                    className="pointer-events-none absolute z-40 rounded-md border border-accent-hi/60 bg-[#081a4a] px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap text-paper shadow-lg"
+                    className="pointer-events-none absolute z-40 rounded-md border border-accent-hi/60 bg-card px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap text-paper shadow-lg"
                     style={{ left: x(dropGhost.start), top: -18 }}
                   >
                     {dropGhost.label} · {secondsLabel(dropGhost.end - dropGhost.start)}
@@ -750,7 +750,7 @@ export function StudioTimeline({
           </div>
 
           {ghost && (
-            <div className="pointer-events-none absolute top-6 z-50 -translate-x-1/2 rounded-lg border border-white/15 bg-[#081a4a] px-2 py-1 text-[11px] whitespace-nowrap text-paper shadow-lg" style={{ left: LABEL_W + x((ghost.start + ghost.end) / 2) }} role="status">
+            <div className="pointer-events-none absolute top-6 z-50 -translate-x-1/2 rounded-lg border border-white/15 bg-card px-2 py-1 text-[11px] whitespace-nowrap text-paper shadow-lg" style={{ left: LABEL_W + x((ghost.start + ghost.end) / 2) }} role="status">
               <span className="font-mono tabular-nums">
                 {timeLabel(ghost.start)} – {timeLabel(ghost.end)} · {secondsLabel(ghost.end - ghost.start)}
               </span>

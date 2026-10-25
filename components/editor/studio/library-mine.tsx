@@ -115,7 +115,7 @@ export function MyEffectsSection({ canEdit, onAdd }: { canEdit: boolean; onAdd: 
     <section aria-labelledby="mis-efectos" className="flex flex-col gap-2.5 rounded-2xl border border-[#8b5cf6]/30 bg-[#8b5cf6]/[0.06] p-3" data-testid="my-effects">
       <div className="flex items-center justify-between gap-2">
         <h3 id="mis-efectos" className="flex items-center gap-1.5 text-sm font-semibold text-white">
-          <WandSparkles className="h-4 w-4 text-[#b9a2ff]" aria-hidden /> Mis efectos
+          <WandSparkles className="h-4 w-4 text-[#5b3fd1]" aria-hidden /> Mis efectos
           {list && list.length > 0 && <span className="font-mono text-[11px] font-normal text-muted">{formatNumber(list.length)}</span>}
         </h3>
         {list && list.length > 0 && (
@@ -221,7 +221,7 @@ function MyEffectCard({ effect: e, canEdit, onAdd, onFav, onRename, onRemove }: 
         ) : (
           <span className="grid h-full w-full place-items-center p-2 text-center text-[11px] text-muted">
             <span className="flex flex-col items-center gap-1.5">
-              <WandSparkles className="h-5 w-5 text-[#b9a2ff]" aria-hidden />
+              <WandSparkles className="h-5 w-5 text-[#5b3fd1]" aria-hidden />
               La muestra aparece cuando renderices un video con este efecto.
             </span>
           </span>

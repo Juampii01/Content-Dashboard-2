@@ -43,7 +43,7 @@ export function StudioInspector({ api }: { api: StudioApi }) {
 
 function Header({ eyebrow, title, onClose, children }: { eyebrow: string; title: ReactNode; onClose?: () => void; children?: ReactNode }) {
   return (
-    <div className="sticky top-0 z-10 flex items-start justify-between gap-2 border-b border-white/10 bg-[#040d2c]/95 px-4 py-3 backdrop-blur">
+    <div className="sticky top-0 z-10 flex items-start justify-between gap-2 border-b border-white/10 bg-card/95 px-4 py-3 backdrop-blur">
       <div className="min-w-0">
         <p className="eyebrow">{eyebrow}</p>
         <h2 className="mt-0.5 truncate text-base font-semibold text-white">{title}</h2>

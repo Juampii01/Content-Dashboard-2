@@ -198,7 +198,7 @@ export function TranscriptEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="sticky top-0 z-10 -mx-1 flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#06143a]/95 px-3 py-2 backdrop-blur" aria-live="polite">
+      <div className="sticky top-0 z-10 -mx-1 flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-card/95 px-3 py-2 backdrop-blur" aria-live="polite">
         {selection ? (
           <>
             <span className="mr-1 text-xs font-semibold text-white">

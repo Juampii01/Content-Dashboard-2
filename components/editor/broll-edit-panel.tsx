@@ -167,7 +167,7 @@ export function BrollEditBody({
   return (
       <div className={cn("grid gap-5", !inline && "md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]")}>
         {/* En el teléfono la vista previa queda fija arriba mientras se mueven los controles. */}
-        <div className={cn(inline ? "flex flex-col gap-2" : "sticky -top-5 z-10 -mx-6 -mt-5 flex flex-col gap-2 border-b border-white/10 bg-[#06143a] px-6 pt-4 pb-3 md:top-0 md:m-0 md:self-start md:border-0 md:bg-transparent md:p-0")}>
+        <div className={cn(inline ? "flex flex-col gap-2" : "sticky -top-5 z-10 -mx-6 -mt-5 flex flex-col gap-2 border-b border-white/10 bg-card px-6 pt-4 pb-3 md:top-0 md:m-0 md:self-start md:border-0 md:bg-transparent md:p-0")}>
           <div
             ref={frame}
             className={cn("relative mx-auto w-full overflow-hidden rounded-xl border border-white/10 bg-black", format === "9:16" ? (inline ? "aspect-[9/16] max-w-[140px]" : "aspect-[9/16] max-w-[130px] md:max-w-none") : inline ? "aspect-video max-w-[260px]" : "aspect-video max-w-[300px] md:max-w-none")}

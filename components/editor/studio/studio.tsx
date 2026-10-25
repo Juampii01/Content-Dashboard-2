@@ -731,7 +731,7 @@ export function Studio(props: StudioProps) {
         start,
         end: start + (c.endFrame - c.startFrame) / FPS,
         label: c.role === "hook" ? `Gancho · ${text}` : text || "Tramo",
-        tone: c.role === "hook" ? "border-accent-hi/60 bg-accent/40 font-normal" : "border-white/15 bg-[#12306e] font-normal",
+        tone: c.role === "hook" ? "border-accent-hi/60 bg-accent/40 font-normal" : "border-white/15 bg-accent/10 font-normal",
         selection: { kind: "clip", index: i },
       });
     });
@@ -1629,9 +1629,9 @@ export function Studio(props: StudioProps) {
 
   return (
     <HumanizeProvider value={humanize}>
-      <div className="theme-dark fixed inset-0 z-40 flex flex-col bg-bg text-text" data-testid="studio">
+      <div className="fixed inset-0 z-40 flex flex-col bg-bg text-text" data-testid="studio">
         {/* Barra superior */}
-        <header className="flex h-14 flex-none items-center gap-2 border-b border-white/10 bg-[#030a22] px-2 sm:px-3">
+        <header className="flex h-14 flex-none items-center gap-2 border-b border-white/10 bg-card px-2 sm:px-3">
           <ButtonLink href="/editor" variant="subtle" size="sm" className="!px-2" icon={<ArrowLeft className="h-4 w-4" aria-hidden />} aria-label="Volver al Editor">
             <span className="hidden md:inline">Editor</span>
           </ButtonLink>
@@ -1928,7 +1928,7 @@ export function Studio(props: StudioProps) {
             </aside>
 
             {/* Abajo: la línea de tiempo */}
-            <section className="order-2 h-[260px] min-h-0 border-t border-white/10 bg-[#030a22] lg:order-none lg:col-span-3 lg:h-auto" aria-label="Línea de tiempo">
+            <section className="order-2 h-[260px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-3 lg:h-auto" aria-label="Línea de tiempo">
               <StudioTimeline
                 duration={timeline.duration}
                 time={outTime}

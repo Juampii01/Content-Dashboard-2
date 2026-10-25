@@ -115,7 +115,7 @@ docs/                 # decisiones y guías de instalación por cliente
 
 ## 6. Diseño: estética Content Studio (clara)
 
-Clara, limpia y premium: fondo gris muy claro, superficies blancas con bordes finos, texto en tinta casi negra, botón principal negro y un solo acento azul. Tiene que verse profesional, legible y fácil de entender. El Estudio del editor sigue oscuro (clase `.theme-dark`), como los editores de video profesionales.
+Clara, limpia y premium: fondo gris muy claro, superficies blancas con bordes finos, texto en tinta casi negra, botón principal negro y un solo acento azul. Tiene que verse profesional, legible y fácil de entender.
 
 ### Tokens (`app/globals.css`)
 ```
@@ -131,7 +131,7 @@ success #1f7a4d · warning #8a5a00 · danger #c0362c
 ```
 - **Tipografía:** Geist y Geist Mono (autoalojadas con el paquete `geist`).
 - **Botones:** `.btn` negro con texto blanco; `.btn-ghost` blanco con borde fino. Chips activos en negro.
-- **Oscuro:** `.theme-dark` vuelve a los tokens oscuros de antes dentro de un contenedor (hoy, el Estudio). Para texto blanco sobre fondos de color o video usa `text-paper`, nunca `text-white`.
+- **Oscuro:** `.theme-dark` vuelve a los tokens oscuros de antes dentro de un contenedor (hoy no se usa; queda para una vista oscura). Para texto blanco sobre fondos de color o video usa `text-paper`, nunca `text-white`.
 - **Radios:** `rounded-xl` en controles, `rounded-2xl` en tarjetas y secciones.
 - **Animaciones:** `step-in`, `pop-in`, `shimmer`, `ping-soft`, `float`, siempre respetando `prefers-reduced-motion`.
 - Iconos de `lucide-react`.

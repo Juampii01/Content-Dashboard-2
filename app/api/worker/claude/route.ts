@@ -15,17 +15,11 @@ export async function POST(request: NextRequest) {
   const parsed = body.safeParse(gate.body);
   if (!parsed.success) return fail("El token de Claude llegó incompleto.", 400);
   try {
-    const saved = await saveClaudePlanToken(
-      parsed.data.token,
-      gate.job.createdBy,
-    );
+    const saved = await saveClaudePlanToken(parsed.data.token, gate.job.createdBy);
     return NextResponse.json({ ok: true, label: saved.label });
   } catch (error) {
     if (error instanceof ClaudePlanError) return fail(error.message);
-    console.error(
-      "[worker/claude]",
-      error instanceof Error ? error.message : "error",
-    );
+    console.error("[worker/claude]", error instanceof Error ? error.message : "error");
     return fail("No pudimos guardar la conexión con Claude.", 500, true);
   }
 }

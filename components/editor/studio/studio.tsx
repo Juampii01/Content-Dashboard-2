@@ -425,7 +425,8 @@ export function Studio(props: StudioProps) {
         const hit = cue ? soundCueTimes(timeline, [cue])[0]?.hitAt : undefined;
         at = hit != null ? Math.max(0, hit - 0.6) : null;
       }
-      if (at != null && !playingNow) seek(at, false);
+      // Tocar un subtítulo lleva siempre a su segundo (si se estaba reproduciendo, sigue desde ahí).
+      if (at != null && (!playingNow || sel.kind === "caption")) seek(at, playingNow);
     },
     [videoEl, segments, fxSegs, composSegs, captions, s.zoomMoments, timeline, seek, cutList, s.soundCues, trSegs],
   );
@@ -1856,6 +1857,12 @@ export function Studio(props: StudioProps) {
                             })
                           }
                           onListen={listenFrom}
+                          onJump={(id) => {
+                            // Lleva el cabezal a esa palabra (o a la siguiente que queda, si está cortada) sin cortar la reproducción.
+                            const w = timeline.words.find((x) => x.id >= id);
+                            const v = videoEl();
+                            if (w) seek(w.start, Boolean(v && !v.paused));
+                          }}
                           brollMarks={brollMarks}
                           activeBroll={selection?.kind === "broll" ? selection.id : null}
                           onBrollClick={(id) => select({ kind: "broll", id })}

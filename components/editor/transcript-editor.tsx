@@ -17,7 +17,7 @@ export type BrollMark = { id: string; from: number; to: number; thumbUrl: string
 /**
  * Transcripción del Estudio: aquí solo se corrige el texto, no se corta nada. Lo cortado aparece tachado con la
  * etiqueta del motivo (se puede restaurar); lo quitado de los subtítulos, tachado gris.
- * - Clic (o Enter/Espacio): corrige cómo se escribe esa palabra (en los subtítulos y en la transcripción).
+ * - Clic (o Enter/Espacio): lleva el video a esa palabra y abre la corrección (subtítulos y transcripción).
  * - Arrastrar con el mouse, Mayús+clic o Mayús+flechas: selecciona un tramo para copiarlo, escucharlo o ponerle algo.
  * El video se corta en la línea de tiempo («Dividir» o la tecla C) y las palabras de los subtítulos se quitan desde el
  * bloque del subtítulo.
@@ -34,6 +34,7 @@ export function TranscriptEditor({
   onSetCut,
   onCorrect,
   onListen,
+  onJump,
   brollMarks = [],
   activeBroll = null,
   onBrollClick,
@@ -55,6 +56,8 @@ export function TranscriptEditor({
   onSetCut: (ids: number[], cut: boolean) => void;
   onCorrect: (id: number, text: string | null) => void;
   onListen: (id: number) => void;
+  /** Lleva el video al segundo de esa palabra (sin reproducir si estaba en pausa). */
+  onJump?: (id: number) => void;
   brollMarks?: BrollMark[];
   activeBroll?: string | null;
   onBrollClick?: (id: string) => void;
@@ -135,6 +138,7 @@ export function TranscriptEditor({
     }
     setAnchor(id);
     setSelection(null);
+    onJump?.(id);
     if (canEdit) openCorrect(id);
   }
 

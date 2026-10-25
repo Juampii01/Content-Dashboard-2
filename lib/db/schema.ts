@@ -1088,7 +1088,7 @@ export const aiUsage = pgTable(
 
 // ─── Claves de servicios del cliente ───────────────────────────────────────
 
-export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI", "JAMENDO"]);
+export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI", "JAMENDO", "CLAUDE"]);
 
 /** Claves que carga el propio cliente (por ejemplo su API key de HeyGen), cifradas. */
 export const serviceCredentials = pgTable("service_credentials", {

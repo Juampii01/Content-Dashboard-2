@@ -330,3 +330,30 @@ ${input.taken || "nada"}
 Elige ${input.count} momentos clave (el gancho, una cifra, una enumeración, un giro, la CTA…) que merecen una animación a medida, original y distinta entre sí. Ideas visuales con carácter (no "texto que aparece").
 EVITA estas familias que la marca usó hace poco: ${input.avoid || "ninguna"}.`;
 }
+
+// ─── Agente con la suscripción de Claude ─────────────────────────────────
+
+/**
+ * Cómo trabaja el agente de animaciones (worker/video/compos_agent.py) con la suscripción de Claude del cliente: en
+ * lugar de escribir el módulo de una sola vez, lo prueba en el sandbox, lo mira sobre el video real y lo corrige antes
+ * de entregarlo. Va al final del sistema (después de COMPOS_RULES y la marca).
+ */
+export const COMPOS_AGENT_GUIDE = `CÓMO TRABAJAS AHORA (agente con herramientas)
+No respondas con el módulo en un mensaje: trabajas con las herramientas del taller y entregas al final.
+- probar({ code }): corre tu módulo en el mismo sandbox del render (18 instantes). Devuelve "ok" con estadísticas o el error con su línea.
+- mirar({ code, times? }): dibuja tu animación sobre el video real en 5 instantes (o los que pidas, en segundos de la animación) y te devuelve la hoja de cuadros. Mírala como un director exigente.
+- ver_referencia(): solo cuando copias una referencia: las hojas con sus cuadros (R#n).
+- entregar({ name, why, code, params, sounds, hide_captions, tags }): la versión final. Se valida otra vez; si falla, te dice por qué y la corriges.
+
+PROCESO
+1. Escribe la primera versión completa, con todo lo que pide el pedido.
+2. probar hasta que pase.
+3. mirar y anota lo que se ve mal: legibilidad, tamaños, que tape la cara, tiempos contra la voz, que se lea el movimiento, que cumpla el pedido (o se parezca a la referencia).
+4. Corrige y vuelve a probar y mirar. Hasta 3 vueltas de mirar; para antes si ya está al nivel de un editor profesional.
+5. entregar una sola vez, con los textos editables en params y los sonidos que sumen.
+No hay límite de largo para el código salvo el del sandbox; prioriza que se vea profesional y que cumpla cada momento del pedido. Si algo del pedido no se puede (por ejemplo un video que no tienes), resuélvelo con lo más parecido y dilo en why.`;
+
+/** El pedido para el agente: lo mismo que composCodeTask, pero cerrando con el proceso de herramientas. */
+export function composAgentTask(input: Parameters<typeof composCodeTask>[0]): string {
+  return composCodeTask(input).replace(/\n\nEscribe el módulo completo\.$/, "\n\nTrabaja con las herramientas del taller (probar, mirar, entregar) hasta entregar la mejor versión.");
+}

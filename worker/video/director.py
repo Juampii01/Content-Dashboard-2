@@ -127,6 +127,13 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
             with lock:
                 sheets = compos.stills(ctx, project, nxt.get("render") or {}, nxt.get("items") or [])
             res = ctx.app.director(pid, {"step": "compos-look", "sheets": sheets, **extra})
+        elif step == "compos-agent":
+            from . import compos_agent  # noqa: PLC0415
+
+            # El agente toma el candado solo para dibujar (sus vueltas de IA corren en paralelo con otros pedidos).
+            ctx.stage(str(nxt.get("label") or "Claude está escribiendo la animación")[:120], a, b)
+            done = compos_agent.run(ctx, project, nxt, heavy)
+            res = ctx.app.director(pid, {"step": "compos-agent-done", "agent": done, **extra})
         else:
             ctx.stage(str(nxt.get("label") or STEP_LABELS.get(step, "Dirigiendo la edición"))[:120], a, b)
             res = ctx.app.director(pid, {"step": step, **extra})

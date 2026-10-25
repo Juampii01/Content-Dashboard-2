@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { IMAGE_PROVIDERS, providersStatus } from "@/lib/carousels/images";
 import { CredentialError, saveChatGptAuth } from "@/lib/carousels/images/credentials";
+import { readClaudePlanToken } from "@/lib/ai/claude-plan";
 import { getDb, schema } from "@/lib/db";
 import { workerAuthorized } from "@/lib/jobs";
 
@@ -12,8 +13,10 @@ import { workerAuthorized } from "@/lib/jobs";
  * - { op: "credentials" }: la credencial de imágenes del cliente (ChatGPT o API key de OpenAI), descifrada. Viaja
  *   solo en la respuesta; el worker no la guarda ni la loguea.
  * - { op: "chatgpt", authJson }: guarda la sesión de ChatGPT si Codex refrescó los tokens.
+ * - { op: "claude" }: el token de la suscripción de Claude del cliente (lib/ai/claude-plan.ts), para el agente de
+ *   animaciones (solo en VIDEO_COMPOS).
  */
-const body = z.discriminatedUnion("op", [z.object({ op: z.literal("credentials") }), z.object({ op: z.literal("chatgpt"), authJson: z.string().min(20).max(50_000) })]);
+const body = z.discriminatedUnion("op", [z.object({ op: z.literal("credentials") }), z.object({ op: z.literal("chatgpt"), authJson: z.string().min(20).max(50_000) }), z.object({ op: z.literal("claude") })]);
 
 export async function POST(request: NextRequest, { params }: RouteContext<"/api/worker/projects/[id]/imagenes">) {
   if (!workerAuthorized(request)) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
@@ -28,6 +31,11 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
     .limit(1);
   if (!job) return NextResponse.json({ error: "No hay un trabajo en curso para este video.", retry: false }, { status: 409 });
   try {
+    if (parsed.data.op === "claude") {
+      const token = await readClaudePlanToken();
+      if (!token) return NextResponse.json({ error: "Conecta tu suscripción de Claude en Ajustes.", retry: false }, { status: 422 });
+      return NextResponse.json({ token }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (parsed.data.op === "chatgpt") {
       const saved = await saveChatGptAuth(parsed.data.authJson, job.createdBy);
       return NextResponse.json({ ok: true, label: saved.label });

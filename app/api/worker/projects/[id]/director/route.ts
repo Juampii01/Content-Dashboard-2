@@ -53,6 +53,30 @@ const bodySchema = z.discriminatedUnion("step", [
       .max(20),
     workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional(),
   }),
+  // Lo que escribió el agente de Claude con la suscripción del cliente (worker/video/compos_agent.py).
+  z.object({
+    step: z.literal("compos-agent-done"),
+    agent: z.object({
+      taskId: z.string().max(40),
+      ok: z.boolean(),
+      wire: z.unknown().optional(),
+      kind: z.enum(["quota", "auth", "other"]).optional(),
+      error: z.string().max(600).optional(),
+      usage: z
+        .object({
+          inputTokens: z.number().min(0).optional(),
+          outputTokens: z.number().min(0).optional(),
+          cacheReadTokens: z.number().min(0).optional(),
+          cacheWriteTokens: z.number().min(0).optional(),
+          apiEquivalentUsd: z.number().min(0).optional(),
+          turns: z.number().int().min(0).optional(),
+          ms: z.number().min(0).optional(),
+          model: z.string().max(80).optional(),
+        })
+        .optional(),
+    }),
+    workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional(),
+  }),
   z.object({ step: z.literal("compos-look"), sheets: z.array(sheet.extend({ taskId: z.string().max(40), times: z.array(z.number().min(0).max(60)).max(12).optional() })).max(30), workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional() }),
 ]);
 

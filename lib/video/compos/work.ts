@@ -1,8 +1,10 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { brandContext, getBrand } from "@/lib/ai/brand-context";
-import { AiError, generateStructured } from "@/lib/ai/client";
+import { AiError, aiConfigured, generateStructured } from "@/lib/ai/client";
 import {
+  COMPOS_AGENT_GUIDE,
+  composAgentTask,
   composCodeTask,
   composCodeWireSchema,
   composLookTask,
@@ -14,6 +16,7 @@ import {
   imageLookWireSchema,
   type ComposCodeWire,
 } from "@/lib/ai/prompts/compos";
+import { claudePlanConnected } from "@/lib/ai/claude-plan";
 import { providersStatus } from "@/lib/carousels/images";
 import { getDb, schema } from "@/lib/db";
 import { readBytes } from "@/lib/storage";
@@ -92,6 +95,8 @@ export type ComposTask = {
   error?: string;
   /** Efecto de Mis efectos que se reusó en lugar de escribir uno nuevo (más barato). */
   reused?: { id: string; name: string; version: number } | null;
+  /** "off": el agente con la suscripción de Claude no pudo (sin cupo, token vencido…) y esta tarea sigue por la API. */
+  agent?: "off";
 };
 
 export type ComposWork = {
@@ -119,7 +124,30 @@ export type ComposWork = {
 export type WorkerNext =
   | { step: "compos"; label?: string }
   | { step: "compos-images"; items: { taskId: string; imageId: string; prompt: string; aspect: string }[]; label: string }
-  | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string };
+  | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string }
+  | {
+      // El código lo escribe el agente de Claude en el worker con la suscripción del cliente (worker/video/compos_agent.py).
+      step: "compos-agent";
+      taskId: string;
+      system: string;
+      prompt: string;
+      /** Para probar y mirar: el spec compilado (el worker cambia spec.compos.code por el del agente) y el video base. */
+      item: Record<string, unknown>;
+      render: Record<string, unknown>;
+      refSheets: { key: string; width: number; height: number }[];
+      label: string;
+    };
+
+/** Lo que devuelve el worker después del agente. */
+export type AgentDone = {
+  taskId: string;
+  ok: boolean;
+  wire?: unknown;
+  /** "quota" (sin uso de la semana), "auth" (token vencido o inválido) u "other". */
+  kind?: string;
+  error?: string;
+  usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; apiEquivalentUsd?: number; turns?: number; ms?: number; model?: string };
+};
 
 export const readWork = (d: DirectorState): ComposWork | null => ((d as DirectorState & { compos?: ComposWork | null }).compos ?? null);
 
@@ -346,7 +374,7 @@ export type StepResult = { next: WorkerNext | null; finished: boolean };
  * tiene que hacer el worker a continuación o `finished` cuando todas las animaciones terminaron (el que llama decide
  * qué sigue: la segunda mirada del director, cerrar, o nada en un pedido del Estudio).
  */
-export async function advanceWork(projectId: string, body: { step: string; results?: unknown; sheets?: unknown; workId?: string } = { step: "compos" }): Promise<StepResult> {
+export async function advanceWork(projectId: string, body: { step: string; results?: unknown; sheets?: unknown; workId?: string; agent?: AgentDone } = { step: "compos" }): Promise<StepResult> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) return { next: null, finished: true };
   let work: ComposWork | null;
@@ -375,15 +403,30 @@ export async function advanceWork(projectId: string, body: { step: string; resul
   }
   for (const t of pendingImages) if (!t.images.some((i) => i.status === "pending")) t.status = t.images.some((i) => i.status === "ready") ? "vision" : "code";
 
-  // 2) Una tarea que necesita IA: una llamada por paso.
+  // 2) Lo que escribió el agente con la suscripción de Claude.
+  if (body.step === "compos-agent-done" && body.agent) {
+    const label = await applyAgent(ctx, work, body.agent);
+    await saveTarget(ctx, work);
+    return { next: { step: "compos", label }, finished: false };
+  }
+
+  // 3) Una tarea que necesita IA: una llamada por paso. El código, con la suscripción de Claude del cliente si la
+  // conectó (lo escribe un agente en el worker que lo prueba y lo mira); si no, o si el agente no pudo, por la API.
   const task = work.tasks.find((t) => t.status === "plan" || t.status === "vision" || t.status === "code" || t.status === "looking");
+  if (task?.status === "code" && task.agent !== "off" && (await claudePlanConnected().catch(() => false))) {
+    const next = await agentRequest(ctx, work, task);
+    if (next) {
+      await saveTarget(ctx, work);
+      return { next, finished: false };
+    }
+  }
   if (task) {
     const label = await stepTask(ctx, work, task);
     await saveTarget(ctx, work);
     return { next: { step: "compos", label }, finished: false };
   }
 
-  // 3) Cuadros por dibujar (revisión): todas las que esperan, en un pedido al worker.
+  // 4) Cuadros por dibujar (revisión): todas las que esperan, en un pedido al worker.
   const toDraw = work.tasks.filter((t) => t.status === "look" && t.result);
   if (toDraw.length) {
     const stills = await stillsRequest(ctx, toDraw);
@@ -392,7 +435,7 @@ export async function advanceWork(projectId: string, body: { step: string; resul
     for (const t of toDraw) t.status = "done";
   }
 
-  // 4) Todo listo: al plan.
+  // 5) Todo listo: al plan.
   await finishWork(ctx, work);
   return { next: null, finished: true };
 }
@@ -470,7 +513,9 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
     switch (task.status) {
       case "plan": {
         // Sin tope para escribir, todavía se puede reusar un efecto guardado (solo cuesta el plan).
-        const onlyReuse = remaining(ctx, work) < STAGE_COST.code + STAGE_COST.plan;
+        // Con la suscripción de Claude conectada, escribir el código no gasta del tope (lo paga el plan del cliente).
+        const codeCost = task.agent !== "off" && (await claudePlanConnected().catch(() => false)) ? 0 : STAGE_COST.code;
+        const onlyReuse = remaining(ctx, work) < codeCost + STAGE_COST.plan;
         if (remaining(ctx, work) < STAGE_COST.plan) {
           task.status = "failed";
           task.error = "No alcanzó el tope de IA de este video para escribir esta animación.";
@@ -532,7 +577,8 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
       }
       case "vision": {
         const ready = task.images.filter((i) => i.status === "ready");
-        if (ready.length && remaining(ctx, work) >= STAGE_COST.vision + STAGE_COST.code) {
+        const codeCost = task.agent !== "off" && (await claudePlanConnected().catch(() => false)) ? 0 : STAGE_COST.code;
+        if (ready.length && remaining(ctx, work) >= STAGE_COST.vision + codeCost) {
           const wire = await generateStructured({
             feature: "video.compos.imagenes",
             model: "main",
@@ -567,23 +613,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           // Razonamiento medio (alto se comía el tope y el tiempo de la función con los pedidos grandes); al reintentar, bajo.
           thinking: { effort: "low" },
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
-          task: composCodeTask({
-            brief: `${brief}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}`,
-            said: said(ctx, task),
-            words: wordsText(ctx, task, s.start),
-            duration,
-            format: ctx.format,
-            width: ctx.format === "9:16" ? 1080 : 1920,
-            height: ctx.format === "9:16" ? 1920 : 1080,
-            face: faceText(faceFor(ctx, s)),
-            recipeGlobal: work.mode === "copy" ? recipeGlobalText(ctx.director) : null,
-            momentDetail: task.momentDetail ?? null,
-            images: readyImages.length ? readyImages.map((im, i) => `${i + 1}. env.assets (id "${im.id}", ${im.width}×${im.height}): ${im.purpose}. Zona importante: ${im.focus ? `x ${im.focus.x.toFixed(3)}, y ${im.focus.y.toFixed(3)}, ancho ${im.focus.w.toFixed(3)}, alto ${im.focus.h.toFixed(3)} (${im.focus.label ?? ""})` : "no marcada"}. ${im.notes ?? ""}`).join("\n") : null,
-            avoid: familiesToAvoid(ctx, task),
-            base: task.base ? { code: task.base.code, params: JSON.stringify(Object.fromEntries(task.base.params.map((p) => [p.key, p.value]))), request: task.request ?? "" } : null,
-            previousError: task.lastError ?? null,
-            refFrames: refSheets.length,
-          }),
+          task: composCodeTask(codeTaskInput(ctx, work, task, s, refSheets.length)),
           images: refSheets.length ? await imagesOf(refSheets) : undefined,
           imageSizes: refSheets.map((r) => ({ width: r.width, height: r.height })),
           schema: composCodeWireSchema,
@@ -597,23 +627,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         });
         charge(work, STAGE_COST.code / 1.6);
         task.attempts++;
-        const item = itemOf(task, wire);
-        const spec = envFor(ctx, item);
-        const check = spec ? await validateComposition(item.code, spec.compos!.env) : { ok: false as const, error: "Sin tramo.", line: null, hash: "" };
-        if (!check.ok) {
-          task.lastError = `${check.error}${check.line ? ` (línea ${check.line})` : ""}`.slice(0, 600);
-          if (task.attempts >= 3) {
-            task.status = "failed";
-            task.error = `No pudimos dejar la animación sin errores: ${task.lastError}`;
-          }
-          return `Corrigiendo la animación ${of}`;
-        }
-        task.lastError = undefined;
-        // Los textos editables con los valores por defecto del módulo si Claude no los listó.
-        const params = item.params.length ? item.params : Object.entries(check.defaults).map(([key, value]) => ({ key, label: key, value }));
-        task.result = { ...item, params, checked: check.hash };
-        task.status = work.lookRounds > task.round && remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
-        return `Programando la animación ${of}`;
+        return await acceptCode(ctx, work, task, wire, false);
       }
       case "looking": {
         if (!task.result || !task.sheet || remaining(ctx, work) < STAGE_COST.look * 0.6) {
@@ -673,6 +687,132 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
     }
   }
   return `Animación ${of}`;
+}
+
+/** Lo que necesita el pedido de código (API o agente). */
+function codeTaskInput(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { start: number; end: number }, refFrames: number): Parameters<typeof composCodeTask>[0] {
+  const readyImages = task.images.filter((i) => i.status === "ready");
+  return {
+    brief: `${task.brief}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}`,
+    said: said(ctx, task),
+    words: wordsText(ctx, task, s.start),
+    duration: s.end - s.start,
+    format: ctx.format,
+    width: ctx.format === "9:16" ? 1080 : 1920,
+    height: ctx.format === "9:16" ? 1920 : 1080,
+    face: faceText(faceFor(ctx, s)),
+    recipeGlobal: work.mode === "copy" ? recipeGlobalText(ctx.director) : null,
+    momentDetail: task.momentDetail ?? null,
+    images: readyImages.length ? readyImages.map((im, i) => `${i + 1}. env.assets (id "${im.id}", ${im.width}×${im.height}): ${im.purpose}. Zona importante: ${im.focus ? `x ${im.focus.x.toFixed(3)}, y ${im.focus.y.toFixed(3)}, ancho ${im.focus.w.toFixed(3)}, alto ${im.focus.h.toFixed(3)} (${im.focus.label ?? ""})` : "no marcada"}. ${im.notes ?? ""}`).join("\n") : null,
+    avoid: familiesToAvoid(ctx, task),
+    base: task.base ? { code: task.base.code, params: JSON.stringify(Object.fromEntries(task.base.params.map((p) => [p.key, p.value]))), request: task.request ?? "" } : null,
+    previousError: task.lastError ?? null,
+    refFrames,
+  };
+}
+
+/**
+ * Valida el código escrito (por la API o por el agente) y lo deja como resultado de la tarea. `selfReviewed`: el agente
+ * ya lo miró sobre el video, así que no hace falta la vuelta de cuadros por la API.
+ */
+async function acceptCode(ctx: WorkCtx, work: ComposWork, task: ComposTask, wire: ComposCodeWire, selfReviewed: boolean): Promise<string> {
+  const of = `${work.tasks.indexOf(task) + 1} de ${work.tasks.length}`;
+  const item = itemOf(task, wire);
+  const spec = envFor(ctx, item);
+  const check = spec ? await validateComposition(item.code, spec.compos!.env) : { ok: false as const, error: "Sin tramo.", line: null, hash: "" };
+  if (!check.ok) {
+    task.lastError = `${check.error}${check.line ? ` (línea ${check.line})` : ""}`.slice(0, 600);
+    if (task.attempts >= 3) {
+      task.status = "failed";
+      task.error = `No pudimos dejar la animación sin errores: ${task.lastError}`;
+    }
+    return `Corrigiendo la animación ${of}`;
+  }
+  task.lastError = undefined;
+  // Los textos editables con los valores por defecto del módulo si Claude no los listó.
+  const params = item.params.length ? item.params : Object.entries(check.defaults).map(([key, value]) => ({ key, label: key, value }));
+  task.result = { ...item, params, checked: check.hash };
+  task.status = !selfReviewed && work.lookRounds > task.round && remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
+  return `Programando la animación ${of}`;
+}
+
+const AGENT_PLACEHOLDER = "export default { render(ctx, t, env) {} };";
+
+/** Pedido al worker: que el agente de Claude escriba, pruebe y mire el código de esta tarea con la suscripción del cliente. */
+async function agentRequest(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promise<WorkerNext | null> {
+  const s = span(ctx, task);
+  if (!s) return null;
+  const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : [];
+  const stub = itemOf(task, { name: (task.moment ?? task.brief).slice(0, 40) || "Animación", why: "", code: AGENT_PLACEHOLDER, params: [], sounds: [], hide_captions: false, tags: [] });
+  const spec = envFor(ctx, stub);
+  if (!spec) return null;
+  const { renderInputFor } = await import("../service");
+  const { input } = await renderInputFor(ctx.project as Parameters<typeof renderInputFor>[0], ctx.plan, ctx.format, ctx.project.transcript as Transcript, ctx.duration);
+  const frames = Math.max(1, Math.round(spec.duration * 30));
+  const n = work.tasks.indexOf(task) + 1;
+  return {
+    step: "compos-agent",
+    taskId: task.id,
+    system: `${COMPOS_RULES}\n\n${ctx.brandCtx}\n\n${COMPOS_AGENT_GUIDE}`,
+    prompt: composAgentTask(codeTaskInput(ctx, work, task, s, refSheets.length)),
+    item: {
+      taskId: task.id,
+      spec,
+      sourceFrames: spec.mask ? sourceFramesOf(ctx.timeline, spec.start, frames) : [],
+      ...((stub.images ?? []).length ? { imageKeys: Object.fromEntries(stub.images!.map((g) => [g.id, g.key])), projectId: ctx.projectId } : {}),
+    },
+    render: { ...input, effects: [], broll: [] },
+    refSheets: refSheets.map((r) => ({ key: r.key, width: r.width, height: r.height })),
+    label: `Claude está escribiendo y probando la animación ${n} de ${work.tasks.length}`,
+  };
+}
+
+/** Lo que entregó el agente: se valida y queda; si no pudo (sin cupo, token vencido…), la tarea sigue por la API. */
+async function applyAgent(ctx: WorkCtx, work: ComposWork, done: AgentDone): Promise<string> {
+  const task = work.tasks.find((t) => t.id === done.taskId && t.status === "code");
+  if (!task) return "Animación";
+  const u = done.usage ?? {};
+  // El uso queda registrado (sin costo: lo paga la suscripción) para medir cuánto gasta cada animación.
+  await getDb()
+    .insert(schema.aiUsage)
+    .values({
+      feature: "video.compos.agente",
+      provider: "claude-plan",
+      model: (u.model ?? "claude-opus").slice(0, 60),
+      inputTokens: Math.max(0, Math.round(u.inputTokens ?? 0)),
+      outputTokens: Math.max(0, Math.round(u.outputTokens ?? 0)),
+      cacheReadTokens: Math.max(0, Math.round(u.cacheReadTokens ?? 0)),
+      cacheWriteTokens: Math.max(0, Math.round(u.cacheWriteTokens ?? 0)),
+      videoProjectId: ctx.projectId,
+      costUsd: 0,
+    })
+    .catch(() => undefined);
+  console.info("[compos] agente", done.ok ? "listo" : `no pudo (${done.kind ?? "other"})`, `equivalente API USD ${(u.apiEquivalentUsd ?? 0).toFixed(2)}`, `${u.turns ?? 0} vueltas`, `${Math.round((u.ms ?? 0) / 1000)} s`);
+  if (!done.ok) {
+    task.agent = "off";
+    const why =
+      done.kind === "quota"
+        ? "Se te acabó el uso de Claude de esta semana"
+        : done.kind === "auth"
+          ? "Tu conexión con Claude venció o no es válida (reconéctala en Ajustes)"
+          : `Claude no pudo terminarla${done.error ? `: ${done.error.slice(0, 160)}` : ""}`;
+    if (!aiConfigured()) {
+      task.status = "failed";
+      task.error = `${why}. Prueba más tarde.`;
+    } else task.note = [task.note, `${why}: la escribimos con la API.`].filter(Boolean).join(" ").slice(0, 300);
+    return "Animación";
+  }
+  const parsed = composCodeWireSchema.safeParse(done.wire);
+  if (!parsed.success) {
+    task.agent = "off";
+    task.note = [task.note, "Claude entregó algo incompleto: la escribimos con la API."].filter(Boolean).join(" ").slice(0, 300);
+    return "Animación";
+  }
+  task.attempts++;
+  const label = await acceptCode(ctx, work, task, parsed.data, true);
+  // Si no pasó la validación final, el próximo intento va por la API con el error.
+  if (task.status === "code") task.agent = "off";
+  return label;
 }
 
 function wordsText(ctx: WorkCtx, t: Pick<ComposTask, "from_word" | "to_word">, start: number): string {

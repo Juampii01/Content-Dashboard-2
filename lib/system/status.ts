@@ -180,6 +180,7 @@ const jobKinds: Record<string, JobKind> = {
   CAROUSEL_IMAGES: { what: "Imágenes de carrusel", href: (id) => `/carruseles/${id}`, retry: null, hrefLabel: "Abrir y volver a generar" },
   CAROUSEL_STYLE: { what: "Plantilla de carrusel", href: (id) => `/carruseles/plantillas/${id}`, retry: null, hrefLabel: "Ver plantilla", failedStatus: "FAILED" },
   CODEX_LOGIN: { what: "Conexión con ChatGPT", href: () => `/ajustes#claves`, retry: null, hrefLabel: "Volver a conectar" },
+  CLAUDE_LOGIN: { what: "Conexión con Claude", href: () => `/ajustes#claves`, retry: null, hrefLabel: "Volver a conectar" },
   CAROUSEL_COPY: { what: "Copia de un carrusel", href: (id) => `/carruseles/copiar/${id}`, retry: null, hrefLabel: "Ver y reintentar" },
   CAROUSEL_ANIMATE: { what: "Video de un slide", href: (id) => `/carruseles/${id}`, retry: null, hrefLabel: "Abrir y volver a animar" },
   REEL_COPY: { what: "Copia de un reel", href: (id) => `/guiones/copiar/${id}`, retry: null, hrefLabel: "Ver y reintentar", failedStatus: "FAILED" },
@@ -202,7 +203,7 @@ export function failureViews(jobs: FailedJobRow[], clones: FailedCloneRow[]): Fa
     // Si lo que procesaba ya no existe o ya no está fallido, no hay nada que resolver.
     if (kind.failedStatus && job.refStatus !== kind.failedStatus) continue;
     // Sin estado propio y sin título: lo que procesaba se borró (por ejemplo, el carrusel), ya no hay qué resolver.
-    if (!kind.failedStatus && job.type !== "CODEX_LOGIN" && (!job.refId || !job.refTitle)) continue;
+    if (!kind.failedStatus && job.type !== "CODEX_LOGIN" && job.type !== "CLAUDE_LOGIN" && (!job.refId || !job.refTitle)) continue;
     // Lo que no tiene estado propio (imágenes, plantillas, ChatGPT): si un intento posterior salió bien, ya está.
     if (job.refStatus === "RECOVERED") continue;
     out.push({

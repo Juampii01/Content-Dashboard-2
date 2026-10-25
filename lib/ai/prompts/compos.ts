@@ -19,17 +19,59 @@ import { SFX_NAMES, type SfxName } from "@/lib/video/sfx-library";
 
 // ─── Receta de la referencia ─────────────────────────────────────────────
 
-export const MOMENT_KINDS = ["transicion", "texto", "tarjeta", "camara", "look", "broll", "recorte", "subtitulos", "sonido", "grafico", "imagen"] as const;
-export const MOMENT_FUNCTIONS = ["gancho", "enumeracion", "cifra", "promesa", "cta", "enfasis", "historia", "prueba", "pregunta", "cambio", "otro"] as const;
+export const MOMENT_KINDS = [
+  "transicion",
+  "texto",
+  "tarjeta",
+  "camara",
+  "look",
+  "broll",
+  "recorte",
+  "subtitulos",
+  "sonido",
+  "grafico",
+  "imagen",
+] as const;
+export const MOMENT_FUNCTIONS = [
+  "gancho",
+  "enumeracion",
+  "cifra",
+  "promesa",
+  "cta",
+  "enfasis",
+  "historia",
+  "prueba",
+  "pregunta",
+  "cambio",
+  "otro",
+] as const;
 
 export const recipeWireSchema = z.object({
-  summary: z.string().describe("En 2 frases: qué tipo de edición es y qué la hace reconocible."),
+  summary: z
+    .string()
+    .describe("En 2 frases: qué tipo de edición es y qué la hace reconocible."),
   global: z.object({
-    pace: z.string().describe("Ritmo: cada cuánto cambia algo, cortes, pausas."),
-    captions: z.string().describe("Subtítulos: estilo, tamaño, lugar, colores, animación por palabra."),
-    typography: z.string().describe("Tipografías que se ven (gruesa condensada, serif, mano…), pesos, mayúsculas."),
-    palette: z.array(z.string()).describe("Colores dominantes de los gráficos y textos, en #hex."),
-    look: z.string().describe("Look de la imagen: grano, color, viñeta, contraste, desenfoques."),
+    pace: z
+      .string()
+      .describe("Ritmo: cada cuánto cambia algo, cortes, pausas."),
+    captions: z
+      .string()
+      .describe(
+        "Subtítulos: estilo, tamaño, lugar, colores, animación por palabra.",
+      ),
+    typography: z
+      .string()
+      .describe(
+        "Tipografías que se ven (gruesa condensada, serif, mano…), pesos, mayúsculas.",
+      ),
+    palette: z
+      .array(z.string())
+      .describe("Colores dominantes de los gráficos y textos, en #hex."),
+    look: z
+      .string()
+      .describe(
+        "Look de la imagen: grano, color, viñeta, contraste, desenfoques.",
+      ),
     music: z.string().describe("Música y sonidos: estilo, golpes, whooshes."),
     density: z.enum(["sobria", "normal", "reels"]),
   }),
@@ -39,16 +81,45 @@ export const recipeWireSchema = z.object({
         t0: z.number().describe("Segundo de la referencia donde empieza."),
         t1: z.number(),
         kind: z.enum(MOMENT_KINDS),
-        function: z.enum(MOMENT_FUNCTIONS).describe("Para qué sirve en la historia (lo que se adapta al guion nuevo)."),
-        visual: z.string().describe("Descripción visual PRECISA: composición, posición, tamaños relativos, colores (#hex), tipografía, qué se ve detrás/delante de la persona."),
-        motion: z.string().describe("Movimiento: qué entra, cómo (escala, giro, desplazamiento, letras, máscara), curva (rebote, ease out fuerte…) y duración en segundos."),
-        relation: z.string().describe("Relación con lo que se dice: qué palabra o idea lo dispara y cuándo."),
-        frames: z.array(z.number().int()).describe("Números R#n de los cuadros donde se ve."),
-        catalog: z.string().describe(`Si coincide DE VERDAD con un efecto o transición de la biblioteca, su clave (${[...FX_KINDS.slice(0, 6), "…", ...TRANSITION_KINDS.slice(0, 3)].join(", ")}…); si no, vacío.`),
-        importance: z.number().int().min(1).max(3).describe("3 = lo que hace única a la edición; 1 = detalle."),
+        function: z
+          .enum(MOMENT_FUNCTIONS)
+          .describe(
+            "Para qué sirve en la historia (lo que se adapta al guion nuevo).",
+          ),
+        visual: z
+          .string()
+          .describe(
+            "Descripción visual PRECISA: composición, posición, tamaños relativos, colores (#hex), tipografía, qué se ve detrás/delante de la persona.",
+          ),
+        motion: z
+          .string()
+          .describe(
+            "Movimiento: qué entra, cómo (escala, giro, desplazamiento, letras, máscara), curva (rebote, ease out fuerte…) y duración en segundos.",
+          ),
+        relation: z
+          .string()
+          .describe(
+            "Relación con lo que se dice: qué palabra o idea lo dispara y cuándo.",
+          ),
+        frames: z
+          .array(z.number().int())
+          .describe("Números R#n de los cuadros donde se ve."),
+        catalog: z
+          .string()
+          .describe(
+            `Si coincide DE VERDAD con un efecto o transición de la biblioteca, su clave (${[...FX_KINDS.slice(0, 6), "…", ...TRANSITION_KINDS.slice(0, 3)].join(", ")}…); si no, vacío.`,
+          ),
+        importance: z
+          .number()
+          .int()
+          .min(1)
+          .max(3)
+          .describe("3 = lo que hace única a la edición; 1 = detalle."),
       }),
     )
-    .describe("Todos los momentos de edición, en orden. No te saltees nada visible."),
+    .describe(
+      "Todos los momentos de edición, en orden. No te saltees nada visible.",
+    ),
 });
 export type RecipeWire = z.infer<typeof recipeWireSchema>;
 
@@ -62,7 +133,15 @@ Cómo mirar:
 - Colores en #hex aproximado. Posiciones en % del cuadro. Tiempos en segundos.
 - Si algo no se distingue, dilo en la descripción ("no se ve bien si…").`;
 
-export function recipeTask(input: { duration: number; aspect: string; metrics: string; moments: string; transcript: string; sheets: number; frames: number }): string {
+export function recipeTask(input: {
+  duration: number;
+  aspect: string;
+  metrics: string;
+  moments: string;
+  transcript: string;
+  sheets: number;
+  frames: number;
+}): string {
   return `REFERENCIA: ${input.duration.toFixed(1)} s, ${input.aspect}. Te paso ${input.sheets} hojas con ${input.frames} cuadros (R#n con su segundo).
 
 MEDIDAS AUTOMÁTICAS (cortes, zooms, subtítulos, habla):
@@ -83,18 +162,41 @@ export const adaptWireSchema = z.object({
   moments: z.array(
     z.object({
       moment: z.string().describe("Id del momento de la receta (m1, m2…)."),
-      plan: z.enum(["compose", "catalog", "skip"]).describe("compose: se programa una animación a medida; catalog: lo cubre un efecto/transición de la biblioteca o los subtítulos/ritmo; skip: no se puede o no tiene dónde ir."),
-      from_word: z.number().int().describe("Primera palabra (id) del tramo del video nuevo donde va."),
+      plan: z
+        .enum(["compose", "catalog", "skip"])
+        .describe(
+          "compose: se programa una animación a medida; catalog: lo cubre un efecto/transición de la biblioteca o los subtítulos/ritmo; skip: no se puede o no tiene dónde ir.",
+        ),
+      from_word: z
+        .number()
+        .int()
+        .describe("Primera palabra (id) del tramo del video nuevo donde va."),
       to_word: z.number().int(),
-      brief: z.string().describe("Qué se programa aquí, adaptado: la misma edición del momento con el contenido de ESTE video (textos cortos, en el idioma de la marca)."),
-      texts: z.array(z.string()).describe("Textos que se verán en pantalla (sacados de lo que dice la persona en ese tramo; nunca cifras inventadas)."),
-      reason: z.string().describe("Por qué ahí (qué función cumple) o por qué no se puede."),
+      brief: z
+        .string()
+        .describe(
+          "Qué se programa aquí, adaptado: la misma edición del momento con el contenido de ESTE video (textos cortos, en el idioma de la marca).",
+        ),
+      texts: z
+        .array(z.string())
+        .describe(
+          "Textos que se verán en pantalla (sacados de lo que dice la persona en ese tramo; nunca cifras inventadas).",
+        ),
+      reason: z
+        .string()
+        .describe("Por qué ahí (qué función cumple) o por qué no se puede."),
     }),
   ),
 });
 export type AdaptWire = z.infer<typeof adaptWireSchema>;
 
-export function adaptTask(input: { recipe: string; sentences: string; duration: number; maxCompose: number; taken: string }): string {
+export function adaptTask(input: {
+  recipe: string;
+  sentences: string;
+  duration: number;
+  maxCompose: number;
+  taken: string;
+}): string {
   return `RECETA DE LA REFERENCIA:
 ${input.recipe}
 
@@ -116,14 +218,26 @@ export const requestPlanWireSchema = z.object({
       z.object({
         from_word: z.number().int(),
         to_word: z.number().int(),
-        brief: z.string().describe("La animación pedida, precisa y completa (qué se ve, cómo se mueve, cuándo)."),
+        brief: z
+          .string()
+          .describe(
+            "La animación pedida, precisa y completa (qué se ve, cómo se mueve, cuándo).",
+          ),
       }),
     )
     .describe("Una o más animaciones que cumplen el pedido."),
-  cannot: z.string().describe("Lo que del pedido no se puede hacer y por qué (vacío si todo se puede)."),
+  cannot: z
+    .string()
+    .describe(
+      "Lo que del pedido no se puede hacer y por qué (vacío si todo se puede).",
+    ),
 });
 
-export function requestPlanTask(input: { instruction: string; sentences: string; span: string | null }): string {
+export function requestPlanTask(input: {
+  instruction: string;
+  sentences: string;
+  span: string | null;
+}): string {
   return `PEDIDO DE LA PERSONA: «${input.instruction}»
 ${input.span ? `TRAMO ELEGIDO EN EL ESTUDIO: ${input.span} (la animación va ahí salvo que el pedido diga otra cosa).` : "Elige tú dónde va según el pedido y lo que se dice."}
 
@@ -136,22 +250,48 @@ Arma la lista de animaciones que cumplen el pedido. El límite es lo que se pued
 // ─── Plan de una animación: ¿necesita imágenes? ─────────────────────────
 
 export const composPlanWireSchema = z.object({
-  approach: z.string().describe("Cómo la vas a construir: capas, qué se dibuja con código, qué movimiento y en qué momentos."),
+  approach: z
+    .string()
+    .describe(
+      "Cómo la vas a construir: capas, qué se dibuja con código, qué movimiento y en qué momentos.",
+    ),
   images: z
     .array(
       z.object({
         purpose: z.string().describe("Para qué es en la animación."),
-        prompt: z.string().describe("Prompt para el generador de imágenes, en inglés, detallado. SIN TEXTO NI LETRAS en la imagen (el texto lo dibuja la animación)."),
+        prompt: z
+          .string()
+          .describe(
+            "Prompt para el generador de imágenes, en inglés, detallado. SIN TEXTO NI LETRAS en la imagen (el texto lo dibuja la animación).",
+          ),
         aspect: z.enum(["vertical", "horizontal", "square"]),
       }),
     )
     .max(2)
-    .describe("Imágenes que hay que generar con IA (mapas, objetos, lugares, ilustraciones). Vacío si todo se dibuja con código o con el video."),
-  reuse: z.string().describe('Id de un efecto de MIS EFECTOS que hace JUSTO lo que se pide (se usa tal cual, sin escribir código nuevo). Vacío "" si ninguno encaja de verdad.'),
-  reuse_params: z.array(z.object({ key: z.string(), value: z.string() })).describe("Si reusas: sus textos editables con lo que dice la persona en este tramo (mismas claves). Vacío si no reusas."),
+    .describe(
+      "Imágenes que hay que generar con IA (mapas, objetos, lugares, ilustraciones). Vacío si todo se dibuja con código o con el video.",
+    ),
+  reuse: z
+    .string()
+    .describe(
+      'Id de un efecto de MIS EFECTOS que hace JUSTO lo que se pide (se usa tal cual, sin escribir código nuevo). Vacío "" si ninguno encaja de verdad.',
+    ),
+  reuse_params: z
+    .array(z.object({ key: z.string(), value: z.string() }))
+    .describe(
+      "Si reusas: sus textos editables con lo que dice la persona en este tramo (mismas claves). Vacío si no reusas.",
+    ),
 });
 
-export function composPlanTask(input: { brief: string; said: string; duration: number; format: string; hasImages: boolean; library?: string | null; copy?: boolean }): string {
+export function composPlanTask(input: {
+  brief: string;
+  said: string;
+  duration: number;
+  format: string;
+  hasImages: boolean;
+  library?: string | null;
+  copy?: boolean;
+}): string {
   return `ANIMACIÓN A CONSTRUIR (${input.duration.toFixed(1)} s, ${input.format}): ${input.brief}
 LO QUE DICE LA PERSONA EN ESE TRAMO: «${input.said}»
 ${input.hasImages ? "Hay un generador de imágenes disponible (cuenta del cliente): pide imágenes SOLO si la animación muestra algo que no se puede dibujar bien con formas y texto (un mapa real, un objeto, un lugar, una ilustración)." : "No hay generador de imágenes conectado: todo se dibuja con código y el video."}
@@ -178,7 +318,12 @@ export const effectParamsWireSchema = z.object({
   params: z.array(z.object({ key: z.string(), value: z.string() })),
 });
 
-export function effectParamsTask(input: { name: string; description: string; params: { key: string; label: string; value: string }[]; said: string }): string {
+export function effectParamsTask(input: {
+  name: string;
+  description: string;
+  params: { key: string; label: string; value: string }[];
+  said: string;
+}): string {
   return `ANIMACIÓN: «${input.name}». ${input.description}
 TEXTOS ACTUALES:
 ${input.params.map((p) => `- ${p.key} (${p.label}): «${p.value}»`).join("\n")}
@@ -192,15 +337,30 @@ export const imageLookWireSchema = z.object({
   images: z.array(
     z.object({
       index: z.number().int().describe("Número de la imagen (1, 2…)."),
-      focus: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).describe("La zona que importa para la animación, en fracciones de la imagen (0 a 1, desde arriba a la izquierda). Ajustada al objeto, no aproximada."),
+      focus: z
+        .object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() })
+        .describe(
+          "La zona que importa para la animación, en fracciones de la imagen (0 a 1, desde arriba a la izquierda). Ajustada al objeto, no aproximada.",
+        ),
       label: z.string().describe("Qué es esa zona."),
-      notes: z.string().describe("Lo que hay que saber para animarla: dónde está cada cosa importante (en fracciones), colores dominantes (#hex), zonas vacías para poner texto."),
-      usable: z.boolean().describe("false si la imagen no sirve (no muestra lo pedido o tiene texto)."),
+      notes: z
+        .string()
+        .describe(
+          "Lo que hay que saber para animarla: dónde está cada cosa importante (en fracciones), colores dominantes (#hex), zonas vacías para poner texto.",
+        ),
+      usable: z
+        .boolean()
+        .describe(
+          "false si la imagen no sirve (no muestra lo pedido o tiene texto).",
+        ),
     }),
   ),
 });
 
-export function imageLookTask(input: { brief: string; images: { purpose: string; width: number; height: number }[] }): string {
+export function imageLookTask(input: {
+  brief: string;
+  images: { purpose: string; width: number; height: number }[];
+}): string {
   return `ANIMACIÓN: ${input.brief}
 Te paso ${input.images.length} imagen(es) generada(s) para esta animación:
 ${input.images.map((im, i) => `${i + 1}. ${im.purpose} (${im.width}×${im.height})`).join("\n")}
@@ -212,19 +372,42 @@ Mira cada una con cuidado y dime dónde está exactamente lo importante (fraccio
 const sfxName = z.enum(SFX_NAMES as [SfxName, ...SfxName[]]);
 
 export const composCodeWireSchema = z.object({
-  name: z.string().describe("Nombre corto para la línea de tiempo (3 a 6 palabras)."),
-  why: z.string().describe("Por qué esta animación aquí, en una frase para la persona."),
+  name: z
+    .string()
+    .describe("Nombre corto para la línea de tiempo (3 a 6 palabras)."),
+  why: z
+    .string()
+    .describe("Por qué esta animación aquí, en una frase para la persona."),
   code: z.string().describe("El módulo completo: export default { … }."),
-  params: z.array(z.object({ key: z.string(), label: z.string(), value: z.string() })).describe("Los textos editables (las mismas claves que params del módulo)."),
-  sounds: z.array(z.object({ at: z.number(), name: sfxName, gain: z.number() })).describe("Sonidos de la biblioteca en segundos de la animación (whoosh al entrar, golpe en el impacto…). Ganancia de -24 a -8 dB."),
-  hide_captions: z.boolean().describe("true si la animación ya muestra el texto o tapa la franja de subtítulos."),
-  tags: z.array(z.string()).describe("2 o 3 familias visuales en minúsculas con guiones (texto-letra-a-letra, tarjeta-3d, mapa-con-foco…)."),
+  params: z
+    .array(z.object({ key: z.string(), label: z.string(), value: z.string() }))
+    .describe(
+      "Los textos editables (las mismas claves que params del módulo).",
+    ),
+  sounds: z
+    .array(z.object({ at: z.number(), name: sfxName, gain: z.number() }))
+    .describe(
+      "Sonidos de la biblioteca en segundos de la animación (whoosh al entrar, golpe en el impacto…). Ganancia de -24 a -8 dB.",
+    ),
+  hide_captions: z
+    .boolean()
+    .describe(
+      "true si la animación ya muestra el texto o tapa la franja de subtítulos.",
+    ),
+  tags: z
+    .array(z.string())
+    .describe(
+      "2 o 3 familias visuales en minúsculas con guiones (texto-letra-a-letra, tarjeta-3d, mapa-con-foco…).",
+    ),
 });
 export type ComposCodeWire = z.infer<typeof composCodeWireSchema>;
 
 /** Ejemplos de calidad que van en el contexto (en caché). */
 function samplesText(): string {
-  return COMPOS_SAMPLES.map((s) => `### EJEMPLO «${s.name}» — ${s.use}\nparams: ${JSON.stringify(Object.fromEntries(s.params.map((p) => [p.key, p.value])))} · sonidos: ${s.sounds.map((x) => `${x.name}@${x.at}s`).join(", ") || "ninguno"} · oculta subtítulos: ${s.hide_captions ? "sí" : "no"}\n\`\`\`js\n${s.code.trim()}\n\`\`\``).join("\n\n");
+  return COMPOS_SAMPLES.map(
+    (s) =>
+      `### EJEMPLO «${s.name}» — ${s.use}\nparams: ${JSON.stringify(Object.fromEntries(s.params.map((p) => [p.key, p.value])))} · sonidos: ${s.sounds.map((x) => `${x.name}@${x.at}s`).join(", ") || "ninguno"} · oculta subtítulos: ${s.hide_captions ? "sí" : "no"}\n\`\`\`js\n${s.code.trim()}\n\`\`\``,
+  ).join("\n\n");
 }
 
 export const COMPOS_RULES = `Eres un motion designer y programador que anima reels a mano, al nivel de un editor que cobra USD 20–50 por video. Programas cada animación como un módulo de JavaScript que dibuja cuadro a cuadro con Canvas 2D (no eliges de una lista: la escribes tú).
@@ -268,13 +451,32 @@ export function composCodeTask(input: {
     `LO QUE DICE LA PERSONA (palabras con su segundo dentro de la animación): ${input.words}`,
     `CARA (px): ${input.face}`,
   ];
-  if (input.momentDetail) parts.push(`EL MOMENTO DE LA REFERENCIA QUE COPIAS (reprodúcelo lo más fiel posible: composición, tipografía, colores, movimiento, curvas y tiempos; solo cambia el contenido):\n${input.momentDetail}`);
-  if (input.recipeGlobal) parts.push(`ESTILO GLOBAL DE LA REFERENCIA:\n${input.recipeGlobal}`);
-  if (input.refFrames) parts.push(`Te paso ${input.refFrames === 1 ? "una hoja" : `${input.refFrames} hojas`} con los cuadros de la referencia en ese momento (R#n). Míralos y copia lo que se ve.`);
-  if (input.images) parts.push(`IMÁGENES GENERADAS PARA ESTA ANIMACIÓN (están en env.assets con kind "image", en este orden):\n${input.images}`);
-  if (input.avoid) parts.push(`VARIEDAD: ya se usaron hace poco en esta marca (evita repetir la misma familia visual salvo que el pedido lo exija): ${input.avoid}`);
-  if (input.base) parts.push(`ANIMACIÓN ACTUAL (la cambias según el pedido; conserva lo que no se pide cambiar):\nPedido: «${input.base.request}»\nparams actuales: ${input.base.params}\n\`\`\`js\n${input.base.code}\n\`\`\``);
-  if (input.previousError) parts.push(`TU VERSIÓN ANTERIOR FALLÓ LA VALIDACIÓN: ${input.previousError}\nCorrígela (el resto de la idea se mantiene).`);
+  if (input.momentDetail)
+    parts.push(
+      `EL MOMENTO DE LA REFERENCIA QUE COPIAS (reprodúcelo lo más fiel posible: composición, tipografía, colores, movimiento, curvas y tiempos; solo cambia el contenido):\n${input.momentDetail}`,
+    );
+  if (input.recipeGlobal)
+    parts.push(`ESTILO GLOBAL DE LA REFERENCIA:\n${input.recipeGlobal}`);
+  if (input.refFrames)
+    parts.push(
+      `Te paso ${input.refFrames === 1 ? "una hoja" : `${input.refFrames} hojas`} con los cuadros de la referencia en ese momento (R#n). Míralos y copia lo que se ve.`,
+    );
+  if (input.images)
+    parts.push(
+      `IMÁGENES GENERADAS PARA ESTA ANIMACIÓN (están en env.assets con kind "image", en este orden):\n${input.images}`,
+    );
+  if (input.avoid)
+    parts.push(
+      `VARIEDAD: ya se usaron hace poco en esta marca (evita repetir la misma familia visual salvo que el pedido lo exija): ${input.avoid}`,
+    );
+  if (input.base)
+    parts.push(
+      `ANIMACIÓN ACTUAL (la cambias según el pedido; conserva lo que no se pide cambiar):\nPedido: «${input.base.request}»\nparams actuales: ${input.base.params}\n\`\`\`js\n${input.base.code}\n\`\`\``,
+    );
+  if (input.previousError)
+    parts.push(
+      `TU VERSIÓN ANTERIOR FALLÓ LA VALIDACIÓN: ${input.previousError}\nCorrígela (el resto de la idea se mantiene).`,
+    );
   parts.push("Escribe el módulo completo.");
   return parts.join("\n\n");
 }
@@ -282,15 +484,40 @@ export function composCodeTask(input: {
 // ─── Mirar el resultado ──────────────────────────────────────────────────
 
 export const composLookWireSchema = z.object({
-  score: z.number().min(0).max(100).describe("Parecido con la referencia (o cumplimiento del pedido) y calidad: 100 = indistinguible de un editor profesional."),
+  score: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe(
+      "Parecido con la referencia (o cumplimiento del pedido) y calidad: 100 = indistinguible de un editor profesional.",
+    ),
   ok: z.boolean().describe("true si ya está bien (no hace falta otra vuelta)."),
-  issues: z.array(z.string()).describe("Lo que está mal o distinto, concreto (posición, tamaño, color, tiempo, legibilidad, tapa la cara…)."),
-  fixed: z.string().describe("Si no está bien: el módulo completo corregido. Si está bien: vacío."),
-  note: z.string().describe("Para la persona, en una frase: qué tan parecido quedó y qué no se pudo."),
+  issues: z
+    .array(z.string())
+    .describe(
+      "Lo que está mal o distinto, concreto (posición, tamaño, color, tiempo, legibilidad, tapa la cara…).",
+    ),
+  fixed: z
+    .string()
+    .describe(
+      "Si no está bien: el módulo completo corregido. Si está bien: vacío.",
+    ),
+  note: z
+    .string()
+    .describe(
+      "Para la persona, en una frase: qué tan parecido quedó y qué no se pudo.",
+    ),
 });
 export type ComposLookWire = z.infer<typeof composLookWireSchema>;
 
-export function composLookTask(input: { brief: string; momentDetail?: string | null; code: string; times: number[]; refFrames: number; round: number }): string {
+export function composLookTask(input: {
+  brief: string;
+  momentDetail?: string | null;
+  code: string;
+  times: number[];
+  refFrames: number;
+  round: number;
+}): string {
   return `ANIMACIÓN: ${input.brief}
 ${input.momentDetail ? `MOMENTO DE LA REFERENCIA QUE COPIA:\n${input.momentDetail}\n` : ""}
 La PRIMERA imagen es una hoja con tu animación dibujada sobre el video real en ${input.times.map((t) => `${t.toFixed(2)} s`).join(", ")}.${input.refFrames ? ` Las siguientes son los cuadros de la referencia en ese momento (R#n).` : ""}
@@ -310,14 +537,26 @@ export const keyMomentsWireSchema = z.object({
       z.object({
         from_word: z.number().int(),
         to_word: z.number().int(),
-        brief: z.string().describe("Animación a medida para este momento (idea visual original, no un efecto de catálogo)."),
-        family: z.string().describe("Familia visual en minúsculas con guiones."),
+        brief: z
+          .string()
+          .describe(
+            "Animación a medida para este momento (idea visual original, no un efecto de catálogo).",
+          ),
+        family: z
+          .string()
+          .describe("Familia visual en minúsculas con guiones."),
       }),
     )
     .max(4),
 });
 
-export function keyMomentsTask(input: { sentences: string; map: string; count: number; avoid: string; taken: string }): string {
+export function keyMomentsTask(input: {
+  sentences: string;
+  map: string;
+  count: number;
+  avoid: string;
+  taken: string;
+}): string {
   return `VIDEO (frases con los ids de sus palabras):
 ${input.sentences}
 
@@ -354,6 +593,11 @@ PROCESO
 No hay límite de largo para el código salvo el del sandbox; prioriza que se vea profesional y que cumpla cada momento del pedido. Si algo del pedido no se puede (por ejemplo un video que no tienes), resuélvelo con lo más parecido y dilo en why.`;
 
 /** El pedido para el agente: lo mismo que composCodeTask, pero cerrando con el proceso de herramientas. */
-export function composAgentTask(input: Parameters<typeof composCodeTask>[0]): string {
-  return composCodeTask(input).replace(/\n\nEscribe el módulo completo\.$/, "\n\nTrabaja con las herramientas del taller (probar, mirar, entregar) hasta entregar la mejor versión.");
+export function composAgentTask(
+  input: Parameters<typeof composCodeTask>[0],
+): string {
+  return composCodeTask(input).replace(
+    /\n\nEscribe el módulo completo\.$/,
+    "\n\nTrabaja con las herramientas del taller (probar, mirar, entregar) hasta entregar la mejor versión.",
+  );
 }

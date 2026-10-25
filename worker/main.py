@@ -19,6 +19,7 @@ import video.pipeline  # noqa: F401  (VIDEO_ANALYZE, VIDEO_RENDER, VIDEO_STYLE, 
 import carruseles  # noqa: F401  (CAROUSEL_STYLE, CAROUSEL_COPY, CAROUSEL_IMAGES, CAROUSEL_ANIMATE, CODEX_LOGIN)
 import youtube  # noqa: F401  (YT_THUMBNAILS, YOUTUBE_TRANSCRIPT)
 import video.reel_copy  # noqa: F401  (REEL_COPY)
+import video.claude_login  # noqa: F401  (CLAUDE_LOGIN)
 
 
 def main() -> int:

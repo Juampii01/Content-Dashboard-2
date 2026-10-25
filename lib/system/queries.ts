@@ -13,7 +13,7 @@ import type { ConnectionRow, FailStreak, FailedCloneRow, FailedJobRow, ServicesI
  */
 
 /** Trabajos que procesa el worker (los de la app, como la sincronización, se ven en las conexiones). */
-export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "CODEX_LOGIN", "REEL_COPY", "CAROUSEL_COPY", "CAROUSEL_ANIMATE"] as const;
+export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "CODEX_LOGIN", "REEL_COPY", "CAROUSEL_COPY", "CAROUSEL_ANIMATE", "CLAUDE_LOGIN"] as const;
 const workerTypes = sql.raw(WORKER_JOB_TYPES.map((t) => `'${t}'`).join(", "));
 
 export async function readWorker(): Promise<WorkerInput> {
@@ -56,6 +56,9 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
         when f.type = 'CAROUSEL_IMAGES' and exists(
           select 1 from jobs later where later.type = 'CAROUSEL_IMAGES' and later.status = 'SUCCEEDED'
             and later.input->>'carouselId' = f.ref_id and later.created_at > f.finished_at
+        ) then 'RECOVERED'
+        when f.type = 'CLAUDE_LOGIN' and exists(
+          select 1 from service_credentials sc where sc.provider = 'CLAUDE' and sc.updated_at > f.finished_at
         ) then 'RECOVERED'
         when f.type = 'CODEX_LOGIN' and exists(
           select 1 from service_credentials sc where sc.provider = 'CHATGPT' and sc.updated_at > f.finished_at

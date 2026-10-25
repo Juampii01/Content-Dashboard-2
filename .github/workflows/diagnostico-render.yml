@@ -3,12 +3,10 @@
 name: Diagnóstico de render
 
 on:
-  workflow_dispatch:
-    inputs:
-      proyecto:
-        description: "Id del proyecto del Editor"
-        required: true
-        type: string
+  # Se pide escribiendo el id del proyecto en .github/diag/proyecto (y subiéndolo a main).
+  push:
+    branches: [main]
+    paths: [".github/diag/proyecto"]
 
 jobs:
   diag:
@@ -21,7 +19,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Validar el id
-        run: echo "${{ inputs.proyecto }}" | grep -Eq '^[0-9a-f-]{36}$'
+        id: pid
+        run: |
+          pid=$(tr -d '[:space:]' < ../.github/diag/proyecto)
+          echo "$pid" | grep -Eq '^[0-9a-f-]{36}$'
+          echo "pid=$pid" >> "$GITHUB_OUTPUT"
       - name: Encender la máquina
         run: |
           for id in $(flyctl machines list --config fly.toml --json | jq -r '.[].id'); do flyctl machines start "$id" --config fly.toml || true; done
@@ -29,7 +31,7 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Diagnóstico
-        run: flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ inputs.proyecto }}"
+        run: flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ steps.pid.outputs.pid }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Registros del worker

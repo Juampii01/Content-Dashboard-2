@@ -59,7 +59,7 @@ export const compositionSchema = z.object({
   /** Huella del código que pasó la validación (lib/video/compos/validate.ts). */
   checked: z.string().max(40).optional(),
   /** Pedido de la persona que la creó o la cambió por última vez. */
-  request: z.string().max(600).optional(),
+  request: z.string().max(1500).optional(),
   /** Efecto de "Mis efectos" del que salió o en el que quedó guardada (lib/video/compos/library-service.ts). */
   lib_id: z.uuid().optional(),
 });

@@ -380,7 +380,7 @@ export async function startStudioRequest(projectId: string, input: { from_word: 
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
   if (!aiConfigured()) throw new ComposRequestError("Falta configurar la IA en esta instalación.");
-  const instruction = input.instruction.trim().slice(0, 600);
+  const instruction = input.instruction.trim().slice(0, 1500);
   if (instruction.length < 3) throw new ComposRequestError("Escribe qué animación quieres.");
   const valid = (id: number) => Number.isInteger(id) && id >= 0 && id < ctx.words.length;
   if (!valid(input.from_word) || !valid(input.to_word) || input.from_word > input.to_word) throw new ComposRequestError("Elige un tramo del video.");

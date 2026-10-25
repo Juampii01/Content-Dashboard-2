@@ -248,7 +248,7 @@ function itemOf(task: ComposTask, code: ComposCodeWire | { code: string; name: s
     ...(task.moment ? { moment: task.moment } : {}),
     tags: code.tags.map((t) => t.toLowerCase().replace(/[^a-z0-9ñ-]+/g, "-").slice(0, 40)).filter(Boolean).slice(0, 6),
     ...(images.length ? { images } : {}),
-    ...(task.request ? { request: task.request.slice(0, 600) } : {}),
+    ...(task.request ? { request: task.request.slice(0, 1500) } : {}),
   };
 }
 
@@ -488,7 +488,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
           task: composPlanTask({ brief, said: said(ctx, task), duration, format: ctx.format, hasImages: canImages, library: library.length ? candidatesText(library) : null, copy: work.mode === "copy" }),
           schema: composPlanWireSchema,
-          maxTokens: 2000,
+          maxTokens: 8000,
           videoProjectId: ctx.projectId,
           fake: () => fakePlan(brief, library),
         });
@@ -502,7 +502,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
               return typeof v === "string" && v.trim() ? { ...p, value: v.trim().slice(0, 160) } : p;
             });
             const built = await buildFromEffect(placeCtxOf(ctx), pick.row, { from: task.from_word, to: task.to_word, params, source: task.source, compId: task.compId });
-            task.result = { ...built, ...(task.moment ? { moment: task.moment } : {}), ...(task.request ? { request: task.request.slice(0, 600) } : {}) };
+            task.result = { ...built, ...(task.moment ? { moment: task.moment } : {}), ...(task.request ? { request: task.request.slice(0, 1500) } : {}) };
             task.reused = { id: pick.id, name: pick.name, version: pick.row.version };
             task.note = [task.note, `Reusamos «${pick.name}» de Mis efectos.`].filter(Boolean).join(" ").slice(0, 300);
             task.status = work.lookRounds > task.round && remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
@@ -586,8 +586,10 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           images: refSheets.length ? await imagesOf(refSheets) : undefined,
           imageSizes: refSheets.map((r) => ({ width: r.width, height: r.height })),
           schema: composCodeWireSchema,
-          maxTokens: 24000,
-          timeoutMs: 400_000,
+          // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
+          // salían cortadas a la mitad ("Unterminated string").
+          maxTokens: 48000,
+          timeoutMs: 700_000,
           videoProjectId: ctx.projectId,
           fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0 }),
         });
@@ -626,8 +628,10 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           images: await imagesOf([task.sheet, ...refSheets]),
           imageSizes: [task.sheet, ...refSheets].map((r) => ({ width: r.width, height: r.height })),
           schema: composLookWireSchema,
-          maxTokens: 24000,
-          timeoutMs: 400_000,
+          // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
+          // salían cortadas a la mitad ("Unterminated string").
+          maxTokens: 48000,
+          timeoutMs: 700_000,
           videoProjectId: ctx.projectId,
           fake: () => fakeLook(task.round),
         });

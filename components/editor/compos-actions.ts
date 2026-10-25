@@ -16,7 +16,7 @@ const idSchema = z.uuid();
 const requestSchema = z.object({
   from_word: z.number().int().min(0),
   to_word: z.number().int().min(0),
-  instruction: z.string().trim().min(3, "Escribe qué animación quieres.").max(600, "El pedido es demasiado largo: resúmelo en pocas frases."),
+  instruction: z.string().trim().min(3, "Escribe qué animación quieres.").max(1500, "El pedido es demasiado largo: resúmelo en pocas frases."),
   replace: z.unknown().nullable().optional(),
 });
 

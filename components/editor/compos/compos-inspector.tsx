@@ -106,7 +106,7 @@ export function AskAnimation({ api, from, to }: { api: StudioApi; from: number; 
         <WandSparkles className="h-4 w-4 text-[#c4b5fd]" aria-hidden /> Pide una animación aquí
       </label>
       <p className="text-xs text-muted">Descríbela como a un motion designer: qué se ve, cómo se mueve y cuándo. Puede llevar imágenes creadas con IA. La programamos a medida para este tramo.</p>
-      <Textarea id="ask-animation" value={text} onChange={(e) => setText(e.target.value)} maxLength={600} className="!min-h-20 text-sm" placeholder="Ej.: un mapa del mundo creado con IA, zoom a Francia, la remarca y una flecha que diga «el mejor país del mundo»" onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void send()} />
+      <Textarea id="ask-animation" value={text} onChange={(e) => setText(e.target.value)} maxLength={1500} className="!min-h-20 text-sm" placeholder="Ej.: un mapa del mundo creado con IA, zoom a Francia, la remarca y una flecha que diga «el mejor país del mundo»" onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void send()} />
       <div className="flex flex-wrap gap-1.5" aria-label="Ideas de animaciones">
         {IDEAS_NEW.map((s) => (
           <button key={s} type="button" className="pill border border-white/10 text-left text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => setText(s)}>
@@ -213,7 +213,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           <label htmlFor={`ask-${item.id}`} className="flex items-center gap-1.5 text-sm font-semibold text-white">
             <Wand2 className="h-4 w-4 text-accent-hi" aria-hidden /> Pídele un cambio a esta animación
           </label>
-          <Textarea id={`ask-${item.id}`} value={ask} onChange={(e) => setAsk(e.target.value)} maxLength={600} className="!min-h-16 text-sm" placeholder="Ej.: que la cifra sea más grande y entre girando más rápido" disabled={busy} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void change()} />
+          <Textarea id={`ask-${item.id}`} value={ask} onChange={(e) => setAsk(e.target.value)} maxLength={1500} className="!min-h-16 text-sm" placeholder="Ej.: que la cifra sea más grande y entre girando más rápido" disabled={busy} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void change()} />
           <div className="flex flex-wrap gap-1.5" aria-label="Ideas de cambios">
             {IDEAS_CHANGE.map((s) => (
               <button key={s} type="button" className="pill border border-white/10 text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => setAsk(s)} disabled={busy}>

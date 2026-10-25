@@ -196,7 +196,7 @@ export function ClaudePlanPanel({ status }: { status: ClaudePlanPanelStatus }) {
             {c.connected && <StatusBadge tone="success">Conectada</StatusBadge>}
           </p>
           <p className="mt-1 text-sm text-muted">
-            Las animaciones del Editor las escribe un agente de Claude que las prueba y las mira sobre tu video antes de entregártelas. Con tu suscripción (Pro o Max) gastan tu uso semanal, no saldo de la API. Si se te acaba el uso de la semana, seguimos con la API.
+            Toda la IA de la plataforma (edición de videos, animaciones, guiones, carruseles, métricas) usa tu suscripción de Claude (Pro o Max): gasta tu uso semanal, no saldo de la API. Las animaciones las escribe un agente que las prueba y las mira sobre tu video antes de entregártelas. Si se te acaba el uso, seguimos con la API si hay una clave de respaldo.
           </p>
           {c.connected && (
             <p className="mt-2 text-sm text-muted">

@@ -62,6 +62,8 @@ const schema = z.object({
   FLY_API_TOKEN: optional,
   FLY_WORKER_APP: optional,
   FLY_WORKER_MACHINE_ID: optional,
+  // Puerta de IA del worker (suscripción de Claude del cliente). Sin esta variable se usa https://<FLY_WORKER_APP>.fly.dev.
+  CLAUDE_GATEWAY_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
 
   // Integraciones (se exigen en cada módulo)
   INSTAGRAM_APP_ID: optional,

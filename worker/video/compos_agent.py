@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from comunes.errors import Cancelled, JobError
+from comunes.ia_server import cli_env
 from comunes.runner import JobContext
 
 from . import fx, motion, render
@@ -277,16 +278,7 @@ async def _agent(shop: Workshop, token: str, nxt: dict[str, Any]) -> dict[str, A
         max_turns=MAX_TURNS,
         setting_sources=[],
         cwd=str(shop.dir),
-        env={
-            "CLAUDE_CODE_OAUTH_TOKEN": token,
-            # Que nunca use una API key del entorno (pagaría la API en vez del plan).
-            "ANTHROPIC_API_KEY": "",
-            "ANTHROPIC_AUTH_TOKEN": "",
-            "HOME": str(home),
-            "DISABLE_AUTOUPDATER": "1",
-            "DISABLE_TELEMETRY": "1",
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        },
+        env=cli_env(token, home),
         stderr=lambda line: log.debug("cli: %s", line[:300]),
     )
     usage: dict[str, Any] = {}

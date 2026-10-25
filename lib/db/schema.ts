@@ -1082,6 +1082,10 @@ export const aiUsage = pgTable(
     cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
     cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
     costUsd: real("cost_usd").notNull().default(0),
+    // Con la suscripción de Claude del cliente (provider "claude-plan"): lo que habría costado por API y qué parte de su
+    // ventana de uso llevaba gastada después de la llamada (0 a 1), para medir cuánto rinde el plan.
+    apiEquivalentUsd: real("api_equivalent_usd").notNull().default(0),
+    planUtilization: real("plan_utilization"),
     createdAt: createdAt(),
   },
   (t) => [index("ai_usage_created_at_idx").on(t.createdAt), index("ai_usage_video_project_idx").on(t.videoProjectId)],

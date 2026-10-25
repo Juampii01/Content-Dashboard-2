@@ -5,6 +5,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
+import { callPlan, gatewayUrl, planToken, PlanUnavailable } from "./claude-gateway";
 import { costOf, imageTokens, textTokens } from "./pricing";
 
 /**
@@ -47,8 +48,9 @@ export function withAiScope<T>(videoProjectId: string | null, fn: () => Promise<
 /** Respuesta simulada (AI_FAKE=1) de una función que la arma con los datos reales en lugar de leer la tarea. */
 export type FakeFn = () => unknown;
 
+/** Hay con qué usar la IA: API key, o la puerta del worker para la suscripción de Claude (si no está conectada, la llamada lo avisa). */
 export function aiConfigured(): boolean {
-  return Boolean(env().ANTHROPIC_API_KEY) || (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production");
+  return Boolean(env().ANTHROPIC_API_KEY) || Boolean(gatewayUrl() && env().WORKER_SECRET) || (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production");
 }
 
 export async function generateStructured<S extends z.ZodType>(input: {
@@ -98,6 +100,56 @@ export async function generateStructured<S extends z.ZodType>(input: {
         .catch(() => undefined);
     }
     return parsed;
+  }
+  // Con la suscripción de Claude del cliente conectada, la llamada va por su plan (puerta de IA del worker). Si no hay
+  // cupo, el token venció o la puerta no responde, sigue por la API cuando hay clave; si no, avisa qué pasó.
+  const planTok = await planToken();
+  if (planTok) {
+    try {
+      const jsonSchema = zodOutputFormat(input.schema).schema;
+      const { data, usage } = await callPlan({
+        token: planTok,
+        feature: input.feature,
+        model,
+        system: input.context,
+        // El esquema también va en la tarea: si la salida estructurada no llega, la respuesta en texto igual sirve.
+        task: `${input.task}\n\nFORMATO DE SALIDA: responde SOLO con un objeto JSON válido (sin texto antes ni después) que cumpla este JSON Schema:\n${JSON.stringify(jsonSchema)}`,
+        schema: jsonSchema,
+        images: input.images,
+        effort: input.thinking?.effort ?? null,
+        timeoutMs: input.timeoutMs,
+      });
+      await getDb()
+        .insert(schema.aiUsage)
+        .values({
+          feature: input.feature,
+          provider: "claude-plan",
+          model: (usage.model || model).slice(0, 80),
+          inputTokens: Math.round((usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)),
+          outputTokens: Math.round(usage.outputTokens ?? 0),
+          jobId: input.jobId ?? null,
+          videoProjectId,
+          cacheReadTokens: Math.round(usage.cacheReadTokens ?? 0),
+          cacheWriteTokens: Math.round(usage.cacheWriteTokens ?? 0),
+          costUsd: 0,
+          apiEquivalentUsd: usage.apiEquivalentUsd ?? 0,
+          planUtilization: typeof usage.utilization === "number" ? usage.utilization : null,
+        })
+        .catch(() => undefined);
+      const checked = input.schema.safeParse(data);
+      if (checked.success) return checked.data as z.infer<S>;
+      throw new PlanUnavailable("other", `formato inválido: ${checked.error.message.slice(0, 200)}`);
+    } catch (error) {
+      if (!(error instanceof PlanUnavailable)) throw error;
+      console.warn(`[ia] ${input.feature}: suscripción de Claude no disponible (${error.kind}): ${error.detail.slice(0, 200)}`);
+      if (!env().ANTHROPIC_API_KEY) {
+        if (error.kind === "quota") throw new AiError("Se te acabó el uso de Claude por ahora (límite de tu plan). Prueba más tarde o agrega una API key de respaldo.", error.detail);
+        if (error.kind === "auth") throw new AiError("Tu conexión con Claude venció. Vuelve a conectarla en Ajustes → Claves de servicios.", error.detail);
+        throw new AiError("No pudimos usar tu Claude en este momento. Prueba de nuevo en un minuto.", error.detail);
+      }
+    }
+  } else if (!env().ANTHROPIC_API_KEY) {
+    throw new AiError("Conecta tu suscripción de Claude en Ajustes → Claves de servicios para usar la IA.", "sin plan ni API key");
   }
   const params = {
     model,

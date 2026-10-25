@@ -232,6 +232,13 @@
       "when": 1792897418202,
       "tag": "0032_claude-login",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792899269068,
+      "tag": "0033_uso-suscripcion",
+      "breakpoints": true
     }
   ]
 }

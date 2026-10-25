@@ -36,6 +36,15 @@ jobs:
           done
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: IP pública para la puerta de IA
+        # La app llama a la puerta de IA (comunes/ia_server.py) por https://<app>.fly.dev: hace falta una IP (gratis: IPv6 y IPv4 compartida).
+        run: |
+          if [ "$(flyctl ips list --config fly.toml --json | jq 'length')" = "0" ]; then
+            flyctl ips allocate-v6 --config fly.toml
+            flyctl ips allocate-v4 --shared --config fly.toml --yes
+          fi
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Desplegar
         run: flyctl deploy --config fly.toml --remote-only --ha=false
         env:

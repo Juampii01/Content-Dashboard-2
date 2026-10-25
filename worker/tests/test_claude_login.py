@@ -104,3 +104,19 @@ def test_the_real_cli_shows_a_login_link(tmp_path: Path, monkeypatch: pytest.Mon
     with pytest.raises(JobError, match="15 minutos"):
         claude_login.login(Ctx(tmp_path))
     assert outputs and outputs[0]["url"].startswith("https://") and "oauth/authorize" in outputs[0]["url"]
+
+
+def test_token_is_not_glued_to_the_next_line() -> None:
+    text = f"Your OAuth token (valid for 1 year):\r\n\r\n{TOKEN}\r\nStore this token securely. You won't be able to see it again.\r\n"
+    assert claude_login.find_token(text) == TOKEN
+
+
+def test_login_job_checks_the_token_before_saving(tmp_path: Path, db: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    term = FakeTerm({"after": f"\r\n{TOKEN}\r\nStore this token securely.\r\n"})
+    monkeypatch.setattr(claude_login, "Terminal", lambda argv, env: term)
+    monkeypatch.setattr(claude_login, "verify", lambda token, work_dir: "Authentication error")
+    ctx = Ctx(tmp_path)
+    ctx.app = SimpleNamespace(_post=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debería guardar")))
+    with pytest.raises(JobError) as err:
+        claude_login.claude_login(ctx)
+    assert "no funcionó al probarla" in err.value.user_message

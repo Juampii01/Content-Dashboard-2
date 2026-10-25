@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from comunes.errors import Cancelled, JobError
-from comunes.ia_server import cli_env
+from comunes.ia_server import cli_env, redact
 from comunes.runner import JobContext
 
 from . import fx, motion, render
@@ -338,9 +338,9 @@ def run(ctx: JobContext, project: dict[str, Any], nxt: dict[str, Any], heavy: An
         except Cancelled:
             raise
         except Exception as e:  # noqa: BLE001 — el agente no puede tumbar el pedido: sigue por la API
-            text = f"{e.__class__.__name__}: {e}"
+            text = redact(f"{e.__class__.__name__}: {e}")
             log.warning("agente de %s: %s", task_id, text[:400])
-            return {"taskId": task_id, "ok": False, "kind": classify(text), "error": "El agente de Claude se detuvo."}
+            return {"taskId": task_id, "ok": False, "kind": classify(text), "error": f"El agente de Claude se detuvo: {text[:300]}"}
         usage = {k: v for k, v in out["usage"].items() if v is not None}
         log.info(
             "agente %s: %s · %s vueltas · %s s · equivalente API USD %.2f · %s pruebas · %s miradas · uso de la ventana %s",

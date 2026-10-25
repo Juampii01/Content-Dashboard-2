@@ -89,6 +89,13 @@ def cli_env(token: str, home: Path) -> dict[str, str]:
     return env
 
 
+def redact(text: str) -> str:
+    """Sin tokens ni claves en lo que se registra o se devuelve."""
+    import re  # noqa: PLC0415
+
+    return re.sub(r"sk-ant-[A-Za-z0-9_-]+", "sk-ant-…", text)
+
+
 def classify(text: str, status: int | None = None) -> str:
     t = (text or "").lower()
     if status == 429 or any(k in t for k in ("usage limit", "rate limit", "rate_limit", "limit reached", "weekly limit", "out of extra usage", "quota", "overloaded")):
@@ -171,9 +178,10 @@ def run_call(req: dict[str, Any], work_dir: Path) -> dict[str, Any]:
     except TimeoutError:
         return {"ok": False, "kind": "other", "error": "Claude tardó demasiado."}
     except Exception as e:  # noqa: BLE001 — siempre una respuesta legible para la app
-        text = f"{e.__class__.__name__}: {e}"
-        log.warning("llamada de IA falló: %s", text[:300])
-        return {"ok": False, "kind": classify(text), "error": "La IA con tu suscripción no respondió."}
+        text = redact(f"{e.__class__.__name__}: {e}")
+        log.warning("llamada de IA falló: %s", text[:400])
+        # El detalle (sin el token) va a la app para que quede en sus registros.
+        return {"ok": False, "kind": classify(text), "error": text[:400]}
     finally:
         shutil.rmtree(home, ignore_errors=True)
 

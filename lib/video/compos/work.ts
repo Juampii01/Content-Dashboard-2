@@ -787,7 +787,7 @@ async function applyAgent(ctx: WorkCtx, work: ComposWork, done: AgentDone): Prom
       costUsd: 0,
     })
     .catch(() => undefined);
-  console.info("[compos] agente", done.ok ? "listo" : `no pudo (${done.kind ?? "other"})`, `equivalente API USD ${(u.apiEquivalentUsd ?? 0).toFixed(2)}`, `${u.turns ?? 0} vueltas`, `${Math.round((u.ms ?? 0) / 1000)} s`);
+  console.info("[compos] agente", done.ok ? "listo" : `no pudo (${done.kind ?? "other"}): ${(done.error ?? "").slice(0, 300)}`, `equivalente API USD ${(u.apiEquivalentUsd ?? 0).toFixed(2)}`, `${u.turns ?? 0} vueltas`, `${Math.round((u.ms ?? 0) / 1000)} s`);
   if (!done.ok) {
     task.agent = "off";
     const why =

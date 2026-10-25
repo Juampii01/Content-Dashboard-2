@@ -58,6 +58,26 @@ def clean(raw: str) -> str:
     return ANSI_RE.sub("", raw)
 
 
+def find_token(text: str) -> str | None:
+    """El token tal cual aparece en su línea (la terminal es ancha: no se parte). Antes se unían las líneas y el token
+    quedaba pegado a la palabra siguiente («…AAStore this token…»), así que se guardaba uno que no servía."""
+    for line in text.replace("\r", "\n").split("\n"):
+        found = TOKEN_RE.search(line)
+        if found:
+            return found.group(0)
+    return None
+
+
+def verify(token: str, work_dir: Path) -> str | None:
+    """Una llamada mínima con el token antes de guardarlo. Devuelve el problema (o None si anda)."""
+    from comunes import ia_server  # noqa: PLC0415
+
+    res = ia_server.run_call({"token": token, "task": "Responde con el JSON pedido.", "system": "Prueba de conexión.", "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}, "model": "haiku", "feature": "conexion.prueba"}, work_dir)
+    if res.get("ok"):
+        return None
+    return str(res.get("error") or "sin detalle")
+
+
 class Terminal:
     """Un proceso en una terminal virtual ancha (para que el enlace y el token no se corten en líneas)."""
 
@@ -126,7 +146,7 @@ def _forget_code(ctx: JobContext) -> None:
     ctx.conn.execute("UPDATE jobs SET input = input - 'code' WHERE id = %s", (ctx.job["id"],))
 
 
-def login(ctx: JobContext, term_factory: Any = Terminal) -> str:
+def login(ctx: JobContext, term_factory: Any = None) -> str:
     """Corre setup-token de punta a punta y devuelve el token."""
     home = Path(tempfile.mkdtemp(prefix="claude-login-", dir=str(ctx.config.work_dir)))
     env = {
@@ -140,7 +160,7 @@ def login(ctx: JobContext, term_factory: Any = Terminal) -> str:
         "DISABLE_TELEMETRY": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     }
-    term = term_factory([cli_path(), "setup-token"], env)
+    term = (term_factory or Terminal)([cli_path(), "setup-token"], env)
     try:
         ctx.stage("Preparando el inicio de sesión con Claude", 0.0, 0.1)
         url = None
@@ -178,12 +198,12 @@ def login(ctx: JobContext, term_factory: Any = Terminal) -> str:
             ctx.check()
             text = clean(term.read(1.0)[start:])
             # Si a los pocos segundos sigue esperando, un Enter más (hasta 3).
-            if enters < 3 and time.monotonic() > end - WAIT_TOKEN_S + 8 * enters and not TOKEN_RE.search(text.replace("\r", "").replace("\n", "")):
+            if enters < 3 and time.monotonic() > end - WAIT_TOKEN_S + 8 * enters and not find_token(text):
                 term.write("\r")
                 enters += 1
-            found = TOKEN_RE.search(text.replace("\r", "").replace("\n", ""))
-            if found:
-                return found.group(0)
+            token = find_token(text)
+            if token:
+                return token
             low = text.lower()
             if any(k in low for k in ("invalid", "error", "failed", "expired")) and not term.alive():
                 break
@@ -202,6 +222,11 @@ def login(ctx: JobContext, term_factory: Any = Terminal) -> str:
 @register("CLAUDE_LOGIN")
 def claude_login(ctx: JobContext) -> dict[str, Any]:
     token = login(ctx)
+    ctx.stage("Probando la conexión", 0.98, 0.99)
+    problem = verify(token, ctx.config.work_dir)
+    if problem:
+        log.warning("el token nuevo no anduvo: %s", problem[:300])
+        raise JobError("Claude dio la conexión pero no funcionó al probarla. Vuelve a conectar; si se repite, avísale a soporte.", retry=False, detail=problem[:300])
     saved = ctx.app._post("/api/worker/claude", {"jobId": str(ctx.job["id"]), "token": token}, timeout=60)  # noqa: SLF001
     _set_output(ctx, {"label": saved.get("label")})
     return {"connected": True, "label": saved.get("label")}

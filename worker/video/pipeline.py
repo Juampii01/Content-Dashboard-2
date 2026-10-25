@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, music_gen, reference, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, imgsync, ingest, library, motion, music_gen, reference, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
 from . import compos as _compos  # noqa: F401 — registra VIDEO_COMPOS (animaciones pedidas desde el Estudio)
 from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
@@ -369,6 +369,14 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         # Lo que se usó para cortar (con las frases corregidas, si las hay): contra esto se mide la sincronía final.
         "source_wav": seg_wav,
         "segments": segments,
+        # Para el control de la imagen: el original (con las frases corregidas) y lo que tapa la imagen.
+        "source_video": seg_mezz,
+        "src_size": (int(media["width"]), int(media["height"])),
+        "total_frames": int(round(float(media["duration"]) * render.FPS)),
+        "covered": [(float(b["start"]), float(b["end"])) for b in broll_items]
+        + [(float(f["start"]), float(f["end"])) for f in fx_layers]
+        + [(float(st["start"]), float(st["end"])) for st in stickers]
+        + [(float(z["start"]), float(z["end"])) for z in data.get("zooms") or []],
     }
 
 
@@ -408,6 +416,30 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
         raise JobError(
             "El audio del video final no quedó alineado con la imagen. No lo entregamos así: vamos a rehacerlo desde el original. Si vuelve a pasar, escríbenos.",
             detail=f"sincronía: {sync['detail']}",
+        )
+    # Sincronía de la IMAGEN: cada cuadro tiene que ser el del original que dice el timeline (donde no hay nada
+    # encima). Si no, no se entrega: sin esto, un video con la imagen corrida respecto del audio salía igual.
+    img = imgsync.check(
+        final,
+        built["source_video"],
+        data["clips"],
+        built["covered"],
+        fmt=fmt,
+        offset_x=float((data.get("framing") or {}).get("offsetX", 0)),
+        src_size=built["src_size"],
+        total_frames=built["total_frames"],
+        duration=expected,
+    )
+    qc["checks"].append({k: img[k] for k in ("name", "ok", "detail")})
+    if img.get("warn"):
+        log.warning("sincronía de la imagen con avisos en %s: %s · %s", pid, img["detail"], img["points"])
+    if not img["ok"]:
+        for seg in built["segments"]:
+            seg.unlink(missing_ok=True)
+        log.error("imagen fuera de lugar en %s: %s · %s", pid, img["detail"], img["points"])
+        raise JobError(
+            "La imagen del video final no quedó alineada con el audio. No lo entregamos así: vamos a rehacerlo desde el original. Si vuelve a pasar, escríbenos.",
+            detail=f"sincronía de la imagen: {img['detail']}",
         )
     if not qc["ok"]:
         log.warning("control de calidad con avisos: %s", [c for c in qc["checks"] if not c["ok"]])

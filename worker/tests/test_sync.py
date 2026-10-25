@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -26,7 +27,7 @@ import pytest
 
 from comunes import db
 from comunes.runner import JobContext
-from video import fx, motion, pipeline, render, studio
+from video import fx, imgsync, motion, pipeline, render, studio
 
 from tests import sync_media as sm
 
@@ -199,6 +200,42 @@ def test_sync_check_catches_a_render_that_does_not_follow_the_timeline(short_ren
     far = [{**c, "start": c["start"] + 10, "end": c["end"] + 10} for c in clips]
     bad = render.sync_check(final, wav, far)
     assert not bad["ok"], bad
+
+
+def _img_check(final: Path, wav: Path, data: dict[str, Any], clips: list[dict[str, Any]]) -> dict[str, Any]:
+    mezz = wav.parent / "mezz.mp4"
+    probe = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height,nb_frames", "-of", "json", str(mezz)], capture_output=True, check=True).stdout)["streams"][0]
+    spans = [(float(z["start"]), float(z["end"])) for z in data["zooms"]]
+    return imgsync.check(final, mezz, clips, spans, fmt=data["format"], offset_x=0.0, src_size=(int(probe["width"]), int(probe["height"])), total_frames=int(probe["nb_frames"]), duration=data["expectedDuration"])
+
+
+@pytest.fixture(scope="module")
+def textured_render(tmp_path_factory: pytest.TempPathFactory, assets: dict[str, Path]) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
+    """El caso corto con un original de 23,976 fps cuya imagen cambia en cada cuadro."""
+    words, seconds, data = short_case()
+    tmp = tmp_path_factory.mktemp("sync-tex")
+    source = tmp / "original.mp4"
+    sm.make_textured_source(source, words, seconds, tmp)
+    with pytest.MonkeyPatch.context() as mp:
+        final, wav, saved = render_case(tmp, words, seconds, data, assets, mp, source=source)
+    return final, wav, saved, data
+
+
+def test_image_sync_check_passes_and_catches_a_shifted_image(textured_render: Any) -> None:
+    """La imagen del final sigue el timeline: el control de la imagen lo confirma y frena una corrida de verdad."""
+    final, wav, saved, data = textured_render
+    checks = {c["name"]: c for c in saved["output_meta"]["qc"]["checks"]}
+    assert checks["Sincronía de la imagen"]["ok"], checks
+    good = _img_check(final, wav, data, data["clips"])
+    assert good["ok"] and not good["warn"], good
+    assert sum(p["confident"] for p in good["points"]) >= 6, good
+    # El mismo MP4 contra un timeline corrido 12 cuadros (400 ms): no se entrega.
+    far = [{**c, "start": c["start"] + 12, "end": c["end"] + 12} for c in data["clips"]]
+    bad = _img_check(final, wav, data, far)
+    assert not bad["ok"] and "corrida" in bad["detail"], bad
+    # Un tramo con la imagen de otro lugar (los cortes sin aplicar en la imagen): tampoco.
+    merged = [{**data["clips"][1], "end": data["clips"][1]["end"] + 20}] + data["clips"][2:]
+    assert not _img_check(final, wav, data, data["clips"][:1] + merged)["ok"]
 
 
 # ─── Versión completa (lenta) ──────────────────────────────────────────────

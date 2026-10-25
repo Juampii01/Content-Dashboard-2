@@ -199,3 +199,12 @@ def video_report(path: Path, clips: list[dict[str, Any]]) -> dict[str, Any]:
         "first_wrong": [(int(i), int(want[i]), int(got[i])) for i in bad[:8]],
         "max_off_frames": int(np.abs(diff[read]).max()) if read.any() else 0,
     }
+
+
+def make_textured_source(path: Path, words: list[dict[str, Any]], seconds: float, work: Path, rate: str = "24000/1001") -> None:
+    """Un original con imagen que cambia en cada cuadro (testsrc2: patrón en movimiento y contador), a 23,976 fps como
+    los de un teléfono, con la misma voz sintética. Para el control de la imagen (que compara cuadros de verdad)."""
+    video, audio = work / "src-tex.mp4", work / "src-audio.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=1080x1920:rate={rate}:duration={seconds}", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-g", "24", "-pix_fmt", "yuv420p", str(video)], check=True)
+    write_wav(audio, speech(words, seconds))
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-i", str(audio), "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(path)], check=True)

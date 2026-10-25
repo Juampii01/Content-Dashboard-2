@@ -6,7 +6,10 @@ on:
   # Se pide escribiendo el id del proyecto en .github/diag/proyecto (y subiéndolo a main).
   push:
     branches: [main]
-    paths: [".github/diag/proyecto"]
+    paths: [".github/diag/**"]
+
+permissions:
+  contents: write
 
 jobs:
   diag:
@@ -31,10 +34,21 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Diagnóstico
-        run: flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ steps.pid.outputs.pid }}"
+        run: flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ steps.pid.outputs.pid }}" | sed -E 's#https?://[^" ]+#<url>#g' | tee /tmp/diag.txt
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Registros del worker
-        run: flyctl logs --config fly.toml --no-tail | grep -Ei "sincron|render|tramo|audio|error" | tail -200
+        run: flyctl logs --config fly.toml --no-tail | grep -Ei "sincron|render|tramo|audio|error" | sed -E 's#https?://[^" ]+#<url>#g' | tail -200 | tee /tmp/logs.txt
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      # Guarda la salida en la rama diag-salida (los registros de Actions no siempre se pueden leer desde afuera).
+      - name: Guardar la salida
+        if: always()
+        working-directory: .
+        run: |
+          git config user.name "diag" && git config user.email "diag@users.noreply.github.com"
+          git checkout --orphan diag-salida
+          git rm -rq --cached . && git clean -fdq -e .git
+          cp /tmp/diag.txt diag.txt 2>/dev/null || true; cp /tmp/logs.txt logs.txt 2>/dev/null || true
+          git add diag.txt logs.txt 2>/dev/null || true
+          git commit -qm "Diagnóstico ${{ steps.pid.outputs.pid }}" && git push -qf origin diag-salida

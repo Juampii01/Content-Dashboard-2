@@ -33,7 +33,7 @@ def main(pid: str) -> None:
     with psycopg.connect(url, row_factory=dict_row) as conn:
         project = conn.execute("select status, format, media from video_projects where id = %s", (pid,)).fetchone()
         jobs = conn.execute(
-            "select id, status, attempts, error_message, created_at, finished_at, input from jobs where video_project_id = %s and type = 'VIDEO_RENDER' order by created_at desc limit 2",
+            "select id, status, attempts, error_message, created_at, finished_at, input from jobs where video_project_id = %s and type = 'VIDEO_RENDER' order by created_at desc limit 8",
             (pid,),
         ).fetchall()
     print("== proyecto")
@@ -72,10 +72,12 @@ def sync_report(work: Path, jobs: list[dict]) -> None:
         return
     def short(rows: list[dict]) -> str:
         return " ".join(f"{r['out']:.1f}s:{r['lag'] * 1000:+.0f}ms(r{r['r']:.2f})" for r in rows)
+    seen: set[str] = set()
     for job in jobs:
         clips = (job["input"] or {}).get("clips") or []
-        if not clips:
+        if not clips or render.clips_hash(clips) in seen:
             continue
+        seen.add(render.clips_hash(clips))
         joined = work / f"render-{render.clips_hash(clips)}" / "joined.mkv"
         print("== sincronía", job["id"])
         for clip in clips:

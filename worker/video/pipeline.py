@@ -279,14 +279,17 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
     joined = out_dir / "joined.mkv"
     render.concat(segments, joined)
 
-    voice = joined
+    # La voz sale del WAV de la ingesta, no del audio de los tramos unidos: así queda exacta en cualquier versión de ffmpeg.
+    voice = out_dir / "cut.wav"
+    render.cut_voice(seg_wav, clips, voice)
+    cut = voice
     audio_info: dict[str, Any] = {}
     audio_cfg = data.get("audio") or {}
     if not preview:
         ctx.stage("Mezclando el audio", *stages["audio"])
         voice = out_dir / "voice.wav"
         audio_info = render.process_audio(
-            joined, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)), studio_level=str(audio_cfg.get("studio") or "off"), models_dir=ctx.config.models_dir
+            cut, voice, float(audio_cfg.get("targetLufs", -14)), float(audio_cfg.get("truePeak", -1)), studio_level=str(audio_cfg.get("studio") or "off"), models_dir=ctx.config.models_dir
         )
         voice = mix_extras(ctx, pid, workdir, out_dir, voice, audio_cfg, expected, audio_info)
 

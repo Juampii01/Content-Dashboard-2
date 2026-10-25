@@ -50,12 +50,40 @@ def main(pid: str) -> None:
             value = data.get(key)
             if isinstance(value, list):
                 print(f"{key}: {len(value)}")
+    print("== ffmpeg", subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout.splitlines()[0])
     work = Path(os.environ.get("WORK_DIR") or "/data/work") / pid
     print("== archivos de trabajo", work)
     if work.exists():
         for f in sorted(work.rglob("*")):
             if f.is_file() and f.suffix in (".mp4", ".wav", ".mkv", ".m4a", ".mov") and f.stat().st_size > 0:
                 print(f.relative_to(work), f.stat().st_size, json.dumps(probe(f)))
+        sync_report(work, jobs)
+
+
+def sync_report(work: Path, jobs: list[dict]) -> None:
+    """Sincronía de cada paso intermedio contra audio.wav: tramos sueltos y la unión de cada render."""
+    try:
+        from video import render
+    except Exception as error:  # noqa: BLE001
+        print("sin módulo render:", error)
+        return
+    wav = work / "audio.wav"
+    if not wav.exists():
+        return
+    def short(rows: list[dict]) -> str:
+        return " ".join(f"{r['out']:.1f}s:{r['lag'] * 1000:+.0f}ms(r{r['r']:.2f})" for r in rows)
+    for job in jobs:
+        clips = (job["input"] or {}).get("clips") or []
+        if not clips:
+            continue
+        joined = work / f"render-{render.clips_hash(clips)}" / "joined.mkv"
+        print("== sincronía", job["id"])
+        for clip in clips:
+            seg = work / "segments" / render.segment_name(clip["start"], clip["end"])
+            if seg.exists():
+                print(" tramo", seg.name, short(render.sync_offsets(seg, wav, [{**clip, "start": clip["start"], "end": clip["end"]}], points=4)))
+        if joined.exists():
+            print(" unión", short(render.sync_offsets(joined, wav, clips)))
 
 
 if __name__ == "__main__":

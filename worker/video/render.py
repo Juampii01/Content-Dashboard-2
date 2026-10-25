@@ -163,6 +163,42 @@ def render_segments(mezz: Path, wav: Path, clips: list[dict[str, Any]], workdir:
     return paths
 
 
+def cut_voice(wav: Path, clips: list[dict[str, Any]], out: Path) -> None:
+    """La voz del video ya cortado, armada directo desde el WAV de la ingesta: cada tramo son exactamente sus muestras
+    (cuadros × 1600), con el mismo fundido corto de 10 ms en cada borde. No depende de los tiempos de los contenedores
+    ni de cómo cada versión de ffmpeg une los tramos: el audio no puede correrse respecto de los cuadros."""
+    import wave
+
+    import numpy as np
+
+    with wave.open(str(wav), "rb") as w:
+        if (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, SAMPLE_RATE):
+            src = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32) / 32768.0
+        else:
+            src = _decode_audio(wav, SAMPLE_RATE)
+    fade = max(1, int(round(FADE * SAMPLE_RATE)))
+    ramp = np.linspace(0.0, 1.0, fade, endpoint=False, dtype=np.float32)
+    parts = []
+    for clip in clips:
+        a, b = clip["start"] * SAMPLES_PER_FRAME, clip["end"] * SAMPLES_PER_FRAME
+        piece = np.zeros(b - a, dtype=np.float32)
+        have = src[a:b]
+        piece[: len(have)] = have
+        if len(piece) >= 2 * fade:
+            piece[:fade] *= ramp
+            piece[-fade:] *= ramp[::-1]
+        parts.append(piece)
+    data = np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
+    pcm = (np.clip(data, -1.0, 32767 / 32768) * 32768.0).astype("<i2")
+    tmp = _atomic(out)
+    with wave.open(str(tmp), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes(pcm.tobytes())
+    os.replace(tmp, out)
+
+
 def concat(segments: list[Path], out: Path) -> None:
     listing = out.with_suffix(".txt")
     listing.write_text("".join(f"file '{p.resolve()}'\n" for p in segments), encoding="utf-8")

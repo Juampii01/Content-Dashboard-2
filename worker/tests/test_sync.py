@@ -234,3 +234,37 @@ def test_sync_full_owner_like_plan(studio_level: str, tmp_path: Path, assets: di
     checks = {c["name"]: c for c in saved["output_meta"]["qc"]["checks"]}
     assert checks["Sincronía con el original"]["ok"], checks
     assert report["video"]["read"] > 0
+
+
+def test_cut_voice_exact_samples(tmp_path):
+    """La voz cortada sale directo del WAV: cada tramo con sus muestras exactas, sin corrimientos entre tramos."""
+    import wave
+
+    import numpy as np
+
+    from video import render
+
+    n = 90 * render.SAMPLES_PER_FRAME
+    ramp = (np.arange(n) % 30000).astype("<i2")  # cada muestra dice dónde está
+    src = tmp_path / "audio.wav"
+    with wave.open(str(src), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(render.SAMPLE_RATE)
+        w.writeframes(ramp.tobytes())
+    clips = [{"start": 3, "end": 30}, {"start": 40, "end": 85}, {"start": 88, "end": 95}]  # el último pasa del final
+    out = tmp_path / "cut.wav"
+    render.cut_voice(src, clips, out)
+    with wave.open(str(out), "rb") as w:
+        got = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    spf = render.SAMPLES_PER_FRAME
+    assert len(got) == sum(c["end"] - c["start"] for c in clips) * spf
+    fade = int(render.FADE * render.SAMPLE_RATE)
+    # Lejos de los bordes, cada muestra es la del original en su lugar.
+    mid = 10 * spf
+    assert got[mid] == ramp[3 * spf + mid]
+    second = 27 * spf
+    assert got[second + mid] == ramp[40 * spf + mid]
+    assert got[second + fade - fade] == 0  # empieza en silencio por el fundido
+    # Lo que pasa del final del original es silencio.
+    assert not got[-spf:].any()

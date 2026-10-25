@@ -19,7 +19,8 @@ import { loadEffect } from "@/lib/video/compos/library-service";
  * - clipId: `editor/biblioteca/<id>/…` (el clip, solo lectura, y su miniatura).
  * - longVideoId: `editor/largos/<id>/…` (el video largo: se lee, y si vino de un link el worker lo guarda una vez;
  *   las vistas previas y pósters de sus clips).
- * - trackId: `editor/musica/<id>/…` (la pista de música, solo lectura).
+ * - trackId: `editor/musica/<id>/…` (la pista de música, solo lectura; mientras se separa la de un reel, el archivo
+ *   subido se lee y la pista se escribe).
  * - effectId: `editor/efectos/<id>/…` (Mis efectos: sus imágenes se leen; se escriben solo su cuadro y su muestra).
  */
 const body = z
@@ -75,8 +76,15 @@ export async function POST(request: NextRequest) {
     if (op === "put" && key !== `editor/biblioteca/${clipId}/miniatura.jpg`) return denied();
   } else if (trackId) {
     const track = await loadTrack(trackId);
-    if (!track || track.status !== "READY") return NextResponse.json({ error: "Esa pista ya no existe." }, { status: 404 });
-    if (op !== "get" || key !== track.fileKey) return denied();
+    // Separando la música de un reel (AUDIO_SPLIT): se lee el archivo subido y se escribe la pista, una sola vez.
+    if (track?.source === "separada" && track.status === "PROCESSING") {
+      const reads = op === "get" && key === track.sourceKey;
+      const writes = op === "put" && key === track.fileKey;
+      if (!reads && !writes) return denied();
+    } else {
+      if (!track || track.status !== "READY") return NextResponse.json({ error: "Esa pista ya no existe." }, { status: 404 });
+      if (op !== "get" || key !== track.fileKey) return denied();
+    }
   } else if (effectId) {
     const effect = await loadEffect(effectId);
     if (!effect) return NextResponse.json({ error: "Ese efecto ya no existe." }, { status: 404 });

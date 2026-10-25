@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Music, Pause, Play, Trash2, X } from "lucide-react";
+import { Music, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -11,10 +11,22 @@ import { toast } from "@/components/ui/toast";
 import { UploadDropzone } from "@/components/ui/upload-dropzone";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { completeTrackUploadAction, createTrackUploadAction, deleteTrackAction, renameTrackAction } from "./media-actions";
+import { completeTrackUploadAction, createTrackUploadAction, deleteTrackAction, renameTrackAction, retrySplitAction } from "./media-actions";
+import { useAutoRefresh } from "./use-auto-refresh";
 import { putFile } from "./upload-manager";
 
-export type TrackItem = { id: string; title: string; status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED"; duration: number | null; url: string | null; attribution?: string | null };
+export type TrackItem = {
+  id: string;
+  title: string;
+  status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
+  duration: number | null;
+  url: string | null;
+  attribution?: string | null;
+  /** "separada": música sacada de un reel (con el avance mientras se separa y el error si falló). */
+  source?: string;
+  errorMessage?: string | null;
+  job?: { progress: number; stage: string | null } | null;
+};
 
 export const AUDIO_ACCEPT = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav", "audio/x-wav", "audio/ogg", "audio/flac", ".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac"];
 const MAX_TRACK = 200 * 1024 ** 2;
@@ -70,6 +82,8 @@ export function MusicManager({ tracks, canEdit }: { tracks: TrackItem[]; canEdit
   const router = useRouter();
   const [uploads, setUploads] = useState<Record<string, Uploading>>({});
   const player = useTrackPlayer();
+  // Mientras se separa la música de un reel, la lista se actualiza sola.
+  useAutoRefresh(tracks.some((t) => t.status === "PROCESSING"), 4000);
 
   async function uploadOne(file: File, tempId: string) {
     const created = await createTrackUploadAction({ fileName: file.name, fileType: file.type, fileSize: file.size });
@@ -204,6 +218,34 @@ function TrackRow({ track, canEdit, playing, onToggle }: { track: TrackItem; can
       />
       {ready ? (
         <span className="hidden w-14 text-right font-mono text-xs text-muted tabular-nums sm:block">{track.duration ? formatDuration(track.duration) : "—"}</span>
+      ) : track.status === "PROCESSING" ? (
+        <div className="w-40 flex-none sm:w-56">
+          <Progress value={track.job?.progress ?? 0} label={track.job?.stage ?? "En cola"} />
+        </div>
+      ) : track.status === "FAILED" ? (
+        <div className="flex min-w-0 max-w-[45%] items-center gap-2">
+          <p className="min-w-0 text-xs text-danger" title={track.errorMessage ?? undefined}>
+            {track.errorMessage ?? "No se pudo separar."}
+          </p>
+          {canEdit && track.source === "separada" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="!px-2"
+              disabled={pending}
+              icon={<RotateCcw className="h-3.5 w-3.5" aria-hidden />}
+              onClick={() =>
+                start(async () => {
+                  const r = await retrySplitAction(track.id);
+                  if (!r.ok) toast.error(r.error);
+                  else router.refresh();
+                })
+              }
+            >
+              Reintentar
+            </Button>
+          )}
+        </div>
       ) : (
         <StatusBadge tone="info">Subida incompleta</StatusBadge>
       )}

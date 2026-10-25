@@ -171,11 +171,11 @@ async function signedToken(pathname: string, operations: ("get" | "head" | "put"
 }
 
 /** Delegación para que el navegador suba el original directo a Blob (la usa /api/editor/upload). */
-export async function uploadDelegation(pathname: string, kind: "video" | "audio" = "video"): Promise<IssuedSignedToken> {
+export async function uploadDelegation(pathname: string, kind: "video" | "audio" | "media" = "video"): Promise<IssuedSignedToken> {
   return issueSignedToken({
     pathname: assertKey(pathname),
     operations: ["put"],
-    allowedContentTypes: Object.keys(kind === "audio" ? AUDIO_TYPES : VIDEO_TYPES),
+    allowedContentTypes: Object.keys(kind === "audio" ? AUDIO_TYPES : kind === "media" ? { ...VIDEO_TYPES, ...AUDIO_TYPES } : VIDEO_TYPES),
     maximumSizeInBytes: MAX_VIDEO_BYTES,
     validUntil: Date.now() + 6 * 3600_000,
     token: blobToken(),

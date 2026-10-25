@@ -983,13 +983,21 @@ export const musicTracks = pgTable(
     fileName: text("file_name"),
     fileBytes: bigint("file_bytes", { mode: "number" }),
     duration: real("duration"),
-    /** De dónde viene: "upload" (la sube el cliente) o "jamendo" (catálogo con licencia CC BY, ver lib/video/music-providers). */
+    /**
+     * De dónde viene: "upload" (la sube el cliente), "jamendo" (catálogo con licencia CC BY, ver lib/video/music-providers)
+     * o "separada" (la música y los efectos de un reel o video, sin la voz: trabajo AUDIO_SPLIT).
+     */
     source: text("source").notNull().default("upload"),
     /** Id en el catálogo de origen (para no bajarla dos veces). */
     externalId: text("external_id"),
     /** Atribución que pide la licencia (va en la descripción del video). */
     attribution: text("attribution"),
     licenseUrl: text("license_url"),
+    /** Separada: el reel o video del que sale (link) o el archivo subido (se borra al terminar). */
+    sourceUrl: text("source_url"),
+    sourceKey: text("source_key"),
+    /** Por qué falló la separación (en español, para mostrarlo). */
+    errorMessage: text("error_message"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -1021,6 +1029,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "CAROUSEL_COPY", // "Copiar un carrusel": bajar y medir los slides de un carrusel ajeno; la app escribe tu versión (input.copyId)
   "CAROUSEL_ANIMATE", // video corto (MP4) de un slide con movimiento sutil (input.carouselId, input.slideId)
   "CLAUDE_LOGIN", // conectar la suscripción de Claude del cliente: el worker corre `claude setup-token` y la persona pega el código
+  "AUDIO_SPLIT", // "Sacar la música de un reel": bajar el reel (o el archivo subido) y separar la voz del resto (input.trackId)
   "VIDEO_COMPOS", // animaciones del Estudio: Claude escribe una composición (con imágenes generadas y revisión con cuadros) (input.projectId, input.requestId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);

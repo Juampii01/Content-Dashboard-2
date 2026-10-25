@@ -183,6 +183,7 @@ const jobKinds: Record<string, JobKind> = {
   CLAUDE_LOGIN: { what: "Conexión con Claude", href: () => `/ajustes#claves`, retry: null, hrefLabel: "Volver a conectar" },
   CAROUSEL_COPY: { what: "Copia de un carrusel", href: (id) => `/carruseles/copiar/${id}`, retry: null, hrefLabel: "Ver y reintentar" },
   CAROUSEL_ANIMATE: { what: "Video de un slide", href: (id) => `/carruseles/${id}`, retry: null, hrefLabel: "Abrir y volver a animar" },
+  AUDIO_SPLIT: { what: "Música sacada de un reel", href: () => `/editor/biblioteca#musica`, retry: null, hrefLabel: "Ver y reintentar", failedStatus: "FAILED" },
   REEL_COPY: { what: "Copia de un reel", href: (id) => `/guiones/copiar/${id}`, retry: null, hrefLabel: "Ver y reintentar", failedStatus: "FAILED" },
 };
 

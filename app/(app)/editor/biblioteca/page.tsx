@@ -7,6 +7,7 @@ import { Notice, Skeleton } from "@/components/ui/feedback";
 import { PageHeader } from "@/components/ui/page-header";
 import { LibraryManager } from "@/components/editor/library-manager";
 import { MusicManager } from "@/components/editor/music-manager";
+import { MusicSplit } from "@/components/editor/music-split";
 import { WorkerNotice } from "@/components/editor/worker-notice";
 import { getCurrentUser } from "@/lib/auth";
 import { brollAvailability, listClips, listTracks } from "@/lib/dal/editor-media";
@@ -28,7 +29,7 @@ async function LibraryContent() {
           Esta instalación todavía no tiene dónde guardar los videos (VIDEO_BLOB_READ_WRITE_TOKEN). Avísale a soporte.
         </Notice>
       )}
-      <WorkerNotice online={worker.online} autoStart={worker.autoStart} waiting={!worker.autoStart && clips.some((c) => c.status === "PROCESSING")} />
+      <WorkerNotice online={worker.online} autoStart={worker.autoStart} waiting={!worker.autoStart && (clips.some((c) => c.status === "PROCESSING") || tracks.some((t) => t.status === "PROCESSING"))} />
       {!availability.stock && (
         <Notice tone="info" title="El b-roll sale solo de tu biblioteca">
           Esta instalación no tiene activados los videos de stock. Sube aquí tus clips y el editor los usa donde encajan.
@@ -45,7 +46,8 @@ async function LibraryContent() {
       )}
       <section aria-labelledby="musica" className="mt-4 flex flex-col gap-4 border-t border-white/10 pt-8">
         <SectionTitle id="musica" icon={<Music className="h-4 w-4" aria-hidden />} title="Música de fondo" description="Tus pistas para poner debajo de la voz. Las eliges en la revisión de cada video." />
-        <MusicManager tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url }))} canEdit={canEdit} />
+        {canEdit && <MusicSplit />}
+        <MusicManager tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url, source: t.source, errorMessage: t.errorMessage, job: t.job ? { progress: t.job.progress, stage: t.job.stage } : null }))} canEdit={canEdit} />
       </section>
     </div>
   );

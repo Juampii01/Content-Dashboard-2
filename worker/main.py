@@ -20,6 +20,7 @@ import carruseles  # noqa: F401  (CAROUSEL_STYLE, CAROUSEL_COPY, CAROUSEL_IMAGES
 import youtube  # noqa: F401  (YT_THUMBNAILS, YOUTUBE_TRANSCRIPT)
 import video.reel_copy  # noqa: F401  (REEL_COPY)
 import video.claude_login  # noqa: F401  (CLAUDE_LOGIN)
+import video.separar  # noqa: F401  (AUDIO_SPLIT)
 
 
 def main() -> int:

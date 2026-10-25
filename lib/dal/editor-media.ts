@@ -18,7 +18,7 @@ const sign = async (key: string | null | undefined) => (key && fileDriver() ? re
 type JobInfo = { progress: number; stage: string | null; status: string } | null;
 
 /** Último trabajo de cada estilo o clip (los ids van en `jobs.input`). */
-async function latestJobs(type: "VIDEO_STYLE" | "VIDEO_CLIP", field: "styleId" | "clipId", ids: string[]): Promise<Map<string, JobInfo>> {
+async function latestJobs(type: "VIDEO_STYLE" | "VIDEO_CLIP" | "AUDIO_SPLIT", field: "styleId" | "clipId" | "trackId", ids: string[]): Promise<Map<string, JobInfo>> {
   const map = new Map<string, JobInfo>();
   if (!ids.length) return map;
   const rows = await getDb()
@@ -167,6 +167,11 @@ export type TrackView = {
   url: string | null;
   /** Atribución que pide la licencia (pistas de un catálogo, como Jamendo); null en las que sube el cliente. */
   attribution: string | null;
+  /** "separada": la música de un reel o video, sin la voz (con el avance del trabajo mientras se separa). */
+  source: string;
+  sourceUrl: string | null;
+  errorMessage: string | null;
+  job: JobInfo;
   createdAt: Date;
 };
 
@@ -179,6 +184,7 @@ export async function listTracks(options: { readyOnly?: boolean } = {}): Promise
     .where(options.readyOnly ? eq(schema.musicTracks.status, "READY") : undefined)
     .orderBy(desc(schema.musicTracks.createdAt))
     .limit(200);
+  const jobs = await latestJobs("AUDIO_SPLIT", "trackId", rows.filter((r) => r.status === "PROCESSING").map((r) => r.id));
   return Promise.all(
     rows.map(async (r) => ({
       id: r.id,
@@ -188,6 +194,10 @@ export async function listTracks(options: { readyOnly?: boolean } = {}): Promise
       fileBytes: r.fileBytes,
       url: r.status === "READY" ? await sign(r.fileKey) : null,
       attribution: r.attribution,
+      source: r.source,
+      sourceUrl: r.sourceUrl,
+      errorMessage: r.errorMessage,
+      job: jobs.get(r.id) ?? null,
       createdAt: r.createdAt,
     })),
   );

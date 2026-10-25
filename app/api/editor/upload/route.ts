@@ -6,6 +6,7 @@ import { uploadDelegation } from "@/lib/storage/files";
 import { loadLongVideo } from "@/lib/clips/service";
 import { loadClip } from "@/lib/video/library";
 import { loadTrack } from "@/lib/video/music";
+import { SPLIT_TYPES } from "@/lib/video/music-split";
 import { loadProject } from "@/lib/video/service";
 import { loadStyle } from "@/lib/video/styles";
 import { readDirector } from "@/lib/video/director/types";
@@ -36,6 +37,8 @@ export async function POST(request: NextRequest) {
         const [kind, ref] = clientPayload?.includes(":") ? clientPayload.split(":", 2) : ["proyecto", clientPayload];
         let size: number | null = null;
         const audio = kind === "musica";
+        // "separar:<id>": video o audio del que se saca la música (Biblioteca → Música → Sacar la música de un reel).
+        const split = kind === "separar";
         if (kind === "estilo" && ref) {
           const style = await loadStyle(ref);
           if (style?.status === "UPLOADING" && style.sourceKey === pathname) size = style.sourceBytes ?? 0;
@@ -50,6 +53,9 @@ export async function POST(request: NextRequest) {
           const project = await loadProject(ref);
           const up = project ? readDirector(project.director).refUpload : null;
           if (up && up.key === pathname && (project?.status === "AWAITING_REVIEW" || project?.status === "DONE")) size = up.bytes;
+        } else if (split && ref) {
+          const track = await loadTrack(ref);
+          if (track?.status === "UPLOADING" && track.source === "separada" && track.sourceKey === pathname) size = track.fileBytes ?? 0;
         } else if (audio && ref) {
           const track = await loadTrack(ref);
           if (track?.status === "UPLOADING" && track.fileKey === pathname) size = track.fileBytes ?? 0;
@@ -59,9 +65,9 @@ export async function POST(request: NextRequest) {
         }
         if (size == null) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
         return {
-          token: await uploadDelegation(pathname, audio ? "audio" : "video"),
+          token: await uploadDelegation(pathname, split ? "media" : audio ? "audio" : "video"),
           urlOptions: {
-            allowedContentTypes: Object.keys(audio ? AUDIO_TYPES : VIDEO_TYPES),
+            allowedContentTypes: Object.keys(split ? SPLIT_TYPES : audio ? AUDIO_TYPES : VIDEO_TYPES),
             maximumSizeInBytes: size || undefined,
             allowOverwrite: true,
             addRandomSuffix: false,

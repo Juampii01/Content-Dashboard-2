@@ -44,7 +44,10 @@ async function pendingUpload(key: string): Promise<number | null> {
   }
   if (scope === "musica" && id) {
     const track = await loadTrack(id);
-    return track?.status === "UPLOADING" && track.fileKey === key ? (track.fileBytes ?? 0) : null;
+    if (track?.status !== "UPLOADING") return null;
+    // Una pista propia, o el video o audio del que se saca la música (separada).
+    if (track.source === "separada") return track.sourceKey === key ? (track.fileBytes ?? 0) : null;
+    return track.fileKey === key ? (track.fileBytes ?? 0) : null;
   }
   const project = scope ? await loadProject(scope) : null;
   if (project && id === "referencia") {

@@ -48,6 +48,9 @@ RUN python scripts/fetch_models.py /app/models
 # Miniaturas de YouTube: U²-Net para recortar la foto del personaje (Apache-2.0, ~168 MB). Ver youtube/recorte.py.
 COPY scripts/fetch_cutout_model.py scripts/
 RUN python scripts/fetch_cutout_model.py /app/models
+# Sacar la música de un reel: HT-Demucs en ONNX (MIT, ~158 MB) para separar la voz del resto. Ver video/separar.py.
+COPY scripts/fetch_separar_model.py scripts/
+RUN python scripts/fetch_separar_model.py /app/models
 ENV HF_HUB_OFFLINE=1
 
 COPY main.py diag_render.py ./

@@ -8,6 +8,7 @@ import { fileDriver } from "@/lib/storage";
 import { BrollError, libraryOptions, searchOptions } from "@/lib/video/broll";
 import { completeClipUpload, createClipUpload, deleteClip, LibraryError, retryClip, updateClip } from "@/lib/video/library";
 import { completeTrackUpload, createTrackUpload, deleteTrack, MusicError, renameTrack } from "@/lib/video/music";
+import { completeSplitUpload, createSplitFromLink, createSplitUpload, retrySplit } from "@/lib/video/music-split";
 import { completeStyleUpload, createStyleFromLink, createStyleUpload, deleteStyle, renameStyle, retryStyle, StyleError } from "@/lib/video/styles";
 
 /**
@@ -236,6 +237,61 @@ export async function deleteTrackAction(id: string): Promise<ActionResult> {
   if (!idSchema.safeParse(id).success) return { ok: false, error: "Pista no válida." };
   try {
     await deleteTrack(id);
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+// ─── Sacar la música de un reel ───────────────────────────────────────────
+
+export async function createSplitFromLinkAction(link: string): Promise<ActionResult<{ id: string }>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = z.string().trim().min(8).max(500).safeParse(link);
+  if (!parsed.success) return { ok: false, error: "Pega un link de Instagram, TikTok o YouTube." };
+  try {
+    const id = await createSplitFromLink({ link: parsed.data, userId: user.id });
+    refresh();
+    return { ok: true, data: { id } };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function createSplitUploadAction(input: z.input<typeof fileSchema>): Promise<ActionResult<{ id: string; key: string; mode: "blob" | "local" }>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = fileSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos no válidos." };
+  try {
+    const { id, key } = await createSplitUpload({ ...parsed.data, userId: user.id });
+    return { ok: true, data: { id, key, mode: mode() } };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function completeSplitUploadAction(id: string): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Pista no válida." };
+  try {
+    await completeSplitUpload(id, user.id);
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function retrySplitAction(id: string): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Pista no válida." };
+  try {
+    await retrySplit(id, user.id);
     refresh();
     return { ok: true };
   } catch (error) {

@@ -13,7 +13,7 @@ import type { ConnectionRow, FailStreak, FailedCloneRow, FailedJobRow, ServicesI
  */
 
 /** Trabajos que procesa el worker (los de la app, como la sincronización, se ven en las conexiones). */
-export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "CODEX_LOGIN", "REEL_COPY", "CAROUSEL_COPY", "CAROUSEL_ANIMATE", "CLAUDE_LOGIN"] as const;
+export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "CODEX_LOGIN", "REEL_COPY", "CAROUSEL_COPY", "CAROUSEL_ANIMATE", "CLAUDE_LOGIN", "AUDIO_SPLIT"] as const;
 const workerTypes = sql.raw(WORKER_JOB_TYPES.map((t) => `'${t}'`).join(", "));
 
 export async function readWorker(): Promise<WorkerInput> {
@@ -36,6 +36,7 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
           when j.type = 'REEL_COPY' then j.input->>'reelCopyId'
           when j.type = 'CAROUSEL_COPY' then j.input->>'copyId'
           when j.type = 'CAROUSEL_ANIMATE' then j.input->>'carouselId'
+          when j.type = 'AUDIO_SPLIT' then j.input->>'trackId'
           else null
         end as ref_id
       from jobs j
@@ -45,7 +46,7 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
       limit 100
     )
     select f.id, f.type, f.error_message, f.finished_at, f.ref_id,
-      coalesce(p.title, vs.name, bc.title, lv.title, c.title, ct.name, rc.topic, case when rc.id is not null then 'Copia de un reel' end) as ref_title,
+      coalesce(p.title, vs.name, bc.title, lv.title, c.title, ct.name, rc.topic, mt.title, case when rc.id is not null then 'Copia de un reel' end) as ref_title,
       case
         when f.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER') then p.status::text
         when f.type = 'VIDEO_STYLE' then vs.status::text
@@ -53,6 +54,7 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
         when f.type = 'LONG_VIDEO_CLIPS' then lv.status::text
         when f.type = 'CAROUSEL_STYLE' then ct.status::text
         when f.type = 'REEL_COPY' then rc.status::text
+        when f.type = 'AUDIO_SPLIT' then mt.status::text
         when f.type = 'CAROUSEL_IMAGES' and exists(
           select 1 from jobs later where later.type = 'CAROUSEL_IMAGES' and later.status = 'SUCCEEDED'
             and later.input->>'carouselId' = f.ref_id and later.created_at > f.finished_at
@@ -73,6 +75,7 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
     left join carousels c on f.type = 'CAROUSEL_IMAGES' and c.id::text = f.ref_id
     left join carousel_templates ct on f.type = 'CAROUSEL_STYLE' and ct.id::text = f.ref_id
     left join reel_copies rc on f.type = 'REEL_COPY' and rc.id::text = f.ref_id
+    left join music_tracks mt on f.type = 'AUDIO_SPLIT' and mt.id::text = f.ref_id
     order by f.finished_at desc
   `);
   return result.rows.map((r) => ({

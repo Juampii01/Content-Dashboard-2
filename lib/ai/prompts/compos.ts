@@ -135,6 +135,16 @@ Arma la lista de animaciones que cumplen el pedido. El límite es lo que se pued
 
 // ─── Plan de una animación: ¿necesita imágenes? ─────────────────────────
 
+/**
+ * Cómo pedir fotos que no se noten hechas con IA. Lo que más delata a la IA: gente posando en grupo y simétrica,
+ * sonrisas de banco de imágenes, piel y trajes de plástico, luz perfecta de todos lados y todo nítido.
+ */
+export const PHOTO_REALISM = `SI LA IMAGEN ES UNA FOTO (fotorrealista), que no se note la IA:
+- Escribe el prompt como foto documental o fotograma de película: "candid documentary photograph" o "35mm film still", con cámara y lente concretos (por ejemplo "shot on a full-frame camera, 35mm lens, f/2"), una sola fuente de luz con motivo (ventana, lámpara, luz de la calle) y sombras profundas.
+- Prefiere lugares y objetos (una bóveda, un escritorio, papeles, una ciudad) antes que personas. Si hay gente: de espaldas, de perfil, lejos, parcialmente fuera de cuadro o desenfocada, haciendo algo (caminando, escribiendo), nunca posando ni mirando a cámara, nunca en grupo simétrico ni dándose la mano para la foto.
+- Pide imperfecciones reales: grano de película, leve desenfoque de movimiento, profundidad de campo corta, polvo, reflejos, ropa con arrugas, piel con textura, encuadre algo torcido.
+- Evita en el prompt: "perfect", "beautiful", "stunning", "luxury", "ultra detailed", "8k", "hyperrealistic", "glossy", "symmetrical".`;
+
 export const composPlanWireSchema = z.object({
   approach: z.string().describe("Cómo la vas a construir: capas, qué se dibuja con código, qué movimiento y en qué momentos."),
   images: z
@@ -154,7 +164,8 @@ export const composPlanWireSchema = z.object({
 export function composPlanTask(input: { brief: string; said: string; duration: number; format: string; hasImages: boolean; library?: string | null; copy?: boolean }): string {
   return `ANIMACIÓN A CONSTRUIR (${input.duration.toFixed(1)} s, ${input.format}): ${input.brief}
 LO QUE DICE LA PERSONA EN ESE TRAMO: «${input.said}»
-${input.hasImages ? "Hay un generador de imágenes disponible (cuenta del cliente): pide imágenes SOLO si la animación muestra algo que no se puede dibujar bien con formas y texto (un mapa real, un objeto, un lugar, una ilustración)." : "No hay generador de imágenes conectado: todo se dibuja con código y el video."}
+${input.hasImages ? `Hay un generador de imágenes disponible (cuenta del cliente): pide imágenes SOLO si la animación muestra algo que no se puede dibujar bien con formas y texto (un mapa real, un objeto, un lugar, una ilustración).
+${PHOTO_REALISM}` : "No hay generador de imágenes conectado: todo se dibuja con código y el video."}
 ${
   input.library
     ? `MIS EFECTOS (animaciones que la marca ya creó y guardó; reusar una cuesta mucho menos que escribir otra):

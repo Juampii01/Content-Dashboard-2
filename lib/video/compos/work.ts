@@ -31,6 +31,13 @@ import { clampBudget } from "../director/cost";
 import { COMPOS_LIMITS } from "./contract";
 import { compileComposition, composSegments, newComposId, type ComposImage, type Composition } from "./schema";
 import { codeHash, validateComposition } from "./validate";
+
+/**
+ * Cola de cada pedido de imagen: si es una foto, que no se note la IA (sin posar, sin brillo de plástico, con grano).
+ * Va siempre, porque el plan a veces escribe el prompt sin seguir la guía (lib/ai/prompts/compos.ts, PHOTO_REALISM).
+ */
+const PHOTO_TAIL =
+  "\nIf this is a photograph: make it look like a real candid photo or 35mm film still, not AI art. Natural motivated light with deep shadows, visible film grain, slight motion blur, shallow depth of field, real textures (skin pores, fabric wrinkles, dust, scuffs), imperfect framing. People, if any, are not posing, not looking at the camera, not arranged symmetrically, not smiling for the photo. No glossy plastic look, no oversaturated colors, no HDR, no stock-photo feel.";
 import { fakeCode, fakeImageLook, fakeLook, fakePlan } from "./fake";
 import { buildFromEffect, effectCandidates, EffectUseError, type PlaceCtx } from "./library-service";
 import { candidatesText } from "./library";
@@ -564,7 +571,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         }
         const wanted = plan.images.slice(0, 2);
         if (wanted.length && canImages) {
-          task.images = wanted.map((im, i) => ({ id: `g${task.id.slice(1, 9)}${i}`, purpose: im.purpose.slice(0, 200), prompt: `${im.prompt.slice(0, 900)}\nNo text, no letters, no numbers, no watermark.`, aspect: im.aspect, status: "pending" as const }));
+          task.images = wanted.map((im, i) => ({ id: `g${task.id.slice(1, 9)}${i}`, purpose: im.purpose.slice(0, 200), prompt: `${im.prompt.slice(0, 900)}\nNo text, no letters, no numbers, no watermark.${PHOTO_TAIL}`, aspect: im.aspect, status: "pending" as const }));
           task.status = "images";
         } else {
           if (wanted.length) {

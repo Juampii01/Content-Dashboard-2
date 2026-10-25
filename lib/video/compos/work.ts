@@ -564,7 +564,8 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         const wire = await generateStructured({
           feature: "video.compos.codigo",
           model: "deep",
-          thinking: { effort: task.attempts > 0 ? "medium" : "high" },
+          // Razonamiento medio (alto se comía el tope y el tiempo de la función con los pedidos grandes); al reintentar, bajo.
+          thinking: { effort: task.attempts > 0 ? "low" : "medium" },
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
           task: composCodeTask({
             brief: `${brief}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}`,
@@ -657,6 +658,9 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
   } catch (error) {
     console.error("[compos]", task.status, error instanceof AiError ? error.detail : error instanceof Error ? (error.stack ?? error.message).split("\n").slice(0, 4).join(" · ") : error);
     task.attempts++;
+    if (error instanceof AiError && error.detail.startsWith("truncada") && task.status === "code") {
+      task.lastError = "Tu respuesta anterior salió cortada porque era demasiado larga. Escribe un código más compacto (menos de 12.000 caracteres): sin comentarios, con funciones auxiliares reutilizables en vez de repetir bloques. Mantén lo esencial del pedido.";
+    }
     if (task.attempts >= 3 || task.status === "plan") {
       // Sin plan: se escribe directo; sin mirar: queda como está.
       if (task.status === "plan") task.status = "code";

@@ -149,6 +149,10 @@ export async function generateStructured<S extends z.ZodType>(input: {
     }
   } catch (error) {
     if (error instanceof AiError) throw error;
+    // El SDK no puede leer la salida estructurada cuando la respuesta llegó cortada (se quedó sin tokens a la mitad).
+    if (error instanceof Error && /Failed to parse structured output/i.test(error.message)) {
+      throw new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", `truncada: ${error.message.slice(0, 200)}`);
+    }
     if (error instanceof APIError) {
       const status = error.status ?? 0;
       if (status === 401 || status === 403) throw new AiError("La clave de IA de esta instalación no es válida. Avísale a soporte.", `${status} ${error.message}`);
@@ -180,7 +184,7 @@ export async function generateStructured<S extends z.ZodType>(input: {
     .catch(() => undefined);
 
   if (message.stop_reason === "refusal") throw new AiError("La IA no quiso generar ese contenido. Prueba con otra idea o redáctala distinto.", "refusal");
-  if (message.stop_reason === "max_tokens") throw new AiError("El resultado salió demasiado largo. Prueba con un formato más corto.", "max_tokens");
+  if (message.stop_reason === "max_tokens") throw new AiError("El resultado salió demasiado largo. Prueba con un formato más corto.", "truncada: max_tokens");
   const parsedOutput = (message as { parsed_output?: unknown }).parsed_output;
   if (parsedOutput != null && !freeform) return parsedOutput as z.infer<S>;
   // Sin parsed_output (streaming o pedido como texto): se lee el JSON del texto y se valida con el esquema.

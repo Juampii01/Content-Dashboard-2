@@ -495,13 +495,15 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     entries: [...graphicEntries(broll), ...fxSegments(timeline, next.effects ?? []).map((f) => f.start)],
     punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
     dense: planDensity(next) === "reels",
-    // Los que puso la persona en la pista de Sonido y el de cada transición (en su corte).
-    manual: [
-      ...soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+    // Los que puso la persona en la pista de Sonido.
+    manual: soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+    // El de cada transición (en su corte) y los de las animaciones (con techo y sin amontonarse).
+    extras: [
       ...transitionSounds(fx.transitions).filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: TRANSITION_SOUND_GAIN })),
-      // Los sonidos de las animaciones (en sus momentos).
       ...fx.sounds.filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: s.gain })),
     ],
+    volumeDb: next.audio.sfx_db ?? 0,
+    speech: timeline.words.map((w) => ({ start: w.start, end: w.end })),
   });
   // Música: una pista generada (la arma el worker con el mismo generador que la vista previa) o una pista lista de la
   // biblioteca (la clave sale de la base, no del navegador).

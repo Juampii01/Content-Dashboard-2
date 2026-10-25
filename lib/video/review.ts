@@ -29,6 +29,8 @@ export type Review = {
   emoji?: boolean;
   /** Efectos de sonido. */
   sfx?: SfxLevel;
+  /** «Volumen de los efectos» (dB sobre todos). */
+  sfxDb?: number;
   /** Audio de estudio (ruido y eco fuera). */
   studio?: StudioLevel;
   /** Música de fondo: pista de la biblioteca (o null) y su volumen respecto de la voz. */
@@ -113,6 +115,7 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     audio: {
       ...plan.audio,
       ...(review.sfx ? { sfx: sfxLevel(review.sfx) } : {}),
+      ...(review.sfxDb != null && Number.isFinite(review.sfxDb) ? { sfx_db: Math.max(-18, Math.min(6, Math.round(review.sfxDb))) } : {}),
       ...(review.studio ? { studio: studioLevel(review.studio) } : {}),
       ...(review.music
         ? { music_asset_id: review.music.trackId, music_db: Math.round(Math.max(MUSIC_DB.min, Math.min(MUSIC_DB.max, review.music.db))) }

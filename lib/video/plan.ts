@@ -113,6 +113,7 @@ export const planSchema = z.object({
     music_db: z.number().min(-40).max(0),
     target_lufs: z.number().min(-24).max(-9),
     sfx: z.enum(["off", "subtle", "strong"]).optional(),
+    sfx_db: z.number().min(-18).max(6).optional(),
     /** Audio de estudio (sin el campo: apagado, como en los planes de antes). */
     studio: z.enum(["off", "soft", "strong"]).optional(),
     cues: soundCueListSchema.optional(),

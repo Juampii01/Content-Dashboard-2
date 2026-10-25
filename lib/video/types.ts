@@ -161,7 +161,7 @@ export type EditPlan = {
    * `cues`: sonidos de la biblioteca puestos a mano en la pista de Sonido (anclados a palabras).
    * `music_gen`: música generada de la biblioteca (estilo, semilla y tempo); manda sobre `music_asset_id`.
    */
-  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; studio?: "off" | "soft" | "strong"; cues?: SoundCue[]; music_gen?: MusicGenSpec | null };
+  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; /** «Volumen de los efectos» (dB sobre todos). */ sfx_db?: number; studio?: "off" | "soft" | "strong"; cues?: SoundCue[]; music_gen?: MusicGenSpec | null };
   /** Recorte para 16:9 → 9:16. offset_x va de -1 (izquierda) a 1 (derecha); 0 es el centro. */
   framing: { mode: "center" | "manual"; offset_x: number };
   /** Palabras que no están en el guion (se marcan, no se cortan). */

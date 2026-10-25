@@ -31,6 +31,8 @@ export type StudioState = {
   zoomsOn: boolean;
   emoji: boolean;
   sfx: SfxLevel;
+  /** Volumen de todos los efectos de sonido (dB). */
+  sfxDb: number;
   music: { trackId: string | null; db: number };
   studio: StudioLevel;
   moves: PlanMove[];
@@ -78,6 +80,7 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     emoji: plan.captions.emoji === true,
     // Planes de antes de los efectos de sonido y del audio de estudio: apagados (el video no cambia al volver a renderizar).
     sfx: sfxLevel(plan.audio.sfx),
+    sfxDb: plan.audio.sfx_db ?? 0,
     music: { trackId: plan.audio.music_asset_id, db: plan.audio.music_db },
     studio: studioLevel(plan.audio.studio),
     moves: plan.moves ?? [],
@@ -149,6 +152,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     ...(ctx.hasStyle ? { zooms: s.zoomsOn } : {}),
     emoji: s.emoji,
     sfx: s.sfx,
+    sfxDb: s.sfxDb,
     studio: s.studio,
     music: { trackId: !s.musicGen && s.music.trackId && ctx.trackIds.includes(s.music.trackId) ? s.music.trackId : null, db: Math.max(-30, Math.min(-8, s.music.db)) },
     musicGen: s.musicGen,

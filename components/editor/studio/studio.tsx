@@ -223,14 +223,16 @@ export function Studio(props: StudioProps) {
         entries: [...entries, ...fxSegs.map((f) => f.start)],
         punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
         dense: s.density === "reels",
-        // Igual que el render: los de la pista de Sonido y el de cada transición, siempre.
-        manual: [
-          ...soundCueTimes(timeline, s.soundCues).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+        // Igual que el render: los de la pista de Sonido, siempre; los de transiciones y animaciones, con techo.
+        manual: soundCueTimes(timeline, s.soundCues).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+        extras: [
           ...transitionSounds(trSegs).filter((x) => isSfxName(x.name)).map((x) => ({ name: x.name as SfxName, hitAt: x.hitAt, gain: TRANSITION_SOUND_GAIN })),
           ...composSounds(composSegs).map((x) => ({ name: x.name, hitAt: x.hitAt, gain: x.gain })),
         ],
+        volumeDb: s.sfxDb,
+        speech: timeline.words.map((w) => ({ start: w.start, end: w.end })),
       }),
-    [s.sfx, timeline, segments, entries, fxSegs, zooms, s.density, s.soundCues, trSegs, composSegs],
+    [s.sfx, timeline, segments, entries, fxSegs, zooms, s.density, s.soundCues, trSegs, composSegs, s.sfxDb],
   );
   const fxBrand = useMemo(() => fxBrandFromLook(graphicLook), [graphicLook]);
   const thumbs = useMemo(() => fxContext?.thumbs ?? [], [fxContext]);

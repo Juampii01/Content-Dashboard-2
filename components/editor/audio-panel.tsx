@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/field";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { MUSIC_DB, musicLabel, SFX_LEVEL_LABELS, SFX_LEVELS, type SfxLevel } from "@/lib/video/sfx";
+import { MUSIC_DB, musicLabel, SFX_LEVEL_LABELS, SFX_LEVELS, SFX_VOLUME, type SfxLevel } from "@/lib/video/sfx";
 import { STUDIO_LEVEL_LABELS, STUDIO_LEVELS, type AudioPreview, type StudioLevel } from "@/lib/video/studio-audio";
 import { useTrackPlayer, type TrackItem } from "./music-manager";
 import { StudioPreview } from "./studio-preview";
@@ -26,6 +26,8 @@ export function AudioPanel({
   audioPreview,
   sfx,
   onSfx,
+  sfxDb,
+  onSfxDb,
   musicId,
   musicDb,
   onMusic,
@@ -40,6 +42,9 @@ export function AudioPanel({
   audioPreview: AudioPreview | null;
   sfx: SfxLevel;
   onSfx: (level: SfxLevel) => void;
+  /** Volumen de todos los efectos (dB). Sin él (valores de Mi marca), no se muestra. */
+  sfxDb?: number;
+  onSfxDb?: (db: number) => void;
   musicId: string | null;
   musicDb: number;
   onMusic: (music: { trackId: string | null; db: number }) => void;
@@ -97,6 +102,27 @@ export function AudioPanel({
           options={SFX_LEVELS.map((k) => ({ value: k, label: SFX_LEVEL_LABELS[k].label }))}
         />
         <p className="text-xs text-muted">{SFX_LEVEL_LABELS[sfx].description}</p>
+        {sfxDb != null && onSfxDb && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="sfx-volume" className="flex items-center justify-between text-xs text-muted">
+              Volumen de los efectos <span className="font-medium text-text">{sfxVolumeLabel(sfxDb)}</span>
+            </label>
+            <input
+              id="sfx-volume"
+              type="range"
+              className="range"
+              min={SFX_VOLUME.min}
+              max={SFX_VOLUME.max}
+              step={1}
+              value={sfxDb}
+              disabled={!canEdit}
+              onChange={(e) => onSfxDb(Number(e.target.value))}
+              style={{ ["--pct" as string]: `${((sfxDb - SFX_VOLUME.min) / (SFX_VOLUME.max - SFX_VOLUME.min)) * 100}%` }}
+              aria-valuetext={`${sfxVolumeLabel(sfxDb)}, ${sfxDb > 0 ? "+" : ""}${sfxDb} dB`}
+            />
+            <p className="text-xs text-muted">Todos los sonidos del video, también los de las animaciones. Siempre quedan debajo de tu voz y bajan un poco mientras hablas.</p>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -171,4 +197,11 @@ export function AudioPanel({
       </div>
     </div>
   );
+}
+
+function sfxVolumeLabel(db: number): string {
+  if (db <= -12) return "Muy bajo";
+  if (db <= -5) return "Bajo";
+  if (db < 3) return "Normal";
+  return "Alto";
 }

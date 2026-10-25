@@ -154,6 +154,7 @@ const reviewSchema = z.object({
   zooms: z.boolean().optional(),
   emoji: z.boolean().optional(),
   sfx: z.enum(SFX_LEVELS).optional(),
+  sfxDb: z.number().min(-18).max(6).optional(),
   studio: z.enum(STUDIO_LEVELS).optional(),
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),

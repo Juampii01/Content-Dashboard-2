@@ -85,6 +85,14 @@ export const newSoundCueId = () => `s${Date.now().toString(36)}${(cueCounter++).
 /** Entre dos efectos, al menos esto (un b-roll que entra justo después de otro no suena dos veces). */
 const MIN_GAP = 0.35;
 const MAX_CUES = 60;
+/** Entre dos sonidos de animaciones o transiciones, como mínimo (s). */
+const AUTO_GAP = 0.3;
+/** Techo de los sonidos que traen las animaciones y transiciones (dB del archivo; la voz queda arriba). */
+const AUTO_MAX_DB = -16;
+/** Cuánto bajan los efectos mientras la persona habla (dB). */
+const UNDER_VOICE_DB = 4;
+/** «Volumen de los efectos» (dB sobre todos): de casi nada a un poco más fuerte. */
+export const SFX_VOLUME = { min: -18, max: 6, default: 0 } as const;
 
 export type SfxCue = { name: SfxName; /** Inicio del archivo en el video final (s). */ at: number; gain: number };
 
@@ -124,8 +132,25 @@ export function sfxCues(input: {
    * con "Sin efectos", que apaga solo los automáticos) y van primero.
    */
   manual?: { name: SfxName; hitAt: number; gain: number }[];
+  /**
+   * Sonidos que trae lo que se agregó (animaciones, transiciones): suenan siempre como los elegidos, pero con un techo
+   * de volumen y sin amontonarse (uno cada AUTO_GAP s como mucho).
+   */
+  extras?: { name: SfxName; hitAt: number; gain: number }[];
+  /** Volumen de todos los efectos (dB, «Volumen de los efectos» en Audio y música). */
+  volumeDb?: number;
+  /** Tramos en que habla la persona (segundos del video final): ahí los efectos bajan un poco para no taparla. */
+  speech?: { start: number; end: number }[];
 }): SfxCue[] {
   if (input.duration <= 0) return [];
+  const master = Math.max(SFX_VOLUME.min, Math.min(SFX_VOLUME.max, input.volumeDb ?? 0));
+  const speaking = (t: number) => (input.speech ?? []).some((w) => t >= w.start - 0.05 && t <= w.end + 0.05);
+  // Mezcla: el volumen general, y debajo de la voz mientras hablas (igual en la vista previa y en el render).
+  const level = (c: SfxCue): SfxCue => {
+    const hit = c.at + SFX_FILES[c.name].hit;
+    const gain = c.gain + master - (speaking(hit) ? UNDER_VOICE_DB : 0);
+    return { ...c, gain: Math.round(Math.max(-40, Math.min(0, gain)) * 10) / 10 };
+  };
   const manual: SfxCue[] = [];
   for (const m of (input.manual ?? []).slice(0, MAX_SOUND_CUES + 24)) {
     const file = SFX_FILES[m.name];
@@ -135,7 +160,16 @@ export function sfxCues(input: {
     if (manual.some((c) => c.name === m.name && Math.abs(c.at - at) < 0.05)) continue;
     manual.push({ name: m.name, at, gain: Math.max(SOUND_GAIN.min, Math.min(SOUND_GAIN.max, m.gain)) });
   }
-  if (input.level === "off") return manual.sort((a, b) => a.at - b.at);
+  // Los de las animaciones y transiciones: con techo y sin golpes pegados (antes sonaban 4 o 5 seguidos a todo volumen).
+  for (const m of [...(input.extras ?? [])].sort((a, b) => a.hitAt - b.hitAt).slice(0, MAX_CUES)) {
+    const file = SFX_FILES[m.name];
+    if (!file) continue;
+    const at = Math.round(Math.max(0, m.hitAt - file.hit) * 1000) / 1000;
+    if (at >= input.duration - 0.02) continue;
+    if (manual.some((c) => Math.abs(c.at + SFX_FILES[c.name].hit - m.hitAt) < AUTO_GAP)) continue;
+    manual.push({ name: m.name, at, gain: Math.max(SOUND_GAIN.min, Math.min(AUTO_MAX_DB, m.gain)) });
+  }
+  if (input.level === "off") return manual.map(level).sort((a, b) => a.at - b.at);
   const gains = GAINS[input.level];
   const wanted: { name: AutoName; hitAt: number }[] = [];
   for (const b of input.broll) wanted.push({ name: "whoosh", hitAt: b.start });
@@ -172,7 +206,7 @@ export function sfxCues(input: {
     if (cues.some((c) => Math.abs(c.at + SFX_FILES[c.name].hit - hit) < MIN_GAP)) continue;
     cues.push({ name: w.name, at, gain: w.gain });
   }
-  return cues.sort((a, b) => a.at - b.at);
+  return cues.map(level).sort((a, b) => a.at - b.at);
 }
 
 // ─── Música ─────────────────────────────────────────────────────────────────

@@ -906,6 +906,8 @@ function AudioBlock({ api }: { api: StudioApi }) {
       audioPreview={props.audioPreview ?? null}
       sfx={state.sfx}
       onSfx={(sfx) => api.update((s) => ({ ...s, sfx }))}
+      sfxDb={state.sfxDb}
+      onSfxDb={(sfxDb) => api.update((s) => ({ ...s, sfxDb }), { coalesce: "sfxDb" })}
       musicId={state.musicGen ? null : state.music.trackId}
       musicDb={state.music.db}
       onMusic={(music) => api.update((s) => ({ ...s, music, musicGen: music.trackId ? null : s.musicGen }), { coalesce: "music" })}

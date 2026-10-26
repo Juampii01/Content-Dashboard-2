@@ -35,7 +35,9 @@ if (!spec || typeof spec !== "object" || spec.v !== 1) fail("El efecto no es vá
 const W = spec.width;
 const H = spec.height;
 if (!Number.isInteger(W) || !Number.isInteger(H) || W < 16 || H < 16 || W > 4096 || H > 4096) fail("Tamaño inválido.", 2);
-if (!(spec.duration > 0 && spec.duration <= 30) || typeof out !== "string" || !out || typeof base !== "string") fail("Duración, entrada o salida inválidas.", 2);
+// Efectos hasta 30 s; una animación (pieza única de «Animar todo») hasta 180 s.
+const maxSeconds = spec.kind === "composition" ? 180 : 30;
+if (!(spec.duration > 0 && spec.duration <= maxSeconds) || typeof out !== "string" || !out || typeof base !== "string") fail("Duración, entrada o salida inválidas.", 2);
 
 const started = Date.now();
 isCompos = spec.kind === "composition";

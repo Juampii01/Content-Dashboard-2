@@ -36,6 +36,25 @@ def main(pid: str) -> None:
             "select id, status, attempts, error_message, created_at, finished_at, input from jobs where video_project_id = %s and type = 'VIDEO_RENDER' order by created_at desc limit 8",
             (pid,),
         ).fetchall()
+    with psycopg.connect(url, row_factory=dict_row) as conn:
+        reqs = conn.execute(
+            "select id, status, delivered, error, created_at, updated_at, work from compos_requests where project_id = %s order by created_at desc limit 6",
+            (pid,),
+        ).fetchall()
+        plan = conn.execute("select plan->'compositions' as comps from video_projects where id = %s", (pid,)).fetchone()
+    print("== pedidos de animación (los últimos)")
+    for r in reqs:
+        work = r["work"] or {}
+        tasks = work.get("tasks") or []
+        t = tasks[0] if tasks else {}
+        print(json.dumps({
+            "id": r["id"], "status": r["status"], "delivered": r["delivered"], "error": r["error"], "created": str(r["created_at"]), "updated": str(r["updated_at"]),
+            "request": (str(t.get("request") or ""))[:900], "scene": t.get("scene"), "long": t.get("long"), "status_task": t.get("status"), "attempts": t.get("attempts"),
+            "note": (str(t.get("note") or ""))[:300], "compId": t.get("compId"), "resultLen": len(str((t.get("result") or {}).get("code") or "")),
+        }, ensure_ascii=False))
+    print("== animaciones del plan guardado")
+    for c in (plan and plan["comps"]) or []:
+        print(json.dumps({"id": c.get("id"), "name": c.get("name"), "long": c.get("long"), "codeLen": len(c.get("code") or ""), "sounds": len(c.get("sounds") or []), "scenes": len(c.get("scenes") or []), "why": (c.get("why") or "")[:200]}, ensure_ascii=False))
     print("== proyecto")
     print(json.dumps({"status": project and project["status"], "format": project and project["format"], "media": project and project["media"]}, default=str, indent=1))
     for job in jobs:

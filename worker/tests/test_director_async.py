@@ -46,3 +46,13 @@ def test_error_definitivo_se_propaga(monkeypatch):
     c, _ = client(monkeypatch, [{"ok": True, "pending": "cabc123"}, JobError("no", retry=False)])
     with pytest.raises(JobError):
         c.director("p", {"step": "compos"})
+
+
+def test_una_pieza_larga_pasa_la_revision_del_render():
+    """Una animación de «Animar todo» dura hasta 180 s y su código hasta 90 mil caracteres (los efectos, hasta 30 s)."""
+    from video import fx
+
+    comp = {"spec": {"v": 1, "kind": "composition", "duration": 54, "compos": {"code": "x" * 60_000, "env": {}}}}
+    assert fx.validate(comp) is comp
+    with pytest.raises(JobError):
+        fx.validate({"spec": {"v": 1, "kind": "magazine", "duration": 54}})

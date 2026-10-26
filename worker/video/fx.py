@@ -47,7 +47,11 @@ MAX_EFFECTS = 64
 
 
 COMPOS_ENGINE = motion.MOTION_DIR / "compos-engine.mjs"
-COMPOS_MAX_CODE = 24_000
+# Igual que COMPOS_LIMITS.longCodeChars (lib/video/compos/contract.ts): una pieza única puede tener hasta 90 mil.
+COMPOS_MAX_CODE = 90_000
+# Duración máxima de un efecto: 30 s; una animación (pieza única de «Animar todo») hasta 180 s.
+FX_MAX_SECONDS = 30
+COMPOS_MAX_SECONDS = 180
 
 
 class ComposFailed(JobError):
@@ -86,7 +90,8 @@ def validate(item: Any) -> dict[str, Any]:
     if not isinstance(item, dict) or not isinstance(item.get("spec"), dict):
         raise JobError("Un efecto del video no es válido. Quítalo en la revisión.", retry=False)
     spec = item["spec"]
-    if spec.get("v") != 1 or not isinstance(spec.get("kind"), str) or not (0 < float(spec.get("duration") or 0) <= 30):
+    max_s = COMPOS_MAX_SECONDS if spec.get("kind") == "composition" else FX_MAX_SECONDS
+    if spec.get("v") != 1 or not isinstance(spec.get("kind"), str) or not (0 < float(spec.get("duration") or 0) <= max_s):
         raise JobError("Un efecto del video no es válido. Quítalo en la revisión.", retry=False)
     if spec.get("kind") == "composition":
         compos = spec.get("compos")

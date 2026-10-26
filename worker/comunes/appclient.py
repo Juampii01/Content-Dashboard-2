@@ -23,6 +23,8 @@ from .ffmpeg import stop_event
 log = logging.getLogger("worker.app")
 
 CHUNK = 4 * 1024 * 1024
+# Lo más que se espera un paso del director en segundo plano (la función de la app corta a los 800 s).
+DIRECTOR_MAX_S = 16 * 60
 
 
 class AppClient:
@@ -72,8 +74,38 @@ class AppClient:
         return self._post(f"/api/worker/projects/{project_id}/plan", {}, timeout=330)
 
     def director(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Un paso del director de edición (la app responde cuál sigue). Con razonamiento y visión puede tardar minutos."""
-        return self._post(f"/api/worker/projects/{project_id}/director", payload, timeout=830)
+        """Un paso del director de edición (la app responde cuál sigue). Con razonamiento y visión puede tardar minutos,
+        así que se pide en segundo plano: la app contesta enseguida con un id y aquí se pregunta cada pocos segundos hasta
+        que esté (una conexión abierta varios minutos se cortaba). Si la app es vieja y contesta el paso directo, sirve igual."""
+        path = f"/api/worker/projects/{project_id}/director"
+        res = self._post(path, {**payload, "async": True}, timeout=120)
+        call = res.get("pending")
+        if not call:
+            return res
+        started = time.monotonic()
+        wait = 3.0
+        misses = 0
+        while True:
+            stop_event.wait(wait)
+            if stop_event.is_set():
+                raise Cancelled()
+            try:
+                res = self._post(path, {"step": "poll", "call": call}, timeout=60)
+                misses = 0
+            except JobError as exc:
+                # Un corte suelto al preguntar no pierde el paso: se vuelve a preguntar (hasta 5 seguidos).
+                if not exc.retry:
+                    raise
+                misses += 1
+                if misses >= 5:
+                    raise
+                log.warning("director %s: no respondió al preguntar (%s), reintento", call, exc.detail)
+                continue
+            if res.get("done"):
+                return res
+            if time.monotonic() - started > DIRECTOR_MAX_S:
+                raise JobError("El director de edición tardó demasiado. Vamos a reintentarlo.", detail=f"{path}: {call} sin terminar")
+            wait = min(10.0, wait + 1.0)
 
     def clip_moments(self, long_video_id: str) -> dict[str, Any]:
         """Clips desde un video largo: la app elige los momentos (reglas + Claude) y devuelve sus tramos."""

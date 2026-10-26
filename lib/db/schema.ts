@@ -1587,3 +1587,27 @@ export const composRequests = pgTable(
   },
   (t) => [index("compos_requests_project_idx").on(t.projectId, t.createdAt)],
 );
+
+/**
+ * Pasos del director que la app hace en segundo plano: el worker pide el paso, la app contesta enseguida con el id y lo
+ * hace después de responder (after); el worker pregunta cada pocos segundos hasta tener el resultado. Así una llamada de
+ * IA de varios minutos no depende de una conexión abierta todo ese tiempo (se cortaba a los ~5 minutos).
+ */
+export const directorCalls = pgTable(
+  "director_calls",
+  {
+    id: text("id").primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => videoProjects.id, { onDelete: "cascade" }),
+    /** running | done | failed */
+    status: text("status").notNull().default("running"),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    error: text("error"),
+    /** Si el worker tiene que reintentar el trabajo (false: error definitivo, como un VideoError). */
+    retry: boolean("retry").notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("director_calls_project_idx").on(t.projectId, t.createdAt)],
+);

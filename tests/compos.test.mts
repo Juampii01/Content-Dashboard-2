@@ -13,7 +13,7 @@ import { NodeSandbox } from "../lib/video/compos/sandbox-node";
 import { validateComposition, sampleTimes, codeHash, drawsPerson } from "../lib/video/compos/validate";
 import { COMPOS_SAMPLES } from "../lib/video/compos/samples";
 import { RUNTIME_SOURCE } from "../lib/video/compos/runtime-source";
-import { cleanCompositions, compileComposition, composSegments, needsMask, type Composition } from "../lib/video/compos/schema";
+import { cleanCompositions, clearFaceBands, compileComposition, composSegments, needsMask, type Composition } from "../lib/video/compos/schema";
 import type { ComposEnvData } from "../lib/video/compos/contract";
 
 const env: ComposEnvData = {
@@ -269,8 +269,7 @@ test("franja fija de la persona: el motor la dibuja encima de todo, igual en cad
   assert.ok(short[0]!.end - short[0]!.start <= 12.01);
 });
 
-test("los subtítulos nunca tapan la cara fija de abajo (mitad y mitad / fondo blanco)", async () => {
-  const { clearFaceBands } = await import("../lib/video/compos/schema.ts");
+test("los subtítulos nunca tapan la cara fija de abajo (mitad y mitad / fondo blanco)", () => {
   const item = { id: "a", from_word: 0, to_word: 3, name: "x", code: "x", params: [], source: "user", long: true, frame: { kind: "split", cx: 0.5, cy: 0.6, zoom: 1.25 } } as never;
   const segs = [{ id: "a", start: 0, end: 10, item, layer: 0 }] as never;
   const blocks = [

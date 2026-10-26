@@ -36,6 +36,10 @@ jobs:
       - name: Diagnóstico
         run: |
           flyctl ssh console --config fly.toml -C "python /app/diag_render.py ${{ steps.pid.outputs.pid }}" | sed -E 's#https?://[^" ]+#<url>#g' | tee /tmp/diag.txt
+          # Costo de infraestructura (últimos 30 días) y la máquina de Fly.
+          flyctl ssh console --config fly.toml -C "sh -c 'cd /app && python diag_costos.py'" 2>&1 | grep -v "^Connecting" | tee -a /tmp/diag.txt || true
+          flyctl machines list --config fly.toml --json | jq '[.[] | {id, state, region, size: .config.guest}]' | tee -a /tmp/diag.txt || true
+          flyctl volumes list --config fly.toml --json | jq '[.[] | {name, size_gb, region}]' | tee -a /tmp/diag.txt || true
           # Separación de voz (Biblioteca → Sacar la música de un reel): el modelo carga y cuánto tarda en esta máquina.
           flyctl ssh console --config fly.toml -C "sh -c 'cd /app && python diag_separar.py'" 2>&1 | tail -5 | tee -a /tmp/diag.txt || true
         env:

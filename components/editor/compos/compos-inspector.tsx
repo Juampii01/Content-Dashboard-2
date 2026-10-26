@@ -7,6 +7,7 @@ import { myEffectStateAction, removeMyEffectAction, renameMyEffectAction, saveTo
 import { myEffectsChanged } from "../studio/library-mine";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
+import { SegmentedControl } from "@/components/ui/tabs";
 import { secondsLabel, timeLabel } from "@/lib/video/studio";
 import type { Composition } from "@/lib/video/compos/schema";
 import { cn } from "@/lib/utils";
@@ -129,13 +130,16 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   const { props } = api;
   const seg = api.composSegs.find((s) => s.id === item.id) ?? null;
   const [ask, setAsk] = useState("");
+  // En una pieza única: cambiar solo la escena del cabezal o toda la pieza (tamaños, sonidos, tipografía…).
+  const [whole, setWhole] = useState(false);
   // Un cambio a esta animación a la vez (los demás pedidos del video siguen en paralelo).
   const busy = api.compos.requests.some((r) => isActive(r) && r.request?.replaceId === item.id);
   const src = SOURCE[item.source];
   // Pieza única: la escena donde está el cabezal (los cambios se piden por escena).
   const local = seg ? Math.max(0, api.time - seg.start) : 0;
   const sceneIndex = item.long && item.scenes?.length ? Math.max(0, item.scenes.findIndex((sc) => local >= sc.start && local < sc.end)) : -1;
-  const scene = sceneIndex >= 0 ? item.scenes![sceneIndex]! : null;
+  const sceneAt = sceneIndex >= 0 ? item.scenes![sceneIndex]! : null;
+  const scene = whole ? null : sceneAt;
   async function change() {
     if (ask.trim().length < 3) return;
     const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: ask.trim(), replace: item, at: scene ? local : null });
@@ -289,6 +293,19 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           <label htmlFor={`ask-${item.id}`} className="flex items-center gap-1.5 text-sm font-semibold text-white">
             <Wand2 className="h-4 w-4 text-accent-hi" aria-hidden /> {scene ? `Pídele un cambio a la escena «${scene.title}»` : "Pídele un cambio a esta animación"}
           </label>
+          {sceneAt && (
+            <SegmentedControl
+              label="Qué cambiar"
+              size="sm"
+              className="self-start"
+              value={whole ? "all" : "scene"}
+              onValueChange={(v) => setWhole(v === "all")}
+              options={[
+                { value: "scene", label: "Esta escena" },
+                { value: "all", label: "Toda la pieza" },
+              ]}
+            />
+          )}
           <Textarea id={`ask-${item.id}`} value={ask} onChange={(e) => setAsk(e.target.value)} maxLength={1500} className="!min-h-16 text-sm" placeholder="Ej.: que la cifra sea más grande y entre girando más rápido" disabled={busy} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void change()} />
           <div className="flex flex-wrap gap-1.5" aria-label="Ideas de cambios">
             {IDEAS_CHANGE.map((s) => (
@@ -302,7 +319,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           </Button>
           {api.compos.error && <p className="text-xs text-danger">{api.compos.error}</p>}
           <ComposProgress api={api} compId={item.id} />
-          <p className="text-[11px] text-muted">{scene ? "La IA rehace esa escena y deja el resto de la pieza igual." : "La reescribe la IA."} Puedes deshacer el cambio con Cmd+Z.</p>
+          <p className="text-[11px] text-muted">{scene ? "La IA rehace esa escena y deja el resto de la pieza igual." : sceneAt ? "La IA cambia toda la pieza (por ejemplo, más grande, más sonidos u otra tipografía). Tarda más que una escena." : "La reescribe la IA."} Puedes deshacer el cambio con Cmd+Z.</p>
         </section>
       )}
     </>

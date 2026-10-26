@@ -2234,7 +2234,7 @@ export function Studio(props: StudioProps) {
         }}
       />
       <ShortcutsHelp open={help} onClose={() => setHelp(false)} />
-      {canEdit && <WholeVideoDialog projectId={projectId} open={wholeOpen} initialNotes={wholeNotes} onOpenChange={(o) => (setWholeOpen(o), o || setWholeNotes(""))} onStarted={() => void composWork.refresh()} />}
+      {canEdit && <WholeVideoDialog projectId={projectId} open={wholeOpen} initialNotes={wholeNotes} audioOnly={props.audioOnly} onOpenChange={(o) => (setWholeOpen(o), o || setWholeNotes(""))} onStarted={() => void composWork.refresh()} />}
     </HumanizeProvider>
   );
 }

@@ -79,6 +79,7 @@ export function ProjectScreen({
         fxContext={fxContext}
         rhythmFx={rhythmFx}
         captionDefault={captionDefault}
+        audioOnly={/\.(mp3|m4a|wav|aac|ogg|opus|flac)$/i.test(project.sourceKey ?? "")}
         musicCatalog={musicCatalog}
         title={project.title}
         menu={project.canEdit ? <DeleteProject projectId={project.id} compact /> : null}

@@ -56,6 +56,8 @@ export type StudioProps = {
   rhythmFx?: FxKind[];
   /** Subtítulos de Mi marca (los que pone «Subtitular» en la pestaña Edición). */
   captionDefault?: CaptionPresetKey;
+  /** El proyecto se subió como audio solo (MP3, M4A o WAV): no hay cara para mostrar. */
+  audioOnly?: boolean;
   /** Nombre del proyecto (barra superior). */
   title?: string;
   /** Acciones extra de la barra superior (por ejemplo, borrar el proyecto). */

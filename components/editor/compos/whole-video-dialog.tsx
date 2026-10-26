@@ -28,8 +28,9 @@ const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60))
  * y un pedido por momento; 3) los revisas (editas o quitas) y se crean todos. Entran a la cola de a varios y cada uno
  * aparece en la pista Animaciones cuando termina: se puede cerrar el Estudio y volver.
  */
-export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted, initialNotes = "" }: { projectId: string; open: boolean; onOpenChange: (open: boolean) => void; onStarted: () => void; initialNotes?: string }) {
-  const [mode, setMode] = useState<Mode>("face");
+export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted, initialNotes = "", audioOnly = false }: { projectId: string; open: boolean; onOpenChange: (open: boolean) => void; onStarted: () => void; initialNotes?: string; audioOnly?: boolean }) {
+  // Con un audio solo no hay cara: todo es animación.
+  const [mode, setMode] = useState<Mode>(audioOnly ? "full" : "face");
   const [notes, setNotes] = useState(initialNotes);
   // Indicaciones que llegan del asistente de la pestaña Edición.
   const [lastInitial, setLastInitial] = useState(initialNotes);
@@ -119,7 +120,7 @@ export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted, ini
               <div className="flex min-w-0 flex-1 flex-col gap-3">
                 <p className="text-sm font-semibold text-white">¿Cómo lo animamos?</p>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" role="radiogroup" aria-label="Modo">
-                  {MODES.map((m) => (
+                  {MODES.filter((m) => !audioOnly || m.value === "full").map((m) => (
                     <button
                       key={m.value}
                       type="button"

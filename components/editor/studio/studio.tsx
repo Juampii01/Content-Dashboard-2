@@ -1552,7 +1552,9 @@ export function Studio(props: StudioProps) {
         if (!isActive(r) || !r.request) return [];
         // Un cambio sobre una animación que sigue en el video se muestra sobre ese mismo bloque, no como uno nuevo.
         if (r.request.replaceId && s.compositions.some((c) => c.id === r.request!.replaceId)) return [];
-        const seg = composSegments(timeline, [{ id: r.id, from_word: r.request.from_word, to_word: r.request.to_word, name: "x", code: "x", params: [], source: "user" }])[0];
+        // Una pieza larga («Animar todo») ocupa todo su tramo, no los 12 s de una animación suelta.
+        const long = r.tasks.some((t) => t.long);
+        const seg = composSegments(timeline, [{ id: r.id, from_word: r.request.from_word, to_word: r.request.to_word, name: "x", code: "x", params: [], source: "user", ...(long ? { long: true } : {}) }])[0];
         if (!seg) return [];
         return [
           {

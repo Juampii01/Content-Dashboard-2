@@ -943,7 +943,7 @@ export function workView(work: ComposWork | null) {
     cannot: work.cannot ?? "",
     error: work.error ?? null,
     request: work.request ?? null,
-    tasks: work.tasks.map((t) => ({ id: t.id, compId: t.compId, from_word: t.from_word, to_word: t.to_word, brief: t.brief.slice(0, 200), status: t.status, score: t.score ?? null, note: t.note ?? "", error: t.error ?? "", moment: t.moment ?? null, reused: t.reused ?? null, images: t.images.map((i) => ({ status: i.status, error: i.error ?? "" })) })),
+    tasks: work.tasks.map((t) => ({ id: t.id, compId: t.compId, from_word: t.from_word, to_word: t.to_word, long: t.long === true, brief: t.brief.slice(0, 200), status: t.status, score: t.score ?? null, note: t.note ?? "", error: t.error ?? "", moment: t.moment ?? null, reused: t.reused ?? null, images: t.images.map((i) => ({ status: i.status, error: i.error ?? "" })) })),
     /** Lo que se ahorró reusando Mis efectos (la etapa de código que no se pagó). */
     savedUsd: Math.round(work.tasks.filter((t) => t.reused).length * STAGE_COST.code * 100) / 100,
   };

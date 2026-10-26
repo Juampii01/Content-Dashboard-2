@@ -7,6 +7,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import type { PauseInfo } from "@/lib/video/timeline";
+import { endsSentence } from "@/lib/video/text";
 import type { RemovalReason, Word } from "@/lib/video/types";
 import { reasonLabel } from "./labels";
 
@@ -263,7 +264,7 @@ export function TranscriptEditor({
         ) : (
           <p className="text-xs text-muted">
             {canEdit
-              ? "Toca una palabra para corregir cómo se escribe. Arrastra (o Mayús + clic) para elegir un tramo y copiarlo. Aquí no se corta nada: el video se corta en la línea de tiempo con Dividir (C)."
+              ? "Toca una palabra para ir a ese momento y corregirla. Arrastra para elegir un tramo. Aquí no se corta nada: el video se corta con Dividir (C)."
               : "Solo lectura: tu usuario no puede editar."}
           </p>
         )}
@@ -272,7 +273,7 @@ export function TranscriptEditor({
       <div
         ref={container}
         onMouseUp={onMouseUp}
-        className="transcript max-h-[62vh] overflow-y-auto pr-1 text-[15px] leading-[2.1] sm:text-base"
+        className="transcript -mx-1 flex max-h-[62vh] flex-col gap-0.5 overflow-y-auto pr-1 text-[14px] leading-[1.8]"
         role="group"
         aria-label="Transcripción editable"
       >
@@ -296,6 +297,7 @@ export function TranscriptEditor({
           pauses={pauses}
           onPause={onPause}
           subsHidden={subsHidden}
+          onStamp={onJump}
         />
       </div>
 
@@ -362,7 +364,10 @@ const WordList = memo(function WordList({
   pauses,
   onPause,
   subsHidden,
+  onStamp,
 }: {
+  /** Toca la hora de un párrafo: el video va a ese momento. */
+  onStamp?: (id: number) => void;
   words: Word[];
   removed: Set<number>;
   reasons: Map<number, RemovalReason>;
@@ -384,13 +389,43 @@ const WordList = memo(function WordList({
   subsHidden?: Set<number>;
 }) {
   const nodes = useMemo(() => {
-    const out: ReactNode[] = [];
+    // Párrafos: se arma uno nuevo después de un punto (con al menos ~20 palabras) o tras una pausa larga.
+    const paras: ReactNode[] = [];
+    let out: ReactNode[] = [];
+    let first: Word | null = null;
+    let count = 0;
+    const flush = () => {
+      if (!first || !out.length) return;
+      const f = first;
+      const stamp = `${Math.floor(f.start / 60)}:${String(Math.floor(f.start % 60)).padStart(2, "0")}`;
+      paras.push(
+        <div key={`para${f.id}`} className="flex gap-2.5 rounded-xl px-1.5 py-1.5 transition-colors has-[[data-playing]]:bg-accent/[0.06]">
+          <button
+            type="button"
+            onClick={() => onStamp?.(f.id)}
+            className="mt-[3px] h-fit flex-none rounded-md px-1 font-mono text-[11px] leading-5 text-placeholder tabular-nums transition hover:bg-white/[0.06] hover:text-text"
+            aria-label={`Ir al ${stamp}`}
+            title="Ir a este momento"
+            tabIndex={-1}
+          >
+            {stamp}
+          </button>
+          <p className="min-w-0 flex-1">{out}</p>
+        </div>,
+      );
+      out = [];
+      first = null;
+      count = 0;
+    };
     const pauseAt = new Map((pauses ?? []).map((p) => [p.word, p]));
     for (let i = 0; i < words.length; i++) {
       const w = words[i]!;
       const prev = words[i - 1];
       const cut = removed.has(w.id);
       const pause = pauses ? pauseAt.get(w.id) : undefined;
+      if (prev && ((count >= 20 && endsSentence(prev.text)) || w.start - prev.end >= 1.2 || count >= 60)) flush();
+      if (!first) first = w;
+      count++;
       if (pause) {
         const len = `${pause.gap.toFixed(1).replace(".", ",")} s`;
         out.push(
@@ -495,9 +530,9 @@ const WordList = memo(function WordList({
           aria-label={`${corrected ?? w.text}${cut ? ", cortada" : ""}`}
           title={corrected ? `Transcrito como «${w.text}»` : offScript.has(w.id) ? "No está en el guion" : undefined}
           className={cn(
-            "word rounded-md px-[3px] py-0.5 transition-colors select-text data-[playing]:ring-2 data-[playing]:ring-accent-hi",
+            "word rounded-[5px] px-px transition-colors select-text data-[playing]:bg-accent data-[playing]:text-paper",
             cut ? "text-placeholder line-through decoration-danger/70 decoration-2" : "text-text hover:bg-white/[0.08]",
-            inHook && !cut && "bg-accent/15 text-white",
+            inHook && !cut && "bg-accent/[0.08] text-white",
             inSel && "bg-accent/35 text-white",
             offScript.has(w.id) && !cut && "underline decoration-warning/60 decoration-dotted underline-offset-4",
             corrected && !cut && "underline decoration-accent-hi decoration-dotted underline-offset-4",
@@ -510,8 +545,9 @@ const WordList = memo(function WordList({
       );
       out.push(" ");
     }
-    return out;
-  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onWordDoubleClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick, pauses, onPause, subsHidden]);
+    flush();
+    return paras;
+  }, [words, removed, reasons, hook, offScript, corrections, selection, cursor, canEdit, onWordClick, onWordDoubleClick, onKeyDown, onRestore, brollMarks, activeBroll, onBrollClick, pauses, onPause, subsHidden, onStamp]);
   return <>{nodes}</>;
 });
 

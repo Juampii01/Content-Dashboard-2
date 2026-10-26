@@ -10,6 +10,8 @@ import { ComposRequestError, planWholeVideo, startStudioRequest, startWholeVideo
 import { composStatus, type ComposStatus } from "@/lib/video/compos/service";
 import { ackRequests, cancelRequest } from "@/lib/video/compos/requests";
 import { loadProject } from "@/lib/video/service";
+import { readBytes } from "@/lib/storage";
+import { cleanRefs, MAX_REF_INPUT_BYTES, RefError, refUrl, saveRefImage, type RefImage } from "@/lib/video/refs";
 
 /**
  * Animaciones a medida en el Estudio: "Pide una animación aquí" (sobre un tramo, con texto libre) y "Pídele un cambio a
@@ -24,6 +26,8 @@ const requestSchema = z.object({
   replace: z.unknown().nullable().optional(),
   /** Segundo dentro de la animación donde está el cabezal (en una pieza única, se cambia esa escena). */
   at: z.number().min(0).max(600).nullable().optional(),
+  /** Imágenes que mandó la persona (de estilo o para usar dentro). Se vuelven a validar contra el proyecto. */
+  refs: z.array(z.unknown()).max(8).optional(),
 });
 
 /** Varios pedidos pueden correr a la vez. `error`: el pedido quedó creado pero sin tope de IA (se muestra en él). */
@@ -33,13 +37,45 @@ export async function requestAnimationAction(projectId: string, input: z.input<t
   const parsed = requestSchema.safeParse(input);
   if (!idSchema.safeParse(projectId).success || !parsed.success) return { ok: false, error: parsed.error?.issues[0]?.message ?? "Pedido no válido." };
   try {
-    const { workId, error } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null, at: parsed.data.at ?? null }, user.id);
+    const { workId, error } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null, at: parsed.data.at ?? null, refs: parsed.data.refs ?? [] }, user.id);
     return { ok: true, workId, error };
   } catch (error) {
     if (error instanceof ComposRequestError) return { ok: false, error: error.message };
     console.error("[animaciones] pedido:", error instanceof Error ? error.message : error);
     return { ok: false, error: "No pudimos empezar la animación. Prueba de nuevo." };
   }
+}
+
+/**
+ * Sube una imagen para un pedido o para la charla de una animación: se valida, se achica (lado mayor 1568 px, WebP) y
+ * queda en el proyecto. Devuelve la referencia y una URL de corta duración para verla.
+ */
+export async function uploadRefImageAction(projectId: string, form: FormData): Promise<{ ok: true; ref: Omit<RefImage, "use" | "note">; url: string } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(projectId).success) return { ok: false, error: "Proyecto no válido." };
+  const file = form.get("file");
+  if (!(file instanceof File)) return { ok: false, error: "Falta la imagen." };
+  if (!/^image\/(jpeg|png|webp|gif|heic|heif|avif)$/i.test(file.type)) return { ok: false, error: "Sube una imagen JPG, PNG o WebP." };
+  if (file.size > MAX_REF_INPUT_BYTES) return { ok: false, error: "La imagen pesa más de 12 MB." };
+  const project = await loadProject(projectId);
+  if (!project) return { ok: false, error: "No encontramos ese proyecto." };
+  try {
+    const ref = await saveRefImage(projectId, Buffer.from(await file.arrayBuffer()));
+    return { ok: true, ref, url: await refUrl(ref.key) };
+  } catch (error) {
+    if (error instanceof RefError) return { ok: false, error: error.message };
+    console.error("[animaciones] imagen:", error instanceof Error ? error.message : error);
+    return { ok: false, error: "No pudimos subir la imagen. Prueba de nuevo." };
+  }
+}
+
+/** URLs de corta duración de las imágenes de una charla (para mostrarlas). */
+async function chatRefUrls(projectId: string, thread: ChatThread): Promise<Record<string, string>> {
+  const keys = [...new Set(thread.messages.flatMap((m) => cleanRefs(projectId, m.refs ?? []).map((r) => r.key)))];
+  const out: Record<string, string> = {};
+  await Promise.all(keys.map(async (k) => (out[k] = await refUrl(k).catch(() => ""))));
+  return out;
 }
 
 export async function composStatusAction(projectId: string): Promise<{ ok: true; data: ComposStatus } | { ok: false; error: string }> {
@@ -132,14 +168,17 @@ const chatSchema = z.object({
   params: z.array(z.object({ label: z.string().max(80), value: z.string().max(160) })).max(12),
   sounds: z.string().max(2000),
   words: z.string().max(12000),
+  /** Imágenes que van con este mensaje. */
+  refs: z.array(z.unknown()).max(4).optional(),
 });
 
 /** La charla guardada de una animación (para mostrarla al elegirla). */
-export async function loadComposChatAction(projectId: string, compId: string): Promise<{ ok: true; thread: ChatThread } | { ok: false; error: string }> {
+export async function loadComposChatAction(projectId: string, compId: string): Promise<{ ok: true; thread: ChatThread; refUrls: Record<string, string> } | { ok: false; error: string }> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   if (!z.uuid().safeParse(projectId).success || !compIdSchema.safeParse(compId).success) return { ok: false, error: "Datos no válidos." };
-  return { ok: true, thread: await loadChat(projectId, compId) };
+  const thread = await loadChat(projectId, compId);
+  return { ok: true, thread, refUrls: await chatRefUrls(projectId, thread) };
 }
 
 /** Marca en la charla que se mandaron los cambios acordados (la IA lo recuerda la próxima vez). */
@@ -168,7 +207,7 @@ export async function clearComposChatAction(projectId: string, compId: string): 
  * y arma el pedido final consolidado. La conversación queda guardada por animación (con lo que ya se cambió). No cambia
  * la animación: el Estudio manda el pedido cuando la persona dice «Hacer los cambios».
  */
-export async function composChatAction(projectId: string, input: z.input<typeof chatSchema>): Promise<{ ok: true; thread: ChatThread; scope: "scene" | "all" } | { ok: false; error: string }> {
+export async function composChatAction(projectId: string, input: z.input<typeof chatSchema>): Promise<{ ok: true; thread: ChatThread; scope: "scene" | "all"; refUrls: Record<string, string> } | { ok: false; error: string }> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = chatSchema.safeParse(input);
@@ -177,17 +216,28 @@ export async function composChatAction(projectId: string, input: z.input<typeof 
   const d = parsed.data;
   const saved = await loadChat(projectId, d.compId);
   const now = new Date().toISOString();
-  const messages: ChatMessage[] = [...saved.messages, { role: "user", text: d.text, at: now }];
+  const attached = cleanRefs(projectId, d.refs);
+  const messages: ChatMessage[] = [...saved.messages, { role: "user", text: d.text, at: now, ...(attached.length ? { refs: attached } : {}) }];
+  // Lo que Claude mira: las imágenes de la charla (las últimas 4), en orden.
+  const seen = new Map<string, RefImage>();
+  for (const m of messages) for (const r of cleanRefs(projectId, m.refs ?? [])) seen.set(r.key, r);
+  const refs = [...seen.values()].slice(-4);
   try {
     const brandCtx = await brandContext(await getBrand());
     // A la IA: los últimos 40 mensajes; los cambios ya hechos van marcados como tales.
-    const history = messages.slice(-40).map((m) => (m.role === "applied" ? { role: "assistant" as const, text: `[CAMBIOS YA HECHOS EN LA ANIMACIÓN] ${m.text}` } : { role: m.role, text: m.text }));
+    const history = messages.slice(-40).map((m) =>
+      m.role === "applied"
+        ? { role: "assistant" as const, text: `[CAMBIOS YA HECHOS EN LA ANIMACIÓN] ${m.text}` }
+        : { role: m.role, text: m.refs?.length ? `${m.text} [adjuntó ${m.refs.map((r) => `imagen ${refs.findIndex((x) => x.key === r.key) + 1} (${r.use === "inside" ? "para usar dentro" : "de estilo"})`).join(", ")}]` : m.text },
+    );
+    const pics = refs.length ? await refImages(refs) : [];
     const out = await withAiScope(projectId, () =>
       generateStructured({
         feature: "video.compos.charla",
         model: "main",
         context: `${COMPOS_CHAT_RULES}\n\n${brandCtx}`,
-        task: composChatTask({ ...d, messages: history }),
+        task: composChatTask({ ...d, messages: history, refs: refs.map((r) => ({ use: r.use, note: r.note ?? null })) }),
+        ...(pics.length ? { images: pics, imageSizes: refs.map((r) => ({ width: r.width, height: r.height })) } : {}),
         schema: composChatSchema,
         maxTokens: 2500,
         userId: user.id,
@@ -199,9 +249,22 @@ export async function composChatAction(projectId: string, input: z.input<typeof 
     );
     const thread: ChatThread = { messages: [...messages, { role: "assistant", text: out.reply.slice(0, 3000), at: new Date().toISOString() }], agreed: { instruction: out.instruction.slice(0, 1500), scope: out.scope } };
     await saveChat(projectId, d.compId, thread);
-    return { ok: true, thread, scope: out.scope };
+    return { ok: true, thread, scope: out.scope, refUrls: await chatRefUrls(projectId, thread) };
   } catch (error) {
     console.error("[compos] charla:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
     return { ok: false, error: error instanceof AiError ? error.userMessage : "No pudimos responder. Prueba de nuevo." };
   }
+}
+
+/** Las imágenes de la charla para Claude (WebP chicas, ya achicadas al subirlas). */
+async function refImages(refs: RefImage[]): Promise<{ mediaType: "image/webp"; data: string }[]> {
+  const out: { mediaType: "image/webp"; data: string }[] = [];
+  for (const r of refs) {
+    try {
+      out.push({ mediaType: "image/webp", data: (await readBytes(r.key, 8 * 1024 * 1024)).toString("base64") });
+    } catch (error) {
+      console.error("[compos] charla: no se pudo leer una imagen:", error instanceof Error ? error.message : error);
+    }
+  }
+  return out;
 }

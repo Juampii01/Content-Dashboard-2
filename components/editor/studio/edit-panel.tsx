@@ -13,6 +13,9 @@ import { formatNumber } from "@/lib/format";
 import { editAction } from "../director-actions";
 import { editAssistantAction, suggestTrimAction, type AssistantItem } from "../edit-actions";
 import type { StudioApi } from "./types";
+import type { RefImage } from "@/lib/video/compos/schema";
+import type { SignedOption } from "../broll-panel";
+import { AttachButton, AttachList, refsOf, useAttachments } from "./attachments";
 
 const EDIT_ALL = "Edita todo el video: corta los silencios y las tomas malas, arma el gancho, pon subtítulos con mi estilo, b-roll, gráficos y animaciones donde sumen, y el sonido.";
 
@@ -31,6 +34,7 @@ export function EditPanel({
   onWholeVideo,
   onAnimationAt,
   onGraphicAt,
+  onClipAt,
   rangeHere,
 }: {
   api: StudioApi;
@@ -42,8 +46,10 @@ export function EditPanel({
   onTrimPauses: () => void;
   onWholeVideo: (notes?: string) => void;
   /** Sin pedido: abre el cuadro de «Pide una animación aquí» en ese tramo. Con pedido: lo manda directo. */
-  onAnimationAt: (range: WordSpan, prompt?: string) => void;
+  onAnimationAt: (range: WordSpan, prompt?: string, refs?: RefImage[]) => void;
   onGraphicAt: (range: WordSpan, prompt?: string) => void;
+  /** Pone un video que subió la persona (ya en su biblioteca) como b-roll en ese tramo. */
+  onClipAt: (range: WordSpan, option: SignedOption) => void;
   /** El tramo elegido (en la transcripción o la línea de tiempo) o, si no hay, la frase donde está el cabezal. */
   rangeHere: () => { range: WordSpan; from: "seleccion" | "cabezal" } | null;
 }) {
@@ -59,6 +65,7 @@ export function EditPanel({
   const [asking, startAsk] = useTransition();
   const [confirmAll, setConfirmAll] = useState(false);
   const [editing, startEditAll] = useTransition();
+  const files = useAttachments(projectId, { video: true });
   const here = rangeHere();
   const hereLabel = here ? `${here.from === "seleccion" ? "Lo elegido" : "Donde está el cabezal"}: «${api.textOf(here.range.from, here.range.to, 70)}»` : "Elige un tramo en la transcripción o mueve el cabezal.";
 
@@ -78,11 +85,12 @@ export function EditPanel({
 
   function ask() {
     const text = wish.trim();
-    if (text.length < 3) return;
+    if (text.length < 3 || files.uploading) return;
     const sel = here?.from === "seleccion" ? here.range : null;
+    const attachments = files.list.filter((a) => a.status === "ready").map((a) => ({ ref: a.ref, kind: a.kind, name: a.name, duration: a.duration ?? null }));
     startAsk(async () => {
       const list = sentences(timeline.words as unknown as Word[]).map((f) => ({ from: f.from, to: f.to, start: f.start, end: f.end, text: f.text.slice(0, 600) }));
-      const r = await editAssistantAction({ projectId, wish: text, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, selection: sel, playhead: api.time, prefer: prefer === "auto" ? null : prefer });
+      const r = await editAssistantAction({ projectId, wish: text, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, selection: sel, playhead: api.time, prefer: prefer === "auto" ? null : prefer, attachments });
       if (!r.ok) {
         toast.error(r.error);
         return;
@@ -100,10 +108,24 @@ export function EditPanel({
   }
 
   function use(it: AssistantItem, i: number) {
-    if (it.scope === "todo") onWholeVideo(it.prompt);
-    else if (it.kind === "grafico") onGraphicAt({ from: it.from_word, to: it.to_word }, it.prompt);
-    else onAnimationAt({ from: it.from_word, to: it.to_word }, it.prompt);
-    setItems((list) => (list ? list.filter((_, k) => k !== i) : list));
+    const range = { from: it.from_word, to: it.to_word };
+    if (it.kind === "video") {
+      const clip = files.list.find((a) => a.ref === it.attachments.find((x) => x.use === "broll")?.ref)?.clip;
+      if (!clip) {
+        toast.error("Ese video ya no está en los adjuntos. Vuelve a adjuntarlo.");
+        return;
+      }
+      onClipAt(range, clip);
+    } else if (it.scope === "todo") onWholeVideo(it.prompt);
+    else if (it.kind === "grafico") onGraphicAt(range, it.prompt);
+    else {
+      const pick = it.attachments.filter((x) => x.use !== "broll").map((x) => ({ ref: x.ref, use: x.use as RefImage["use"] }));
+      onAnimationAt(range, it.prompt, pick.length ? refsOf(files.list, pick) : undefined);
+    }
+    const rest = (items ?? []).filter((_, k) => k !== i);
+    setItems(rest);
+    // Todo lo que armó el asistente ya se usó: los adjuntos quedan para el próximo pedido solo si sobraron.
+    if (!rest.length) files.clear();
   }
 
   if (!canEdit) return <p className="p-4 text-sm text-muted">Tienes acceso de solo lectura: puedes ver la edición, pero no cambiarla.</p>;
@@ -161,7 +183,7 @@ export function EditPanel({
         <p className="text-xs text-muted">{hereLabel}</p>
       </Tool>
 
-      <Tool icon={<MessageSquareText className="h-4 w-4" aria-hidden />} title="Asistente de pedidos" text="Dime qué quieres y dónde, con tus palabras. Te devuelvo el pedido bien armado y en su lugar.">
+      <Tool icon={<MessageSquareText className="h-4 w-4" aria-hidden />} title="Asistente de pedidos" text="Dime qué quieres y dónde, con tus palabras. Adjunta un video tuyo para ponerlo como b-roll o imágenes de referencia para una animación.">
         <label htmlFor="edit-wish" className="sr-only">
           Qué quieres
         </label>
@@ -171,9 +193,11 @@ export function EditPanel({
           onChange={(e) => setWish(e.target.value)}
           maxLength={1500}
           className="!min-h-20 text-sm"
-          placeholder="Ej.: en el 0:45 quiero un mapa que se acerque a mi ciudad, y cuando hablo de precios, una comparación"
+          placeholder={files.list.some((a) => a.kind === "video") ? "Ej.: pon este video cuando hablo de los clientes" : "Ej.: en el 0:45 quiero un mapa que se acerque a mi ciudad, y cuando hablo de precios, una comparación"}
           onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && ask()}
         />
+        <AttachList api={files} showUse={false} />
+        <AttachButton api={files} video className="self-start" />
         <SegmentedControl
           label="Qué prefieres"
           size="sm"
@@ -185,8 +209,8 @@ export function EditPanel({
             { value: "grafico", label: "Gráfico" },
           ]}
         />
-        <Button size="sm" onClick={ask} disabled={asking || wish.trim().length < 3} icon={asking ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}>
-          {asking ? "Armando el pedido…" : "Armar el pedido"}
+        <Button size="sm" onClick={ask} disabled={asking || files.uploading || wish.trim().length < 3} icon={asking ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}>
+          {files.uploading ? "Subiendo los adjuntos…" : asking ? "Armando el pedido…" : "Armar el pedido"}
         </Button>
         {note && <p className="text-xs text-muted">{note}</p>}
         {items && items.length > 0 && (
@@ -197,8 +221,19 @@ export function EditPanel({
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white">{it.title}</p>
                     <p className="text-[11px] text-muted">
-                      {it.kind === "grafico" ? "Gráfico" : "Animación"} · {it.scope === "todo" ? "todo el video" : `${timeOf(it)} · «${api.textOf(it.from_word, it.to_word, 60)}»`}
+                      {it.kind === "grafico" ? "Gráfico" : it.kind === "video" ? "Tu video como b-roll" : "Animación"} · {it.scope === "todo" ? "todo el video" : `${timeOf(it)} · «${api.textOf(it.from_word, it.to_word, 60)}»`}
                     </p>
+                    {it.attachments.length > 0 && (
+                      <p className="mt-0.5 text-[11px] text-accent-hi">
+                        Usa{" "}
+                        {it.attachments
+                          .map((x) => {
+                            const a = files.list.find((f) => f.ref === x.ref);
+                            return `${x.ref}${a ? ` «${a.name}»` : ""}${x.use === "inside" ? " (dentro de la animación)" : x.use === "style" ? " (estilo de referencia)" : ""}`;
+                          })
+                          .join(", ")}
+                      </p>
+                    )}
                   </div>
                   {it.scope !== "todo" && (
                     <button
@@ -215,13 +250,13 @@ export function EditPanel({
                     </button>
                   )}
                 </div>
-                <label htmlFor={`edit-item-${i}`} className="sr-only">
-                  Pedido
-                </label>
-                <Textarea id={`edit-item-${i}`} value={it.prompt} maxLength={1500} onChange={(e) => setItems((list) => list?.map((x, k) => (k === i ? { ...x, prompt: e.target.value } : x)) ?? list)} className="!min-h-24 text-xs" />
+                {it.kind !== "video" && <label htmlFor={`edit-item-${i}`} className="sr-only">Pedido</label>}
+                {it.kind !== "video" && (
+                  <Textarea id={`edit-item-${i}`} value={it.prompt} maxLength={1500} onChange={(e) => setItems((list) => list?.map((x, k) => (k === i ? { ...x, prompt: e.target.value } : x)) ?? list)} className="!min-h-24 text-xs" />
+                )}
                 <div className="flex flex-wrap gap-1.5">
-                  <Button size="sm" disabled={it.prompt.trim().length < 3} onClick={() => use(it, i)}>
-                    {it.scope === "todo" ? "Animar todo con esto" : it.kind === "grafico" ? "Crear el gráfico" : "Crear la animación"}
+                  <Button size="sm" disabled={it.kind !== "video" && it.prompt.trim().length < 3} onClick={() => use(it, i)}>
+                    {it.kind === "video" ? "Ponerlo ahí" : it.scope === "todo" ? "Animar todo con esto" : it.kind === "grafico" ? "Crear el gráfico" : "Crear la animación"}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setItems((list) => list?.filter((_, k) => k !== i) ?? list)}>
                     Descartar

@@ -178,6 +178,8 @@ success #1f7a4d · warning #8a5a00 · danger #c0362c
 
 **Video limpio y pestaña Edición:** ✅ al subir se elige «Sin editar» (por defecto) o «Editado por la IA» (`video_projects.edit_mode`). Sin editar llega tal cual, solo transcrito (`cleanPlan` en `lib/video/service.ts`), y la pestaña Edición del Estudio corre cada herramienta por separado: Recortar (`suggestTrim`), Subtitular, Añadir animaciones (todo el video o un momento), Añadir gráficos con un pedido, un asistente que convierte lo que pides en pedidos bien armados con su tramo (`lib/ai/prompts/asistente-edicion.ts`) y «Editar todo con IA» (`components/editor/studio/edit-panel.tsx`, `components/editor/edit-actions.ts`).
 
+**Adjuntos para Claude:** ✅ en el asistente de pedidos de la pestaña Edición se adjunta un video propio (queda en la biblioteca de b-roll y se pone en el momento que se dice, con palabras, tema o minuto) o imágenes; en «Pide una animación aquí» y en la charla de una animación, imágenes de referencia de estilo (Claude las mira en el plan, el código y la revisión) o para usar dentro (se copian a las imágenes de la animación). Se guardan achicadas en `editor/<proyecto>/refs/` (`lib/video/refs.ts`, `components/editor/studio/attachments.tsx`).
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

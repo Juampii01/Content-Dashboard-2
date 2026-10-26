@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Composition } from "@/lib/video/compos/schema";
+import type { Composition, RefImage } from "@/lib/video/compos/schema";
 import type { RequestView } from "@/lib/video/compos/requests";
 import type { WorkView } from "@/lib/video/compos/work";
 import { ackAnimationsAction, cancelAnimationAction, composStatusAction, requestAnimationAction } from "../compos-actions";
 
-export type ComposRequest = { from_word: number; to_word: number; instruction: string; replace: Composition | null; at?: number | null };
+export type ComposRequest = { from_word: number; to_word: number; instruction: string; replace: Composition | null; at?: number | null; refs?: RefImage[] };
 
 /** Un pedido como lo ve el Estudio: lo del servidor, o el que se acaba de mandar (todavía sin respuesta). */
 export type LiveRequest = Pick<RequestView, "id" | "status" | "request" | "tasks" | "error" | "made" | "createdAt"> & { optimistic?: boolean };

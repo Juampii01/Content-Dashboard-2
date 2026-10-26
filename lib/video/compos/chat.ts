@@ -1,13 +1,14 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import type { RefImage } from "./schema";
 
 /**
  * Memoria de la charla con el taller (tabla compos_chats): una conversación por animación de cada video. Se guardan
  * los mensajes (hasta 120), lo acordado que falta mandar y una marca «applied» cada vez que se mandó un cambio, así la
  * IA sabe qué se pidió y qué ya se hizo aunque se recargue el Estudio.
  */
-export type ChatMessage = { role: "user" | "assistant" | "applied"; text: string; at: string };
+export type ChatMessage = { role: "user" | "assistant" | "applied"; text: string; at: string; refs?: RefImage[] };
 export type ChatThread = { messages: ChatMessage[]; agreed: { instruction: string; scope: "scene" | "all" } | null };
 
 const MAX_MESSAGES = 120;

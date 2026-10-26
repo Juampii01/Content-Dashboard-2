@@ -1,4 +1,5 @@
 import "server-only";
+import { cleanRefs } from "../refs";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { AiError, aiConfigured, generateStructured } from "@/lib/ai/client";
 import { sentences } from "@/lib/ai/prompts/editor";
@@ -384,7 +385,7 @@ export const MAX_ACTIVE_REQUESTS = MAX_ACTIVE;
  * cada uno es su propia fila con su reserva del tope de IA y su trabajo VIDEO_COMPOS (lib/video/compos/requests.ts).
  * Si no alcanza el tope, el pedido queda fallido con el aviso (`error`) sin frenar a los demás.
  */
-export async function startStudioRequest(projectId: string, input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null }, userId: string | null): Promise<{ workId: string; error: string | null }> {
+export async function startStudioRequest(projectId: string, input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null; refs?: unknown }, userId: string | null): Promise<{ workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
@@ -401,8 +402,11 @@ export async function startStudioRequest(projectId: string, input: { from_word: 
     base = parsed.success ? parsed.data : (ctx.plan.compositions ?? []).find((c) => c.id === (input.replace as { id?: string })?.id) ?? null;
     if (!base) throw new ComposRequestError("No encontramos esa animación. Recarga la página.");
   }
-  // Un cambio chico no necesita planear imágenes, salvo que las pida.
-  const needsPlan = !(base && !ANIMATION_RE.test(instruction));
+  // Imágenes de la persona: las nuevas, o las de estilo que ya tenía la animación que se cambia.
+  const fresh = cleanRefs(projectId, input.refs);
+  const refs = fresh.length ? fresh : cleanRefs(projectId, base?.refs);
+  // Un cambio chico no necesita planear imágenes, salvo que las pida o mande imágenes para usar dentro.
+  const needsPlan = !(base && !ANIMATION_RE.test(instruction) && !fresh.some((r) => r.use === "inside"));
   return enqueueRequest({
     projectId,
     userId,
@@ -412,6 +416,7 @@ export async function startStudioRequest(projectId: string, input: { from_word: 
     wait: full,
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
+      if (refs.length) task.refs = refs;
       if (!needsPlan) task.status = "code";
       // Pieza única: se conserva todo (escenas, franja fija) y, si se pidió en un punto, se cambia solo esa escena.
       if (base?.long) {

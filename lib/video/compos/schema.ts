@@ -26,6 +26,20 @@ export const composImageSchema = z.object({
 });
 export type ComposImage = z.infer<typeof composImageSchema>;
 
+/**
+ * Imagen que la persona mandó con el pedido (lib/video/refs.ts): "style" = referencia de estilo que Claude mira;
+ * "inside" = va dentro de la animación (se copia a sus imágenes). Clave: editor/<proyecto>/refs/<uuid>.webp.
+ */
+export const refImageSchema = z.object({
+  key: z.string().max(200),
+  width: z.number().int().min(16).max(4096),
+  height: z.number().int().min(16).max(4096),
+  use: z.enum(["style", "inside"]),
+  /** Nombre del archivo o lo que la persona dijo de ella (para el pedido). */
+  note: z.string().trim().max(200).optional(),
+});
+export type RefImage = z.infer<typeof refImageSchema>;
+
 export const composParamSchema = z.object({
   key: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,30}$/),
   label: z.string().min(1).max(40),
@@ -58,6 +72,8 @@ export const compositionSchema = z.object({
   /** Familias visuales (para rotar entre videos): "texto-letra-a-letra", "tarjeta-3d"… */
   tags: z.array(z.string().max(40)).max(6).optional(),
   images: z.array(composImageSchema).max(8).optional(),
+  /** Referencias de estilo que mandó la persona (se vuelven a usar en los cambios de esta animación). */
+  refs: z.array(refImageSchema).max(4).optional(),
   /** Pieza única de todo el video («Animar todo»): hasta 3 minutos y armada por escenas. */
   long: z.boolean().optional(),
   /** Escenas de la pieza única (segundos desde que empieza): los cambios se piden por escena. */

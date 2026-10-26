@@ -19,7 +19,7 @@ import {
 import { claudePlanConnected } from "@/lib/ai/claude-plan";
 import { providersStatus } from "@/lib/carousels/images";
 import { getDb, schema } from "@/lib/db";
-import { readBytes } from "@/lib/storage";
+import { copyKey, readBytes } from "@/lib/storage";
 import { faceAnchor, sourceFramesOf, sourceRangesOf } from "../fx/compile";
 import { fxBrand } from "../fx-service";
 import { brandGraphicLook } from "../graphics";
@@ -29,7 +29,7 @@ import type { EditPlan, MediaInfo, Transcript, VideoFormat, Word } from "../type
 import { readDirector, type DirectorState } from "../director/types";
 import { clampBudget } from "../director/cost";
 import { composLimitsFor } from "./contract";
-import { compileComposition, composSegments, defaultFrame, newComposId, type ComposImage, type Composition } from "./schema";
+import { compileComposition, composSegments, defaultFrame, newComposId, type ComposImage, type Composition, type RefImage } from "./schema";
 import { codeHash, validateComposition } from "./validate";
 import { promoteWaiting } from "./requests";
 
@@ -105,6 +105,8 @@ export type ComposTask = {
   reused?: { id: string; name: string; version: number } | null;
   /** "off": el agente con la suscripción de Claude no pudo (sin cupo, token vencido…) y esta tarea sigue por la API. */
   agent?: "off";
+  /** Imágenes que mandó la persona: de estilo (Claude las mira) o para usar dentro (lib/video/refs.ts). */
+  refs?: RefImage[];
   /** Pieza única de todo el video («Animar todo»), con sus escenas y la franja fija de la persona (si hay). */
   long?: boolean;
   scenes?: NonNullable<Composition["scenes"]>;
@@ -305,6 +307,7 @@ function itemOf(task: ComposTask, code: ComposCodeWire | { code: string; name: s
     tags: code.tags.map((t) => t.toLowerCase().replace(/[^a-z0-9ñ-]+/g, "-").slice(0, 40)).filter(Boolean).slice(0, 6),
     ...(images.length ? { images } : {}),
     ...(task.request ? { request: task.request.slice(0, 1500) } : {}),
+    ...(styleRefs(task).length ? { refs: styleRefs(task) } : {}),
     ...(task.long ? { long: true } : {}),
     ...(task.scenes?.length ? { scenes: task.scenes } : {}),
     ...(task.frame ? { frame: task.frame } : {}),
@@ -356,6 +359,17 @@ async function imagesOf(keys: { key: string; width: number; height: number }[]):
     }
   }
   return out;
+}
+
+/** Referencias de estilo de la persona (van como imágenes al final de cada pedido a Claude). */
+const styleRefs = (task: ComposTask): RefImage[] => (task.refs ?? []).filter((r) => r.use === "style").slice(0, 4);
+
+/** Texto que acompaña a las referencias de estilo (son las últimas imágenes del pedido). */
+function styleRefsText(task: ComposTask): string {
+  const refs = styleRefs(task);
+  if (!refs.length) return "";
+  const names = refs.some((r) => r.note) ? `: ${refs.map((r, i) => `${i + 1}. ${r.note ?? "sin nombre"}`).join(" · ")}` : "";
+  return `\nREFERENCIAS DE ESTILO DE LA PERSONA (${refs.length === 1 ? "la última imagen adjunta" : `las últimas ${refs.length} imágenes adjuntas`}${names}): adapta su estilo a esta animación (paleta, composición, tipografía, materiales, luz, nivel de detalle y el movimiento que sugiere). No la copies literal ni la dibujes: es la dirección visual. Si choca con los colores de la marca, manda la referencia.`;
 }
 
 /** Hojas de la referencia donde están los cuadros de un momento (como mucho 2). */
@@ -560,13 +574,14 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         // Un cambio sobre una animación existente siempre se escribe (es otra cosa).
         const inUse = [...(ctx.plan.compositions ?? []).flatMap((c) => (c.lib_id ? [c.lib_id] : [])), ...work.tasks.flatMap((t) => (t.reused ? [t.reused.id] : []))];
         // Una pieza única no se arma con Mis efectos (es una sola animación, escrita entera).
-        const library = task.base || task.long ? [] : await effectCandidates({ brief, said: said(ctx, task), exclude: inUse, duration }).catch(() => []);
+        const inside = (task.refs ?? []).filter((r) => r.use === "inside").slice(0, 4);
+        const library = task.base || task.long || task.refs?.length ? [] : await effectCandidates({ brief, said: said(ctx, task), exclude: inUse, duration }).catch(() => []);
         const plan = await generateStructured({
           feature: "video.compos.plan",
           model: "main",
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
           task: composPlanTask({
-            brief: task.long && task.scenes?.length ? `${brief}\nESCENAS: ${task.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(1)}–${sc.end.toFixed(1)} s: ${sc.brief}`).join(" | ")}`.slice(0, 9000) : brief,
+            brief: `${task.long && task.scenes?.length ? `${brief}\nESCENAS: ${task.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(1)}–${sc.end.toFixed(1)} s: ${sc.brief}`).join(" | ")}`.slice(0, 9000) : brief}${inside.length ? `\nIMÁGENES DE LA PERSONA PARA USAR DENTRO DE LA ANIMACIÓN (${inside.length === 1 ? "la primera imagen adjunta" : `las primeras ${inside.length} imágenes adjuntas`}${inside.some((r) => r.note) ? `: ${inside.map((r) => r.note ?? "sin nombre").join(" · ")}` : ""}): ya están disponibles; no las pidas al generador.` : ""}${styleRefsText(task)}`,
             said: said(ctx, task),
             duration,
             format: ctx.format,
@@ -575,6 +590,9 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
             copy: work.mode === "copy",
             maxImages: task.long ? 6 : 2,
           }),
+          ...(inside.length || styleRefs(task).length
+            ? { images: await imagesOf([...inside, ...styleRefs(task)]), imageSizes: [...inside, ...styleRefs(task)].map((r) => ({ width: r.width, height: r.height })) }
+            : {}),
           schema: composPlanWireSchema,
           maxTokens: 8000,
           videoProjectId: ctx.projectId,
@@ -605,10 +623,25 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           task.error = "No alcanzó el tope de IA de este video para escribir esta animación (y ninguno de Mis efectos encajaba).";
           return `Animación ${of}`;
         }
-        const wanted = plan.images.slice(0, task.long ? 6 : 2);
+        // Las imágenes que mandó la persona para usar dentro: se copian a las de la animación, ya listas.
+        const own: ComposImageTask[] = [];
+        for (const [i, r] of inside.entries()) {
+          const id = `g${task.id.slice(1, 9)}u${i}`;
+          const key = `editor/${ctx.projectId}/compos/${id}.webp`;
+          try {
+            await copyKey(r.key, key);
+            own.push({ id, purpose: `Imagen que subió la persona${r.note ? ` («${r.note.slice(0, 120)}»)` : ""}: úsala tal cual dentro de la animación.`, prompt: "", aspect: r.width > r.height * 1.15 ? "horizontal" : r.height > r.width * 1.15 ? "vertical" : "square", status: "ready", key, width: r.width, height: r.height });
+          } catch (error) {
+            console.error("[compos] no se pudo copiar una imagen de la persona:", error instanceof Error ? error.message : error);
+          }
+        }
+        const wanted = plan.images.slice(0, Math.max(0, (task.long ? 6 : 2) - own.length));
         if (wanted.length && canImages) {
-          task.images = wanted.map((im, i) => ({ id: `g${task.id.slice(1, 9)}${i}`, purpose: im.purpose.slice(0, 200), prompt: `${im.prompt.slice(0, 900)}\nNo text, no letters, no numbers, no watermark.${PHOTO_TAIL}`, aspect: im.aspect, status: "pending" as const }));
+          task.images = [...own, ...wanted.map((im, i) => ({ id: `g${task.id.slice(1, 9)}${i}`, purpose: im.purpose.slice(0, 200), prompt: `${im.prompt.slice(0, 900)}\nNo text, no letters, no numbers, no watermark.${PHOTO_TAIL}`, aspect: im.aspect, status: "pending" as const }))];
           task.status = "images";
+        } else if (own.length) {
+          task.images = own;
+          task.status = "vision";
         } else {
           if (wanted.length) {
             task.note = "Pediste una imagen generada, pero no hay ChatGPT ni API key de OpenAI conectados (Ajustes → Claves de servicios): la animación se dibujó sin ella.";
@@ -657,8 +690,8 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           thinking: { effort: "low" },
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
           task: composCodeTask(codeTaskInput(ctx, work, task, s, refSheets.length)),
-          images: refSheets.length ? await imagesOf(refSheets) : undefined,
-          imageSizes: refSheets.map((r) => ({ width: r.width, height: r.height })),
+          images: refSheets.length || styleRefs(task).length ? await imagesOf([...refSheets, ...styleRefs(task)]) : undefined,
+          imageSizes: [...refSheets, ...styleRefs(task)].map((r) => ({ width: r.width, height: r.height })),
           schema: composCodeWireSchema,
           // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
           // salían cortadas a la mitad ("Unterminated string").
@@ -683,9 +716,9 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           model: "deep",
           thinking: { effort: "medium" },
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
-          task: composLookTask({ brief, momentDetail: task.momentDetail ?? null, code: task.result.code, times: task.sheet.times, refFrames: refSheets.length, round: task.round + 1 }),
-          images: await imagesOf([task.sheet, ...refSheets]),
-          imageSizes: [task.sheet, ...refSheets].map((r) => ({ width: r.width, height: r.height })),
+          task: composLookTask({ brief: `${brief}${styleRefsText(task)}`, momentDetail: task.momentDetail ?? null, code: task.result.code, times: task.sheet.times, refFrames: refSheets.length, round: task.round + 1 }),
+          images: await imagesOf([task.sheet, ...refSheets, ...styleRefs(task)]),
+          imageSizes: [task.sheet, ...refSheets, ...styleRefs(task)].map((r) => ({ width: r.width, height: r.height })),
           schema: composLookWireSchema,
           // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
           // salían cortadas a la mitad ("Unterminated string").
@@ -736,7 +769,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
 function codeTaskInput(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { start: number; end: number }, refFrames: number): Parameters<typeof composCodeTask>[0] {
   const readyImages = task.images.filter((i) => i.status === "ready");
   return {
-    brief: `${task.brief}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}`,
+    brief: `${task.brief}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}${styleRefsText(task)}`,
     said: said(ctx, task),
     words: wordsText(ctx, task, s.start),
     duration: s.end - s.start,

@@ -10,10 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { secondsLabel, timeLabel } from "@/lib/video/studio";
-import type { Composition } from "@/lib/video/compos/schema";
+import type { Composition, RefImage } from "@/lib/video/compos/schema";
 import { cn } from "@/lib/utils";
 import type { StudioApi } from "../studio/types";
 import { isActive, requestStage } from "./use-compos-work";
+import { AttachButton, AttachList, refsOf, useAttachments } from "../studio/attachments";
 
 const SOURCE: Record<Composition["source"], { label: string; icon: React.ReactNode }> = {
   copy: { label: "Copiada de la referencia", icon: <Copy className="h-3.5 w-3.5" aria-hidden /> },
@@ -94,21 +95,26 @@ export function RequestsPanel({ api, only }: { api: StudioApi; only?: string }) 
 /** "Pide una animación aquí": texto libre sobre el tramo elegido. */
 export function AskAnimation({ api, from, to }: { api: StudioApi; from: number; to: number }) {
   const [text, setText] = useState("");
+  const files = useAttachments(api.props.projectId, { video: false });
   // Siempre habilitada: cada pedido corre por su cuenta (se pueden pedir varios seguidos).
   async function send() {
     const instruction = text.trim();
-    if (instruction.length < 3) return;
+    if (instruction.length < 3 || files.uploading) return;
+    const refs = refsOf(files.list);
     setText("");
-    const ok = await api.compos.request({ from_word: from, to_word: to, instruction, replace: null });
+    const ok = await api.compos.request({ from_word: from, to_word: to, instruction, replace: null, ...(refs.length ? { refs } : {}) });
     if (!ok && api.compos.error) setText(instruction);
+    else files.clear();
   }
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-[#8b5cf6]/40 bg-[#8b5cf6]/[0.08] p-3">
       <label htmlFor="ask-animation" className="flex items-center gap-1.5 text-sm font-semibold text-white">
         <WandSparkles className="h-4 w-4 text-[#5b3fd1]" aria-hidden /> Pide una animación aquí
       </label>
-      <p className="text-xs text-muted">Descríbela como a un motion designer: qué se ve, cómo se mueve y cuándo. Puede llevar imágenes creadas con IA. La programamos a medida para este tramo.</p>
+      <p className="text-xs text-muted">Descríbela como a un motion designer: qué se ve, cómo se mueve y cuándo. Puede llevar imágenes creadas con IA o las tuyas (de referencia de estilo o para usar dentro). La programamos a medida para este tramo.</p>
       <Textarea id="ask-animation" value={text} onChange={(e) => setText(e.target.value)} maxLength={1500} className="!min-h-20 text-sm" placeholder="Ej.: un mapa del mundo creado con IA, zoom a Francia, la remarca y una flecha que diga «el mejor país del mundo»" onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void send()} />
+      <AttachList api={files} />
+      <AttachButton api={files} video={false} className="self-start" />
       <div className="flex flex-wrap gap-1.5" aria-label="Ideas de animaciones">
         {IDEAS_NEW.map((s) => (
           <button key={s} type="button" className="pill border border-white/10 text-left text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => setText(s)}>
@@ -116,8 +122,8 @@ export function AskAnimation({ api, from, to }: { api: StudioApi; from: number; 
           </button>
         ))}
       </div>
-      <Button size="sm" onClick={() => void send()} disabled={text.trim().length < 3} icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />}>
-        Crear animación
+      <Button size="sm" onClick={() => void send()} disabled={text.trim().length < 3 || files.uploading} icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />}>
+        {files.uploading ? "Subiendo imágenes…" : "Crear animación"}
       </Button>
       <p className="text-[11px] text-muted">Puedes pedir varias seguidas: cada una aparece en la pista Animaciones mientras se crea y cae en su propia capa.</p>
       {api.compos.error && <p className="text-xs text-danger">{api.compos.error}</p>}
@@ -142,7 +148,9 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   const sceneAt = sceneIndex >= 0 ? item.scenes![sceneIndex]! : null;
   const scene = whole ? null : sceneAt;
   // Charla con el taller: la IA confirma qué va a hacer antes de reescribir (nada cambia hasta «Hacer los cambios»).
-  const [chat, setChat] = useState<{ role: "user" | "assistant" | "applied"; text: string }[]>([]);
+  const [chat, setChat] = useState<{ role: "user" | "assistant" | "applied"; text: string; refs?: RefImage[] }[]>([]);
+  const [refUrls, setRefUrls] = useState<Record<string, string>>({});
+  const files = useAttachments(props.projectId, { video: false });
   const [agreed, setAgreed] = useState<{ instruction: string; scope: "scene" | "all" } | null>(null);
   // La charla queda guardada por animación: al elegirla, se trae lo que se habló y lo que ya se cambió.
   useEffect(() => {
@@ -151,6 +159,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
       if (!alive || !r.ok) return;
       setChat(r.thread.messages);
       setAgreed(r.thread.agreed);
+      setRefUrls(r.refUrls);
     });
     return () => {
       alive = false;
@@ -164,9 +173,12 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   }, [chat, thinking]);
   async function talk() {
     const text = ask.trim();
-    if (text.length < 2 || thinking) return;
+    if (text.length < 2 || thinking || files.uploading) return;
     const before = chat;
-    setChat([...chat, { role: "user", text }]);
+    const refs = refsOf(files.list);
+    const local = Object.fromEntries(files.list.filter((a) => a.image && a.localUrl).map((a) => [a.image!.key, a.localUrl!]));
+    setRefUrls((cur) => ({ ...local, ...cur }));
+    setChat([...chat, { role: "user", text, ...(refs.length ? { refs } : {}) }]);
     setAsk("");
     setChatError(null);
     setThinking(true);
@@ -189,6 +201,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
       params: item.params.map((p) => ({ label: p.label.slice(0, 80), value: p.value.slice(0, 160) })),
       sounds: (item.sounds ?? []).map((x) => `${x.name}@${(t0 + x.at).toFixed(1)}s`).join(", ").slice(0, 2000),
       words: words.slice(0, 12000),
+      ...(refs.length ? { refs } : {}),
     });
     setThinking(false);
     if (!r.ok) {
@@ -197,15 +210,21 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
       setChatError(r.error);
       return;
     }
+    files.clear();
     setChat(r.thread.messages);
     setAgreed(r.thread.agreed);
+    setRefUrls((cur) => ({ ...r.refUrls, ...cur }));
     // Si lo acordado toca toda la pieza, se cambia toda (aunque esté elegida una escena).
     if (r.scope === "all" && sceneAt) setWhole(true);
   }
   async function change() {
     if (!agreed) return;
     const all = agreed.scope === "all" || !scene;
-    const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: agreed.instruction, replace: item, at: all ? null : local });
+    // Las imágenes de toda la charla (las últimas 4) van con el pedido.
+    const seen = new Map<string, RefImage>();
+    for (const m of chat) for (const r of m.refs ?? []) seen.set(r.key, r);
+    const refs = [...seen.values()].slice(-4);
+    const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: agreed.instruction, replace: item, at: all ? null : local, ...(refs.length ? { refs } : {}) });
     if (ok) {
       const done = await appliedComposChatAction(props.projectId, item.id);
       if (done.ok) {
@@ -254,7 +273,12 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           {item.match?.note && <p className="text-muted">{api.humanize(item.match.note)}</p>}
           {(item.images ?? []).length > 0 && (
             <p className="flex items-center gap-1.5 text-muted">
-              <ImageIcon className="h-3.5 w-3.5" aria-hidden /> Usa {(item.images ?? []).length === 1 ? "una imagen creada" : `${(item.images ?? []).length} imágenes creadas`} con IA (quedan guardadas en este proyecto).
+              <ImageIcon className="h-3.5 w-3.5" aria-hidden /> Usa {(item.images ?? []).length === 1 ? "una imagen" : `${(item.images ?? []).length} imágenes`} (creadas con IA o subidas por ti; quedan guardadas en este proyecto).
+            </p>
+          )}
+          {(item.refs ?? []).length > 0 && (
+            <p className="flex items-center gap-1.5 text-muted">
+              <ImageIcon className="h-3.5 w-3.5" aria-hidden /> Sigue el estilo de {(item.refs ?? []).length === 1 ? "la imagen que mandaste" : `las ${(item.refs ?? []).length} imágenes que mandaste`}. Los cambios lo mantienen.
             </p>
           )}
         </div>
@@ -386,6 +410,20 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
                   </li>
                 ) : (
                   <li key={i} className={cn("max-w-[92%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "self-end bg-white text-paper" : "self-start border border-white/10 bg-card text-text")}>
+                    {m.refs?.length ? (
+                      <span className="mb-1.5 flex flex-wrap gap-1">
+                        {m.refs.map((r) =>
+                          refUrls[r.key] ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={r.key} src={refUrls[r.key]} alt={r.note ? `Imagen «${r.note}»` : "Imagen adjunta"} title={r.use === "inside" ? "Para usar en la animación" : "Estilo de referencia"} className="h-12 w-12 rounded-lg object-cover" />
+                          ) : (
+                            <span key={r.key} className="grid h-12 w-12 place-items-center rounded-lg bg-black/20">
+                              <ImageIcon className="h-4 w-4" aria-hidden />
+                            </span>
+                          ),
+                        )}
+                      </span>
+                    ) : null}
                     {m.text}
                   </li>
                 ),
@@ -410,6 +448,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
             disabled={busy || thinking}
             onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void talk()}
           />
+          <AttachList api={files} />
           {chat.length === 0 && (
             <div className="flex flex-wrap gap-1.5" aria-label="Ideas de cambios">
               {IDEAS_CHANGE.map((s) => (
@@ -420,9 +459,10 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
             </div>
           )}
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant={agreed ? "ghost" : "primary"} onClick={() => void talk()} disabled={busy || thinking || ask.trim().length < 2} icon={<Send className="h-3.5 w-3.5" aria-hidden />}>
-              Enviar
+            <Button size="sm" variant={agreed ? "ghost" : "primary"} onClick={() => void talk()} disabled={busy || thinking || files.uploading || ask.trim().length < 2} icon={<Send className="h-3.5 w-3.5" aria-hidden />}>
+              {files.uploading ? "Subiendo…" : "Enviar"}
             </Button>
+            <AttachButton api={files} video={false} disabled={busy || thinking} />
             {agreed && (
               <Button size="sm" onClick={() => void change()} disabled={busy || thinking} icon={busy ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Clapperboard className="h-3.5 w-3.5" aria-hidden />}>
                 {busy ? "Cambiando la animación…" : "Hacer los cambios"}

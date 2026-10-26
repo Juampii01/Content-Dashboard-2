@@ -543,6 +543,32 @@ export function Studio(props: StudioProps) {
     setPicking({ id: item.id, tab: ask ? "grafico" : undefined, ask, ...(prompt ? { prompt } : {}) });
   }
 
+  /**
+   * Un video que subió la persona (ya en su biblioteca) en un tramo: si el tramo dura más que el clip, se acorta a lo
+   * que dura el clip (desde su inicio).
+   */
+  function addClipBroll(rawRange: WordSpan, option: SignedOption) {
+    let range = rawRange;
+    const r0 = outputRange(timeline, range.from, range.to);
+    if (r0 && option.duration > 0 && r0.end - r0.start > option.duration + 0.2) {
+      const short = snapToWords(timeline, r0.start, r0.start + option.duration);
+      if (short) range = { from: short.from, to: short.to };
+    }
+    const plain: BrollOption = { ...option };
+    delete (plain as Partial<SignedOption>).thumbUrl;
+    delete (plain as Partial<SignedOption>).previewUrl;
+    setSigned((prev) => ({ ...prev, [optionKey(option)]: option }));
+    const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: (option.title ?? "clip").slice(0, 100), keywords: [], why: "Tu video, donde lo pediste.", choice: plain, options: [plain] };
+    const r = outputRange(timeline, range.from, range.to);
+    const top = r ? layerOnTop(r.start, r.end) : { layer: undefined, under: [] };
+    if (top.layer != null) item.layer = top.layer;
+    update((st) => ({ ...st, broll: [...st.broll, item].sort((a, b) => a.from_word - b.from_word) }));
+    notifyOnTop(top.under);
+    setSelection({ kind: "broll", id: item.id });
+    if (r) seek(r.start);
+    toast.success("Listo: tu video quedó en ese momento. Ajusta el encuadre o el largo en la pista B-roll.");
+  }
+
   /** Un gráfico de plantilla en un tramo (se abre el estudio de gráficos para ajustarlo). */
   function addGraphic(range: WordSpan, template: GraphicTemplate) {
     const option = brollGraphicOption(defaultGraphic(textOf(range.from, range.to, 400), graphicLook, template));
@@ -2043,9 +2069,10 @@ export function Studio(props: StudioProps) {
                           setWholeNotes((notes ?? "").slice(0, 800));
                           setWholeOpen(true);
                         }}
-                        onAnimationAt={(range, prompt) => {
+                        onClipAt={addClipBroll}
+                        onAnimationAt={(range, prompt, refs) => {
                           if (prompt) {
-                            void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null });
+                            void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null, ...(refs?.length ? { refs } : {}) });
                             return;
                           }
                           setSelection({ kind: "range", from: range.from, to: range.to });

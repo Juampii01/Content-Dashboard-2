@@ -1,10 +1,10 @@
 import "server-only";
 import { createReadStream, createWriteStream } from "node:fs";
-import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { copy, del, head, issueSignedToken, list, parseStoreIdFromDelegationToken, presignUrl, type IssuedSignedToken } from "@vercel/blob";
+import { copy, del, head, issueSignedToken, list, parseStoreIdFromDelegationToken, presignUrl, put, type IssuedSignedToken } from "@vercel/blob";
 import { env } from "@/lib/env";
 
 /**
@@ -254,6 +254,18 @@ export async function readBytes(key: string, maxBytes = 12 * 1024 * 1024): Promi
   const info = await stat(localPath(key));
   if (info.size > maxBytes) throw new Error(`lectura ${key}: demasiado grande`);
   return readFile(localPath(key));
+}
+
+/** Guarda un archivo chico que armó la app (por ejemplo, una imagen de referencia ya achicada). Tope de 8 MB. */
+export async function writeBytes(key: string, bytes: Buffer, contentType: string): Promise<void> {
+  assertKey(key);
+  if (bytes.byteLength > 8 * 1024 * 1024) throw new Error(`escritura ${key}: demasiado grande`);
+  if (fileDriver() === "blob") {
+    await put(key, bytes, { access: "private", token: blobToken(), addRandomSuffix: false, allowOverwrite: true, contentType });
+    return;
+  }
+  await mkdir(path.dirname(localPath(key)), { recursive: true });
+  await writeFile(localPath(key), bytes);
 }
 
 /** Tamaño de un archivo, o null si no existe. */

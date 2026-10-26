@@ -1,6 +1,6 @@
 import "server-only";
 import { eq } from "drizzle-orm";
-import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { encryptSecret } from "@/lib/crypto";
 import { getDb, schema } from "@/lib/db";
 
 /**
@@ -26,14 +26,23 @@ export async function claudePlanStatus(): Promise<ClaudePlanStatus> {
   return { connected: Boolean(r), label: r?.label ?? null, updatedAt: r?.updatedAt?.toISOString() ?? null };
 }
 
+/**
+ * Desactivado: los términos de Anthropic no permiten que un producto de terceros use la suscripción Pro o Max de sus
+ * usuarios (ni guardar sus tokens). La IA usa la clave de API del cliente (lib/ai/anthropic-key.ts). Un token que haya
+ * quedado guardado de antes no se usa; se puede borrar desde Ajustes.
+ */
 export async function claudePlanConnected(): Promise<boolean> {
-  return Boolean(await row());
+  return false;
 }
 
-/** El token descifrado (solo para el worker). */
+/** Desactivado (ver claudePlanConnected): nunca devuelve el token. */
 export async function readClaudePlanToken(): Promise<string | null> {
-  const r = await row();
-  return r ? decryptSecret(r.secretEnc, CONTEXT) : null;
+  return null;
+}
+
+/** ¿Quedó guardado un token de la suscripción de antes? (para ofrecer borrarlo). */
+export async function legacyClaudePlanSaved(): Promise<boolean> {
+  return Boolean(await row());
 }
 
 /** Limpia lo que se pega (espacios, saltos de línea, comillas, `CLAUDE_CODE_OAUTH_TOKEN=` delante) y revisa la forma. */

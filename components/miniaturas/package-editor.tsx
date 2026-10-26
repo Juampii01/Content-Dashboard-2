@@ -108,7 +108,7 @@ export function PackageEditor({
 
       <Section
         title="Miniaturas"
-        description="3 ideas con tu foto, tus colores y un texto grande de 2 a 4 palabras. El fondo lo genera tu ChatGPT (sin letras) y el texto lo dibuja la plantilla: lo cambias sin volver a generar."
+        description="3 ideas con tu foto, tus colores y un texto grande de 2 a 4 palabras. El fondo lo genera la IA con tu clave de OpenAI (sin letras) y el texto lo dibuja la plantilla: lo cambias sin volver a generar."
         actions={
           canEdit && missing.length > 0 && provider.ready ? (
             <Button disabled={pending || running} onClick={() => generate(missing.map((c) => c.id))} icon={<Wand2 className="h-4 w-4" aria-hidden />}>
@@ -119,7 +119,7 @@ export function PackageEditor({
       >
         <div className="flex flex-col gap-5">
           {!provider.ready && canEdit && (
-            <Notice tone="warning" title="Para generar fondos, conecta tu ChatGPT">
+            <Notice tone="warning" title="Para generar fondos, agrega tu clave de OpenAI">
               Mientras tanto usamos un fondo con los colores de tu marca: ya puedes descargar la miniatura.{" "}
               <ButtonLink href="/ajustes" variant="subtle" size="sm">
                 Ir a Ajustes

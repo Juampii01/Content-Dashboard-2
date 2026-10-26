@@ -139,7 +139,7 @@ export function SlideImagePanel({
             size="sm"
             disabled={disabled || busy || !providerReady}
             onClick={onGenerate}
-            title={providerReady ? undefined : "Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes"}
+            title={providerReady ? undefined : "Agrega tu clave de API de OpenAI en Ajustes"}
             icon={slide.imageUrl && slide.imageSource === "ai" ? <RefreshCw className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />}
           >
             {slide.imageUrl && slide.imageSource === "ai" ? "Otra imagen" : "Generar imagen"}
@@ -153,7 +153,7 @@ export function SlideImagePanel({
               size="sm"
               disabled={disabled || busy || !providerReady}
               onClick={onCorrect}
-              title={providerReady ? "Cambia una sola cosa de esta imagen (1 imagen)" : "Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes"}
+              title={providerReady ? "Cambia una sola cosa de esta imagen (1 imagen)" : "Agrega tu clave de API de OpenAI en Ajustes"}
               icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />}
             >
               Corregir

@@ -284,7 +284,7 @@ export function CopyFlow({
                 <dd className="mt-0.5 font-semibold text-white">{templateLabel}</dd>
               </div>
             </dl>
-            <p className="text-xs text-muted">Las imágenes del original se usan solo para leerlo y se borran al terminar. Después generas las imágenes de tu versión desde el editor, con tu ChatGPT o tu API key de OpenAI.</p>
+            <p className="text-xs text-muted">Las imágenes del original se usan solo para leerlo y se borran al terminar. Después generas las imágenes de tu versión desde el editor, con tu clave de API de OpenAI.</p>
             {busy && <Progress value={(busy.done / Math.max(1, busy.total)) * 100} label={busy.label} />}
           </div>
         )}

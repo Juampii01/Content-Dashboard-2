@@ -5,7 +5,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
-import { callPlan, gatewayUrl, planToken, PlanUnavailable } from "./claude-gateway";
+import { readAnthropicKey } from "./anthropic-key";
 import { costOf, imageTokens, textTokens } from "./pricing";
 
 /**
@@ -28,12 +28,13 @@ export class AiError extends Error {
   }
 }
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  const key = env().ANTHROPIC_API_KEY;
-  if (!key) throw new AiError("Falta configurar la IA en esta instalación (ANTHROPIC_API_KEY). Avísale a soporte.", "sin ANTHROPIC_API_KEY");
-  client ??= new Anthropic({ apiKey: key, maxRetries: 2, timeout: 120_000 });
-  return client;
+let client: { key: string; sdk: Anthropic } | null = null;
+/** El cliente de Anthropic con la clave del cliente (Ajustes) o, si no cargó una, la del servidor. */
+async function getClient(): Promise<Anthropic> {
+  const key = (await readAnthropicKey().catch(() => null)) ?? env().ANTHROPIC_API_KEY;
+  if (!key) throw new AiError("Agrega tu clave de API de Anthropic en Ajustes → Claves de servicios para usar la IA.", "sin clave de Anthropic");
+  if (!client || client.key !== key) client = { key, sdk: new Anthropic({ apiKey: key, maxRetries: 2, timeout: 120_000 }) };
+  return client.sdk;
 }
 
 /**
@@ -48,9 +49,19 @@ export function withAiScope<T>(videoProjectId: string | null, fn: () => Promise<
 /** Respuesta simulada (AI_FAKE=1) de una función que la arma con los datos reales en lugar de leer la tarea. */
 export type FakeFn = () => unknown;
 
-/** Hay con qué usar la IA: API key, o la puerta del worker para la suscripción de Claude (si no está conectada, la llamada lo avisa). */
+/**
+ * ¿Se puede ofrecer la IA? La clave puede estar en Ajustes (eso no se sabe sin leer la base), así que se ofrece siempre
+ * que haya base de datos o clave del servidor; si al llamar no hay ninguna clave, la llamada avisa qué hacer.
+ * Para saberlo de verdad (Estado del sistema, Ajustes), usa `aiReady()`.
+ */
 export function aiConfigured(): boolean {
-  return Boolean(env().ANTHROPIC_API_KEY) || Boolean(gatewayUrl() && env().WORKER_SECRET) || (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production");
+  return Boolean(env().ANTHROPIC_API_KEY) || Boolean(env().DATABASE_URL) || (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production");
+}
+
+/** Hay una clave de Anthropic con qué llamar (la del cliente o la del servidor). */
+export async function aiReady(): Promise<boolean> {
+  if (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production") return true;
+  return Boolean(env().ANTHROPIC_API_KEY) || Boolean(await readAnthropicKey().catch(() => null));
 }
 
 export async function generateStructured<S extends z.ZodType>(input: {
@@ -101,56 +112,9 @@ export async function generateStructured<S extends z.ZodType>(input: {
     }
     return parsed;
   }
-  // Con la suscripción de Claude del cliente conectada, la llamada va por su plan (puerta de IA del worker). Si no hay
-  // cupo, el token venció o la puerta no responde, sigue por la API cuando hay clave; si no, avisa qué pasó.
-  const planTok = await planToken();
-  if (planTok) {
-    try {
-      const jsonSchema = zodOutputFormat(input.schema).schema;
-      const { data, usage } = await callPlan({
-        token: planTok,
-        feature: input.feature,
-        model,
-        system: input.context,
-        // El esquema también va en la tarea: si la salida estructurada no llega, la respuesta en texto igual sirve.
-        task: `${input.task}\n\nFORMATO DE SALIDA: responde SOLO con un objeto JSON válido (sin texto antes ni después) que cumpla este JSON Schema:\n${JSON.stringify(jsonSchema)}`,
-        schema: jsonSchema,
-        images: input.images,
-        effort: input.thinking?.effort ?? null,
-        timeoutMs: input.timeoutMs,
-      });
-      await getDb()
-        .insert(schema.aiUsage)
-        .values({
-          feature: input.feature,
-          provider: "claude-plan",
-          model: (usage.model || model).slice(0, 80),
-          inputTokens: Math.round((usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)),
-          outputTokens: Math.round(usage.outputTokens ?? 0),
-          jobId: input.jobId ?? null,
-          videoProjectId,
-          cacheReadTokens: Math.round(usage.cacheReadTokens ?? 0),
-          cacheWriteTokens: Math.round(usage.cacheWriteTokens ?? 0),
-          costUsd: 0,
-          apiEquivalentUsd: usage.apiEquivalentUsd ?? 0,
-          planUtilization: typeof usage.utilization === "number" ? usage.utilization : null,
-        })
-        .catch(() => undefined);
-      const checked = input.schema.safeParse(data);
-      if (checked.success) return checked.data as z.infer<S>;
-      throw new PlanUnavailable("other", `formato inválido: ${checked.error.message.slice(0, 200)}`);
-    } catch (error) {
-      if (!(error instanceof PlanUnavailable)) throw error;
-      console.warn(`[ia] ${input.feature}: suscripción de Claude no disponible (${error.kind}): ${error.detail.slice(0, 200)}`);
-      if (!env().ANTHROPIC_API_KEY) {
-        if (error.kind === "quota") throw new AiError("Se te acabó el uso de Claude por ahora (límite de tu plan). Prueba más tarde o agrega una API key de respaldo.", error.detail);
-        if (error.kind === "auth") throw new AiError("Tu conexión con Claude venció. Vuelve a conectarla en Ajustes → Claves de servicios.", error.detail);
-        throw new AiError("No pudimos usar tu Claude en este momento. Prueba de nuevo en un minuto.", error.detail);
-      }
-    }
-  } else if (!env().ANTHROPIC_API_KEY) {
-    throw new AiError("Conecta tu suscripción de Claude en Ajustes → Claves de servicios para usar la IA.", "sin plan ni API key");
-  }
+  // La clave de API del cliente (Ajustes) o, si no cargó una, la del servidor. Nunca la suscripción de Claude: los
+  // términos de Anthropic no permiten usar planes Pro o Max desde productos de terceros.
+  const api = await getClient();
   const params = {
     model,
     max_tokens: input.maxTokens ?? 4096,
@@ -170,8 +134,8 @@ export async function generateStructured<S extends z.ZodType>(input: {
   const long = Boolean(input.thinking) || (input.maxTokens ?? 4096) > 16_000 || (input.timeoutMs ?? 0) > 120_000;
   const call = (p: typeof params | Omit<typeof params, "output_config">) =>
     long || !("output_config" in p)
-      ? getClient().messages.stream(p as typeof params, { timeout: input.timeoutMs ?? 600_000 }).finalMessage()
-      : getClient().messages.parse(p as typeof params, input.timeoutMs ? { timeout: input.timeoutMs } : undefined);
+      ? api.messages.stream(p as typeof params, { timeout: input.timeoutMs ?? 600_000 }).finalMessage()
+      : api.messages.parse(p as typeof params, input.timeoutMs ? { timeout: input.timeoutMs } : undefined);
   let message: Awaited<ReturnType<typeof call>>;
   let freeform = false;
   try {

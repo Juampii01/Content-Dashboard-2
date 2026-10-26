@@ -280,7 +280,7 @@ export async function activeJob(packageId: string) {
 export async function startBackgrounds(input: { packageId: string; conceptIds: string[]; provider: ImageProviderId | null; userId: string }): Promise<string> {
   const status = await providersStatus();
   const providerId = input.provider && status[input.provider === "chatgpt" ? "chatgpt" : "openai"].configured ? input.provider : status.preferred;
-  if (!providerId) throw new PackageError("Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes → Claves de servicios para generar los fondos.");
+  if (!providerId) throw new PackageError("Agrega tu clave de API de OpenAI en Ajustes → Claves de servicios para generar los fondos.");
   if (!(await IMAGE_PROVIDERS[providerId].workerCredentials())) throw new PackageError("Vuelve a conectar tu ChatGPT en Ajustes → Claves de servicios.");
   if (await activeJob(input.packageId)) throw new PackageError("Ya se están generando fondos para este video. Espera a que terminen.");
   const row = await loadPackage(input.packageId);

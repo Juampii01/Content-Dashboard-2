@@ -624,8 +624,8 @@ export function CarouselEditor({
           </Notice>
         )}
         {canEdit && withImageSlot.length > 0 && !providerReady && (
-          <Notice tone="info" title="Conecta tu ChatGPT para generar imágenes">
-            Las escenas con IA se generan con tu propia cuenta de ChatGPT (o con tu API key de OpenAI).{" "}
+          <Notice tone="info" title="Agrega tu clave de OpenAI para generar imágenes">
+            Las escenas con IA se generan con tu clave de API de OpenAI (el consumo se cobra en tu cuenta).{" "}
             <a href="/ajustes#claves" className="font-semibold underline">
               Ir a Ajustes
             </a>

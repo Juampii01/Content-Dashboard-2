@@ -127,7 +127,7 @@ export function SlideVideoPanel({
                 <Button variant="ghost" size="sm" disabled={disabled} onClick={() => onAnimate({ format, motion, seconds })} icon={running ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Clapperboard className="h-3.5 w-3.5" aria-hidden />}>
                   {slide.videoUrl ? "Animar de nuevo" : "Animar este slide"}
                 </Button>
-                <p className="mt-1 text-xs text-muted">Sin sonido. No gasta imágenes de tu ChatGPT.</p>
+                <p className="mt-1 text-xs text-muted">Sin sonido. No gasta imágenes.</p>
               </div>
             )}
           </>

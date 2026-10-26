@@ -280,7 +280,7 @@ export function serviceViews(s: ServicesInput): ServiceView[] {
   const missing = (key: string, name: string, message: string, href: string | null = null, tone: Tone = "warning"): ServiceView => ({ key, name, tone, status: "Falta configurar", message, href });
   const out: ServiceView[] = [];
 
-  out.push(s.anthropic ? ok("anthropic", "Inteligencia artificial", "Guiones, estratega, informes y planes de edición funcionan.") : missing("anthropic", "Inteligencia artificial", "Sin la clave de Anthropic no se generan guiones, ni el estratega, ni los planes de edición. La configura quien hizo tu instalación.", null, "danger"));
+  out.push(s.anthropic ? ok("anthropic", "Inteligencia artificial", "Guiones, estratega, informes y planes de edición funcionan.") : missing("anthropic", "Inteligencia artificial", "Sin tu clave de API de Anthropic no se generan guiones, ni el estratega, ni la edición con IA. Agrégala en Ajustes → Claves de servicios.", "/ajustes#claves", "danger"));
 
   out.push(s.resend ? ok("resend", "Correos", "Invitaciones, recuperación de contraseña, avisos e informes salen por correo.") : missing("resend", "Correos", "No salen invitaciones, recuperación de contraseña ni avisos por correo. Los avisos dentro de la app sí funcionan. Lo configura quien hizo tu instalación."));
 
@@ -297,10 +297,10 @@ export function serviceViews(s: ServicesInput): ServiceView[] {
   else if (s.heygenWebhookError) out.push({ key: "heygen", name: "HeyGen (videos con clon)", tone: "warning", status: "Conectado, con un detalle", message: `${s.heygenWebhookError} Los videos igual se revisan cada pocos minutos.`, href: "/ajustes#claves" });
   else out.push(ok("heygen", "HeyGen (videos con clon)", "Tu clave está guardada y HeyGen nos avisa cuando termina cada video.", "/ajustes#claves"));
 
-  if (s.chatgpt || s.openai) {
-    out.push(ok("images", "Imágenes de carruseles", s.chatgpt ? `Se generan con tu cuenta de ChatGPT${s.openai ? " (y tu API key de OpenAI de respaldo)" : ""}.` : "Se generan con tu API key de OpenAI.", "/ajustes#claves"));
+  if (s.openai) {
+    out.push(ok("images", "Imágenes", "Se generan con tu clave de API de OpenAI.", "/ajustes#claves"));
   } else {
-    out.push({ key: "images", name: "Imágenes de carruseles", tone: "neutral", status: "Sin conectar", message: "Conecta tu ChatGPT (o guarda una API key de OpenAI) para generar las imágenes de tus carruseles.", href: "/ajustes#claves" });
+    out.push({ key: "images", name: "Imágenes", tone: "neutral", status: "Sin conectar", message: "Guarda tu clave de API de OpenAI para generar las imágenes de carruseles, animaciones y miniaturas.", href: "/ajustes#claves" });
   }
 
   const apps = (Object.keys(s.platformsConfigured) as PlatformKey[]).filter((p) => !s.platformsConfigured[p]);

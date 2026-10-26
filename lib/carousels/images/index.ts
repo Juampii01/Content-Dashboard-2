@@ -62,6 +62,7 @@ export async function providersStatus(): Promise<ImageProvidersStatus> {
   return {
     chatgpt: { configured: Boolean(c), label: c?.label ?? null, updatedAt: c?.updatedAt.toISOString() ?? null },
     openai: { configured: Boolean(o), label: o?.label ?? null, updatedAt: o?.updatedAt.toISOString() ?? null },
-    preferred: c ? "chatgpt" : o ? "openai-api" : null,
+    // Solo la clave de API de OpenAI: la cuenta de ChatGPT (Codex) ya no se usa en un producto de terceros.
+    preferred: o ? "openai-api" : null,
   };
 }

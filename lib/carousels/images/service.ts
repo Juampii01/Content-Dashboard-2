@@ -71,8 +71,9 @@ export async function startImageJob(input: {
   correction?: { instruction: string } | null;
 }) {
   const status = await providersStatus();
-  const providerId = input.provider && status[input.provider === "chatgpt" ? "chatgpt" : "openai"].configured ? input.provider : status.preferred;
-  if (!providerId) throw new ImageJobError("Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes → Claves de servicios para generar imágenes.");
+  // Siempre la clave de API de OpenAI (la cuenta de ChatGPT ya no se usa).
+  const providerId = status.preferred;
+  if (!providerId) throw new ImageJobError("Agrega tu clave de API de OpenAI en Ajustes → Claves de servicios para generar imágenes.");
   if (!(await IMAGE_PROVIDERS[providerId].workerCredentials())) throw new ImageJobError("Vuelve a conectar tu ChatGPT en Ajustes → Claves de servicios.");
   if (await activeImageJob(input.carouselId)) throw new ImageJobError("Ya hay imágenes generándose para este carrusel. Espera a que terminen.");
 

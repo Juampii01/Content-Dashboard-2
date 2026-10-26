@@ -11,7 +11,7 @@ import { SystemSection, SystemSectionSkeleton } from "@/components/ajustes/syste
 import { HeyGenSection, HeyGenSectionSkeleton } from "@/components/ajustes/heygen-section";
 import { ImageKeysSection, ImageKeysSectionSkeleton } from "@/components/ajustes/image-keys-section";
 import { MusicKeysSection } from "@/components/ajustes/music-keys-section";
-import { ClaudePlanSection } from "@/components/ajustes/claude-plan-section";
+import { AnthropicKeySection } from "@/components/ajustes/anthropic-key-section";
 import { ReportSettingsSection, ReportSettingsSkeleton } from "@/components/informes/settings-section";
 
 export const metadata: Metadata = { title: "Ajustes" };
@@ -46,10 +46,10 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
         </Suspense>
 
         <div id="claves" className="scroll-mt-6">
-          <Section title="Claves de servicios" description="Tu suscripción de Claude para las animaciones del Editor, tu API key de HeyGen para los videos con clon, tu cuenta de ChatGPT para las imágenes de los carruseles y, si quieres, Jamendo para música de artistas. Son tuyas: se guardan cifradas y nunca se muestran completas.">
+          <Section title="Claves de servicios" description="Tu clave de API de Anthropic para toda la IA, la de OpenAI para las imágenes, la de HeyGen para los videos con clon y, si quieres, Jamendo para música de artistas. El consumo se cobra en tus cuentas. Se guardan cifradas y nunca se muestran completas.">
             <div className="flex flex-col gap-6">
               <Suspense fallback={<div aria-hidden className="skeleton h-36" />}>
-                <ClaudePlanSection />
+                <AnthropicKeySection />
               </Suspense>
               <Suspense fallback={<HeyGenSectionSkeleton />}>
                 <HeyGenSection />

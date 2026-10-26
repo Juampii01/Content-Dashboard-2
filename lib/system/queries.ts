@@ -2,7 +2,6 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { aiConfigured } from "@/lib/ai/client";
 import { workerStatus } from "@/lib/jobs";
 import { platformConfigured } from "@/lib/social/providers";
 import type { ConnectionRow, FailStreak, FailedCloneRow, FailedJobRow, ServicesInput, WorkerInput } from "./status";
@@ -156,7 +155,7 @@ export async function readServices(): Promise<ServicesInput> {
   const creds = await getDb().execute<{ provider: string; webhook_error: string | null }>(sql`select provider::text as provider, webhook_error from service_credentials`);
   const has = (p: string) => creds.rows.some((r) => r.provider === p);
   return {
-    anthropic: aiConfigured(),
+    anthropic: Boolean(e.ANTHROPIC_API_KEY) || has("ANTHROPIC"),
     resend: Boolean(e.RESEND_API_KEY && e.EMAIL_FROM),
     pexels: Boolean(e.PEXELS_API_KEY),
     pixabay: Boolean(e.PIXABAY_API_KEY),

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
   try {
     if (parsed.data.op === "claude") {
       const token = await readClaudePlanToken();
-      if (!token) return NextResponse.json({ error: "Conecta tu suscripción de Claude en Ajustes.", retry: false }, { status: 422 });
+      if (!token) return NextResponse.json({ error: "La suscripción de Claude ya no se usa: la IA va con la clave de API de Anthropic.", retry: false }, { status: 422 });
       return NextResponse.json({ token }, { headers: { "Cache-Control": "no-store" } });
     }
     if (parsed.data.op === "chatgpt") {
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
       return NextResponse.json({ ok: true, label: saved.label });
     }
     const status = await providersStatus();
-    if (!status.preferred) return NextResponse.json({ error: "Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes → Claves de servicios para generar imágenes.", retry: false }, { status: 422 });
+    if (!status.preferred) return NextResponse.json({ error: "Agrega tu clave de API de OpenAI en Ajustes → Claves de servicios para generar imágenes.", retry: false }, { status: 422 });
     const creds = await IMAGE_PROVIDERS[status.preferred].workerCredentials();
     if (!creds) return NextResponse.json({ error: "Vuelve a conectar tu cuenta de imágenes en Ajustes.", retry: false }, { status: 422 });
     return NextResponse.json(creds, { headers: { "Cache-Control": "no-store" } });

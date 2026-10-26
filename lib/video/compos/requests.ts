@@ -116,7 +116,26 @@ export type RequestView = WorkView & {
  * Los pedidos que le importan al Estudio: los que están en cola o corriendo, y los terminados o fallidos que todavía no
  * entregó (de las últimas 48 h). Los más viejos primero (se entregan en el orden en que se pidieron).
  */
+/**
+ * Pedidos huérfanos: si su trabajo de la cola ya terminó como fallido o cancelado (por ejemplo, se cortó varias veces
+ * por un reinicio del worker) y el pedido quedó «corriendo», se marca fallido para que el Estudio lo muestre y se pueda
+ * volver a pedir. Sin esto quedaba «en curso» para siempre.
+ */
+async function healOrphans(projectId: string): Promise<void> {
+  await getDb()
+    .update(schema.composRequests)
+    .set({ status: "failed", error: "Se interrumpió el procesamiento antes de terminar. Vuelve a pedir el cambio.", updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.composRequests.projectId, projectId),
+        inArray(schema.composRequests.status, [...RUNNING]),
+        sql`${schema.composRequests.jobId} in (select ${schema.jobs.id} from ${schema.jobs} where ${schema.jobs.status} in ('FAILED', 'CANCELED'))`,
+      ),
+    );
+}
+
 export async function listRequests(projectId: string): Promise<RequestView[]> {
+  await healOrphans(projectId).catch((e) => console.error("[animaciones] huérfanos:", e instanceof Error ? e.message : e));
   await promoteWaiting(projectId).catch((e) => console.error("[animaciones] en espera:", e instanceof Error ? e.message : e));
   const rows = await getDb()
     .select()

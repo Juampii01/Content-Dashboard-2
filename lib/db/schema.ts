@@ -14,6 +14,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -1610,4 +1611,25 @@ export const directorCalls = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("director_calls_project_idx").on(t.projectId, t.createdAt)],
+);
+
+/**
+ * La charla con el taller de cada animación (la memoria del «Habla con quien hizo la animación»): los mensajes, lo que
+ * quedó acordado y lo que ya se mandó a cambiar. Una por animación de cada video; sobrevive a recargar y a reescribirla
+ * (la animación conserva su id al cambiar).
+ */
+export const composChats = pgTable(
+  "compos_chats",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => videoProjects.id, { onDelete: "cascade" }),
+    compId: text("comp_id").notNull(),
+    /** [{ role: "user" | "assistant" | "applied", text, at }] */
+    messages: jsonb("messages").$type<{ role: "user" | "assistant" | "applied"; text: string; at: string }[]>().notNull().default([]),
+    /** El pedido acordado que todavía no se mandó: { instruction, scope }. */
+    agreed: jsonb("agreed").$type<{ instruction: string; scope: "scene" | "all" } | null>(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.compId] })],
 );

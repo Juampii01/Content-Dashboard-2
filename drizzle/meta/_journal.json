@@ -260,6 +260,13 @@
       "when": 1792985080122,
       "tag": "0036_director-en-segundo-plano",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792992574839,
+      "tag": "0037_charla-animaciones",
+      "breakpoints": true
     }
   ]
 }

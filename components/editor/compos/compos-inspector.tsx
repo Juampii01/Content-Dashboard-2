@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, MessageSquareText, PenLine, Send, Trash2, UserRound, Wand2, WandSparkles, X } from "lucide-react";
 import { toast } from "@/components/ui/toast";
-import { composChatAction } from "../compos-actions";
+import { appliedComposChatAction, clearComposChatAction, composChatAction, loadComposChatAction } from "../compos-actions";
 import { myEffectStateAction, removeMyEffectAction, renameMyEffectAction, saveToMyEffectsAction } from "../my-effects-actions";
 import { myEffectsChanged } from "../studio/library-mine";
 import { Button } from "@/components/ui/button";
@@ -142,8 +142,20 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   const sceneAt = sceneIndex >= 0 ? item.scenes![sceneIndex]! : null;
   const scene = whole ? null : sceneAt;
   // Charla con el taller: la IA confirma qué va a hacer antes de reescribir (nada cambia hasta «Hacer los cambios»).
-  const [chat, setChat] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [chat, setChat] = useState<{ role: "user" | "assistant" | "applied"; text: string }[]>([]);
   const [agreed, setAgreed] = useState<{ instruction: string; scope: "scene" | "all" } | null>(null);
+  // La charla queda guardada por animación: al elegirla, se trae lo que se habló y lo que ya se cambió.
+  useEffect(() => {
+    let alive = true;
+    void loadComposChatAction(props.projectId, item.id).then((r) => {
+      if (!alive || !r.ok) return;
+      setChat(r.thread.messages);
+      setAgreed(r.thread.agreed);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [props.projectId, item.id]);
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const chatList = useRef<HTMLOListElement>(null);
@@ -153,8 +165,8 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   async function talk() {
     const text = ask.trim();
     if (text.length < 2 || thinking) return;
-    const messages = [...chat, { role: "user" as const, text }];
-    setChat(messages);
+    const before = chat;
+    setChat([...chat, { role: "user", text }]);
     setAsk("");
     setChatError(null);
     setThinking(true);
@@ -166,6 +178,8 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
       .map((w) => `${w.start.toFixed(1)} ${w.text}`)
       .join(" · ");
     const r = await composChatAction(props.projectId, {
+      compId: item.id,
+      text,
       name: item.name.slice(0, 80),
       why: (item.why ?? "").slice(0, 300),
       start: t0,
@@ -175,15 +189,16 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
       params: item.params.map((p) => ({ label: p.label.slice(0, 80), value: p.value.slice(0, 160) })),
       sounds: (item.sounds ?? []).map((x) => `${x.name}@${(t0 + x.at).toFixed(1)}s`).join(", ").slice(0, 2000),
       words: words.slice(0, 12000),
-      messages,
     });
     setThinking(false);
     if (!r.ok) {
+      setChat(before);
+      setAsk(text);
       setChatError(r.error);
       return;
     }
-    setChat([...messages, { role: "assistant", text: r.reply }]);
-    setAgreed({ instruction: r.instruction, scope: r.scope });
+    setChat(r.thread.messages);
+    setAgreed(r.thread.agreed);
     // Si lo acordado toca toda la pieza, se cambia toda (aunque esté elegida una escena).
     if (r.scope === "all" && sceneAt) setWhole(true);
   }
@@ -192,8 +207,11 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
     const all = agreed.scope === "all" || !scene;
     const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: agreed.instruction, replace: item, at: all ? null : local });
     if (ok) {
-      setChat([]);
-      setAgreed(null);
+      const done = await appliedComposChatAction(props.projectId, item.id);
+      if (done.ok) {
+        setChat(done.thread.messages);
+        setAgreed(done.thread.agreed);
+      } else setAgreed(null);
     }
   }
   const setFrame = (patch: Partial<NonNullable<Composition["frame"]>>) =>
@@ -360,11 +378,18 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           )}
           {chat.length > 0 && (
             <ol ref={chatList} className="flex max-h-80 flex-col gap-2 overflow-y-auto pr-1" aria-label="Conversación" aria-live="polite">
-              {chat.map((m, i) => (
-                <li key={i} className={cn("max-w-[92%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "self-end bg-white text-paper" : "self-start border border-white/10 bg-card text-text")}>
-                  {m.text}
-                </li>
-              ))}
+              {chat.map((m, i) =>
+                m.role === "applied" ? (
+                  <li key={i} className="flex items-start gap-1.5 self-stretch rounded-xl bg-success/10 px-3 py-2 text-xs text-success">
+                    <Check className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden />
+                    <span className="line-clamp-3">Cambios mandados: {m.text}</span>
+                  </li>
+                ) : (
+                  <li key={i} className={cn("max-w-[92%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "self-end bg-white text-paper" : "self-start border border-white/10 bg-card text-text")}>
+                    {m.text}
+                  </li>
+                ),
+              )}
               {thinking && (
                 <li className="self-start rounded-2xl border border-white/10 bg-card px-3 py-2 text-sm text-muted">
                   <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Pensando…
@@ -404,7 +429,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
               </Button>
             )}
             {chat.length > 0 && !busy && (
-              <Button size="sm" variant="subtle" onClick={() => (setChat([]), setAgreed(null), setAsk(""))} disabled={thinking}>
+              <Button size="sm" variant="subtle" onClick={() => (void clearComposChatAction(props.projectId, item.id), setChat([]), setAgreed(null), setAsk(""))} disabled={thinking}>
                 Empezar de nuevo
               </Button>
             )}

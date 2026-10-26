@@ -4,6 +4,7 @@ import { z } from "zod";
 import { brandContext, getBrand } from "@/lib/ai/brand-context";
 import { AiError, aiConfigured, generateStructured, withAiScope } from "@/lib/ai/client";
 import { COMPOS_CHAT_RULES, composChatSchema, composChatTask } from "@/lib/ai/prompts/compos-chat";
+import { clearChat, loadChat, saveChat, type ChatMessage, type ChatThread } from "@/lib/video/compos/chat";
 import { isDenied, requireEditor } from "@/lib/auth";
 import { ComposRequestError, planWholeVideo, startStudioRequest, startWholeVideo, type WholePlan } from "@/lib/video/compos/flows";
 import { composStatus, type ComposStatus } from "@/lib/video/compos/service";
@@ -117,7 +118,11 @@ export async function startWholeVideoAction(projectId: string, plan: z.input<typ
   }
 }
 
+const compIdSchema = z.string().regex(/^[a-z0-9]{3,40}$/i);
+
 const chatSchema = z.object({
+  compId: compIdSchema,
+  text: z.string().trim().min(1).max(2000),
   name: z.string().max(80),
   why: z.string().max(300),
   start: z.number().min(0).max(3600),
@@ -127,43 +132,74 @@ const chatSchema = z.object({
   params: z.array(z.object({ label: z.string().max(80), value: z.string().max(160) })).max(12),
   sounds: z.string().max(2000),
   words: z.string().max(12000),
-  messages: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().trim().min(1).max(2000) })).min(1).max(30),
 });
+
+/** La charla guardada de una animación (para mostrarla al elegirla). */
+export async function loadComposChatAction(projectId: string, compId: string): Promise<{ ok: true; thread: ChatThread } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!z.uuid().safeParse(projectId).success || !compIdSchema.safeParse(compId).success) return { ok: false, error: "Datos no válidos." };
+  return { ok: true, thread: await loadChat(projectId, compId) };
+}
+
+/** Marca en la charla que se mandaron los cambios acordados (la IA lo recuerda la próxima vez). */
+export async function appliedComposChatAction(projectId: string, compId: string): Promise<{ ok: true; thread: ChatThread } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!z.uuid().safeParse(projectId).success || !compIdSchema.safeParse(compId).success) return { ok: false, error: "Datos no válidos." };
+  const thread = await loadChat(projectId, compId);
+  if (!thread.agreed) return { ok: true, thread };
+  const next: ChatThread = { messages: [...thread.messages, { role: "applied", text: thread.agreed.instruction, at: new Date().toISOString() }], agreed: null };
+  await saveChat(projectId, compId, next);
+  return { ok: true, thread: next };
+}
+
+/** «Empezar de nuevo»: borra la charla de esa animación. */
+export async function clearComposChatAction(projectId: string, compId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!z.uuid().safeParse(projectId).success || !compIdSchema.safeParse(compId).success) return { ok: false, error: "Datos no válidos." };
+  await clearChat(projectId, compId);
+  return { ok: true };
+}
 
 /**
  * Charla con el taller antes de reescribir una animación: la IA contesta qué va a hacer (con los segundos del video)
- * y arma el pedido final consolidado. No cambia nada: el Estudio manda ese pedido cuando la persona dice «Hacer los cambios».
+ * y arma el pedido final consolidado. La conversación queda guardada por animación (con lo que ya se cambió). No cambia
+ * la animación: el Estudio manda el pedido cuando la persona dice «Hacer los cambios».
  */
-export async function composChatAction(projectId: string, input: z.input<typeof chatSchema>): Promise<{ ok: true; reply: string; instruction: string; scope: "scene" | "all" } | { ok: false; error: string }> {
+export async function composChatAction(projectId: string, input: z.input<typeof chatSchema>): Promise<{ ok: true; thread: ChatThread; scope: "scene" | "all" } | { ok: false; error: string }> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = chatSchema.safeParse(input);
   if (!z.uuid().safeParse(projectId).success || !parsed.success) return { ok: false, error: "Datos no válidos." };
   if (!aiConfigured()) return { ok: false, error: "La IA no está configurada en esta instalación." };
   const d = parsed.data;
-  if (d.messages.at(-1)?.role !== "user") return { ok: false, error: "Escribe qué quieres cambiar." };
+  const saved = await loadChat(projectId, d.compId);
+  const now = new Date().toISOString();
+  const messages: ChatMessage[] = [...saved.messages, { role: "user", text: d.text, at: now }];
   try {
     const brandCtx = await brandContext(await getBrand());
+    // A la IA: los últimos 40 mensajes; los cambios ya hechos van marcados como tales.
+    const history = messages.slice(-40).map((m) => (m.role === "applied" ? { role: "assistant" as const, text: `[CAMBIOS YA HECHOS EN LA ANIMACIÓN] ${m.text}` } : { role: m.role, text: m.text }));
     const out = await withAiScope(projectId, () =>
       generateStructured({
         feature: "video.compos.charla",
         model: "main",
         context: `${COMPOS_CHAT_RULES}\n\n${brandCtx}`,
-        task: composChatTask(d),
+        task: composChatTask({ ...d, messages: history }),
         schema: composChatSchema,
         maxTokens: 2500,
         userId: user.id,
         fake: () => {
-          const asked = d.messages.filter((m) => m.role === "user").map((m) => m.text);
-          return {
-            reply: `Esto es lo que voy a hacer:\n- ${asked.join("\n- ")}\n\nSi está bien, toca «Hacer los cambios».`,
-            instruction: asked.join(". ").slice(0, 1400),
-            scope: d.scene ? "scene" : "all",
-          };
+          const asked = messages.filter((m) => m.role === "user").map((m) => m.text);
+          return { reply: `Esto es lo que voy a hacer:\n- ${asked.join("\n- ")}\n\nSi está bien, toca «Hacer los cambios».`, instruction: asked.join(". ").slice(0, 1400), scope: d.scene ? "scene" : "all" };
         },
       }),
     );
-    return { ok: true, reply: out.reply.slice(0, 3000), instruction: out.instruction.slice(0, 1500), scope: out.scope };
+    const thread: ChatThread = { messages: [...messages, { role: "assistant", text: out.reply.slice(0, 3000), at: new Date().toISOString() }], agreed: { instruction: out.instruction.slice(0, 1500), scope: out.scope } };
+    await saveChat(projectId, d.compId, thread);
+    return { ok: true, thread, scope: out.scope };
   } catch (error) {
     console.error("[compos] charla:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
     return { ok: false, error: error instanceof AiError ? error.userMessage : "No pudimos responder. Prueba de nuevo." };

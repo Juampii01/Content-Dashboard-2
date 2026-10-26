@@ -57,7 +57,7 @@ def main(pid: str) -> None:
         print(f"== {key}: {len(items)}")
         for x in items:
             name = x.get("name") or x.get("title") or x.get("kind") or x.get("type") or (x.get("choice") or {}).get("kind") or ""
-            extra = {k: x.get(k) for k in ("id", "long", "mode", "frame", "layout", "source", "lane", "captions") if k in x}
+            extra = {k: x.get(k) for k in ("id", "long", "mode", "frame", "layout", "source", "lane", "captions", "hide_captions") if k in x}
             print(" ", span(x), "|", str(name)[:70], "|", json.dumps(extra, ensure_ascii=False)[:200])
 
 

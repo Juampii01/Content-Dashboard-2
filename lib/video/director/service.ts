@@ -33,7 +33,7 @@ import { brollGraphicOption } from "../motion-graphics";
 import { planSchemaFor, type PlanStyle } from "../plan";
 import { alignScript } from "../script-align";
 import { proofreadTranscript } from "../transcript-fix";
-import { legacyPlan, loadProject, renderInputFor, scriptText, VideoError, withEditorDefaults, type Project } from "../service";
+import { cleanPlan, legacyPlan, loadProject, renderInputFor, scriptText, VideoError, withEditorDefaults, type Project } from "../service";
 import type { StyleMetrics } from "../style";
 import { stylePreset } from "../styles";
 import { buildTimeline } from "../timeline";
@@ -323,6 +323,12 @@ async function start(projectId: string): Promise<{ next: DirectorNext; status: s
     return { next: { step: "finalize" }, status: "PROCESSING" };
   }
   if (ctx.director.map && ctx.director.steps.includes("understand")) return { next: { step: "direct" }, status: "PROCESSING" };
+  // «Sin editar»: llega a la revisión tal cual se grabó (solo transcripto), sin pasar por la IA.
+  if ((ctx.project as { editMode?: string }).editMode === "clean") {
+    const plan = await cleanPlan(ctx.project);
+    await saveDirector(projectId, { ...ctx.director, map: mapFromMeasures(ctx.eyes, ctx.words), steps: ["understand", "direct", "finalize"], cycle: "analysis", final: null }, { plan, status: "AWAITING_REVIEW", errorMessage: null });
+    return { next: null, status: "AWAITING_REVIEW" };
+  }
   if (!aiConfigured()) {
     // Sin IA: el plan de siempre (cortes seguros), con el mapa de las medidas para "Lo que entendió".
     const plan = await legacyPlan(ctx.project);

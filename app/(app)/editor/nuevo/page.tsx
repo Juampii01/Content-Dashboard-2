@@ -79,7 +79,7 @@ export default function NewVideoPage({ searchParams }: PageProps<"/editor/nuevo"
       <PageHeader
         eyebrow="Nuevo video"
         title="Sube tu video y dinos cómo lo quieres"
-        description="Seis pasos cortos. Después revisas los cortes y el b-roll antes de exportar, o eliges «Hazlo por mí» y lo exportamos solos."
+        description="Súbelo sin editar y lo editas por partes (recortar, subtitular, animar), o deja que la IA lo edite todo."
         icon={<Upload className="h-5 w-5" aria-hidden />}
       />
       <Suspense fallback={<Skeleton className="h-96" />}>

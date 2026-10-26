@@ -19,6 +19,8 @@ export type Settings = {
   styleId?: string | null;
   brollMode?: "auto" | "off";
   autoExport?: boolean;
+  /** "clean": el video llega sin editar (sin cortes, subtítulos ni b-roll); se edita por partes en la pestaña Edición. */
+  editMode?: "auto" | "clean";
   /** Brief para el director de edición (opcional) y tope de IA del video. */
   brief?: Brief | null;
   budgetUsd?: number;

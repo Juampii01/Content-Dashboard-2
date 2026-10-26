@@ -16,7 +16,7 @@ import type { BrollEdit } from "@/lib/video/broll-edit";
 import type { AudioPreview } from "@/lib/video/studio-audio";
 import type { CaptionStyle, StylePreset } from "@/lib/video/style";
 import type { PauseInfo, Timeline } from "@/lib/video/timeline";
-import type { BrollItem, BrollOption, CaptionBlock, EditPlan, RemovalReason, Word } from "@/lib/video/types";
+import type { BrollItem, BrollOption, CaptionBlock, CaptionPresetKey, EditPlan, RemovalReason, Word } from "@/lib/video/types";
 import type { WordSpan } from "@/lib/video/studio";
 import type { PickerTab, SignedOption } from "../broll-panel";
 import type { TrackItem } from "../music-manager";
@@ -54,6 +54,8 @@ export type StudioProps = {
   fxContext?: FxContext | null;
   /** Efectos que permite Mi marca (el ritmo "Editor de reels" puede abrir con uno). */
   rhythmFx?: FxKind[];
+  /** Subtítulos de Mi marca (los que pone «Subtitular» en la pestaña Edición). */
+  captionDefault?: CaptionPresetKey;
   /** Nombre del proyecto (barra superior). */
   title?: string;
   /** Acciones extra de la barra superior (por ejemplo, borrar el proyecto). */

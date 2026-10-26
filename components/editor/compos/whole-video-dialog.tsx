@@ -28,9 +28,15 @@ const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60))
  * y un pedido por momento; 3) los revisas (editas o quitas) y se crean todos. Entran a la cola de a varios y cada uno
  * aparece en la pista Animaciones cuando termina: se puede cerrar el Estudio y volver.
  */
-export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted }: { projectId: string; open: boolean; onOpenChange: (open: boolean) => void; onStarted: () => void }) {
+export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted, initialNotes = "" }: { projectId: string; open: boolean; onOpenChange: (open: boolean) => void; onStarted: () => void; initialNotes?: string }) {
   const [mode, setMode] = useState<Mode>("face");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(initialNotes);
+  // Indicaciones que llegan del asistente de la pestaña Edición.
+  const [lastInitial, setLastInitial] = useState(initialNotes);
+  if (initialNotes !== lastInitial) {
+    setLastInitial(initialNotes);
+    if (initialNotes) setNotes(initialNotes);
+  }
   const [plan, setPlan] = useState<WholePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [planning, startPlan] = useTransition();

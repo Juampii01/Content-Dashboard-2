@@ -59,6 +59,7 @@ export function GraphicStudio({
   onUse,
   current,
   autoFocus,
+  initialRequest,
 }: {
   projectId: string;
   range: { from: number; to: number };
@@ -71,11 +72,14 @@ export function GraphicStudio({
   /** Ya es el gráfico elegido del tramo. */
   current: boolean;
   autoFocus?: boolean;
+  /** Pedido ya escrito: se manda una vez al abrir. */
+  initialRequest?: string;
 }) {
   const id = useId();
   const [graphic, setGraphic] = useState<BrollGraphic | null>(initial);
   const [history, setHistory] = useState<BrollGraphic[]>([]);
-  const [request, setRequest] = useState("");
+  const [request, setRequest] = useState(initialRequest ?? "");
+  const sentInitial = useRef(false);
   const [adjust, setAdjust] = useState("");
   const [asked, setAsked] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -128,6 +132,14 @@ export function GraphicStudio({
       } else setFeedback({ tone: "danger", text: r.error });
     });
   }
+
+  useEffect(() => {
+    // El pedido de la pestaña Edición se manda solo, una vez.
+    if (!initialRequest || sentInitial.current || graphic) return;
+    sentInitial.current = true;
+    ask("pedido", initialRequest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRequest]);
 
   const allowed = `${spokenText} ${asked.join(" ")}`;
 

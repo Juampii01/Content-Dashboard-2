@@ -54,6 +54,7 @@ async function Project({ params }: { params: PageProps<"/editor/[id]">["params"]
         const fx = readEditorDefaults(brand).effects;
         return fx.frequency === "ninguno" ? [] : fx.allowed;
       })()}
+      captionDefault={readEditorDefaults(brand).captions}
       graphicLook={brandGraphicLook(brand)}
       tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url, attribution: t.attribution }))}
       style={

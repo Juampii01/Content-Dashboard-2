@@ -51,6 +51,7 @@ import type { CaptionPlacement } from "@/lib/video/canvas/captions";
 import { HumanizeProvider } from "./humanize";
 import { StudioInspector } from "./studio-inspector";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
+import { EditPanel } from "./edit-panel";
 import { StudioTimeline, type DropPreview, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
 import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
@@ -58,7 +59,7 @@ import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, w
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
 const stripTag = (why: string | undefined) => (why ?? "").replace(RHYTHM_TAG, "").replace(USER_TAG, "").trim();
-type LeftTab = "texto" | "ia" | "biblioteca";
+type LeftTab = "edicion" | "texto" | "ia" | "biblioteca";
 
 /** ¿El foco está en un campo donde se escribe? (ahí los atajos no se disparan). */
 function typing(target: EventTarget | null): boolean {
@@ -89,13 +90,14 @@ export function Studio(props: StudioProps) {
   const [activeTime, setActiveTime] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [leftTab, setLeftTab] = useState<LeftTab>("texto");
+  const [leftTab, setLeftTab] = useState<LeftTab>("edicion");
   const [leftOpen, setLeftOpen] = useState(true);
-  const [picking, setPicking] = useState<{ id: string; tab?: PickerTab; ask?: boolean } | null>(null);
+  const [picking, setPicking] = useState<{ id: string; tab?: PickerTab; ask?: boolean; prompt?: string } | null>(null);
   const [gallery, setGallery] = useState<{ range: WordSpan | null; replace: string | null } | null>(null);
   const [fixRange, setFixRange] = useState<WordSpan | null>(null);
   const [help, setHelp] = useState(false);
   const [wholeOpen, setWholeOpen] = useState(false);
+  const [wholeNotes, setWholeNotes] = useState("");
   const [rendering, startRender] = useTransition();
   const [proofreading, startProofread] = useTransition();
   const phrase = usePhraseFixes(projectId);
@@ -476,7 +478,7 @@ export function Studio(props: StudioProps) {
     toast.info(`Agregado encima de ${replacedLabel(under)}`, { duration: 2500 });
   }
 
-  function addBroll(range: WordSpan, ask = false) {
+  function addBroll(range: WordSpan, ask = false, prompt?: string) {
     const query = words
       .slice(range.from, range.to + 1)
       .map((w) => w.text.replace(/[^\p{L}\p{N}]+/gu, ""))
@@ -489,7 +491,7 @@ export function Studio(props: StudioProps) {
     update((st) => ({ ...st, broll: [...st.broll, item].sort((a, b) => a.from_word - b.from_word) }));
     notifyOnTop(top.under);
     setSelection({ kind: "broll", id: item.id });
-    setPicking({ id: item.id, tab: ask ? "grafico" : undefined, ask });
+    setPicking({ id: item.id, tab: ask ? "grafico" : undefined, ask, ...(prompt ? { prompt } : {}) });
   }
 
   /** Un gráfico de plantilla en un tramo (se abre el estudio de gráficos para ajustarlo). */
@@ -1775,6 +1777,7 @@ export function Studio(props: StudioProps) {
                     <div role="tablist" aria-label="Paneles" className="flex flex-1 gap-1">
                       {(
                         [
+                          { v: "edicion", label: "Edición", icon: <Scissors className="h-3.5 w-3.5" aria-hidden /> },
                           { v: "texto", label: "Transcripción", icon: <Type className="h-3.5 w-3.5" aria-hidden /> },
                           { v: "ia", label: "IA", icon: <Bot className="h-3.5 w-3.5" aria-hidden /> },
                           { v: "biblioteca", label: "Biblioteca", icon: <Library className="h-3.5 w-3.5" aria-hidden /> },
@@ -1786,7 +1789,7 @@ export function Studio(props: StudioProps) {
                           role="tab"
                           aria-selected={leftTab === t.v}
                           onClick={() => setLeftTab(t.v)}
-                          className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition", leftTab === t.v ? "bg-white/10 text-white" : "text-muted hover:text-white")}
+                          className={cn("inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition", leftTab === t.v ? "bg-white/10 text-white" : "text-muted hover:text-white")}
                         >
                           {t.icon}
                           {t.label}
@@ -1927,6 +1930,44 @@ export function Studio(props: StudioProps) {
                         {offScript.size > 0 && <p className="text-xs text-muted">Lo subrayado con puntos amarillos no está en el guion (no se corta solo).</p>}
                       </div>
                     )}
+                    {leftTab === "edicion" && (
+                      <EditPanel
+                        api={api}
+                        dirty={dirty}
+                        proofreading={proofreading}
+                        onProofread={proofread}
+                        onRestoreAll={restoreAll}
+                        onTrim={(ids) => {
+                          update((st) => ({ ...st, removed: [...new Set([...st.removed, ...ids])].sort((a, b) => a - b), pauses: { keep: [], all: false } }));
+                          setSelection(null);
+                        }}
+                        onTrimPauses={() => update((st) => ({ ...st, pauses: { keep: [], all: false } }))}
+                        onWholeVideo={(notes) => {
+                          setWholeNotes((notes ?? "").slice(0, 800));
+                          setWholeOpen(true);
+                        }}
+                        onAnimationAt={(range, prompt) => {
+                          if (prompt) {
+                            void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null });
+                            return;
+                          }
+                          setSelection({ kind: "range", from: range.from, to: range.to });
+                          const w = timeline.words.find((x) => x.id >= range.from);
+                          if (w) seek(w.start);
+                          setTimeout(() => {
+                            const box = document.getElementById("ask-animation");
+                            box?.scrollIntoView({ block: "center", behavior: "smooth" });
+                            box?.focus({ preventScroll: true });
+                          }, 120);
+                        }}
+                        onGraphicAt={(range, prompt) => addBroll(range, true, prompt)}
+                        rangeHere={() => {
+                          if (selection?.kind === "range") return { range: { from: selection.from, to: selection.to }, from: "seleccion" };
+                          const span = spanAround(timeline, outTime, 4);
+                          return span ? { range: { from: span.from, to: span.to }, from: "cabezal" } : null;
+                        }}
+                      />
+                    )}
                     {leftTab === "ia" && <AiPanel api={api} dirty={dirty} onAcceptAll={acceptAll} />}
                     {leftTab === "biblioteca" && <LibraryPanel api={api} onAdd={(item) => addFromLibrary(item)} />}
                   </div>
@@ -1938,6 +1979,7 @@ export function Studio(props: StudioProps) {
                   </button>
                   {(
                     [
+                      { v: "edicion", label: "Edición", icon: <Scissors className="h-4 w-4" aria-hidden /> },
                       { v: "texto", label: "Transcripción", icon: <Type className="h-4 w-4" aria-hidden /> },
                       { v: "ia", label: "IA", icon: <Bot className="h-4 w-4" aria-hidden /> },
                       { v: "biblioteca", label: "Biblioteca", icon: <Library className="h-4 w-4" aria-hidden /> },
@@ -2076,6 +2118,7 @@ export function Studio(props: StudioProps) {
         initialTab={picking?.tab}
         projectId={projectId}
         focusRequest={Boolean(picking?.ask)}
+        initialRequest={picking?.prompt}
         spokenText={pickedItem ? textOf(pickedItem.from_word, pickedItem.to_word, 2000) : ""}
         format={s.format}
         minDuration={pickedItem ? Math.max(0, (words[pickedItem.to_word]?.end ?? 0) - (words[pickedItem.from_word]?.start ?? 0)) : 0}
@@ -2117,7 +2160,7 @@ export function Studio(props: StudioProps) {
         }}
       />
       <ShortcutsHelp open={help} onClose={() => setHelp(false)} />
-      {canEdit && <WholeVideoDialog projectId={projectId} open={wholeOpen} onOpenChange={setWholeOpen} onStarted={() => void composWork.refresh()} />}
+      {canEdit && <WholeVideoDialog projectId={projectId} open={wholeOpen} initialNotes={wholeNotes} onOpenChange={(o) => (setWholeOpen(o), o || setWholeNotes(""))} onStarted={() => void composWork.refresh()} />}
     </HumanizeProvider>
   );
 }

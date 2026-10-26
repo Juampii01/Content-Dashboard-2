@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Ban, Bot, Clapperboard, Library, Monitor, Palette, Smartphone, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Ban, Bot, Clapperboard, Film, Library, Monitor, Palette, Smartphone, Sparkles, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
@@ -36,6 +36,8 @@ const STEPS = [
   { id: "brief", label: "Para qué es (opcional)" },
 ] as const;
 type StepId = (typeof STEPS)[number]["id"];
+/** Sin editar: solo lo necesario para preparar el video; el resto se hace por partes en la pestaña Edición. */
+const CLEAN_STEPS: readonly StepId[] = ["video", "formato", "guion"];
 
 const titleFromFile = (name: string) => name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 120) || "Video sin título";
 
@@ -102,6 +104,9 @@ export function NewProjectFlow({
   const clipsReady = broll.stock || broll.libraryClips > 0;
   const [brollMode, setBrollMode] = useState<"auto" | "off">(defaults.broll);
   const [autoExport, setAutoExport] = useState(false);
+  // Por defecto el video llega limpio: sin cortes, subtítulos ni b-roll. La edición se pide por partes.
+  const [editMode, setEditMode] = useState<"auto" | "clean">("clean");
+  const flowSteps = editMode === "clean" ? STEPS.filter((s) => CLEAN_STEPS.includes(s.id)) : STEPS;
   const style = styles.find((st) => st.id === styleId) ?? null;
   const presetKeys = CAPTION_PICKER_ORDER.filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
 
@@ -131,12 +136,12 @@ export function NewProjectFlow({
   }, [formatTouched]);
 
   const hasSource = Boolean(clone?.ready || project);
-  const index = STEPS.findIndex((s) => s.id === step);
+  const index = Math.max(0, flowSteps.findIndex((s) => s.id === step));
   const go = (id: StepId) => {
     setStep(id);
     setVisited((v) => new Set(v).add(id));
   };
-  const steps = STEPS.map((s) => ({
+  const steps = flowSteps.map((s) => ({
     id: s.id,
     label: s.label,
     state: (s.id === step ? "active" : visited.has(s.id) && hasSource ? "done" : "pending") as StepState,
@@ -162,7 +167,7 @@ export function NewProjectFlow({
         setFormat(nextFormat);
       }
     }
-    const result = await createProjectAction({ title: nextTitle, fileName: file.name, fileType: file.type, fileSize: file.size, format: nextFormat, preset, scriptId, styleId, brollMode, autoExport });
+    const result = await createProjectAction({ title: nextTitle, fileName: file.name, fileType: file.type, fileSize: file.size, format: nextFormat, preset, scriptId, styleId, brollMode, autoExport, editMode });
     if (!result.ok || !result.data) {
       setError(result.ok ? "No pudimos preparar la subida." : result.error);
       return;
@@ -174,12 +179,12 @@ export function NewProjectFlow({
   function process() {
     startSubmit(async () => {
       if (clone) {
-        const result = await createFromCloneAction(clone.id, format, preset, { styleId, brollMode, autoExport, brief, budgetUsd: budget });
+        const result = await createFromCloneAction(clone.id, format, preset, { styleId, brollMode, autoExport, editMode, brief, budgetUsd: budget });
         if (result && !result.ok) toast.error(result.error);
         return;
       }
       if (!project) return;
-      const result = await submitUpload(project.id, { title: title.trim() || "Video sin título", format, preset, scriptId, styleId, brollMode, autoExport, brief, budgetUsd: budget });
+      const result = await submitUpload(project.id, { title: title.trim() || "Video sin título", format, preset, scriptId, styleId, brollMode, autoExport, editMode, brief, budgetUsd: budget });
       if (!result.ok && result.error) {
         toast.error(result.error);
         return;
@@ -240,6 +245,32 @@ export function NewProjectFlow({
                   hint="MP4, MOV, WEBM o MKV, hasta 8 GB y 20 minutos"
                 />
               )}
+              <div role="radiogroup" aria-label="Cómo llega el video" className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { value: "clean" as const, label: "Sin editar", hint: "Llega tal cual. Tú eliges qué hacer en Edición: recortar, subtitular, animar.", icon: Film },
+                  { value: "auto" as const, label: "Editado por la IA", hint: "La IA corta, subtitula y agrega b-roll por ti.", icon: Wand2 },
+                ].map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={editMode === m.value}
+                    onClick={() => {
+                      setEditMode(m.value);
+                      if (m.value === "clean") setAutoExport(false);
+                    }}
+                    className={cn("flex items-center gap-4 rounded-2xl border p-4 text-left transition", editMode === m.value ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
+                  >
+                    <span className="tile-icon h-11 w-11 flex-none">
+                      <m.icon className="h-5 w-5" aria-hidden />
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold text-white">{m.label}</span>
+                      <span className="text-xs text-muted">{m.hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
               <Field label="Nombre" htmlFor="title" hint="Para encontrarlo después. No aparece en el video.">
                 <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="Por ejemplo: El error de la primera llamada" />
               </Field>
@@ -450,21 +481,21 @@ export function NewProjectFlow({
           )}
         </div>
 
-        <AutoExportToggle checked={autoExport} onChange={setAutoExport} summary={autoSummary} />
+        {editMode === "auto" && <AutoExportToggle checked={autoExport} onChange={setAutoExport} summary={autoSummary} />}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Button variant="ghost" disabled={index === 0} icon={<ArrowLeft className="h-4 w-4" aria-hidden />} onClick={() => go(STEPS[Math.max(0, index - 1)]!.id)}>
+          <Button variant="ghost" disabled={index === 0} icon={<ArrowLeft className="h-4 w-4" aria-hidden />} onClick={() => go(flowSteps[Math.max(0, index - 1)]!.id)}>
             Atrás
           </Button>
           <div className="flex flex-wrap items-center gap-3">
             {upload?.status === "uploading" && <span className="text-xs text-muted">Subiendo {Math.round(uploadPct)} %…</span>}
-            {index < STEPS.length - 1 && (
-              <Button variant="ghost" disabled={!hasSource} onClick={() => go(STEPS[index + 1]!.id)}>
+            {index < flowSteps.length - 1 && (
+              <Button variant="ghost" disabled={!hasSource} onClick={() => go(flowSteps[index + 1]!.id)}>
                 Siguiente <ArrowRight className="h-4 w-4" aria-hidden />
               </Button>
             )}
             <Button onClick={process} disabled={!hasSource || submitting || upload?.status === "error" || (clone ? !clone.ready : false)} icon={<Sparkles className="h-4 w-4" aria-hidden />}>
-              {submitting ? "Enviando…" : autoExport ? "Hacerlo por mí" : "Procesar"}
+              {submitting ? "Enviando…" : editMode === "clean" ? "Preparar video" : autoExport ? "Hacerlo por mí" : "Procesar"}
             </Button>
           </div>
         </div>

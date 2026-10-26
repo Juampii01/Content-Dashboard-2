@@ -41,7 +41,7 @@ import { buildTimeline, outputRange } from "./timeline";
 import { evenFrames, keyFrames, mergeFrames } from "./director/keyframes";
 import { clampBudget, eyesMaxFrames } from "./director/cost";
 import { briefIsEmpty, type Brief } from "./director/types";
-import { FPS, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type Transcript, type VideoFormat } from "./types";
+import { FPS, type BrollOption, type CaptionPresetKey, type EditPlan, type MediaInfo, type Transcript, type VideoFormat, type Word } from "./types";
 
 /**
  * Ciclo de vida de un proyecto del Editor de video:
@@ -86,6 +86,7 @@ export async function createProject(input: {
   brollMode?: BrollMode;
   /** "Hazlo por mí": se exporta solo apenas está el plan. */
   autoExport?: boolean;
+  editMode?: "auto" | "clean";
   origin?: ProjectOrigin;
   userId: string;
 }): Promise<{ id: string; key: string }> {
@@ -106,6 +107,7 @@ export async function createProject(input: {
     styleId: await readyStyleId(input.styleId),
     brollMode: input.brollMode ?? "off",
     autoExport: input.autoExport ?? false,
+    editMode: input.editMode ?? "auto",
     origin: input.origin ?? "upload",
     sourceKey: key,
     sourceName: input.fileName.slice(0, 200),
@@ -126,6 +128,8 @@ export type DraftSettings = {
   styleId?: string | null;
   brollMode?: BrollMode;
   autoExport?: boolean;
+  /** "clean": el video llega sin editar (solo transcripto). */
+  editMode?: "auto" | "clean";
   /** Brief del director de edición (opcional; vacío = lo infiere la IA) y tope de IA del video. */
   brief?: Brief | null;
   budgetUsd?: number;
@@ -145,6 +149,7 @@ async function draftColumns(settings: DraftSettings) {
     ...(settings.styleId !== undefined ? { styleId: await readyStyleId(settings.styleId) } : {}),
     ...(settings.brollMode ? { brollMode: settings.brollMode } : {}),
     ...(settings.autoExport != null ? { autoExport: settings.autoExport } : {}),
+    ...(settings.editMode ? { editMode: settings.editMode } : {}),
     ...(settings.brief !== undefined ? { brief: briefIsEmpty(settings.brief) ? null : (settings.brief as unknown as Record<string, unknown>) } : {}),
     ...(settings.budgetUsd != null ? { aiBudgetUsd: clampBudget(settings.budgetUsd) } : {}),
   };
@@ -201,7 +206,7 @@ export async function createFromClone(
   format: VideoFormat,
   preset: CaptionPresetKey,
   userId: string,
-  extra: { styleId?: string | null; brollMode?: BrollMode; autoExport?: boolean; brief?: Brief | null; budgetUsd?: number } = {},
+  extra: { styleId?: string | null; brollMode?: BrollMode; autoExport?: boolean; editMode?: "auto" | "clean"; brief?: Brief | null; budgetUsd?: number } = {},
 ): Promise<string> {
   const [clone] = await getDb().select().from(schema.cloneVideos).where(eq(schema.cloneVideos.id, cloneVideoId)).limit(1);
   if (!clone || clone.status !== "COMPLETED" || !clone.videoUrl) throw new VideoError("Ese video con clon todavía no está listo.");
@@ -219,6 +224,7 @@ export async function createFromClone(
     styleId: await readyStyleId(extra.styleId),
     brollMode: extra.brollMode ?? "off",
     autoExport: extra.autoExport ?? false,
+    editMode: extra.editMode ?? "auto",
     origin: "clone",
     brief: extra.brief && !briefIsEmpty(extra.brief) ? (extra.brief as unknown as Record<string, unknown>) : null,
     aiBudgetUsd: clampBudget(extra.budgetUsd),
@@ -247,7 +253,8 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
   const project = await loadProject(projectId);
   if (!project) throw new VideoError("No encontramos ese proyecto.");
   if (project.plan && project.status !== "PROCESSING") return { status: project.status, plannedBy: (project.plan as EditPlan).planned_by };
-  const plan = await legacyPlan(project);
+  // «Sin editar»: llega tal cual (solo transcripto); se edita por partes en la pestaña Edición.
+  const plan = project.editMode === "clean" ? await cleanPlan(project) : await legacyPlan(project);
   await getDb()
     .update(schema.videoProjects)
     .set({ plan, status: "AWAITING_REVIEW", errorMessage: null })
@@ -256,17 +263,10 @@ export async function generatePlan(projectId: string): Promise<{ status: string;
 }
 
 /**
- * Plan sin el director (el de antes): Sonnet sobre la transcripción y el b-roll aparte. Lo usa la ruta vieja del worker
- * y el director como respaldo si su llamada falla. No guarda nada.
+ * Los cortes que propone el editor: tomas repetidas, arranques en falso y muletillas (con la IA si está, si no los
+ * seguros). Lo usan el plan de siempre y «Recortar» de la pestaña Edición.
  */
-export async function legacyPlan(project: Project): Promise<EditPlan> {
-  const projectId = project.id;
-  const transcript = project.transcript as Transcript | null;
-  if (!transcript?.words?.length) throw new VideoError("Todavía no hay transcripción para este video.");
-  const media = (project.media ?? {}) as MediaInfo;
-  const duration = media.duration || transcript.duration;
-  const words = transcript.words;
-
+async function proposeCuts(project: Project, words: Word[], duration: number) {
   const script = await scriptText(project.scriptId);
   const candidates = detectCandidates(words, { script });
   const alignment = script ? alignScript(words, script) : null;
@@ -302,6 +302,22 @@ export async function legacyPlan(project: Project): Promise<EditPlan> {
     // Si la IA no está configurada o falló por saturación, igual se arma un plan útil sin ella.
   }
 
+  return { ai, aiError, candidates, alignment, style, brand, context, script };
+}
+
+/**
+ * Plan sin el director (el de antes): Sonnet sobre la transcripción y el b-roll aparte. Lo usa la ruta vieja del worker
+ * y el director como respaldo si su llamada falla. No guarda nada.
+ */
+export async function legacyPlan(project: Project): Promise<EditPlan> {
+  const projectId = project.id;
+  const transcript = project.transcript as Transcript | null;
+  if (!transcript?.words?.length) throw new VideoError("Todavía no hay transcripción para este video.");
+  const media = (project.media ?? {}) as MediaInfo;
+  const duration = media.duration || transcript.duration;
+  const words = transcript.words;
+  const { ai, aiError, candidates, alignment, style, brand, context, script } = await proposeCuts(project, words, duration);
+
   const requested = project.captionPreset as CaptionPresetKey;
   let plan = assemblePlan({
     ai,
@@ -330,6 +346,63 @@ export async function legacyPlan(project: Project): Promise<EditPlan> {
     throw new VideoError("No pudimos armar el plan de edición de este video. Vuelve a intentarlo.");
   }
   return plan;
+}
+
+/**
+ * Plan «sin editar»: el video tal cual se grabó (sin cortes ni pausas acortadas, sin subtítulos, sin b-roll ni zooms,
+ * sin efectos ni música). Solo la transcripción. Se edita después con las herramientas de la pestaña Edición.
+ */
+export async function cleanPlan(project: Project): Promise<EditPlan> {
+  const transcript = project.transcript as Transcript | null;
+  if (!transcript?.words?.length) throw new VideoError("Todavía no hay transcripción para este video.");
+  const media = (project.media ?? {}) as MediaInfo;
+  const duration = media.duration || transcript.duration;
+  const base = assemblePlan({ ai: null, candidates: [], words: transcript.words, duration, format: project.format as VideoFormat, preset: "ninguno", corrections: {}, offScript: [], aiError: null, style: null });
+  const plan: EditPlan = {
+    ...base,
+    removals: [],
+    selected_hook: null,
+    broll: [],
+    zooms_enabled: false,
+    zoom_moments: [],
+    pacing: { long_pause: base.pacing?.long_pause ?? 0.5, keep_all: true },
+    audio: { ...base.audio, sfx: "off", music_asset_id: null },
+    warning: "",
+  };
+  const parsed = planSchemaFor(transcript.words.length).safeParse(plan);
+  if (!parsed.success) {
+    console.error("[editor] plan limpio inválido:", project.id, parsed.error.issues[0]?.path.join("."), parsed.error.issues[0]?.message);
+    throw new VideoError("No pudimos preparar el video. Vuelve a intentarlo.");
+  }
+  return parsed.data as EditPlan;
+}
+
+/**
+ * «Recortar» (pestaña Edición): los cortes de silencios y tomas malas que haría el editor, sin tocar nada más. Devuelve
+ * las palabras a cortar; la revisión las aplica (se deshacen con Ctrl+Z) y las pausas largas se acortan solas.
+ */
+export async function suggestTrim(project: Project): Promise<{ removed: number[]; planned: "ai" | "auto" }> {
+  const transcript = project.transcript as Transcript | null;
+  if (!transcript?.words?.length) throw new VideoError("Todavía no hay transcripción para este video.");
+  const media = (project.media ?? {}) as MediaInfo;
+  const duration = media.duration || transcript.duration;
+  const words = transcript.words;
+  const { ai, aiError, candidates, style } = await proposeCuts(project, words, duration);
+  const plan = assemblePlan({
+    ai,
+    candidates,
+    words,
+    duration,
+    format: project.format as VideoFormat,
+    preset: "ninguno",
+    corrections: {},
+    offScript: [],
+    aiError,
+    style: style ? { id: style.id, aggressiveness: style.preset.pacing.aggressiveness, hookTarget: style.preset.hook.targetSeconds, longPause: style.preset.pacing.longPause, zoom: style.preset.zoom.enabled } : null,
+  });
+  const removed = new Set<number>();
+  for (const r of plan.removals) for (let id = r.from_word; id <= r.to_word; id++) if (id >= 0 && id < words.length) removed.add(id);
+  return { removed: [...removed].sort((a, b) => a - b), planned: plan.planned_by === "ai" ? "ai" : "auto" };
 }
 
 /**

@@ -1,0 +1,1 @@
+ALTER TABLE "video_projects" ADD COLUMN "edit_mode" text DEFAULT 'auto' NOT NULL;

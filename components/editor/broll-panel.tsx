@@ -214,10 +214,13 @@ export function BrollPicker({
   initialTab,
   projectId,
   focusRequest,
+  initialRequest,
 }: {
   projectId: string;
   /** Abre con la caja de "Pide tu gráfico" lista para escribir. */
   focusRequest?: boolean;
+  /** Pedido ya escrito (desde la pestaña Edición): se manda solo al abrir. */
+  initialRequest?: string;
   item: BrollItem | null;
   signed: Record<string, SignedOption>;
   format: VideoFormat;
@@ -306,6 +309,7 @@ export function BrollPicker({
             spokenText={spokenText}
             look={look}
             autoFocus={Boolean(focusRequest)}
+            initialRequest={initialRequest}
             onUse={(option) => onPick({ ...option, thumbUrl: null, previewUrl: null })}
           />
         )}

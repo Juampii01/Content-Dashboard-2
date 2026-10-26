@@ -41,10 +41,12 @@ export function ProjectScreen({
   fxContext = null,
   rhythmFx = [],
   musicCatalog = null,
+  captionDefault,
 }: {
   project: View;
   fxContext?: ComponentProps<typeof ReviewEditor>["fxContext"];
   rhythmFx?: ComponentProps<typeof ReviewEditor>["rhythmFx"];
+  captionDefault?: ComponentProps<typeof ReviewEditor>["captionDefault"];
   musicCatalog?: ComponentProps<typeof ReviewEditor>["musicCatalog"];
   tracks?: ComponentProps<typeof ReviewEditor>["tracks"];
   graphicLook: GraphicLook;
@@ -76,6 +78,7 @@ export function ProjectScreen({
         director={project.director}
         fxContext={fxContext}
         rhythmFx={rhythmFx}
+        captionDefault={captionDefault}
         musicCatalog={musicCatalog}
         title={project.title}
         menu={project.canEdit ? <DeleteProject projectId={project.id} compact /> : null}

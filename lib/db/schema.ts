@@ -835,6 +835,11 @@ export const videoProjects = pgTable(
     styleId: uuid("style_id").references(() => videoStyles.id, { onDelete: "set null" }),
     // B-roll: "auto" (Claude elige dónde y busca en Pexels y en la biblioteca) o "off".
     brollMode: text("broll_mode").notNull().default("off"),
+    /**
+     * Cómo llega el video a la revisión: "auto" (lo edita la IA: cortes, subtítulos, b-roll…) o "clean" (tal cual se
+     * grabó, solo transcripto; se edita con las herramientas de la pestaña Edición).
+     */
+    editMode: text("edit_mode").notNull().default("auto"),
     // "Hazlo por mí": apenas está el plan se exporta solo, sin pasar por la revisión (ver lib/video/auto-export.ts).
     autoExport: boolean("auto_export").notNull().default(false),
     // De dónde vino el original: "upload" (subida), "recorder" (grabado en el navegador), "clone" o "clip".

@@ -56,6 +56,7 @@ const newProject = z.object({
   styleId: z.uuid().nullable().optional(),
   brollMode: brollModeSchema.optional(),
   autoExport: z.boolean().optional(),
+  editMode: z.enum(["auto", "clean"]).optional(),
   origin: z.enum(["upload", "recorder"]).optional(),
 });
 
@@ -81,6 +82,7 @@ const settingsSchema = z.object({
   styleId: z.uuid().nullable().optional(),
   brollMode: brollModeSchema.optional(),
   autoExport: z.boolean().optional(),
+  editMode: z.enum(["auto", "clean"]).optional(),
   brief: briefSchema.nullable().optional(),
   budgetUsd: z.number().min(BUDGET.min).max(BUDGET.max).optional(),
 });
@@ -112,7 +114,7 @@ export async function createFromCloneAction(
   cloneId: string,
   format: "9:16" | "16:9",
   preset: CaptionPresetKey,
-  extra: { styleId?: string | null; brollMode?: "auto" | "off"; autoExport?: boolean; brief?: Brief | null; budgetUsd?: number } = {},
+  extra: { styleId?: string | null; brollMode?: "auto" | "off"; autoExport?: boolean; editMode?: "auto" | "clean"; brief?: Brief | null; budgetUsd?: number } = {},
 ): Promise<ActionResult> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
@@ -124,6 +126,7 @@ export async function createFromCloneAction(
       styleId: z.uuid().nullable().optional(),
       brollMode: brollModeSchema.optional(),
       autoExport: z.boolean().optional(),
+      editMode: z.enum(["auto", "clean"]).optional(),
       brief: briefSchema.nullable().optional(),
       budgetUsd: z.number().min(BUDGET.min).max(BUDGET.max).optional(),
     })
@@ -135,6 +138,7 @@ export async function createFromCloneAction(
       styleId: parsed.data.styleId,
       brollMode: parsed.data.brollMode,
       autoExport: parsed.data.autoExport,
+      editMode: parsed.data.editMode,
       brief: parsed.data.brief,
       budgetUsd: parsed.data.budgetUsd,
     });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Bot, Clapperboard, Copy, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2, WandSparkles } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -60,6 +60,27 @@ let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
 const stripTag = (why: string | undefined) => (why ?? "").replace(RHYTHM_TAG, "").replace(USER_TAG, "").trim();
 type LeftTab = "edicion" | "texto" | "ia" | "biblioteca";
+const LEFT_W = { min: 280, max: 640, default: 360 };
+const clampLeft = (w: number) => Math.round(Math.min(LEFT_W.max, Math.max(LEFT_W.min, w)));
+const LEFT_KEY = "studio.leftW";
+function readLeftW(): number {
+  try {
+    const saved = Number(localStorage.getItem(LEFT_KEY));
+    return saved ? clampLeft(saved) : LEFT_W.default;
+  } catch {
+    return LEFT_W.default;
+  }
+}
+function writeLeftW(w: number) {
+  try {
+    localStorage.setItem(LEFT_KEY, String(w));
+  } catch {}
+  window.dispatchEvent(new Event(LEFT_KEY));
+}
+function subscribeLeftW(cb: () => void) {
+  window.addEventListener(LEFT_KEY, cb);
+  return () => window.removeEventListener(LEFT_KEY, cb);
+}
 
 /** ¿El foco está en un campo donde se escribe? (ahí los atajos no se disparan). */
 function typing(target: EventTarget | null): boolean {
@@ -92,6 +113,32 @@ export function Studio(props: StudioProps) {
   const [zoom, setZoom] = useState(1);
   const [leftTab, setLeftTab] = useState<LeftTab>("edicion");
   const [leftOpen, setLeftOpen] = useState(true);
+  // Ancho del panel izquierdo (se arrastra su borde; se recuerda en este navegador).
+  const storedLeftW = useSyncExternalStore(subscribeLeftW, readLeftW, () => LEFT_W.default);
+  const [dragW, setDragW] = useState<number | null>(null);
+  const leftW = dragW ?? storedLeftW;
+  const saveLeftW = useCallback((w: number) => {
+    writeLeftW(clampLeft(w));
+    setDragW(null);
+  }, []);
+  function dragLeft(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = leftW;
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => setDragW(clampLeft(startW + ev.clientX - startX));
+    const up = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      saveLeftW(startW + ev.clientX - startX);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+  const compactTabs = leftW < 380;
   const [picking, setPicking] = useState<{ id: string; tab?: PickerTab; ask?: boolean; prompt?: string } | null>(null);
   const [gallery, setGallery] = useState<{ range: WordSpan | null; replace: string | null } | null>(null);
   const [fixRange, setFixRange] = useState<WordSpan | null>(null);
@@ -1767,16 +1814,36 @@ export function Studio(props: StudioProps) {
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <div
             className={cn(
-              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_252px]",
-              leftOpen ? "lg:grid-cols-[300px_minmax(0,1fr)_320px] xl:grid-cols-[340px_minmax(0,1fr)_360px]" : "lg:grid-cols-[44px_minmax(0,1fr)_320px] xl:grid-cols-[44px_minmax(0,1fr)_360px]",
+              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_252px] lg:grid-cols-[var(--left)_minmax(0,1fr)_320px] xl:grid-cols-[var(--left)_minmax(0,1fr)_360px]",
             )}
+            style={{ "--left": leftOpen ? `${leftW}px` : "44px" } as React.CSSProperties}
           >
             {/* Izquierda: transcripción, IA y biblioteca */}
-            <aside className="order-4 flex min-h-0 flex-col border-white/10 lg:order-none lg:border-r" aria-label="Transcripción, IA y biblioteca">
+            <aside className="relative order-4 flex min-h-0 min-w-0 flex-col border-white/10 lg:order-none lg:border-r" aria-label="Transcripción, IA y biblioteca">
+              {leftOpen && (
+                // Borde para arrastrar: agranda o achica el panel (doble clic vuelve al ancho de siempre).
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Ancho del panel"
+                  aria-valuemin={LEFT_W.min}
+                  aria-valuemax={LEFT_W.max}
+                  aria-valuenow={leftW}
+                  tabIndex={0}
+                  title="Arrastra para cambiar el ancho"
+                  onPointerDown={dragLeft}
+                  onDoubleClick={() => saveLeftW(LEFT_W.default)}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft") saveLeftW(leftW - 24);
+                    else if (e.key === "ArrowRight") saveLeftW(leftW + 24);
+                  }}
+                  className="absolute inset-y-0 -right-1.5 z-20 hidden w-3 cursor-col-resize touch-none lg:block after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:bg-transparent after:transition hover:after:bg-accent/60 focus-visible:outline-none focus-visible:after:bg-accent"
+                />
+              )}
               {leftOpen ? (
                 <>
                   <div className="flex flex-none items-center gap-1 border-b border-white/10 px-2 py-1.5">
-                    <div role="tablist" aria-label="Paneles" className="flex flex-1 gap-1">
+                    <div role="tablist" aria-label="Paneles" className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
                       {(
                         [
                           { v: "edicion", label: "Edición", icon: <Scissors className="h-3.5 w-3.5" aria-hidden /> },
@@ -1791,14 +1858,16 @@ export function Studio(props: StudioProps) {
                           role="tab"
                           aria-selected={leftTab === t.v}
                           onClick={() => setLeftTab(t.v)}
-                          className={cn("inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition", leftTab === t.v ? "bg-white/10 text-white" : "text-muted hover:text-white")}
+                          title={t.label}
+                          aria-label={t.label}
+                          className={cn("inline-flex flex-none items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold whitespace-nowrap transition", leftTab === t.v ? "bg-white/10 text-white" : "text-muted hover:text-white")}
                         >
                           {t.icon}
-                          {t.label}
+                          {(!compactTabs || leftTab === t.v) && t.label}
                         </button>
                       ))}
                     </div>
-                    <button type="button" className="hidden h-8 w-8 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white lg:grid" onClick={() => setLeftOpen(false)} aria-label="Ocultar el panel" title="Ocultar el panel">
+                    <button type="button" className="hidden h-8 w-8 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white lg:grid" onClick={() => setLeftOpen(false)} aria-label="Ocultar el panel" title="Ocultar el panel">
                       <PanelLeftClose className="h-4 w-4" aria-hidden />
                     </button>
                   </div>

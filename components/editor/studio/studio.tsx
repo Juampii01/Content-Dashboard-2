@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, Clapperboard, Copy, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2, WandSparkles } from "lucide-react";
+import { ArrowLeft, Bot, Captions, Clapperboard, Copy, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2, WandSparkles } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SegmentedControl } from "@/components/ui/tabs";
@@ -52,6 +52,7 @@ import { HumanizeProvider } from "./humanize";
 import { StudioInspector } from "./studio-inspector";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
 import { EditPanel } from "./edit-panel";
+import { SubtitlesPanel } from "./subtitles-panel";
 import { StudioTimeline, type DropPreview, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
 import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
@@ -59,7 +60,7 @@ import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, w
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
 const stripTag = (why: string | undefined) => (why ?? "").replace(RHYTHM_TAG, "").replace(USER_TAG, "").trim();
-type LeftTab = "edicion" | "texto" | "ia" | "biblioteca";
+type LeftTab = "edicion" | "subtitulos" | "texto" | "ia" | "biblioteca";
 const LEFT_W = { min: 280, max: 640, default: 360 };
 const clampLeft = (w: number) => Math.round(Math.min(LEFT_W.max, Math.max(LEFT_W.min, w)));
 const LEFT_KEY = "studio.leftW";
@@ -1847,6 +1848,7 @@ export function Studio(props: StudioProps) {
                       {(
                         [
                           { v: "edicion", label: "Edición", icon: <Scissors className="h-3.5 w-3.5" aria-hidden /> },
+                          { v: "subtitulos", label: "Subtítulos", icon: <Captions className="h-3.5 w-3.5" aria-hidden /> },
                           { v: "texto", label: "Transcripción", icon: <Type className="h-3.5 w-3.5" aria-hidden /> },
                           { v: "ia", label: "IA", icon: <Bot className="h-3.5 w-3.5" aria-hidden /> },
                           { v: "biblioteca", label: "Biblioteca", icon: <Library className="h-3.5 w-3.5" aria-hidden /> },
@@ -2001,12 +2003,12 @@ export function Studio(props: StudioProps) {
                         {offScript.size > 0 && <p className="text-xs text-muted">Lo subrayado con puntos amarillos no está en el guion (no se corta solo).</p>}
                       </div>
                     )}
+                    {leftTab === "subtitulos" && <SubtitlesPanel api={api} proofreading={proofreading} onProofread={proofread} />}
                     {leftTab === "edicion" && (
                       <EditPanel
+                        onOpenSubtitles={() => setLeftTab("subtitulos")}
                         api={api}
                         dirty={dirty}
-                        proofreading={proofreading}
-                        onProofread={proofread}
                         onRestoreAll={restoreAll}
                         onTrim={(ids) => {
                           update((st) => ({ ...st, removed: [...new Set([...st.removed, ...ids])].sort((a, b) => a - b), pauses: { keep: [], all: false } }));
@@ -2051,6 +2053,7 @@ export function Studio(props: StudioProps) {
                   {(
                     [
                       { v: "edicion", label: "Edición", icon: <Scissors className="h-4 w-4" aria-hidden /> },
+                      { v: "subtitulos", label: "Subtítulos", icon: <Captions className="h-4 w-4" aria-hidden /> },
                       { v: "texto", label: "Transcripción", icon: <Type className="h-4 w-4" aria-hidden /> },
                       { v: "ia", label: "IA", icon: <Bot className="h-4 w-4" aria-hidden /> },
                       { v: "biblioteca", label: "Biblioteca", icon: <Library className="h-4 w-4" aria-hidden /> },

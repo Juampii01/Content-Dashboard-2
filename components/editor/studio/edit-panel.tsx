@@ -1,23 +1,19 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { BarChart3, Captions, Eye, Loader2, MessageSquareText, Scissors, SpellCheck, Undo2, Wand2, WandSparkles } from "lucide-react";
+import { BarChart3, Captions, Eye, Loader2, MessageSquareText, Scissors, Undo2, Wand2, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/field";
 import { SegmentedControl } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { sentences } from "@/lib/ai/prompts/editor";
-import { CAPTION_PRESETS } from "@/lib/video/captions";
 import type { WordSpan } from "@/lib/video/studio";
-import type { CaptionPresetKey, Word } from "@/lib/video/types";
+import type { Word } from "@/lib/video/types";
 import { formatNumber } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { editAction } from "../director-actions";
 import { editAssistantAction, suggestTrimAction, type AssistantItem } from "../edit-actions";
 import type { StudioApi } from "./types";
 
-/** Subtítulos que se ofrecen en «Subtitular» (los de la galería, con la marca). */
-const SUB_CHOICES: CaptionPresetKey[] = ["caja", "hormozi", "karaoke", "palabra", "minimal", "resaltador"];
 const EDIT_ALL = "Edita todo el video: corta los silencios y las tomas malas, arma el gancho, pon subtítulos con mi estilo, b-roll, gráficos y animaciones donde sumen, y el sonido.";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -28,9 +24,8 @@ const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).
  */
 export function EditPanel({
   api,
+  onOpenSubtitles,
   dirty,
-  proofreading,
-  onProofread,
   onRestoreAll,
   onTrim,
   onTrimPauses,
@@ -40,9 +35,9 @@ export function EditPanel({
   rangeHere,
 }: {
   api: StudioApi;
+  /** Abre la pestaña Subtítulos (estilo y texto). */
+  onOpenSubtitles: () => void;
   dirty: boolean;
-  proofreading: boolean;
-  onProofread: () => void;
   onRestoreAll: () => void;
   /** Aplica los cortes de «Recortar» (palabras) y acorta las pausas largas. */
   onTrim: (removed: number[]) => void;
@@ -139,33 +134,15 @@ export function EditPanel({
         {trimNote && <p className="text-xs text-muted">{trimNote}</p>}
       </Tool>
 
-      <Tool icon={<Captions className="h-4 w-4" aria-hidden />} title="Subtitular" text="Subtítulos con lo que dices, sin cortar nada del video.">
-        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Estilo de subtítulos">
-          {SUB_CHOICES.map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="radio"
-              aria-checked={state.preset === k}
-              onClick={() => api.update((st) => ({ ...st, preset: k }))}
-              className={cn("pill border text-xs transition", state.preset === k ? "border-transparent bg-white text-paper" : "border-white/10 text-muted hover:border-white/25 hover:text-text")}
-            >
-              {CAPTION_PRESETS[k].label}
-            </button>
-          ))}
-        </div>
+      <Tool icon={<Captions className="h-4 w-4" aria-hidden />} title="Subtitular" text="Subtítulos con lo que dices, sin cortar nada del video. El estilo y el texto, en su pestaña.">
         <div className="flex flex-wrap gap-1.5">
-          {!subsOn ? (
-            <Button size="sm" icon={<Captions className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.update((st) => ({ ...st, preset: fallback }))}>
+          {!subsOn && (
+            <Button size="sm" icon={<Captions className="h-3.5 w-3.5" aria-hidden />} onClick={() => (api.update((st) => ({ ...st, preset: fallback })), onOpenSubtitles())}>
               Subtitular
             </Button>
-          ) : (
-            <Button size="sm" variant="ghost" onClick={() => api.update((st) => ({ ...st, preset: "ninguno" }))}>
-              Quitar subtítulos
-            </Button>
           )}
-          <Button size="sm" variant="ghost" onClick={onProofread} disabled={proofreading} icon={proofreading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <SpellCheck className="h-3.5 w-3.5" aria-hidden />}>
-            {proofreading ? "Revisando…" : "Ortografía con IA"}
+          <Button size="sm" variant={subsOn ? "primary" : "ghost"} onClick={onOpenSubtitles}>
+            {subsOn ? "Ver y editar subtítulos" : "Elegir el estilo"}
           </Button>
         </div>
       </Tool>

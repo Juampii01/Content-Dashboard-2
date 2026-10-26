@@ -123,6 +123,10 @@ class AppClient:
         """"Copia este reel": entrega lo medido y la transcripción; la app escribe la versión propia (Claude, hasta 2 llamadas)."""
         return self._post(f"/api/worker/copias/{copy_id}/result", payload, timeout=330)
 
+    def look_result(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """«Mira este video»: entrega lo medido de la referencia (o el aviso); la app sigue con Claude en segundo plano."""
+        return self._post(f"/api/worker/projects/{project_id}/mirar", payload, timeout=120)
+
     def music_result(self, track_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """"Sacar la música de un reel": la pista sin voz ya está subida; la app la deja lista y borra el archivo subido."""
         return self._post(f"/api/worker/musica/{track_id}/result", payload, timeout=120)

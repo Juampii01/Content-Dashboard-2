@@ -53,6 +53,7 @@ import { StudioInspector } from "./studio-inspector";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
 import { EditPanel } from "./edit-panel";
 import { SubtitlesPanel } from "./subtitles-panel";
+import { SUBS_AFTER_KEY, SubtitleBar } from "./subtitle-bar";
 import { StudioTimeline, type DropPreview, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
 import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
@@ -1646,6 +1647,29 @@ export function Studio(props: StudioProps) {
     return ok;
   }
 
+  // «Transcribir y subtitular»: el video volvió con su transcripción nueva, así que se encienden los subtítulos.
+  useEffect(() => {
+    const key = SUBS_AFTER_KEY(props.projectId);
+    try {
+      if (localStorage.getItem(key) !== "1" || !props.words.length) return;
+    } catch {
+      return;
+    }
+    const preset = props.captionDefault && props.captionDefault !== "ninguno" ? props.captionDefault : "caja";
+    const t = setTimeout(() => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // Nada que limpiar.
+      }
+      update((st) => (st.preset === "ninguno" ? { ...st, preset } : st));
+      setLeftTab("texto");
+    }, 0);
+    return () => clearTimeout(t);
+    // Solo al abrir la revisión.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const api: StudioApi = {
     props,
     state: s,
@@ -1876,6 +1900,7 @@ export function Studio(props: StudioProps) {
                   <div key={leftTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" role="tabpanel">
                     {leftTab === "texto" && (
                       <div className="flex flex-col gap-3 p-3">
+                        <SubtitleBar api={api} onOpenStyle={() => setLeftTab("subtitulos")} />
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-muted" data-testid="trim-summary">
                             {formatNumber(removedSet.size)} {removedSet.size === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}
@@ -2006,7 +2031,6 @@ export function Studio(props: StudioProps) {
                     {leftTab === "subtitulos" && <SubtitlesPanel api={api} proofreading={proofreading} onProofread={proofread} />}
                     {leftTab === "edicion" && (
                       <EditPanel
-                        onOpenSubtitles={() => setLeftTab("subtitulos")}
                         api={api}
                         dirty={dirty}
                         onRestoreAll={restoreAll}

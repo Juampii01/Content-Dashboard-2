@@ -54,7 +54,7 @@ export type StudioProps = {
   fxContext?: FxContext | null;
   /** Efectos que permite Mi marca (el ritmo "Editor de reels" puede abrir con uno). */
   rhythmFx?: FxKind[];
-  /** Subtítulos de Mi marca (los que pone «Subtitular» en la pestaña Edición). */
+  /** Subtítulos de Mi marca (los que pone «Subtitular» en la pestaña Transcripción). */
   captionDefault?: CaptionPresetKey;
   /** El proyecto se subió como audio solo (MP3, M4A o WAV): no hay cara para mostrar. */
   audioOnly?: boolean;

@@ -5,7 +5,7 @@ import { brandContext, getBrand } from "@/lib/ai/brand-context";
 import { AiError, aiConfigured, generateStructured, withAiScope } from "@/lib/ai/client";
 import { EDIT_ASSISTANT_RULES, editAssistantSchema, editAssistantTask, type EditAssistantOutput } from "@/lib/ai/prompts/asistente-edicion";
 import { isDenied, requireEditor } from "@/lib/auth";
-import { loadProject, suggestTrim, VideoError } from "@/lib/video/service";
+import { loadProject, suggestTrim, transcribeAgain, VideoError } from "@/lib/video/service";
 import type { Transcript } from "@/lib/video/types";
 
 /**
@@ -29,6 +29,21 @@ export async function suggestTrimAction(projectId: string): Promise<{ ok: true; 
     if (error instanceof VideoError) return { ok: false, error: error.message };
     console.error("[editor] recortar:", error instanceof Error ? error.message : error);
     return { ok: false, error: "No pudimos buscar los recortes. Prueba de nuevo." };
+  }
+}
+
+/** «Subtitular» cuando el video no tiene transcripción: la vuelve a crear (el video pasa a procesarse). */
+export async function transcribeAgainAction(projectId: string): Promise<{ ok: true } | Fail> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!z.uuid().safeParse(projectId).success) return { ok: false, error: "Datos no válidos." };
+  try {
+    await transcribeAgain(projectId, user.id);
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof VideoError) return { ok: false, error: error.message };
+    console.error("[editor] transcribir de nuevo:", error instanceof Error ? error.message : error);
+    return { ok: false, error: "No pudimos crear la transcripción. Prueba de nuevo." };
   }
 }
 

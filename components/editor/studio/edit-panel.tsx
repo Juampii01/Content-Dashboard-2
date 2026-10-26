@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { BarChart3, Captions, Eye, Loader2, MessageSquareText, Scissors, Undo2, Wand2, WandSparkles } from "lucide-react";
+import { BarChart3, Eye, Loader2, MessageSquareText, Scissors, Undo2, Wand2, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/field";
 import { SegmentedControl } from "@/components/ui/tabs";
@@ -19,12 +19,11 @@ const EDIT_ALL = "Edita todo el video: corta los silencios y las tomas malas, ar
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
 /**
- * Pestaña «Edición» del Estudio: el video llega limpio y cada herramienta corre por separado (recortar, subtitular,
+ * Pestaña «Edición» del Estudio: el video llega limpio y cada herramienta corre por separado (recortar,
  * animar, gráficos), más un asistente que convierte lo que pides en pedidos bien armados. Todo se deshace con Ctrl+Z.
  */
 export function EditPanel({
   api,
-  onOpenSubtitles,
   dirty,
   onRestoreAll,
   onTrim,
@@ -35,8 +34,6 @@ export function EditPanel({
   rangeHere,
 }: {
   api: StudioApi;
-  /** Abre la pestaña Subtítulos (estilo y texto). */
-  onOpenSubtitles: () => void;
   dirty: boolean;
   onRestoreAll: () => void;
   /** Aplica los cortes de «Recortar» (palabras) y acorta las pausas largas. */
@@ -62,8 +59,6 @@ export function EditPanel({
   const [asking, startAsk] = useTransition();
   const [confirmAll, setConfirmAll] = useState(false);
   const [editing, startEditAll] = useTransition();
-  const subsOn = state.preset !== "ninguno";
-  const fallback = props.captionDefault && props.captionDefault !== "ninguno" ? props.captionDefault : "caja";
   const here = rangeHere();
   const hereLabel = here ? `${here.from === "seleccion" ? "Lo elegido" : "Donde está el cabezal"}: «${api.textOf(here.range.from, here.range.to, 70)}»` : "Elige un tramo en la transcripción o mueve el cabezal.";
 
@@ -132,19 +127,6 @@ export function EditPanel({
           )}
         </div>
         {trimNote && <p className="text-xs text-muted">{trimNote}</p>}
-      </Tool>
-
-      <Tool icon={<Captions className="h-4 w-4" aria-hidden />} title="Subtitular" text="Subtítulos con lo que dices, sin cortar nada del video. El estilo y el texto, en su pestaña.">
-        <div className="flex flex-wrap gap-1.5">
-          {!subsOn && (
-            <Button size="sm" icon={<Captions className="h-3.5 w-3.5" aria-hidden />} onClick={() => (api.update((st) => ({ ...st, preset: fallback })), onOpenSubtitles())}>
-              Subtitular
-            </Button>
-          )}
-          <Button size="sm" variant={subsOn ? "primary" : "ghost"} onClick={onOpenSubtitles}>
-            {subsOn ? "Ver y editar subtítulos" : "Elegir el estilo"}
-          </Button>
-        </div>
       </Tool>
 
       <Tool icon={<WandSparkles className="h-4 w-4" aria-hidden />} title="Añadir animaciones" text="Una animación para todo el video o para un momento.">

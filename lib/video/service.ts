@@ -753,6 +753,19 @@ export async function reopenProject(projectId: string): Promise<void> {
   await getDb().update(schema.videoProjects).set({ status: "AWAITING_REVIEW", errorMessage: null, autoExport: false }).where(eq(schema.videoProjects.id, projectId));
 }
 
+/**
+ * «Subtitular» sin transcripción: vuelve a transcribir el video desde la revisión. Solo si no tiene palabras (no hay
+ * nada que perder); al terminar vuelve a la revisión con un plan nuevo.
+ */
+export async function transcribeAgain(projectId: string, userId: string): Promise<void> {
+  const project = await loadProject(projectId);
+  if (!project) throw new VideoError("No encontramos ese proyecto.");
+  if ((project.transcript as Transcript | null)?.words?.length) return;
+  if (project.status !== "AWAITING_REVIEW" && project.status !== "DONE" && project.status !== "FAILED") throw new VideoError("Este video todavía se está procesando.");
+  await getDb().update(schema.videoProjects).set({ status: "PROCESSING", plan: null, errorMessage: null }).where(eq(schema.videoProjects.id, projectId));
+  await enqueueAnalyze(project, userId);
+}
+
 /** Reintenta el último trabajo fallido del proyecto (un trabajo nuevo con la misma entrada). */
 export async function retryProject(projectId: string, userId: string): Promise<void> {
   const project = await loadProject(projectId);

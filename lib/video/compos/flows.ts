@@ -33,7 +33,7 @@ import type { DirectorState } from "../director/types";
 import type { EditPlan, Word } from "../types";
 import { compositionSchema, type Composition } from "./schema";
 import { fakeAdapt, fakeKeyMoments, fakeRecipe, fakeRequestPlan } from "./fake";
-import { activeCount, enqueueRequest, MAX_ACTIVE, promoteWaiting } from "./requests";
+import { activeCount, enqueueRequest, MAX_ACTIVE } from "./requests";
 import { frameFor, loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type WorkCtx } from "./work";
 
 /**

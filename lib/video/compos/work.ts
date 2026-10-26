@@ -28,7 +28,7 @@ import { buildTimeline, outputRange, type Timeline } from "../timeline";
 import type { EditPlan, MediaInfo, Transcript, VideoFormat, Word } from "../types";
 import { readDirector, type DirectorState } from "../director/types";
 import { clampBudget } from "../director/cost";
-import { COMPOS_LIMITS, composLimitsFor } from "./contract";
+import { composLimitsFor } from "./contract";
 import { compileComposition, composSegments, defaultFrame, newComposId, type ComposImage, type Composition } from "./schema";
 import { codeHash, validateComposition } from "./validate";
 import { promoteWaiting } from "./requests";

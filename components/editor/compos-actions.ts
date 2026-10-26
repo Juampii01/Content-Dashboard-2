@@ -1,6 +1,9 @@
 "use server";
 
 import { z } from "zod";
+import { brandContext, getBrand } from "@/lib/ai/brand-context";
+import { AiError, aiConfigured, generateStructured, withAiScope } from "@/lib/ai/client";
+import { COMPOS_CHAT_RULES, composChatSchema, composChatTask } from "@/lib/ai/prompts/compos-chat";
 import { isDenied, requireEditor } from "@/lib/auth";
 import { ComposRequestError, planWholeVideo, startStudioRequest, startWholeVideo, type WholePlan } from "@/lib/video/compos/flows";
 import { composStatus, type ComposStatus } from "@/lib/video/compos/service";
@@ -111,5 +114,58 @@ export async function startWholeVideoAction(projectId: string, plan: z.input<typ
     if (error instanceof ComposRequestError) return { ok: false, error: error.message };
     console.error("[animaciones] todo el video:", error instanceof Error ? error.message : error);
     return { ok: false, error: "No pudimos empezar las animaciones. Prueba de nuevo." };
+  }
+}
+
+const chatSchema = z.object({
+  name: z.string().max(80),
+  why: z.string().max(300),
+  start: z.number().min(0).max(3600),
+  end: z.number().min(0).max(3600),
+  scenes: z.array(z.object({ title: z.string().max(80), start: z.number().min(0), end: z.number().min(0), brief: z.string().max(1200) })).max(30),
+  scene: z.string().max(80).nullable(),
+  params: z.array(z.object({ label: z.string().max(80), value: z.string().max(160) })).max(12),
+  sounds: z.string().max(2000),
+  words: z.string().max(12000),
+  messages: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().trim().min(1).max(2000) })).min(1).max(30),
+});
+
+/**
+ * Charla con el taller antes de reescribir una animación: la IA contesta qué va a hacer (con los segundos del video)
+ * y arma el pedido final consolidado. No cambia nada: el Estudio manda ese pedido cuando la persona dice «Hacer los cambios».
+ */
+export async function composChatAction(projectId: string, input: z.input<typeof chatSchema>): Promise<{ ok: true; reply: string; instruction: string; scope: "scene" | "all" } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = chatSchema.safeParse(input);
+  if (!z.uuid().safeParse(projectId).success || !parsed.success) return { ok: false, error: "Datos no válidos." };
+  if (!aiConfigured()) return { ok: false, error: "La IA no está configurada en esta instalación." };
+  const d = parsed.data;
+  if (d.messages.at(-1)?.role !== "user") return { ok: false, error: "Escribe qué quieres cambiar." };
+  try {
+    const brandCtx = await brandContext(await getBrand());
+    const out = await withAiScope(projectId, () =>
+      generateStructured({
+        feature: "video.compos.charla",
+        model: "main",
+        context: `${COMPOS_CHAT_RULES}\n\n${brandCtx}`,
+        task: composChatTask(d),
+        schema: composChatSchema,
+        maxTokens: 2500,
+        userId: user.id,
+        fake: () => {
+          const asked = d.messages.filter((m) => m.role === "user").map((m) => m.text);
+          return {
+            reply: `Esto es lo que voy a hacer:\n- ${asked.join("\n- ")}\n\nSi está bien, toca «Hacer los cambios».`,
+            instruction: asked.join(". ").slice(0, 1400),
+            scope: d.scene ? "scene" : "all",
+          };
+        },
+      }),
+    );
+    return { ok: true, reply: out.reply.slice(0, 3000), instruction: out.instruction.slice(0, 1500), scope: out.scope };
+  } catch (error) {
+    console.error("[compos] charla:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
+    return { ok: false, error: error instanceof AiError ? error.userMessage : "No pudimos responder. Prueba de nuevo." };
   }
 }

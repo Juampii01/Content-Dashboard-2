@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, PenLine, Trash2, UserRound, Wand2, WandSparkles, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, MessageSquareText, PenLine, Send, Trash2, UserRound, Wand2, WandSparkles, X } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { composChatAction } from "../compos-actions";
 import { myEffectStateAction, removeMyEffectAction, renameMyEffectAction, saveToMyEffectsAction } from "../my-effects-actions";
 import { myEffectsChanged } from "../studio/library-mine";
 import { Button } from "@/components/ui/button";
@@ -140,10 +141,60 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   const sceneIndex = item.long && item.scenes?.length ? Math.max(0, item.scenes.findIndex((sc) => local >= sc.start && local < sc.end)) : -1;
   const sceneAt = sceneIndex >= 0 ? item.scenes![sceneIndex]! : null;
   const scene = whole ? null : sceneAt;
+  // Charla con el taller: la IA confirma qué va a hacer antes de reescribir (nada cambia hasta «Hacer los cambios»).
+  const [chat, setChat] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [agreed, setAgreed] = useState<{ instruction: string; scope: "scene" | "all" } | null>(null);
+  const [thinking, setThinking] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const chatList = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    chatList.current?.scrollTo({ top: chatList.current.scrollHeight, behavior: "smooth" });
+  }, [chat, thinking]);
+  async function talk() {
+    const text = ask.trim();
+    if (text.length < 2 || thinking) return;
+    const messages = [...chat, { role: "user" as const, text }];
+    setChat(messages);
+    setAsk("");
+    setChatError(null);
+    setThinking(true);
+    const t0 = seg?.start ?? 0;
+    const t1 = seg?.end ?? 0;
+    const words = api.timeline.words
+      .filter((w) => w.end > t0 && w.start < t1)
+      .slice(0, 700)
+      .map((w) => `${w.start.toFixed(1)} ${w.text}`)
+      .join(" · ");
+    const r = await composChatAction(props.projectId, {
+      name: item.name.slice(0, 80),
+      why: (item.why ?? "").slice(0, 300),
+      start: t0,
+      end: t1,
+      scenes: (item.scenes ?? []).map((sc) => ({ title: sc.title, start: sc.start, end: sc.end, brief: sc.brief })),
+      scene: scene ? scene.title : null,
+      params: item.params.map((p) => ({ label: p.label.slice(0, 80), value: p.value.slice(0, 160) })),
+      sounds: (item.sounds ?? []).map((x) => `${x.name}@${(t0 + x.at).toFixed(1)}s`).join(", ").slice(0, 2000),
+      words: words.slice(0, 12000),
+      messages,
+    });
+    setThinking(false);
+    if (!r.ok) {
+      setChatError(r.error);
+      return;
+    }
+    setChat([...messages, { role: "assistant", text: r.reply }]);
+    setAgreed({ instruction: r.instruction, scope: r.scope });
+    // Si lo acordado toca toda la pieza, se cambia toda (aunque esté elegida una escena).
+    if (r.scope === "all" && sceneAt) setWhole(true);
+  }
   async function change() {
-    if (ask.trim().length < 3) return;
-    const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: ask.trim(), replace: item, at: scene ? local : null });
-    if (ok) setAsk("");
+    if (!agreed) return;
+    const all = agreed.scope === "all" || !scene;
+    const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: agreed.instruction, replace: item, at: all ? null : local });
+    if (ok) {
+      setChat([]);
+      setAgreed(null);
+    }
   }
   const setFrame = (patch: Partial<NonNullable<Composition["frame"]>>) =>
     api.update((s) => ({ ...s, compositions: s.compositions.map((c) => (c.id === item.id && c.frame ? { ...c, frame: { ...c.frame, ...patch } } : c)) }), { coalesce: `frame:${item.id}` });
@@ -290,9 +341,10 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
       )}
       {props.canEdit && (
         <section className="flex flex-col gap-2 px-4 py-4">
-          <label htmlFor={`ask-${item.id}`} className="flex items-center gap-1.5 text-sm font-semibold text-white">
-            <Wand2 className="h-4 w-4 text-accent-hi" aria-hidden /> {scene ? `Pídele un cambio a la escena «${scene.title}»` : "Pídele un cambio a esta animación"}
-          </label>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-white">
+            <MessageSquareText className="h-4 w-4 text-accent-hi" aria-hidden /> Habla con quien hizo la animación
+          </p>
+          <p className="text-xs text-muted">Dile qué quieres cambiar. Te contesta qué va a hacer y en qué segundo; corriges lo que haga falta y, cuando estés de acuerdo, toca «Hacer los cambios».</p>
           {sceneAt && (
             <SegmentedControl
               label="Qué cambiar"
@@ -301,25 +353,66 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
               value={whole ? "all" : "scene"}
               onValueChange={(v) => setWhole(v === "all")}
               options={[
-                { value: "scene", label: "Esta escena" },
+                { value: "scene", label: `Escena «${sceneAt.title.slice(0, 24)}»` },
                 { value: "all", label: "Toda la pieza" },
               ]}
             />
           )}
-          <Textarea id={`ask-${item.id}`} value={ask} onChange={(e) => setAsk(e.target.value)} maxLength={1500} className="!min-h-16 text-sm" placeholder="Ej.: que la cifra sea más grande y entre girando más rápido" disabled={busy} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void change()} />
-          <div className="flex flex-wrap gap-1.5" aria-label="Ideas de cambios">
-            {IDEAS_CHANGE.map((s) => (
-              <button key={s} type="button" className="pill border border-white/10 text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => setAsk(s)} disabled={busy}>
-                {s}
-              </button>
-            ))}
+          {chat.length > 0 && (
+            <ol ref={chatList} className="flex max-h-80 flex-col gap-2 overflow-y-auto pr-1" aria-label="Conversación" aria-live="polite">
+              {chat.map((m, i) => (
+                <li key={i} className={cn("max-w-[92%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "self-end bg-white text-paper" : "self-start border border-white/10 bg-card text-text")}>
+                  {m.text}
+                </li>
+              ))}
+              {thinking && (
+                <li className="self-start rounded-2xl border border-white/10 bg-card px-3 py-2 text-sm text-muted">
+                  <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Pensando…
+                </li>
+              )}
+            </ol>
+          )}
+          <label htmlFor={`ask-${item.id}`} className="sr-only">
+            Tu mensaje
+          </label>
+          <Textarea
+            id={`ask-${item.id}`}
+            value={ask}
+            onChange={(e) => setAsk(e.target.value)}
+            maxLength={1500}
+            className="!min-h-16 text-sm"
+            placeholder={chat.length ? "Corrige o agrega lo que quieras…" : "Ej.: los personajes más grandes, que la Ñ se vea y más sonidos de espada"}
+            disabled={busy || thinking}
+            onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void talk()}
+          />
+          {chat.length === 0 && (
+            <div className="flex flex-wrap gap-1.5" aria-label="Ideas de cambios">
+              {IDEAS_CHANGE.map((s) => (
+                <button key={s} type="button" className="pill border border-white/10 text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => setAsk(s)} disabled={busy}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" variant={agreed ? "ghost" : "primary"} onClick={() => void talk()} disabled={busy || thinking || ask.trim().length < 2} icon={<Send className="h-3.5 w-3.5" aria-hidden />}>
+              Enviar
+            </Button>
+            {agreed && (
+              <Button size="sm" onClick={() => void change()} disabled={busy || thinking} icon={busy ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Clapperboard className="h-3.5 w-3.5" aria-hidden />}>
+                {busy ? "Cambiando la animación…" : "Hacer los cambios"}
+              </Button>
+            )}
+            {chat.length > 0 && !busy && (
+              <Button size="sm" variant="subtle" onClick={() => (setChat([]), setAgreed(null), setAsk(""))} disabled={thinking}>
+                Empezar de nuevo
+              </Button>
+            )}
           </div>
-          <Button size="sm" variant="ghost" onClick={() => void change()} disabled={busy || ask.trim().length < 3} icon={busy ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Clapperboard className="h-3.5 w-3.5" aria-hidden />}>
-            {busy ? "Cambiando la animación…" : "Reescribir la animación"}
-          </Button>
+          {chatError && <p className="text-xs text-danger">{chatError}</p>}
           {api.compos.error && <p className="text-xs text-danger">{api.compos.error}</p>}
           <ComposProgress api={api} compId={item.id} />
-          <p className="text-[11px] text-muted">{scene ? "La IA rehace esa escena y deja el resto de la pieza igual." : sceneAt ? "La IA cambia toda la pieza (por ejemplo, más grande, más sonidos u otra tipografía). Tarda más que una escena." : "La reescribe la IA."} Puedes deshacer el cambio con Cmd+Z.</p>
+          <p className="text-[11px] text-muted">{scene ? "Rehace esa escena y deja el resto de la pieza igual." : sceneAt ? "Cambia toda la pieza. Tarda más que una escena." : "Reescribe la animación."} Mientras charlan no se toca nada. Puedes deshacer el cambio con Cmd+Z.</p>
         </section>
       )}
     </>

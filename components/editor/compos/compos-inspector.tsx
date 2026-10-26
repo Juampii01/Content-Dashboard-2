@@ -222,6 +222,24 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           <p className="mt-2 text-[11px] text-muted">Pon el cabezal en una escena y pídele el cambio abajo: se rehace solo esa escena.</p>
         </section>
       )}
+      {props.canEdit && (
+        <section className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">Subtítulos encima</p>
+            <p className="text-xs text-muted">Para quien mira sin sonido. Apágalos si la animación ya muestra lo que dices.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={item.captions !== "hide"}
+            aria-label="Subtítulos encima de esta animación"
+            onClick={() => api.update((s) => ({ ...s, compositions: s.compositions.map((c) => (c.id === item.id ? { ...c, captions: c.captions === "hide" ? "show" : "hide" } : c)) }))}
+            className={cn("relative h-6 w-11 flex-none rounded-full transition", item.captions !== "hide" ? "bg-white" : "bg-white/15")}
+          >
+            <span className={cn("absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-paper shadow transition-transform", item.captions !== "hide" && "translate-x-5")} />
+          </button>
+        </section>
+      )}
       {item.frame && props.canEdit && (
         <section className="border-b border-white/[0.06] px-4 pb-4">
           <h3 className="flex items-center gap-2 py-3 text-sm font-semibold text-white">

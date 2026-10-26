@@ -43,8 +43,10 @@ export const compositionSchema = z.object({
   params: z.array(composParamSchema).max(12),
   /** Sonidos de la biblioteca en momentos de la composición (segundos desde que empieza). */
   sounds: z.array(z.object({ at: z.number().min(0).max(COMPOS_LIMITS.longMaxSeconds), name: sfxName, gain: z.number().min(-30).max(0).default(-14) })).max(60).optional(),
-  /** Oculta los subtítulos mientras dura (la composición ya muestra el texto). */
+  /** Lo que propuso la IA (la animación ya muestra el texto). Solo informativo: los subtítulos se ven igual. */
   hide_captions: z.boolean().optional(),
+  /** Subtítulos mientras dura: se ven encima de la animación salvo que la persona los oculte («hide»). */
+  captions: z.enum(["show", "hide"]).optional(),
   why: z.string().max(300).optional(),
   /** Capa (orden de dibujo): más alta, más arriba. Sin el campo, 0. Ver lib/video/layers.ts. */
   layer: z.number().int().min(0).max(999).optional(),
@@ -167,7 +169,7 @@ export function composEnv(input: {
     params: paramValues(item),
     brand: { accent: input.brand.accent, bg: input.brand.bg, surface: input.brand.surface, ink: input.brand.text, muted: input.brand.muted, accentText: input.brand.accentText, display: input.brand.font === "montserrat" ? "Montserrat" : "Inter" },
     face: input.face,
-    captions: captionBand(input.format, input.captionsVisible && !item.hide_captions),
+    captions: captionBand(input.format, input.captionsVisible && item.captions !== "hide"),
     mask: needsMask(item.code),
     assets,
     ...framePanel(item.frame, W, H, input.face),
@@ -237,7 +239,7 @@ export function compileComposition(input: Parameters<typeof composEnv>[0]): FxSp
 }
 
 /** Tramos (segundos del video final) donde una composición oculta los subtítulos. */
-export const composCaptionHides = (segments: ComposSegment[]) => segments.filter((s) => s.item.hide_captions).map((s) => ({ start: s.start, end: s.end }));
+export const composCaptionHides = (segments: ComposSegment[]) => segments.filter((s) => s.item.captions === "hide").map((s) => ({ start: s.start, end: s.end }));
 
 /** Sonidos de las composiciones en segundos del video final (su punto fuerte cae en `at`). */
 export const composSounds = (segments: ComposSegment[]) => segments.flatMap((s) => (s.item.sounds ?? []).filter((x) => x.at <= s.end - s.start).map((x) => ({ name: x.name, hitAt: round3(s.start + x.at), gain: x.gain })));

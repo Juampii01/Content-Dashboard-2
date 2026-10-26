@@ -228,7 +228,7 @@ export const composCodeWireSchema = z.object({
   code: z.string().describe("El módulo completo: export default { … }."),
   params: z.array(z.object({ key: z.string(), label: z.string(), value: z.string() })).describe("Los textos editables (las mismas claves que params del módulo)."),
   sounds: z.array(z.object({ at: z.number(), name: sfxName, gain: z.number() })).describe("Sonidos de la biblioteca en segundos de la animación (whoosh al entrar, golpe en el impacto…). Ganancia de -24 a -8 dB."),
-  hide_captions: z.boolean().describe("true si la animación ya muestra el texto o tapa la franja de subtítulos."),
+  hide_captions: z.boolean().describe("true si la animación ya muestra en pantalla lo que se dice (informativo: los subtítulos se ven igual)."),
   tags: z.array(z.string()).describe("2 o 3 familias visuales en minúsculas con guiones (texto-letra-a-letra, tarjeta-3d, mapa-con-foco…)."),
 });
 export type ComposCodeWire = z.infer<typeof composCodeWireSchema>;
@@ -246,7 +246,7 @@ CALIDAD QUE SE ESPERA
 - Jerarquía tipográfica clara: una cosa grande y una chica. Tamaños de video (titulares de 90 a 300 px en 1080 de ancho, textos de apoyo 36–56 px). Siempre legible: velo, sombra, caja o contorno sobre fondos movidos.
 - Color: la paleta de la marca (env.brand) salvo que la receta de la referencia pida otros colores; acentos con brillo (shadowBlur) con moderación.
 - Profundidad: capas (detrás/delante de la persona con ctx.drawPerson(), desenfoques, sombras, 3D simple) cuando la referencia o el pedido lo piden.
-- Composición: respeta env.face/env.safe (nunca tapes la cara salvo que la idea sea ir detrás de la persona), deja libre la franja de subtítulos si se ven (env.captions) o pon hide_captions: true.
+- Composición: respeta env.face/env.safe (nunca tapes la cara salvo que la idea sea ir detrás de la persona), deja libre la franja de subtítulos (env.captions): los subtítulos se ven siempre encima de la animación, para quien mira sin sonido. No pongas texto ni elementos importantes en esa franja.
 - Textos cortos, en el idioma de la marca, editables en params (nada de textos fijos dentro del código que la persona quiera cambiar).
 - Nunca inventes cifras ni datos: solo lo que se dice.
 

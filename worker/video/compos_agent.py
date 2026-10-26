@@ -260,7 +260,8 @@ async def _agent(shop: Workshop, token: str, nxt: dict[str, Any]) -> dict[str, A
             "why": str(args.get("why") or "")[:300],
             "code": code,
             "params": [p for p in args.get("params") or [] if isinstance(p, dict)][:12],
-            "sounds": [x for x in args.get("sounds") or [] if isinstance(x, dict)][:8],
+            # Hasta 60 sonidos (una pieza única lleva muchos); la app recorta a 8 en una animación suelta.
+            "sounds": [x for x in args.get("sounds") or [] if isinstance(x, dict)][:60],
             "hide_captions": bool(args.get("hide_captions")),
             "tags": [str(t) for t in args.get("tags") or []][:6],
         }

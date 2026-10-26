@@ -25,6 +25,7 @@ import { layerKey, stackIndex } from "./layers";
 import { brandGraphicLook, graphicSpecSchema, type GraphicLook } from "./graphics";
 import { requestGraphic, type GraphicRequestResult } from "./motion-ai";
 import { placeCaptionBlocks } from "./canvas/captions";
+import { clearFaceBands } from "./compos/schema";
 import { brollGraphicSchema, graphicSeconds, isMotionScene, withBrandTheme, graphicWithPlace } from "./motion-graphics";
 import { sceneSchema } from "./motion/schema";
 import { loadTrack } from "./music";
@@ -555,7 +556,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     });
   };
   // Lugar de los subtítulos del lienzo (solo galería): cada bloque lleva el suyo, como en la vista previa.
-  const captionPayload = capLook ? placeCaptionBlocks(blocks, next.captions).map((b) => captionTracks(capLook, b, format, accent)) : null;
+  const captionPayload = capLook ? clearFaceBands(placeCaptionBlocks(blocks, next.captions), fx.compos, capLook.y).map((b) => captionTracks(capLook, b, format, accent)) : null;
   // Efectos de sonido: whoosh al entrar cada b-roll o gráfico, riser hasta el fin del gancho y pop en los emojis.
   const emojiTimes = (captionPayload ?? []).flatMap((b) => b.words.flatMap((w) => (w.emoji ? [w.emoji.alpha[0]?.t ?? b.start] : []))).slice(0, MAX_EMOJIS);
   // Con la voz: un toque en cada ítem que entra en un gráfico, al empezar cada efecto y en cada punch-in.

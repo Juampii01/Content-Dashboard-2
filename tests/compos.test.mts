@@ -268,3 +268,18 @@ test("franja fija de la persona: el motor la dibuja encima de todo, igual en cad
   const short = segs({ words, duration: 60 } as never, [{ id: "q", from_word: 0, to_word: 59, name: "q", code: "x", params: [], source: "user" }]);
   assert.ok(short[0]!.end - short[0]!.start <= 12.01);
 });
+
+test("los subtítulos nunca tapan la cara fija de abajo (mitad y mitad / fondo blanco)", async () => {
+  const { clearFaceBands } = await import("../lib/video/compos/schema.ts");
+  const item = { id: "a", from_word: 0, to_word: 3, name: "x", code: "x", params: [], source: "user", long: true, frame: { kind: "split", cx: 0.5, cy: 0.6, zoom: 1.25 } } as never;
+  const segs = [{ id: "a", start: 0, end: 10, item, layer: 0 }] as never;
+  const blocks = [
+    { start: 1, end: 2 },
+    { start: 11, end: 12 },
+    { start: 3, end: 4, place: { x: 0.1, y: -0.3, scale: 1 } },
+  ];
+  const out = clearFaceBands(blocks, segs, 0.665);
+  assert.ok(0.665 + out[0]!.place!.y <= 0.5, "dentro de la animación sube arriba de la franja");
+  assert.equal(out[1]!.place, undefined, "fuera de la animación queda igual");
+  assert.deepEqual(out[2]!.place, { x: 0.1, y: -0.3, scale: 1 }, "si ya está arriba, no se mueve");
+});

@@ -18,7 +18,7 @@ import { compileFx, faceAnchor, fxBrandFromLook, fxCaptionHides, fxSegments, sou
 import { FX_MASK_CHUNK } from "@/lib/video/fx/masks";
 import { defaultFx, newFxId, type FxItem } from "@/lib/video/fx/schema";
 import { defaultGraphic, type GraphicTemplate } from "@/lib/video/graphics";
-import { compileComposition, composCaptionHides, composSegments, composSounds, type Composition } from "@/lib/video/compos/schema";
+import { clearFaceBands, compileComposition, composCaptionHides, composSegments, composSounds, type Composition } from "@/lib/video/compos/schema";
 import { WholeVideoDialog } from "../compos/whole-video-dialog";
 import { isActive, requestStage, useComposRequests, type ComposRequest, type LiveRequest } from "../compos/use-compos-work";
 import { placeMyEffectAction } from "../my-effects-actions";
@@ -2083,7 +2083,7 @@ export function Studio(props: StudioProps) {
                   poster={posterUrl}
                   clips={timeline.clips}
                   duration={timeline.duration}
-                  blocks={canvasEdits.placeBlocks(captions)}
+                  blocks={capLook ? clearFaceBands(canvasEdits.placeBlocks(captions), composSegs, capLook.y) : canvasEdits.placeBlocks(captions)}
                   preset={s.preset}
                   format={s.format}
                   accent={accent}

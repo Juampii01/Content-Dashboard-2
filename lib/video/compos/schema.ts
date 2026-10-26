@@ -169,7 +169,10 @@ export function composEnv(input: {
     params: paramValues(item),
     brand: { accent: input.brand.accent, bg: input.brand.bg, surface: input.brand.surface, ink: input.brand.text, muted: input.brand.muted, accentText: input.brand.accentText, display: input.brand.font === "montserrat" ? "Montserrat" : "Inter" },
     face: input.face,
-    captions: captionBand(input.format, input.captionsVisible && item.captions !== "hide"),
+    // Con la cara fija abajo, los subtítulos van justo encima de la franja (ver clearFaceBands).
+    captions: item.frame
+      ? { y: Math.round(H * (panelTopFrac(item.frame.kind) - 0.075)), h: Math.round(H * 0.08), visible: input.captionsVisible && item.captions !== "hide" }
+      : captionBand(input.format, input.captionsVisible && item.captions !== "hide"),
     mask: needsMask(item.code),
     assets,
     ...framePanel(item.frame, W, H, input.face),
@@ -179,7 +182,7 @@ export function composEnv(input: {
 /** Franja fija de la persona y lo que queda para la animación, según el encuadre elegido. */
 export function framePanel(frame: Composition["frame"], W: number, H: number, face?: Box): { stage?: ComposRect; panel?: ComposEnvData["panel"] } {
   if (!frame) return {};
-  const top = frame.kind === "split" ? Math.round(H * 0.5) : Math.round(H * 0.55);
+  const top = Math.round(H * panelTopFrac(frame.kind));
   const panel = { x: 0, y: top, w: W, h: H - top };
   // Zona del video que se ve en la franja: mismo formato que la franja, centrada donde se eligió y con su zoom.
   const cw = Math.min(W, W / frame.zoom);
@@ -236,6 +239,27 @@ export function compileComposition(input: Parameters<typeof composEnv>[0]): FxSp
     mask: env.mask,
     compos: { code: input.item.code, env },
   };
+}
+
+/** Alto de la franja de la cara (fracción del cuadro) en «Mitad y mitad» y «Fondo blanco arriba». */
+export const panelTopFrac = (kind: "split" | "top") => (kind === "split" ? 0.5 : 0.55);
+
+/**
+ * Los subtítulos nunca tapan la cara fija de abajo: durante una animación con franja de cara, un bloque que caería
+ * dentro de la franja sube hasta justo encima de la línea que la separa (igual en la vista previa y en el render).
+ */
+export function clearFaceBands<B extends { start: number; end: number; place?: { x: number; y: number; scale: number } }>(blocks: B[], segments: ComposSegment[], lookY: number): B[] {
+  const bands = segments.filter((s) => s.item.frame).map((s) => ({ start: s.start, end: s.end, top: panelTopFrac(s.item.frame!.kind) }));
+  if (!bands.length) return blocks;
+  return blocks.map((b) => {
+    const mid = (b.start + b.end) / 2;
+    const band = bands.find((x) => mid >= x.start && mid < x.end);
+    if (!band) return b;
+    const p = b.place ?? { x: 0, y: 0, scale: 1 };
+    const target = band.top - 0.035;
+    if (lookY + p.y <= target) return b;
+    return { ...b, place: { ...p, y: round3(target - lookY) } };
+  });
 }
 
 /** Tramos (segundos del video final) donde una composición oculta los subtítulos. */

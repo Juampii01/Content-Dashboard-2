@@ -153,7 +153,8 @@ export function checkStatic(code: string): { ok: true; body: string } | { ok: fa
   const issues: StaticIssue[] = [];
   const add = (message: string, pos: number | null) => issues.push({ message, line: pos == null ? null : lineAt(code, pos) });
   if (typeof code !== "string" || !code.trim()) return { ok: false, issues: [{ message: "El código está vacío.", line: null }] };
-  if (code.length > COMPOS_LIMITS.codeChars) return { ok: false, issues: [{ message: `El código es demasiado largo (${code.length} caracteres; máximo ${COMPOS_LIMITS.codeChars}).`, line: null }] };
+  // El tope de una pieza única («Animar todo»); las de un tramo quedan muy por debajo.
+  if (code.length > COMPOS_LIMITS.longCodeChars) return { ok: false, issues: [{ message: `El código es demasiado largo (${code.length} caracteres; máximo ${COMPOS_LIMITS.longCodeChars}).`, line: null }] };
   let ast: AnyNode;
   try {
     ast = parse(code, { ecmaVersion: 2022, sourceType: "module", locations: false }) as unknown as AnyNode;

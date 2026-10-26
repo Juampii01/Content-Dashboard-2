@@ -28,8 +28,8 @@ import { buildTimeline, outputRange, type Timeline } from "../timeline";
 import type { EditPlan, MediaInfo, Transcript, VideoFormat, Word } from "../types";
 import { readDirector, type DirectorState } from "../director/types";
 import { clampBudget } from "../director/cost";
-import { COMPOS_LIMITS } from "./contract";
-import { compileComposition, composSegments, newComposId, type ComposImage, type Composition } from "./schema";
+import { COMPOS_LIMITS, composLimitsFor } from "./contract";
+import { compileComposition, composSegments, defaultFrame, newComposId, type ComposImage, type Composition } from "./schema";
 import { codeHash, validateComposition } from "./validate";
 import { promoteWaiting } from "./requests";
 
@@ -105,6 +105,12 @@ export type ComposTask = {
   reused?: { id: string; name: string; version: number } | null;
   /** "off": el agente con la suscripción de Claude no pudo (sin cupo, token vencido…) y esta tarea sigue por la API. */
   agent?: "off";
+  /** Pieza única de todo el video («Animar todo»), con sus escenas y la franja fija de la persona (si hay). */
+  long?: boolean;
+  scenes?: NonNullable<Composition["scenes"]>;
+  frame?: Composition["frame"];
+  /** Cambio pedido en una sola escena de la pieza (índice en `scenes`). */
+  scene?: number;
 };
 
 export type ComposWork = {
@@ -259,10 +265,17 @@ async function saveWork(projectId: string, director: DirectorState, work: Compos
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-function span(ctx: WorkCtx, t: Pick<ComposTask, "from_word" | "to_word">): { start: number; end: number } | null {
-  const stub = { id: "x", from_word: t.from_word, to_word: t.to_word, name: "x", code: "x", params: [], source: "director" as const };
+function span(ctx: WorkCtx, t: Pick<ComposTask, "from_word" | "to_word"> & Partial<Pick<ComposTask, "long">>): { start: number; end: number } | null {
+  const stub = { id: "x", from_word: t.from_word, to_word: t.to_word, name: "x", code: "x", params: [], source: "director" as const, ...((t as Pick<ComposTask, "long">).long ? { long: true } : {}) };
   const seg = composSegments(ctx.timeline, [stub])[0];
   return seg ? { start: seg.start, end: seg.end } : null;
+}
+
+/** Encuadre por defecto de la franja fija de la persona en un tramo (centrado en su cara). */
+export function frameFor(ctx: WorkCtx, kind: "split" | "top", s: { start: number; end: number }): NonNullable<Composition["frame"]> {
+  const W = ctx.format === "9:16" ? 1080 : 1920;
+  const H = ctx.format === "9:16" ? 1920 : 1080;
+  return defaultFrame(kind, faceFor(ctx, s), W, H);
 }
 
 function faceFor(ctx: WorkCtx, s: { start: number; end: number }) {
@@ -282,7 +295,7 @@ function itemOf(task: ComposTask, code: ComposCodeWire | { code: string; name: s
     name: code.name.slice(0, 60) || "Animación",
     code: code.code,
     params: cleanParams(code.params),
-    sounds: (code.sounds ?? []).filter((s) => s.at >= 0 && s.at <= COMPOS_LIMITS.maxSeconds).slice(0, 8).map((s) => ({ ...s, gain: Math.max(-30, Math.min(0, s.gain)) })),
+    sounds: (code.sounds ?? []).filter((s) => s.at >= 0 && s.at <= composLimitsFor(task.long).maxSeconds).slice(0, task.long ? 60 : 8).map((s) => ({ ...s, gain: Math.max(-30, Math.min(0, s.gain)) })),
     hide_captions: code.hide_captions,
     why: code.why.slice(0, 300),
     source: task.source,
@@ -290,6 +303,9 @@ function itemOf(task: ComposTask, code: ComposCodeWire | { code: string; name: s
     tags: code.tags.map((t) => t.toLowerCase().replace(/[^a-z0-9ñ-]+/g, "-").slice(0, 40)).filter(Boolean).slice(0, 6),
     ...(images.length ? { images } : {}),
     ...(task.request ? { request: task.request.slice(0, 1500) } : {}),
+    ...(task.long ? { long: true } : {}),
+    ...(task.scenes?.length ? { scenes: task.scenes } : {}),
+    ...(task.frame ? { frame: task.frame } : {}),
   };
 }
 
@@ -541,12 +557,22 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         // Mis efectos que encajan (rotación: lo que ya está en este video o en esta tanda no se ofrece otra vez).
         // Un cambio sobre una animación existente siempre se escribe (es otra cosa).
         const inUse = [...(ctx.plan.compositions ?? []).flatMap((c) => (c.lib_id ? [c.lib_id] : [])), ...work.tasks.flatMap((t) => (t.reused ? [t.reused.id] : []))];
-        const library = task.base ? [] : await effectCandidates({ brief, said: said(ctx, task), exclude: inUse, duration }).catch(() => []);
+        // Una pieza única no se arma con Mis efectos (es una sola animación, escrita entera).
+        const library = task.base || task.long ? [] : await effectCandidates({ brief, said: said(ctx, task), exclude: inUse, duration }).catch(() => []);
         const plan = await generateStructured({
           feature: "video.compos.plan",
           model: "main",
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
-          task: composPlanTask({ brief, said: said(ctx, task), duration, format: ctx.format, hasImages: canImages, library: library.length ? candidatesText(library) : null, copy: work.mode === "copy" }),
+          task: composPlanTask({
+            brief: task.long && task.scenes?.length ? `${brief}\nESCENAS: ${task.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(1)}–${sc.end.toFixed(1)} s: ${sc.brief}`).join(" | ")}`.slice(0, 9000) : brief,
+            said: said(ctx, task),
+            duration,
+            format: ctx.format,
+            hasImages: canImages,
+            library: library.length ? candidatesText(library) : null,
+            copy: work.mode === "copy",
+            maxImages: task.long ? 6 : 2,
+          }),
           schema: composPlanWireSchema,
           maxTokens: 8000,
           videoProjectId: ctx.projectId,
@@ -577,7 +603,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           task.error = "No alcanzó el tope de IA de este video para escribir esta animación (y ninguno de Mis efectos encajaba).";
           return `Animación ${of}`;
         }
-        const wanted = plan.images.slice(0, 2);
+        const wanted = plan.images.slice(0, task.long ? 6 : 2);
         if (wanted.length && canImages) {
           task.images = wanted.map((im, i) => ({ id: `g${task.id.slice(1, 9)}${i}`, purpose: im.purpose.slice(0, 200), prompt: `${im.prompt.slice(0, 900)}\nNo text, no letters, no numbers, no watermark.${PHOTO_TAIL}`, aspect: im.aspect, status: "pending" as const }));
           task.status = "images";
@@ -636,7 +662,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           // salían cortadas a la mitad ("Unterminated string").
           // Con más, los pedidos grandes pasaban los 13 minutos de la función y el worker perdía la conexión.
           maxTokens: 32000,
-          timeoutMs: 540_000,
+          timeoutMs: task.long ? 780_000 : 540_000,
           videoProjectId: ctx.projectId,
           fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0 }),
         });
@@ -723,6 +749,11 @@ function codeTaskInput(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { st
     base: task.base ? { code: task.base.code, params: JSON.stringify(Object.fromEntries(task.base.params.map((p) => [p.key, p.value]))), request: task.request ?? "" } : null,
     previousError: task.lastError ?? null,
     refFrames,
+    long: task.long && task.scenes?.length ? { scenes: task.scenes } : null,
+    stage: task.frame
+      ? `FRANJA FIJA DE LA PERSONA: la parte de abajo del cuadro (desde y = ${task.frame.kind === "split" ? "50" : "55"} % del alto) la dibuja el sistema con la cara de la persona, siempre igual, encima de todo. Tú animas SOLO en env.stage = { x, y, w, h } (la parte de arriba): ubica todo ahí y usa background: "none" (pinta tú el fondo de env.stage${task.frame.kind === "top" ? ", blanco #ffffff liso, con textos en tinta oscura y el acento de la marca" : ""}). No dibujes a la persona ni el video: no hace falta.`
+      : null,
+    scene: task.scene != null && task.base?.scenes?.[task.scene] ? { index: task.scene, ...task.base.scenes[task.scene]! } : null,
   };
 }
 

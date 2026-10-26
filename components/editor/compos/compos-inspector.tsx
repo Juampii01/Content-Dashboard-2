@@ -132,11 +132,17 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
   // Un cambio a esta animación a la vez (los demás pedidos del video siguen en paralelo).
   const busy = api.compos.requests.some((r) => isActive(r) && r.request?.replaceId === item.id);
   const src = SOURCE[item.source];
+  // Pieza única: la escena donde está el cabezal (los cambios se piden por escena).
+  const local = seg ? Math.max(0, api.time - seg.start) : 0;
+  const sceneIndex = item.long && item.scenes?.length ? Math.max(0, item.scenes.findIndex((sc) => local >= sc.start && local < sc.end)) : -1;
+  const scene = sceneIndex >= 0 ? item.scenes![sceneIndex]! : null;
   async function change() {
     if (ask.trim().length < 3) return;
-    const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: ask.trim(), replace: item });
+    const ok = await api.compos.request({ from_word: item.from_word, to_word: item.to_word, instruction: ask.trim(), replace: item, at: scene ? local : null });
     if (ok) setAsk("");
   }
+  const setFrame = (patch: Partial<NonNullable<Composition["frame"]>>) =>
+    api.update((s) => ({ ...s, compositions: s.compositions.map((c) => (c.id === item.id && c.frame ? { ...c, frame: { ...c.frame, ...patch } } : c)) }), { coalesce: `frame:${item.id}` });
   const setParam = (key: string, value: string) => api.update((s) => ({ ...s, compositions: s.compositions.map((c) => (c.id === item.id ? { ...c, params: c.params.map((p) => (p.key === key ? { ...p, value } : p)) } : c)) }), { coalesce: `compos:${item.id}:${key}` });
   return (
     <>
@@ -193,6 +199,58 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           </div>
         )}
       </div>
+      {item.long && (item.scenes ?? []).length > 0 && seg && (
+        <section className="border-b border-white/[0.06] px-4 pb-4">
+          <h3 className="flex items-center gap-2 py-3 text-sm font-semibold text-white">
+            <Clapperboard className="h-4 w-4 text-accent-hi" aria-hidden /> Escenas de la pieza
+          </h3>
+          <ol className="flex flex-col gap-1">
+            {item.scenes!.map((sc, i) => (
+              <li key={`${i}-${sc.start}`}>
+                <button
+                  type="button"
+                  onClick={() => api.actions.seek(seg.start + sc.start + 0.05)}
+                  className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition", i === sceneIndex ? "bg-[#8b5cf6]/15 text-white" : "text-muted hover:bg-white/[0.05]")}
+                  aria-current={i === sceneIndex ? "step" : undefined}
+                >
+                  <span className="font-mono tabular-nums">{timeLabel(seg.start + sc.start)}</span>
+                  <span className="truncate">{sc.title}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 text-[11px] text-muted">Pon el cabezal en una escena y pídele el cambio abajo: se rehace solo esa escena.</p>
+        </section>
+      )}
+      {item.frame && props.canEdit && (
+        <section className="border-b border-white/[0.06] px-4 pb-4">
+          <h3 className="flex items-center gap-2 py-3 text-sm font-semibold text-white">
+            <UserRound className="h-4 w-4 text-accent-hi" aria-hidden /> Tu cara abajo
+          </h3>
+          <p className="mb-2 text-[11px] text-muted">El mismo encuadre en toda la pieza. Se ajusta al instante, sin volver a crear la animación.</p>
+          {(
+            [
+              ["zoom", "Acercar", 1, 4, 0.05],
+              ["cx", "Izquierda · derecha", 0, 1, 0.01],
+              ["cy", "Arriba · abajo", 0, 1, 0.01],
+            ] as const
+          ).map(([key, label, min, max, step]) => (
+            <label key={key} className="mb-2 flex flex-col gap-1 text-xs text-muted">
+              {label}
+              <input
+                type="range"
+                className="range"
+                min={min}
+                max={max}
+                step={step}
+                value={item.frame![key]}
+                onChange={(e) => setFrame({ [key]: Number(e.target.value) })}
+                style={{ ["--pct" as string]: `${((item.frame![key] - min) / (max - min)) * 100}%` }}
+              />
+            </label>
+          ))}
+        </section>
+      )}
       {item.params.length > 0 && (
         <section className="border-b border-white/[0.06] px-4 pb-4">
           <h3 className="flex items-center gap-2 py-3 text-sm font-semibold text-white">
@@ -211,7 +269,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
       {props.canEdit && (
         <section className="flex flex-col gap-2 px-4 py-4">
           <label htmlFor={`ask-${item.id}`} className="flex items-center gap-1.5 text-sm font-semibold text-white">
-            <Wand2 className="h-4 w-4 text-accent-hi" aria-hidden /> Pídele un cambio a esta animación
+            <Wand2 className="h-4 w-4 text-accent-hi" aria-hidden /> {scene ? `Pídele un cambio a la escena «${scene.title}»` : "Pídele un cambio a esta animación"}
           </label>
           <Textarea id={`ask-${item.id}`} value={ask} onChange={(e) => setAsk(e.target.value)} maxLength={1500} className="!min-h-16 text-sm" placeholder="Ej.: que la cifra sea más grande y entre girando más rápido" disabled={busy} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void change()} />
           <div className="flex flex-wrap gap-1.5" aria-label="Ideas de cambios">
@@ -226,7 +284,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           </Button>
           {api.compos.error && <p className="text-xs text-danger">{api.compos.error}</p>}
           <ComposProgress api={api} compId={item.id} />
-          <p className="text-[11px] text-muted">La reescribe la IA (cuesta de USD 0,30 a 0,80 de tu tope). Puedes deshacer el cambio con Cmd+Z.</p>
+          <p className="text-[11px] text-muted">{scene ? "La IA rehace esa escena y deja el resto de la pieza igual." : "La reescribe la IA."} Puedes deshacer el cambio con Cmd+Z.</p>
         </section>
       )}
     </>

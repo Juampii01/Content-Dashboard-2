@@ -58,9 +58,10 @@ export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted }: {
     startCreate(async () => {
       if (!plan) return;
       setError(null);
-      const r = await startWholeVideoAction(projectId, { mode: plan.mode, style: plan.style, moments: plan.moments.map((m) => ({ from_word: m.from_word, to_word: m.to_word, prompt: m.prompt })) });
+      const r = await startWholeVideoAction(projectId, { mode: plan.mode, style: plan.style, moments: plan.moments.map((m) => ({ from_word: m.from_word, to_word: m.to_word, title: m.title, prompt: m.prompt })) });
       if (!r.ok) return setError(r.error);
-      toast.success(r.count === 1 ? "Creando 1 animación." : `Creando ${r.count} animaciones.`, { description: "Aparecen solas en la pista Animaciones a medida que terminan. Puedes cerrar el Estudio y volver." });
+      if (r.error) return setError(r.error);
+      toast.success("Creando la animación de todo el video.", { description: `Una sola pieza de ${r.count === 1 ? "1 escena" : `${r.count} escenas`}. Tarda de 10 a 20 minutos: aparece sola en la pista Animaciones y puedes cerrar el Estudio y volver.` });
       onStarted();
       onOpenChange(false);
       reset();
@@ -75,7 +76,7 @@ export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted }: {
         Volver
       </Button>
       <Button onClick={create} disabled={creating || plan.moments.length === 0} icon={creating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Sparkles className="h-4 w-4" aria-hidden />}>
-        {creating ? "Creando…" : plan.moments.length === 1 ? "Crear 1 animación" : `Crear ${plan.moments.length} animaciones`}
+        {creating ? "Creando…" : `Crear la animación (${plan.moments.length === 1 ? "1 escena" : `${plan.moments.length} escenas`})`}
       </Button>
     </>
   ) : (
@@ -96,7 +97,7 @@ export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted }: {
       dismissOnBackdrop={!planning && !creating}
       className="!max-w-3xl"
       title="Animar todo el video"
-      description={plan ? "Revisa cada animación: puedes cambiar el pedido o quitarla. Después se crean todas solas." : "La IA lee tu video entero y arma una animación por momento, todas con el mismo estilo."}
+      description={plan ? "Una sola animación de principio a fin, por escenas. Revisa cada escena: puedes cambiarla o quitarla." : "La IA lee tu video entero y arma una sola animación de principio a fin, con inicio, escenas y cierre."}
       footer={footer}
     >
       {error && (
@@ -149,10 +150,10 @@ export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted }: {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <Field label="Estilo común" htmlFor="whole-style" hint="Va al principio de cada pedido para que todo el video se vea como una sola pieza.">
+          <Field label="Estilo común" htmlFor="whole-style" hint="Lo que comparten todas las escenas: look, colores, tipografía, movimiento y sonido.">
             <Textarea id="whole-style" value={plan.style} maxLength={500} onChange={(e) => setPlan((p) => (p ? { ...p, style: e.target.value } : p))} className="!min-h-16 text-sm" disabled={creating} />
           </Field>
-          <ul className="flex flex-col gap-3" aria-label="Animaciones del plan">
+          <ul className="flex flex-col gap-3" aria-label="Escenas de la pieza">
             {plan.moments.map((m, i) => (
               <li key={`${m.from_word}-${i}`} className="card flex flex-col gap-2 p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -166,7 +167,7 @@ export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted }: {
                     </p>
                     <p className="mt-0.5 line-clamp-2 text-xs text-muted">«{m.said}»</p>
                   </div>
-                  <button type="button" onClick={() => removeMoment(i)} disabled={creating} className="grid h-8 w-8 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-danger" aria-label={`Quitar «${m.title}»`} title="Quitar esta animación">
+                  <button type="button" onClick={() => removeMoment(i)} disabled={creating} className="grid h-8 w-8 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-danger" aria-label={`Quitar «${m.title}»`} title="Quitar esta escena">
                     <Trash2 className="h-4 w-4" aria-hidden />
                   </button>
                 </div>
@@ -177,7 +178,8 @@ export function WholeVideoDialog({ projectId, open, onOpenChange, onStarted }: {
               </li>
             ))}
           </ul>
-          {plan.mode !== "face" && <p className="text-xs text-muted">En este modo las animaciones van una detrás de otra: si quitas una, la anterior se estira hasta la siguiente.</p>}
+          {plan.mode !== "face" && <p className="text-xs text-muted">Las escenas van una detrás de otra: si quitas una, la anterior se estira hasta la siguiente.</p>}
+          {(plan.mode === "split" || plan.mode === "top") && <p className="text-xs text-muted">Tu cara va abajo, fija y con el mismo encuadre en todo el video. Lo ajustas después en la animación (Tu cara abajo).</p>}
         </div>
       )}
     </Dialog>

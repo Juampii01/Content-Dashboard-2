@@ -49,7 +49,8 @@ export async function validateComposition(code: string, env: ComposEnvData, opts
   if (!opened.ok) return { ok: false, hash, error: opened.error, line: opened.line, kind: opened.kind };
   const sb = opened.sandbox;
   try {
-    const times = sampleTimes(env.duration);
+    // Una pieza larga se prueba en más puntos (uno cada ~2 s, hasta 48).
+    const times = sampleTimes(env.duration, Math.min(48, Math.max(16, Math.ceil(env.duration / 2))));
     let total = 0;
     let maxMs = 0;
     let maxOps = 0;

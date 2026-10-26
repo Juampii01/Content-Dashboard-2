@@ -7,7 +7,7 @@ import { SFX_NAMES, type SfxName } from "../sfx-library";
 import { outputRange, type Timeline } from "../timeline";
 import { FPS, type VideoFormat } from "../types";
 import { OUTPUT, type Box, type FxBrand, type FxSpec } from "../fx/compile";
-import { COMPOS_LIMITS, type ComposAsset, type ComposEnvData } from "./contract";
+import { COMPOS_LIMITS, composLimitsFor, type ComposAsset, type ComposEnvData, type ComposRect } from "./contract";
 
 const sfxName = z.enum(SFX_NAMES as [SfxName, ...SfxName[]]);
 
@@ -38,11 +38,11 @@ export const compositionSchema = z.object({
   to_word: z.number().int().min(0),
   /** Nombre corto para la línea de tiempo ("Cifra que gira en 3D"). */
   name: z.string().min(1).max(60),
-  code: z.string().min(1).max(COMPOS_LIMITS.codeChars),
+  code: z.string().min(1).max(COMPOS_LIMITS.longCodeChars),
   /** Textos editables (los lee el código en env.params). */
   params: z.array(composParamSchema).max(12),
   /** Sonidos de la biblioteca en momentos de la composición (segundos desde que empieza). */
-  sounds: z.array(z.object({ at: z.number().min(0).max(COMPOS_LIMITS.maxSeconds), name: sfxName, gain: z.number().min(-30).max(0).default(-14) })).max(8).optional(),
+  sounds: z.array(z.object({ at: z.number().min(0).max(COMPOS_LIMITS.longMaxSeconds), name: sfxName, gain: z.number().min(-30).max(0).default(-14) })).max(60).optional(),
   /** Oculta los subtítulos mientras dura (la composición ya muestra el texto). */
   hide_captions: z.boolean().optional(),
   why: z.string().max(300).optional(),
@@ -55,7 +55,16 @@ export const compositionSchema = z.object({
   match: z.object({ score: z.number().min(0).max(100), note: z.string().max(300) }).optional(),
   /** Familias visuales (para rotar entre videos): "texto-letra-a-letra", "tarjeta-3d"… */
   tags: z.array(z.string().max(40)).max(6).optional(),
-  images: z.array(composImageSchema).max(4).optional(),
+  images: z.array(composImageSchema).max(8).optional(),
+  /** Pieza única de todo el video («Animar todo»): hasta 3 minutos y armada por escenas. */
+  long: z.boolean().optional(),
+  /** Escenas de la pieza única (segundos desde que empieza): los cambios se piden por escena. */
+  scenes: z.array(z.object({ title: z.string().min(1).max(80), start: z.number().min(0), end: z.number().min(0), brief: z.string().max(1200) })).max(30).optional(),
+  /**
+   * Franja fija de la persona («Mitad y mitad» abajo de la mitad; «Fondo blanco arriba»: el 45 % de abajo). El
+   * encuadre se elige una vez (centro en fracciones del cuadro y zoom) y lo dibuja el motor, igual en toda la pieza.
+   */
+  frame: z.object({ kind: z.enum(["split", "top"]), cx: z.number().min(0).max(1), cy: z.number().min(0).max(1), zoom: z.number().min(1).max(4) }).optional(),
   /** Huella del código que pasó la validación (lib/video/compos/validate.ts). */
   checked: z.string().max(40).optional(),
   /** Pedido de la persona que la creó o la cambió por última vez. */
@@ -87,7 +96,8 @@ export function composSegments(timeline: Pick<Timeline, "words" | "duration">, i
   for (const { item, range } of placed) {
     let start = Math.max(0, range.start - 0.05);
     let end = Math.min(timeline.duration, range.end + 0.15);
-    if (end - start > COMPOS_LIMITS.maxSeconds) end = start + COMPOS_LIMITS.maxSeconds;
+    const max = composLimitsFor(item.long).maxSeconds;
+    if (end - start > max) end = start + max;
     if (end - start < 0.8) end = Math.min(timeline.duration, start + 0.8);
     start = snap(start);
     end = snap(end);
@@ -100,7 +110,7 @@ export function composSegments(timeline: Pick<Timeline, "words" | "duration">, i
     const cur = out[i]!;
     const next = out[i + 1]!;
     const gap = next.start - cur.end;
-    if (gap > 0 && gap < 0.6 && next.start - cur.start <= COMPOS_LIMITS.maxSeconds) cur.end = round3(next.start);
+    if (gap > 0 && gap < 0.6 && next.start - cur.start <= composLimitsFor(cur.item.long).maxSeconds) cur.end = round3(next.start);
   }
   return out;
 }
@@ -160,7 +170,33 @@ export function composEnv(input: {
     captions: captionBand(input.format, input.captionsVisible && !item.hide_captions),
     mask: needsMask(item.code),
     assets,
+    ...framePanel(item.frame, W, H, input.face),
   };
+}
+
+/** Franja fija de la persona y lo que queda para la animación, según el encuadre elegido. */
+export function framePanel(frame: Composition["frame"], W: number, H: number, face?: Box): { stage?: ComposRect; panel?: ComposEnvData["panel"] } {
+  if (!frame) return {};
+  const top = frame.kind === "split" ? Math.round(H * 0.5) : Math.round(H * 0.55);
+  const panel = { x: 0, y: top, w: W, h: H - top };
+  // Zona del video que se ve en la franja: mismo formato que la franja, centrada donde se eligió y con su zoom.
+  const cw = Math.min(W, W / frame.zoom);
+  const ch = Math.min(H, (cw * panel.h) / panel.w);
+  const cx = Math.max(cw / 2, Math.min(W - cw / 2, frame.cx * W));
+  const cy = Math.max(ch / 2, Math.min(H - ch / 2, frame.cy * H));
+  void face;
+  return {
+    stage: { x: 0, y: 0, w: W, h: top },
+    panel: { ...panel, crop: { x: round3(cx - cw / 2), y: round3(cy - ch / 2), w: round3(cw), h: round3(ch) }, bg: frame.kind === "top" ? "#ffffff" : "#000000", line: frame.kind === "split" ? "rgba(255,255,255,0.35)" : null },
+  };
+}
+
+/** Encuadre de la franja por defecto: centrado en la cara (o un poco arriba del centro si no hay cara). */
+export function defaultFrame(kind: "split" | "top", face: Box | null, W: number, H: number): NonNullable<Composition["frame"]> {
+  const cx = face ? (face.x + face.w / 2) / W : 0.5;
+  // La cara un poco arriba del centro de la franja (que se vean hombros y manos).
+  const cy = face ? Math.min(0.85, (face.y + face.h * 0.9) / H) : 0.42;
+  return { kind, cx: Math.round(cx * 1000) / 1000, cy: Math.round(cy * 1000) / 1000, zoom: kind === "split" ? 1.25 : 1.35 };
 }
 
 /** El spec que dibuja el motor de efectos (kind "composition"). */

@@ -155,16 +155,16 @@ export const composPlanWireSchema = z.object({
         aspect: z.enum(["vertical", "horizontal", "square"]),
       }),
     )
-    .max(2)
-    .describe("Imágenes que hay que generar con IA (mapas, objetos, lugares, ilustraciones). Vacío si todo se dibuja con código o con el video."),
+    .max(6)
+    .describe("Imágenes que hay que generar con IA (hasta 2; hasta 6 en una pieza única) (mapas, objetos, lugares, ilustraciones). Vacío si todo se dibuja con código o con el video."),
   reuse: z.string().describe('Id de un efecto de MIS EFECTOS que hace JUSTO lo que se pide (se usa tal cual, sin escribir código nuevo). Vacío "" si ninguno encaja de verdad.'),
   reuse_params: z.array(z.object({ key: z.string(), value: z.string() })).describe("Si reusas: sus textos editables con lo que dice la persona en este tramo (mismas claves). Vacío si no reusas."),
 });
 
-export function composPlanTask(input: { brief: string; said: string; duration: number; format: string; hasImages: boolean; library?: string | null; copy?: boolean }): string {
+export function composPlanTask(input: { brief: string; said: string; duration: number; format: string; hasImages: boolean; library?: string | null; copy?: boolean; maxImages?: number }): string {
   return `ANIMACIÓN A CONSTRUIR (${input.duration.toFixed(1)} s, ${input.format}): ${input.brief}
 LO QUE DICE LA PERSONA EN ESE TRAMO: «${input.said}»
-${input.hasImages ? `Hay un generador de imágenes disponible (cuenta del cliente): pide imágenes SOLO si la animación muestra algo que no se puede dibujar bien con formas y texto (un mapa real, un objeto, un lugar, una ilustración).
+${input.hasImages ? `Hay un generador de imágenes disponible (cuenta del cliente): pide imágenes SOLO si la animación muestra algo que no se puede dibujar bien con formas y texto (un mapa real, un objeto, un lugar, una ilustración). Hasta ${input.maxImages ?? 2}.
 ${PHOTO_REALISM}` : "No hay generador de imágenes conectado: todo se dibuja con código y el video."}
 ${
   input.library
@@ -275,6 +275,12 @@ export function composCodeTask(input: {
   base?: { code: string; params: string; request: string } | null;
   previousError?: string | null;
   refFrames?: number;
+  /** Pieza única de todo el video, con sus escenas (segundos de la pieza). */
+  long?: { scenes: { title: string; start: number; end: number; brief: string }[] } | null;
+  /** Franja fija de la persona: dónde puede dibujar la animación (env.stage) y dónde va la persona (env.panel). */
+  stage?: string | null;
+  /** Cambio en una sola escena de la pieza. */
+  scene?: { index: number; title: string; start: number; end: number } | null;
 }): string {
   const parts = [
     `ANIMACIÓN: ${input.brief}`,
@@ -282,6 +288,17 @@ export function composCodeTask(input: {
     `LO QUE DICE LA PERSONA (palabras con su segundo dentro de la animación): ${input.words}`,
     `CARA (px): ${input.face}`,
   ];
+  if (input.long) {
+    parts.push(`PIEZA ÚNICA DE TODO EL VIDEO: una sola animación de principio a fin, que se ve como una pieza (no como clips sueltos). Empieza con una entrada pensada para el inicio del video y termina con un cierre pensado para el final.
+- Arma el código por escenas: const SCENES = [{ t0, t1, draw(ctx, lt, env, k) }, …] con una función por escena (lt = segundos dentro de la escena, k = progreso 0…1), en el mismo orden y con los mismos tiempos que la lista de abajo. render() dibuja primero lo que se comparte (fondo, grilla, partículas, marco, logo) y después la escena del momento.
+- Continuidad: lo que se repite entre escenas (fondo, paleta, tipografía, elementos que pasan de una a otra) vive fuera de las escenas. Cada escena entra desde cómo terminó la anterior: transiciones dibujadas de 0,3 a 0,6 s en el borde entre escenas, nunca un corte seco ni un cuadro vacío.
+- Movimiento siempre: ninguna escena se queda quieta. Sincroniza los golpes con las palabras de env.words.
+- Sonidos en "sounds" con segundos de la pieza (uno o dos por escena como mucho, en los golpes; nada pegado).
+ESCENAS (segundos de la pieza):
+${input.long.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(2)}–${sc.end.toFixed(2)} s: ${sc.brief}`).join("\n")}`);
+  }
+  if (input.stage) parts.push(input.stage);
+  if (input.scene) parts.push(`CAMBIO SOLO EN LA ESCENA ${input.scene.index + 1} «${input.scene.title}» (${input.scene.start.toFixed(2)}–${input.scene.end.toFixed(2)} s de la pieza). Cambia únicamente esa escena (y, si hace falta, la transición de entrada y de salida de esa escena). Todo lo demás del código tiene que quedar exactamente igual, carácter por carácter.`);
   if (input.momentDetail) parts.push(`EL MOMENTO DE LA REFERENCIA QUE COPIAS (reprodúcelo lo más fiel posible: composición, tipografía, colores, movimiento, curvas y tiempos; solo cambia el contenido):\n${input.momentDetail}`);
   if (input.recipeGlobal) parts.push(`ESTILO GLOBAL DE LA REFERENCIA:\n${input.recipeGlobal}`);
   if (input.refFrames) parts.push(`Te paso ${input.refFrames === 1 ? "una hoja" : `${input.refFrames} hojas`} con los cuadros de la referencia en ese momento (R#n). Míralos y copia lo que se ve.`);

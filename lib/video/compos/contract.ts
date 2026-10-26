@@ -32,7 +32,19 @@ export const COMPOS_LIMITS = {
   /** Duración de una composición. */
   minSeconds: 0.5,
   maxSeconds: 12,
+  /** Pieza única («Animar todo»): una sola animación de principio a fin del video, armada por escenas. */
+  longMaxSeconds: 180,
+  longCodeChars: 90_000,
 } as const;
+
+/** Límites de una composición según sea una pieza única (larga) o una animación de un tramo. */
+export const composLimitsFor = (long: boolean | undefined) => ({
+  maxSeconds: long ? COMPOS_LIMITS.longMaxSeconds : COMPOS_LIMITS.maxSeconds,
+  codeChars: long ? COMPOS_LIMITS.longCodeChars : COMPOS_LIMITS.codeChars,
+});
+
+/** Una caja en píxeles del video final. */
+export type ComposRect = { x: number; y: number; w: number; h: number };
 
 /** Palabra del tramo, en segundos de la composición (0 = cuando empieza). */
 export type ComposWord = { text: string; t0: number; t1: number; strong: boolean };
@@ -61,6 +73,16 @@ export type ComposEnvData = {
    */
   maskReady?: boolean;
   assets: ComposAsset[];
+  /**
+   * Dónde dibuja la animación (todo el cuadro si no viene). Con una franja fija de la persona («Mitad y mitad»,
+   * «Fondo blanco arriba»), es la parte de arriba.
+   */
+  stage?: ComposRect;
+  /**
+   * Franja fija de la persona: la dibuja el motor encima de todo, siempre igual (el encuadre que eligió la persona).
+   * `crop`: la zona del video que se ve en la franja; `bg`: color debajo.
+   */
+  panel?: ComposRect & { crop: ComposRect; bg: string; line: string | null };
 };
 
 /** Un cuadro dibujado: la lista principal y las capas que usa (por clave "L<n>.<versión>"). */

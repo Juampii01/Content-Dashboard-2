@@ -34,7 +34,7 @@ import type { EditPlan, Word } from "../types";
 import { compositionSchema, type Composition } from "./schema";
 import { fakeAdapt, fakeKeyMoments, fakeRecipe, fakeRequestPlan } from "./fake";
 import { activeCount, enqueueRequest, MAX_ACTIVE, promoteWaiting } from "./requests";
-import { loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type WorkCtx } from "./work";
+import { frameFor, loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type WorkCtx } from "./work";
 
 /**
  * Los tres caminos que llenan el taller de composiciones:
@@ -382,7 +382,7 @@ export const MAX_ACTIVE_REQUESTS = MAX_ACTIVE;
  * cada uno es su propia fila con su reserva del tope de IA y su trabajo VIDEO_COMPOS (lib/video/compos/requests.ts).
  * Si no alcanza el tope, el pedido queda fallido con el aviso (`error`) sin frenar a los demás.
  */
-export async function startStudioRequest(projectId: string, input: { from_word: number; to_word: number; instruction: string; replace: unknown | null }, userId: string | null): Promise<{ workId: string; error: string | null }> {
+export async function startStudioRequest(projectId: string, input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null }, userId: string | null): Promise<{ workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
@@ -411,6 +411,16 @@ export async function startStudioRequest(projectId: string, input: { from_word: 
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
       if (!needsPlan) task.status = "code";
+      // Pieza única: se conserva todo (escenas, franja fija) y, si se pidió en un punto, se cambia solo esa escena.
+      if (base?.long) {
+        task.long = true;
+        if (base.scenes?.length) task.scenes = base.scenes;
+        if (base.frame) task.frame = base.frame;
+        if (input.at != null && base.scenes?.length) {
+          const i = base.scenes.findIndex((sc) => input.at! >= sc.start && input.at! < sc.end);
+          task.scene = i >= 0 ? i : base.scenes.reduce((best, sc, k) => (Math.abs(sc.start - input.at!) < Math.abs(base.scenes![best]!.start - input.at!) ? k : best), 0);
+        }
+      }
       return {
         id: newWorkId(),
         mode: "request",
@@ -591,41 +601,62 @@ export async function planWholeVideo(projectId: string, input: { mode: WholeMode
 }
 
 /**
- * «Animar todo el video», paso 2: un pedido por momento (ya revisado), todos en espera; entran a la cola de a varios y
- * cada uno aparece en la pista Animaciones cuando termina. Los que había antes siguen.
+ * «Animar todo el video», paso 2: UNA sola animación de principio a fin del video (una pieza, con inicio y cierre),
+ * armada por las escenas que se revisaron. En «Mitad y mitad» y «Fondo blanco arriba», la franja de la persona es fija
+ * (la dibuja el motor con el encuadre elegido; la IA solo anima arriba). Después se cambia por escena.
  */
-export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string }[] }, userId: string | null): Promise<{ count: number }> {
+export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string; title?: string }[] }, userId: string | null): Promise<{ count: number; workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
   if (!aiConfigured()) throw new ComposRequestError("Falta configurar la IA en esta instalación.");
   const words = keptWords(ctx);
-  const moments = cleanWhole(plan.mode, words, plan.moments.map((m) => ({ ...m, title: "" })), 30);
-  if (!moments.length) throw new ComposRequestError("No quedó ninguna animación para crear.");
+  if (!words.length) throw new ComposRequestError("El video no tiene texto para animar.");
+  const moments = cleanWhole(plan.mode, words, plan.moments.map((m) => ({ ...m, title: m.title ?? "" })), 30);
+  if (!moments.length) throw new ComposRequestError("No quedó ninguna escena para crear.");
+  const from = words[0]!.id;
+  const to = words[words.length - 1]!.id;
+  const piece = outputRange(ctx.timeline, from, to);
+  if (!piece) throw new ComposRequestError("No pudimos ubicar el video. Recarga la página.");
+  const pieceStart = Math.max(0, piece.start - 0.05);
+  const scenes = moments.map((m, i) => {
+    const r = outputRange(ctx.timeline, m.from_word, m.to_word);
+    const a = Math.max(0, (r?.start ?? 0) - pieceStart);
+    const b = Math.max(a + 0.5, (r?.end ?? a + 1) - pieceStart);
+    return { title: (m.title || `Escena ${i + 1}`).slice(0, 80), start: Math.round(a * 100) / 100, end: Math.round(b * 100) / 100, brief: m.prompt.slice(0, 1200) };
+  });
+  // En los modos que cubren todo, cada escena llega hasta la siguiente y la primera arranca en 0.
+  if (plan.mode !== "face") {
+    scenes[0]!.start = 0;
+    for (let i = 0; i < scenes.length - 1; i++) scenes[i]!.end = scenes[i + 1]!.start;
+  }
   const style = plan.style.trim().slice(0, 500);
-  const layout = WHOLE_LAYOUT[plan.mode] ? `${WHOLE_LAYOUT[plan.mode]} ` : "";
-  for (const m of moments) {
-    // El pedido primero (es lo que se lee en la pista mientras se crea); el modo y el estilo común, después.
-    const instruction = `${m.prompt.slice(0, 1100)}\n\n${layout}${style ? `ESTILO COMÚN DEL VIDEO: ${style}` : ""}`.trim().slice(0, 1500);
-    await enqueueRequest({
-      projectId,
-      userId,
-      cap: ctx.cap,
-      spent: ctx.spent,
-      needsPlan: true,
-      wait: true,
-      build: () => ({
+  const layout = WHOLE_LAYOUT[plan.mode];
+  const outside = plan.mode === "face" ? "Fuera de las escenas no dibujes nada: se ve a la persona hablando (background \"video\")." : "";
+  const instruction = `Pieza única de animación para TODO el video, de principio a fin, con las escenas de la lista. ${layout} ${outside} ${style ? `ESTILO COMÚN: ${style}` : ""}`.replace(/\s+/g, " ").trim().slice(0, 1500);
+  const frame = plan.mode === "split" || plan.mode === "top" ? frameFor(ctx, plan.mode, { start: piece.start, end: piece.end }) : undefined;
+  const { workId, error } = await enqueueRequest({
+    projectId,
+    userId,
+    cap: ctx.cap,
+    spent: ctx.spent,
+    needsPlan: true,
+    build: (lookRounds) => {
+      const task = newTask({ from_word: from, to_word: to, brief: instruction, source: "user", request: instruction });
+      task.long = true;
+      task.scenes = scenes;
+      if (frame) task.frame = frame;
+      return {
         id: newWorkId(),
         mode: "request",
-        tasks: [newTask({ from_word: m.from_word, to_word: m.to_word, brief: instruction, source: "user", request: instruction })],
+        tasks: [task],
         startedAt: new Date().toISOString(),
         spentAtStart: ctx.spent,
-        lookRounds: 0,
+        lookRounds: Math.min(lookRounds, 1),
         done: false,
-        request: { instruction, from_word: m.from_word, to_word: m.to_word, replaceId: null },
-      }),
-    });
-  }
-  await promoteWaiting(projectId, { cap: ctx.cap, spent: ctx.spent });
-  return { count: moments.length };
+        request: { instruction, from_word: from, to_word: to, replaceId: null },
+      };
+    },
+  });
+  return { count: scenes.length, workId, error };
 }

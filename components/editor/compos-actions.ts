@@ -18,6 +18,8 @@ const requestSchema = z.object({
   to_word: z.number().int().min(0),
   instruction: z.string().trim().min(3, "Escribe qué animación quieres.").max(1500, "El pedido es demasiado largo: resúmelo en pocas frases."),
   replace: z.unknown().nullable().optional(),
+  /** Segundo dentro de la animación donde está el cabezal (en una pieza única, se cambia esa escena). */
+  at: z.number().min(0).max(600).nullable().optional(),
 });
 
 /** Varios pedidos pueden correr a la vez. `error`: el pedido quedó creado pero sin tope de IA (se muestra en él). */
@@ -27,7 +29,7 @@ export async function requestAnimationAction(projectId: string, input: z.input<t
   const parsed = requestSchema.safeParse(input);
   if (!idSchema.safeParse(projectId).success || !parsed.success) return { ok: false, error: parsed.error?.issues[0]?.message ?? "Pedido no válido." };
   try {
-    const { workId, error } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null }, user.id);
+    const { workId, error } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null, at: parsed.data.at ?? null }, user.id);
     return { ok: true, workId, error };
   } catch (error) {
     if (error instanceof ComposRequestError) return { ok: false, error: error.message };
@@ -92,13 +94,13 @@ const wholeSchema = z.object({
   mode: modeSchema,
   style: z.string().max(600),
   moments: z
-    .array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), prompt: z.string().trim().min(20, "Cada animación necesita un pedido (al menos una frase).").max(1100, "Un pedido es demasiado largo: resúmelo.") }))
+    .array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), title: z.string().max(80).optional(), prompt: z.string().trim().min(20, "Cada animación necesita un pedido (al menos una frase).").max(1100, "Un pedido es demasiado largo: resúmelo.") }))
     .min(1, "No hay animaciones para crear.")
     .max(30),
 });
 
 /** Paso 2: crea todas (en espera; entran a la cola de a varias y aparecen solas en la línea de tiempo). */
-export async function startWholeVideoAction(projectId: string, plan: z.input<typeof wholeSchema>): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+export async function startWholeVideoAction(projectId: string, plan: z.input<typeof wholeSchema>): Promise<{ ok: true; count: number; workId: string; error: string | null } | { ok: false; error: string }> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = wholeSchema.safeParse(plan);

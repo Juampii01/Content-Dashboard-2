@@ -539,6 +539,7 @@ const mix = (a: string, b: string, p: number) => {
 
 let env: G | null = null;
 let mod: { render: (ctx: Rec, t: number, env: G) => void; background?: string } | null = null;
+let panelData: ComposEnvData["panel"] | null = null;
 let main: Rec | null = null;
 
 function makeEnv(d: ComposEnvData): G {
@@ -572,6 +573,9 @@ function makeEnv(d: ComposEnvData): G {
     face: Object.freeze({ ...f, cx: f.x + f.w / 2, cy: f.y + f.h / 2 }),
     safe: Object.freeze({ x: f.x - mx, y: f.y - my, w: f.w + mx * 2, h: f.h + my * 2 }),
     captions: Object.freeze({ ...d.captions }),
+    // Dónde dibuja la animación (con la franja fija de la persona, la parte de arriba; si no, todo el cuadro).
+    stage: Object.freeze(d.stage ? { ...d.stage } : { x: 0, y: 0, w: W, h: H }),
+    panel: d.panel ? Object.freeze({ x: d.panel.x, y: d.panel.y, w: d.panel.w, h: d.panel.h }) : null,
     hasMask: d.mask,
     mask: Object.freeze({ ready: d.mask && d.maskReady !== false }),
     video: VIDEO,
@@ -869,6 +873,7 @@ const api = {
   setup(json: string) {
     const data = JSON.parse(json) as ComposEnvData;
     env = makeEnv(data);
+    panelData = data.panel ?? null;
     // Aleatorio determinista por composición.
     const r = rng(data.seed || 1);
     Math.random = r;
@@ -898,6 +903,26 @@ const api = {
       if (mod!.background !== "none") main.drawVideo();
       const tt = clamp(Number(t) || 0, 0, env!.duration as number);
       mod!.render(main, tt, env!);
+      // La franja fija de la persona: encima de todo lo que dibujó la animación, siempre igual (no la puede tapar).
+      if (panelData) {
+        while (main._stack.length) main.restore();
+        main.save();
+        main.setTransform(1, 0, 0, 1, 0, 0);
+        main.globalAlpha = 1;
+        main.globalCompositeOperation = "source-over";
+        main.filter = "none";
+        main.shadowBlur = 0;
+        main.shadowColor = "rgba(0,0,0,0)";
+        const p = panelData;
+        main.fillStyle = p.bg;
+        main.fillRect(p.x, p.y, p.w, p.h);
+        main.drawImage(VIDEO, p.crop.x, p.crop.y, p.crop.w, p.crop.h, p.x, p.y, p.w, p.h);
+        if (p.line) {
+          main.fillStyle = p.line;
+          main.fillRect(p.x, p.y - 2, p.w, 4);
+        }
+        main.restore();
+      }
       const ops = main._ops;
       for (let i = 0; i < main._stack.length; i++) ops.push(["r"]);
       return JSON.stringify({ ok: true, frame: { o: ops, l: frameLayers, n: opCount } });

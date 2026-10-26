@@ -59,7 +59,7 @@ test("revisión estática: pasa un módulo normal y rechaza las puertas de escap
     noExport: `function render() {}`,
     topLevel: `ctx.fillRect(0,0,1,1); export default { render() {} };`,
     unknownGlobal: ok("navigatorX.y = 1"),
-    tooLong: ok("/*" + "x".repeat(30_000) + "*/"),
+    tooLong: ok("/*" + "x".repeat(95_000) + "*/"),
   };
   for (const [name, code] of Object.entries(bad)) assert.equal(checkStatic(code).ok, false, `debería rechazar: ${name}`);
 });
@@ -236,4 +236,35 @@ test("variedad: la apertura rota entre videos y deja al final lo que la marca us
   const recent = openerOrder([{ text: "Hoy" }], ["cover_story", "glass_type"]);
   assert.equal(recent.at(-1), "cover_story");
   assert.equal(recent.at(-2), "glass_type");
+});
+
+test("franja fija de la persona: el motor la dibuja encima de todo, igual en cada cuadro", async () => {
+  const { framePanel, composSegments: segs } = await import("../lib/video/compos/schema");
+  const fp = framePanel({ kind: "split", cx: 0.5, cy: 0.35, zoom: 1.25 }, 1080, 1920);
+  assert.deepEqual(fp.stage, { x: 0, y: 0, w: 1080, h: 960 });
+  assert.equal(fp.panel!.y, 960);
+  // El recorte tiene el formato de la franja y no se sale del cuadro.
+  const c = fp.panel!.crop;
+  assert.ok(Math.abs(c.w / c.h - 1080 / 960) < 0.01 && c.x >= 0 && c.y >= 0 && c.x + c.w <= 1080.01 && c.y + c.h <= 1920.01);
+  const code = `export default { background: "none", render(ctx, t, env) { ctx.fillStyle = "#ff0000"; ctx.fillRect(0, 0, env.W, env.H); ctx.translate(30, 30); ctx.globalAlpha = 0.2; } };`;
+  const opened = await NodeSandbox.open(code, { ...env, ...fp, mask: false });
+  assert.ok(opened.ok);
+  if (!opened.ok) return;
+  const r = await opened.sandbox.frame(1, 400);
+  opened.sandbox.close?.();
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  const ops = r.frame.o as unknown[][];
+  const img = ops.findIndex((o) => o[0] === "pv" || (o[0] === "img" && false));
+  void img;
+  const last = JSON.stringify(ops.slice(-14));
+  // Después de la animación: estado limpio, el fondo de la franja y el video recortado en la franja.
+  assert.ok(last.includes("960"), "dibuja la franja desde la mitad");
+  assert.ok(/"globalAlpha",1/.test(last), "con el estado limpio (la animación no la puede atenuar)");
+  // Una pieza única puede durar más de 12 s (hasta 3 min).
+  const words = Array.from({ length: 60 }, (_, i) => ({ id: i, text: "w", start: i, end: i + 0.8, emphasis: false, stop: false }));
+  const long = segs({ words, duration: 60 } as never, [{ id: "p", from_word: 0, to_word: 59, name: "p", code: "x", params: [], source: "user", long: true }]);
+  assert.ok(long[0]!.end - long[0]!.start > 50);
+  const short = segs({ words, duration: 60 } as never, [{ id: "q", from_word: 0, to_word: 59, name: "q", code: "x", params: [], source: "user" }]);
+  assert.ok(short[0]!.end - short[0]!.start <= 12.01);
 });

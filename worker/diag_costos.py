@@ -28,7 +28,7 @@ def main() -> None:
         videos = conn.execute(
             "select count(*) n, coalesce(sum((media->>'duration')::float), 0) secs from video_projects where created_at > now() - interval '30 days'"
         ).fetchone()
-        renders = conn.execute("select count(*) n from jobs where type = 'VIDEO_RENDER' and status = 'DONE' and created_at > now() - interval '30 days'").fetchone()
+        renders = conn.execute("select count(*) n from jobs where type = 'VIDEO_RENDER' and status = 'SUCCEEDED' and created_at > now() - interval '30 days'").fetchone()
         dbsize = conn.execute("select pg_database_size(current_database()) b").fetchone()
         span = conn.execute("select min(created_at) a, max(created_at) b from jobs where created_at > now() - interval '30 days'").fetchone()
 

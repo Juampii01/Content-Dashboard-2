@@ -297,6 +297,8 @@ function itemOf(task: ComposTask, code: ComposCodeWire | { code: string; name: s
     params: cleanParams(code.params),
     sounds: (code.sounds ?? []).filter((s) => s.at >= 0 && s.at <= composLimitsFor(task.long).maxSeconds).slice(0, task.long ? 60 : 8).map((s) => ({ ...s, gain: Math.max(-30, Math.min(0, s.gain)) })),
     hide_captions: code.hide_captions,
+    // Escrita ya con la franja de subtítulos libre (ver composEnv).
+    captions: "show",
     why: code.why.slice(0, 300),
     source: task.source,
     ...(task.moment ? { moment: task.moment } : {}),

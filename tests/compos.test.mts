@@ -207,6 +207,13 @@ test("plan: tramos, recorte, limpieza y spec de una composición", () => {
   assert.equal(spec.kind, "composition");
   assert.equal(spec.mask, true);
   assert.equal(spec.compos!.env.params.word, "ENFOQUE");
+  // La franja de subtítulos que ve el código: las animaciones de antes (sin `captions`) la ven como cuando se
+  // escribieron; las nuevas la ven siempre (salvo que la persona oculte los subtítulos).
+  const band = (it: Composition) => compileComposition({ item: it, start: seg!.start, end: seg!.end, timeline: tl, format: "9:16", brand: { accent: "#ff0000", bg: "#000000", surface: "#111111", text: "#ffffff", muted: "#999999", accentText: "#ffffff", font: "inter" }, face: env.face, captionsVisible: true }).compos!.env.captions.visible;
+  assert.equal(band({ ...item, hide_captions: true }), false);
+  assert.equal(band({ ...item, hide_captions: false }), true);
+  assert.equal(band({ ...item, hide_captions: true, captions: "show" }), true);
+  assert.equal(band({ ...item, captions: "hide" }), false);
   // Se pisan: conviven en capas (la capa se conserva). Fuera de la transcripción: se descarta.
   const clean = cleanCompositions([item, { ...item, id: "c2", from_word: 3, to_word: 5, layer: 2 }, { ...item, id: "c3", from_word: 9, to_word: 12 }], 6);
   assert.deepEqual(clean.map((c) => c.id), ["c1", "c2"]);

@@ -160,6 +160,10 @@ export function composEnv(input: {
     ...(item.images ?? []).map((g) => ({ id: g.id, width: g.width, height: g.height, kind: "image" as const, title: g.focus?.label ?? g.prompt.slice(0, 60) })),
     ...(usesAssets(item.code) ? (input.thumbs ?? []).slice(0, 6).map((t, i) => ({ id: `t${i}`, width: 1080, height: 1920, kind: "thumb" as const, title: t.title.slice(0, 60) })) : []),
   ];
+  // La franja de subtítulos que ve el código es la que tenía cuando se escribió: las animaciones de antes de
+  // «Subtítulos encima» (sin el campo `captions`) se armaron sin ella si la IA ocultaba los subtítulos. Si ahora la
+  // vieran, achicarían y subirían todo para dejarle lugar. Los subtítulos se dibujan encima igual.
+  const bandVisible = input.captionsVisible && (item.captions ? item.captions !== "hide" : !item.hide_captions);
   return {
     width: W,
     height: H,
@@ -171,8 +175,8 @@ export function composEnv(input: {
     face: input.face,
     // Con la cara fija abajo, los subtítulos van justo encima de la franja (ver clearFaceBands).
     captions: item.frame
-      ? { y: Math.round(H * (panelTopFrac(item.frame.kind) - 0.075)), h: Math.round(H * 0.08), visible: input.captionsVisible && item.captions !== "hide" }
-      : captionBand(input.format, input.captionsVisible && item.captions !== "hide"),
+      ? { y: Math.round(H * (panelTopFrac(item.frame.kind) - 0.075)), h: Math.round(H * 0.08), visible: bandVisible }
+      : captionBand(input.format, bandVisible),
     mask: needsMask(item.code),
     assets,
     ...framePanel(item.frame, W, H, input.face),

@@ -15,7 +15,7 @@ import { COMPOS_API_DOC, COMPOS_LIMITS } from "@/lib/video/compos/contract";
 import { COMPOS_SAMPLES } from "@/lib/video/compos/samples";
 import { FX_KINDS } from "@/lib/video/fx/catalog";
 import { TRANSITION_KINDS } from "@/lib/video/fx/transitions";
-import { SFX_NAMES, type SfxName } from "@/lib/video/sfx-library";
+import { sfxCatalogText, SFX_NAMES, type SfxName } from "@/lib/video/sfx-library";
 
 // ─── Receta de la referencia ─────────────────────────────────────────────
 
@@ -251,6 +251,9 @@ CALIDAD QUE SE ESPERA
 - Nunca inventes cifras ni datos: solo lo que se dice.
 
 ${COMPOS_API_DOC}
+
+SONIDOS DE LA BIBLIOTECA (en "sounds": nombre exacto, segundo de la animación y ganancia; pocos y justos, en los golpes visuales; las voces de anunciador para momentos épicos o de juego):
+${sfxCatalogText()}
 
 EJEMPLOS (mismo nivel de calidad, distintos estilos: no los copies tal cual, úsalos para ver cómo se usa la API):
 

@@ -2,13 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { GripVertical, Play, Plus } from "lucide-react";
-import { SFX_CATEGORIES, SFX_CATEGORY_LABELS, SFX_LIBRARY, searchSfx, type SfxCategory, type SfxName } from "@/lib/video/sfx-library";
+import { SFX_CATEGORIES, SFX_CATEGORY_LABELS, SFX_LIBRARY, SFX_NAMES, searchSfx, type SfxCategory, type SfxName } from "@/lib/video/sfx-library";
 import { cn } from "@/lib/utils";
 import { Chip, SearchBox } from "../fx/fx-library";
 import { playSfx } from "../sound/use-sound";
 import { startLibraryDrag, type LibraryDrop } from "./studio-timeline";
 
-/** Biblioteca → Sonidos: los 40 efectos de sonido (propios) para escuchar, tocar para poner en el cabezal o arrastrar. */
+/** Biblioteca → Sonidos: los efectos de sonido (propios y CC0) para escuchar, tocar para poner en el cabezal o arrastrar. */
 export function LibrarySounds({ canEdit, onAdd }: { canEdit: boolean; onAdd: (item: LibraryDrop) => void }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<SfxCategory | "todos">("todos");
@@ -16,7 +16,7 @@ export function LibrarySounds({ canEdit, onAdd }: { canEdit: boolean; onAdd: (it
   return (
     <div className="flex flex-col gap-2.5">
       <p className="text-xs text-muted">Sonidos propios del Estudio (sin derechos de autor). Suenan aunque los automáticos estén apagados y van en la pista de Sonido, donde los mueves o cambias su volumen.</p>
-      <SearchBox value={q} onChange={setQ} label="Buscar sonidos" placeholder="Buscar en 40 sonidos…" />
+      <SearchBox value={q} onChange={setQ} label="Buscar sonidos" placeholder={`Buscar en ${SFX_NAMES.length} sonidos…`} />
       <div role="tablist" aria-label="Categorías de sonidos" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
         <Chip active={cat === "todos"} onClick={() => setCat("todos")} label="Todos" count={40} />
         {SFX_CATEGORIES.map((c) => (

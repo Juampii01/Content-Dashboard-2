@@ -294,6 +294,244 @@ def more_sounds() -> dict[str, np.ndarray]:
     return s
 
 
+# ─── Cine y anunciador (más cuerpo: capas, saturación y una sala con reverberación) ──────────────────────────
+
+
+def _reverb(y: np.ndarray, seconds: float, mix: float, seed: int, bright: float = 4000.0) -> np.ndarray:
+    """Reverberación por convolución con una respuesta sintética (ruido que decae, más oscuro al final)."""
+    n = int(seconds * RATE)
+    t = np.arange(n) / RATE
+    ir = np.random.default_rng(seed).standard_normal(n) * np.exp(-t * 6.9 / seconds)
+    ir = _lowpass_fast(ir, bright)
+    ir[0] = 0
+    ir /= np.sqrt(np.sum(ir**2)) + 1e-9
+    size = 1 << int(np.ceil(np.log2(len(y) + n)))
+    wet = np.fft.irfft(np.fft.rfft(y, size) * np.fft.rfft(ir, size), size)[: len(y) + n]
+    out = np.zeros(len(y) + n)
+    out[: len(y)] += y * (1 - mix)
+    out += wet * mix * 0.6
+    return out
+
+
+def _lowpass_fast(x: np.ndarray, cutoff: float) -> np.ndarray:
+    """Pasabajos por FFT (suave, sin bucles): para capas largas."""
+    spec = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1 / RATE)
+    spec *= 1 / np.sqrt(1 + (f / cutoff) ** 4)
+    return np.fft.irfft(spec, len(x))
+
+
+def _bandpass_fast(x: np.ndarray, lo: float, hi: float) -> np.ndarray:
+    spec = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1 / RATE)
+    spec *= (1 / np.sqrt(1 + (f / hi) ** 4)) * (1 / np.sqrt(1 + (lo / np.maximum(f, 1)) ** 4))
+    return np.fft.irfft(spec, len(x))
+
+
+def _sat(x: np.ndarray, drive: float) -> np.ndarray:
+    return np.tanh(x * drive) / np.tanh(drive)
+
+
+def _saw(phase: np.ndarray, harmonics: int = 24) -> np.ndarray:
+    return sum(np.sin(phase * k) / k for k in range(1, harmonics + 1))
+
+
+def cinematic_sounds() -> dict[str, np.ndarray]:
+    """Efectos de cine (tráiler, golpes con sala, risers largos, vidrio, espada, gore, cinta) para reels."""
+    s: dict[str, np.ndarray] = {}
+    g = np.random.default_rng
+
+    # Braam de tráiler: metales graves desafinados, saturados y con sala.
+    t = _t(2.4)
+    env = np.minimum(1, t / 0.08) * np.exp(-np.maximum(0, t - 0.35) / 0.7)
+    ph = 2 * np.pi * 55 * t
+    body = sum(_saw(ph * d, 30) for d in (1.0, 1.006, 0.994, 2.003))
+    body = _lowpass_fast(_sat(body * 0.5, 2.5), 900) * env
+    s["braam"] = _reverb(body, 2.0, 0.35, 101)[: int(3.5 * RATE)]
+
+    # Golpe de tráiler: sub que cae, ruido de impacto, capa metálica y sala grande.
+    t = _t(0.9)
+    sub = np.sin(2 * np.pi * np.cumsum(38 + 90 * np.exp(-t / 0.05)) / RATE) * np.exp(-t / 0.45)
+    crack = _bandpass_fast(g(102).standard_normal(len(t)), 200, 6000) * np.exp(-t / 0.03)
+    metal = sum(np.sin(2 * np.pi * f * t) for f in (311, 467, 739, 1153)) * np.exp(-t / 0.25) * 0.15
+    s["trailer_hit"] = _reverb(_sat(sub * 1.2 + crack * 0.8 + metal, 1.6), 2.6, 0.4, 103)[: int(3.5 * RATE)]
+
+    # Explosión: ruido grave que se abre y se apaga lento, con sub y ráfagas.
+    t = _t(2.5)
+    n = g(104).standard_normal(len(t))
+    boomy = _lowpass_fast(n, 700) * np.exp(-t / 0.6) * 1.6 + _bandpass_fast(n, 800, 5000) * np.exp(-t / 0.08) * 0.6
+    sub = np.sin(2 * np.pi * np.cumsum(30 + 60 * np.exp(-t / 0.1)) / RATE) * np.exp(-t / 0.8)
+    s["explosion"] = _reverb(_sat(boomy + sub, 1.8), 1.8, 0.25, 105)[: int(3.5 * RATE)]
+
+    # Trueno: grieta aguda y retumbe largo.
+    t = _t(3.2)
+    n = g(106).standard_normal(len(t))
+    rumble = _lowpass_fast(n, 220) * (np.exp(-t / 1.2) * (1 + 0.6 * np.sin(2 * np.pi * 3.1 * t))) * 2.5
+    crack = _bandpass_fast(n, 1500, 9000) * np.exp(-t / 0.04)
+    s["thunder"] = _reverb(rumble + crack * 0.7, 2.5, 0.3, 107)[: int(4.0 * RATE)]
+
+    # Espada: silbido muy rápido y el filo que vibra.
+    t = _t(0.7)
+    sweep = 2500 * (9000 / 2500) ** np.minimum(1, t / 0.12)
+    swish = _biquad_bandpass(g(108).standard_normal(len(t)), sweep, 3.0) * np.exp(-((t - 0.06) / 0.05) ** 2)
+    ring = sum(np.sin(2 * np.pi * f * t) * a for f, a in ((2793, 0.5), (4410, 0.3), (6890, 0.2))) * np.where(t > 0.08, np.exp(-(t - 0.08) / 0.18), 0)
+    s["sword"] = _reverb(swish * 1.4 + ring * 0.35, 0.8, 0.2, 109)
+
+    # Vidrio que se rompe: golpe y muchos tintineos al azar.
+    t = _t(1.6)
+    rng = g(110)
+    y = _bandpass_fast(rng.standard_normal(len(t)), 2000, 12000) * np.exp(-t / 0.02) * 1.5
+    for _ in range(70):
+        st = rng.uniform(0.0, 0.7) ** 1.7
+        f = rng.uniform(2500, 9500)
+        i0 = int(st * RATE)
+        tt = t[: len(t) - i0]
+        y[i0:] += np.sin(2 * np.pi * f * tt) * np.exp(-tt / rng.uniform(0.03, 0.15)) * rng.uniform(0.05, 0.25)
+    s["glass_break"] = _reverb(y, 1.2, 0.25, 111)[: int(2.2 * RATE)]
+
+    # Hueso que cruje.
+    t = _t(0.5)
+    rng = g(112)
+    y = np.zeros(len(t))
+    for _ in range(9):
+        i0 = int(rng.uniform(0, 0.12) * RATE)
+        burst = _bandpass_fast(rng.standard_normal(len(t) - i0), 800, 5000) * np.exp(-t[: len(t) - i0] / 0.006)
+        y[i0:] += burst * rng.uniform(0.4, 1.0)
+    y += np.sin(2 * np.pi * 140 * t) * np.exp(-t / 0.04) * 0.6
+    s["bone_crack"] = y
+
+    # Gore: golpe húmedo con salpicadura.
+    t = _t(0.9)
+    rng = g(113)
+    thump = np.sin(2 * np.pi * np.cumsum(70 + 120 * np.exp(-t / 0.02)) / RATE) * np.exp(-t / 0.12)
+    wet = _bandpass_fast(rng.standard_normal(len(t)), 300, 3500) * np.exp(-t / 0.09) * (1 + 0.8 * np.sin(2 * np.pi * 23 * t))
+    drops = np.zeros(len(t))
+    for _ in range(14):
+        i0 = int(rng.uniform(0.08, 0.6) * RATE)
+        tt = t[: len(t) - i0]
+        drops[i0:] += np.sin(2 * np.pi * rng.uniform(500, 1400) * tt * (1 + 2 * tt)) * np.exp(-tt / 0.02) * 0.25
+    s["splat"] = _sat(thump * 1.2 + wet * 0.9 + drops, 1.4)
+
+    # Riser de Shepard (sube sin parar) de 3 s, termina en el golpe.
+    t = _t(3.0)
+    y = np.zeros(len(t))
+    for k in range(6):
+        pos = (k / 6 + t / 3.0) % 1.0
+        f = 80 * 2 ** (pos * 6)
+        amp = np.sin(np.pi * pos) ** 2
+        y += np.sin(2 * np.pi * np.cumsum(f) / RATE) * amp
+    noise = _biquad_bandpass(g(114).standard_normal(len(t)), 500 * (8000 / 500) ** (t / 3.0), 1.0)
+    y = (y * 0.5 + noise * 0.6) * (t / 3.0) ** 2
+    s["riser_epic"] = y
+
+    # Platillo al revés (succión hacia el golpe).
+    t = _t(1.5)
+    cym = _bandpass_fast(g(115).standard_normal(len(t)), 3000, 14000) * np.exp(-t / 0.5)
+    cym += sum(np.sin(2 * np.pi * f * t) for f in (3150, 4780, 6230)) * np.exp(-t / 0.4) * 0.05
+    s["reverse_cymbal"] = cym[::-1].copy()
+
+    # Cinta que se frena (todo baja y se apaga).
+    t = _t(0.9)
+    speed = np.maximum(0.02, 1 - (t / 0.9) ** 0.8)
+    f = np.array([220, 277, 330, 440])
+    y = sum(np.sin(2 * np.pi * np.cumsum(ff * speed) / RATE) for ff in f) * speed
+    s["tape_stop"] = _lowpass_fast(y, 2500) * 0.6
+
+    # Bajo 808 que cae.
+    t = _t(1.4)
+    y = np.sin(2 * np.pi * np.cumsum(45 + 140 * np.exp(-t / 0.03)) / RATE) * np.exp(-t / 0.6)
+    s["bass_808"] = _sat(y, 2.2)
+
+    # Whoosh en cámara lenta (grave y largo).
+    t = _t(1.6)
+    sweep = 150 * (1300 / 150) ** np.sin(np.pi * t / 1.6)
+    y = _biquad_bandpass(g(116).standard_normal(len(t)), sweep, 2.2) * np.sin(np.pi * t / 1.6) ** 2
+    s["whoosh_slowmo"] = _reverb(y, 1.0, 0.25, 117)[: int(2.2 * RATE)]
+
+    # Doble whoosh (pasa y vuelve).
+    a = whoosh(g(118))
+    b = whoosh(g(119))
+    y = np.zeros(int(0.9 * RATE))
+    y[: len(a)] += a
+    y[int(0.28 * RATE) : int(0.28 * RATE) + len(b)] += b[: len(y) - int(0.28 * RATE)] * 0.8
+    s["whoosh_double"] = y
+
+    # Latido rápido (tensión).
+    t = _t(1.6)
+    y = np.zeros(len(t))
+    for k in range(4):
+        for off, amp in ((0.0, 1.0), (0.14, 0.6)):
+            i0 = int((k * 0.4 + off) * RATE)
+            tt = t[: len(t) - i0]
+            y[i0:] += np.sin(2 * np.pi * 55 * tt) * np.exp(-tt / 0.07) * amp
+    s["heartbeat_fast"] = _lowpass_fast(y, 300) * 1.4
+
+    # Reloj (tic tac).
+    t = _t(2.0)
+    y = np.zeros(len(t))
+    for k in range(4):
+        i0 = int(k * 0.5 * RATE)
+        tt = t[: len(t) - i0]
+        f = 3200 if k % 2 == 0 else 2600
+        y[i0:] += _bandpass_fast(g(120 + k).standard_normal(len(tt)), f * 0.8, f * 1.2) * np.exp(-tt / 0.008)
+    s["clock"] = y
+
+    # Láser.
+    t = _t(0.45)
+    y = np.sin(_sweep(2400, 300, 0.45)) * np.exp(-t / 0.15) + np.sin(_sweep(2410, 305, 0.45)) * np.exp(-t / 0.15) * 0.7
+    s["laser"] = y
+
+    # Potencia arriba y abajo.
+    t = _t(0.9)
+    s["power_up"] = (np.sin(_sweep(200, 1600, 0.9)) + 0.5 * np.sin(_sweep(300, 2400, 0.9))) * (t / 0.9) ** 1.5 * np.exp(-np.maximum(0, t - 0.85) / 0.02)
+    s["power_down"] = (np.sin(_sweep(1600, 120, 0.9)) + 0.5 * np.sin(_sweep(2400, 180, 0.9))) * (1 - t / 0.9) ** 0.7
+
+    # Flash de cámara (carga y disparo).
+    t = _t(1.0)
+    whine = np.concatenate([np.sin(_sweep(1200, 9000, 0.8)), np.zeros(len(t) - int(0.8 * RATE))]) * np.minimum(1, t / 0.8) * 0.25
+    shot = _bandpass_fast(g(124).standard_normal(len(t)), 1000, 8000) * np.where(t > 0.8, np.exp(-(t - 0.8) / 0.02), 0) * 1.4
+    s["camera_flash"] = whine * (t < 0.8) + shot
+
+    # Disco que se frena.
+    t = _t(0.8)
+    speed = np.maximum(0.01, 1 - t / 0.8)
+    y = _biquad_bandpass(g(125).standard_normal(len(t)), np.clip(1500 * speed, 80, 8000), 4.0) + np.sin(2 * np.pi * np.cumsum(330 * speed) / RATE) * 0.6 * speed
+    s["vinyl_stop"] = y
+
+    # Golpe de bombo de estadio con sala (para cifras).
+    t = _t(0.6)
+    kick = np.sin(2 * np.pi * np.cumsum(50 + 150 * np.exp(-t / 0.015)) / RATE) * np.exp(-t / 0.18)
+    s["stadium_kick"] = _reverb(_sat(kick, 1.8), 1.6, 0.35, 126)[: int(2.0 * RATE)]
+
+    # Campanazo épico (gong).
+    t = _t(3.0)
+    y = sum(np.sin(2 * np.pi * f * t + np.sin(2 * np.pi * 0.7 * t) * 0.3) * a * np.exp(-t / d) for f, a, d in ((98, 1.0, 1.6), (147.7, 0.6, 1.2), (231, 0.45, 0.9), (389, 0.3, 0.6), (612, 0.2, 0.4)))
+    y += _bandpass_fast(g(127).standard_normal(len(t)), 300, 3000) * np.exp(-t / 0.05) * 0.4
+    s["gong"] = y
+
+    # Glitch largo (digital que se rompe).
+    t = _t(0.9)
+    rng = g(128)
+    y = np.zeros(len(t))
+    i = 0
+    while i < len(t):
+        seg = int(rng.uniform(0.01, 0.06) * RATE)
+        kind = rng.integers(0, 3)
+        tt = np.arange(min(seg, len(t) - i)) / RATE
+        if kind == 0:
+            y[i : i + len(tt)] = np.sign(np.sin(2 * np.pi * rng.uniform(200, 3000) * tt)) * 0.5
+        elif kind == 1:
+            y[i : i + len(tt)] = rng.standard_normal(len(tt)) * 0.5
+        i += len(tt) + int(rng.uniform(0, 0.02) * RATE)
+    s["glitch_long"] = y
+
+    # Silbido de bomba que cae (antes del impacto).
+    t = _t(1.4)
+    s["falling"] = np.sin(_sweep(2200, 500, 1.4)) * np.minimum(1, t / 0.2) * 0.7
+
+    return s
+
+
 def normalize(y: np.ndarray) -> np.ndarray:
     win = int(0.1 * RATE)
     if len(y) <= win:
@@ -325,6 +563,12 @@ def build() -> dict[str, np.ndarray]:
     }
     for name, y in more_sounds().items():
         out[name] = normalize(np.asarray(y, dtype=np.float64)[: int(1.2 * RATE)])
+    # Los de cine pueden durar más (colas de sala, risers largos): hasta 4 s, con fundido al final.
+    for name, y in cinematic_sounds().items():
+        y = np.asarray(y, dtype=np.float64)[: int(4.0 * RATE)]
+        tail = min(len(y), int(0.05 * RATE))
+        y[-tail:] *= np.linspace(1, 0, tail)
+        out[name] = normalize(y)
     return out
 
 

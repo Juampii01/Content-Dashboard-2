@@ -86,7 +86,8 @@ def test_sfx_files_exist_and_are_normalized() -> None:
         capped = 20 * np.log10(np.abs(y).max()) > -1.5
         assert (-24 if capped else -15.5) <= loudest <= -11.4, (name, loudest)
         assert 20 * np.log10(np.abs(y).max()) <= -0.9
-        assert (render.SFX_DIR / f"{name}.wav").stat().st_size < 120_000
+        # Hasta ~4 s (los de cine, con cola de sala, y las voces de anunciador).
+        assert (render.SFX_DIR / f"{name}.wav").stat().st_size < 400_000
 
 
 def test_voice_alone_is_untouched(voice: Path, tmp_path: Path) -> None:

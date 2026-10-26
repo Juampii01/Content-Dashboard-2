@@ -160,8 +160,8 @@ describe("director", () => {
 });
 
 describe("sonidos", () => {
-  test("40 en la biblioteca, los mismos que dibuja el worker, con archivo para la vista previa", () => {
-    assert.equal(SFX_NAMES.length, 40);
+  test("135 en la biblioteca, los mismos que dibuja el worker, con archivo para la vista previa", () => {
+    assert.equal(SFX_NAMES.length, 135);
     const py = readFileSync(new URL("../worker/video/render.py", import.meta.url), "utf8");
     const block = py.slice(py.indexOf("SFX_NAMES = ("), py.indexOf(")", py.indexOf("SFX_NAMES = (")));
     const names = [...block.matchAll(/"(\w+)"/g)].map((m) => m[1]);
@@ -172,6 +172,7 @@ describe("sonidos", () => {
     }
     assert.ok(searchSfx("dinero").includes("cash"));
     assert.ok(searchSfx("whoosh").length >= 2);
+    assert.ok(searchSfx("fatality").includes("splat"), "los de cine se encuentran por lo que son");
   });
 
   test("los que pone la persona: anclados a su palabra (si se corta la palabra, no suenan)", () => {

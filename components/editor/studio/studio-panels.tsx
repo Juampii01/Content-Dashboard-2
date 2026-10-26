@@ -221,7 +221,7 @@ type LibTab = "efectos" | "transiciones" | "graficos" | "broll" | "musica" | "so
 
 /**
  * Pestaña Biblioteca: 100 efectos en categorías con buscador, 20 transiciones, gráficos, b-roll, música (generada, tuya
- * y de catálogo) y 40 sonidos. Tocar agrega en el cabezal (si ahí hay algo, lo nuevo va encima, en capas); también se
+ * y de catálogo) y los sonidos de la biblioteca. Tocar agrega en el cabezal (si ahí hay algo, lo nuevo va encima, en capas); también se
  * arrastran a la línea de tiempo.
  */
 export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: LibraryDrop) => void }) {

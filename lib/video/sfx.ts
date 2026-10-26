@@ -33,13 +33,13 @@ export const SFX_FILES: Record<SfxName, { duration: number; hit: number }> = Obj
 type AutoName = "whoosh" | "pop" | "riser";
 /** Ganancia (dB) de cada sonido automático según el nivel; null = no suena en ese nivel. */
 const GAINS: Record<Exclude<SfxLevel, "off">, Record<AutoName, number | null>> = {
-  subtle: { whoosh: -16, pop: null, riser: null },
-  strong: { whoosh: -10, pop: -15, riser: -13 },
+  subtle: { whoosh: -12, pop: null, riser: null },
+  strong: { whoosh: -7, pop: -11, riser: -9 },
 };
 
 // ─── Sonidos que pone la persona (pista de Sonido del Estudio) ─────────────
 
-export const SOUND_GAIN = { min: -30, max: 0, default: -14 } as const;
+export const SOUND_GAIN = { min: -30, max: 0, default: -8 } as const;
 export const MAX_SOUND_CUES = 40;
 
 /** Un sonido de la biblioteca anclado a una palabra (sobrevive a los cortes): su punto fuerte cae en `offset` s desde ella. */
@@ -88,11 +88,11 @@ const MAX_CUES = 60;
 /** Entre dos sonidos de animaciones o transiciones, como mínimo (s). */
 const AUTO_GAP = 0.3;
 /** Techo de los sonidos que traen las animaciones y transiciones (dB del archivo; la voz queda arriba). */
-const AUTO_MAX_DB = -16;
+const AUTO_MAX_DB = -6;
 /** Cuánto bajan los efectos mientras la persona habla (dB). */
-const UNDER_VOICE_DB = 4;
+const UNDER_VOICE_DB = 2;
 /** «Volumen de los efectos» (dB sobre todos): de casi nada a un poco más fuerte. */
-export const SFX_VOLUME = { min: -18, max: 6, default: 0 } as const;
+export const SFX_VOLUME = { min: -18, max: 12, default: 0 } as const;
 
 export type SfxCue = { name: SfxName; /** Inicio del archivo en el video final (s). */ at: number; gain: number };
 
@@ -175,7 +175,7 @@ export function sfxCues(input: {
   for (const b of input.broll) wanted.push({ name: "whoosh", hitAt: b.start });
   if (input.hookEnd != null && input.hookEnd > SFX_FILES.riser.duration * 0.6) wanted.push({ name: "riser", hitAt: input.hookEnd });
   for (const t of input.emojiTimes ?? []) wanted.push({ name: "pop", hitAt: t });
-  const entryGain = input.level === "strong" ? -14 : input.dense ? -20 : null;
+  const entryGain = input.level === "strong" ? -10 : input.dense ? -15 : null;
   const extra: { name: AutoName; hitAt: number; gain: number }[] = [];
   if (entryGain != null) {
     for (const t of input.entries ?? []) extra.push({ name: "pop", hitAt: t, gain: entryGain });

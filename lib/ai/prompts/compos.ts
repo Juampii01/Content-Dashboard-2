@@ -227,7 +227,7 @@ export const composCodeWireSchema = z.object({
   why: z.string().describe("Por qué esta animación aquí, en una frase para la persona."),
   code: z.string().describe("El módulo completo: export default { … }."),
   params: z.array(z.object({ key: z.string(), label: z.string(), value: z.string() })).describe("Los textos editables (las mismas claves que params del módulo)."),
-  sounds: z.array(z.object({ at: z.number(), name: sfxName, gain: z.number() })).describe("Sonidos de la biblioteca en segundos de la animación (whoosh al entrar, golpe en el impacto…). Ganancia de -24 a -8 dB."),
+  sounds: z.array(z.object({ at: z.number(), name: sfxName, gain: z.number() })).describe("Sonidos de la biblioteca en segundos de la animación (whoosh al entrar, golpe en el impacto…). Ganancia de -14 a -4 dB."),
   hide_captions: z.boolean().describe("true si la animación ya muestra en pantalla lo que se dice (informativo: los subtítulos se ven igual)."),
   tags: z.array(z.string()).describe("2 o 3 familias visuales en minúsculas con guiones (texto-letra-a-letra, tarjeta-3d, mapa-con-foco…)."),
 });
@@ -294,7 +294,7 @@ export function composCodeTask(input: {
 - Arma el código por escenas: const SCENES = [{ t0, t1, draw(ctx, lt, env, k) }, …] con una función por escena (lt = segundos dentro de la escena, k = progreso 0…1), en el mismo orden y con los mismos tiempos que la lista de abajo. render() dibuja primero lo que se comparte (fondo, grilla, partículas, marco, logo) y después la escena del momento.
 - Continuidad: lo que se repite entre escenas (fondo, paleta, tipografía, elementos que pasan de una a otra) vive fuera de las escenas. Cada escena entra desde cómo terminó la anterior: transiciones dibujadas de 0,3 a 0,6 s en el borde entre escenas, nunca un corte seco ni un cuadro vacío.
 - Movimiento siempre: ninguna escena se queda quieta. Sincroniza los golpes con las palabras de env.words.
-- Sonidos en "sounds" con segundos de la pieza: uno en CADA acción que se ve (choque de espadas, golpe, tajo, cartel que cae, monedas, tic de contador, whoosh de entrada), normalmente de 3 a 6 por escena, con al menos 0,25 s entre uno y otro. Ganancia de -20 a -12 dB: el mezclador los deja debajo de la voz, se escuchan sin tapar. Una pieza sin sonidos o con muy pocos se siente vacía.
+- Sonidos en "sounds" con segundos de la pieza: uno en CADA acción que se ve (choque de espadas, golpe, tajo, cartel que cae, monedas, tic de contador, whoosh de entrada), normalmente de 3 a 6 por escena, con al menos 0,25 s entre uno y otro. Ganancia de -12 a -4 dB (los golpes e impactos fuertes, -6 a -2): tienen que escucharse claro; el mezclador los baja un poco mientras hablas. Una pieza sin sonidos o con muy pocos se siente vacía.
 - Escala: lo principal (personajes, objetos, carteles) grande y cerca de la cámara. Un personaje ocupa al menos un tercio del ancho del cuadro; nada importante chiquito a lo lejos. Si hay escenario, es el fondo: no achiques a los protagonistas para mostrarlo entero.
 ESCENAS (segundos de la pieza):
 ${input.long.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(2)}–${sc.end.toFixed(2)} s: ${sc.brief}`).join("\n")}`);

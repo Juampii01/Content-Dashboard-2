@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, MessageSquareText, PenLine, Send, Trash2, UserRound, Wand2, WandSparkles, X } from "lucide-react";
+import { BookmarkMinus, BookmarkPlus, Bot, Check, Clapperboard, Copy, ImageIcon, Loader2, MessageSquareText, PenLine, Play, Send, Trash2, UserRound, Volume2, Wand2, WandSparkles, X } from "lucide-react";
+import { SFX_LIBRARY } from "@/lib/video/sfx-library";
+import { playSfx } from "../sound/use-sound";
 import { toast } from "@/components/ui/toast";
 import { appliedComposChatAction, clearComposChatAction, composChatAction, loadComposChatAction } from "../compos-actions";
 import { myEffectStateAction, removeMyEffectAction, renameMyEffectAction, saveToMyEffectsAction } from "../my-effects-actions";
@@ -381,6 +383,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
           </fieldset>
         </section>
       )}
+      {(item.sounds ?? []).length > 0 && <ComposSounds api={api} item={item} start={seg?.start ?? null} />}
       {props.canEdit && (
         <section className="flex flex-col gap-2 px-4 py-4">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-white">
@@ -578,5 +581,65 @@ function MyEffectControls({ api, item }: { api: StudioApi; item: Composition }) 
       </Button>
       <p className="text-[11px] text-muted">{state && !state.saved ? "La quitaste de Mis efectos: guárdala de nuevo si la quieres usar en otros videos." : "Se guarda sola al renderizar; guárdala ahora para usarla ya en otro video."}</p>
     </div>
+  );
+}
+
+/** Los sonidos de la animación: escucharlos, subir o bajar cada uno (o todos) y quitarlos, sin volver a crearla. */
+function ComposSounds({ api, item, start }: { api: StudioApi; item: Composition; start: number | null }) {
+  const sounds = item.sounds ?? [];
+  const canEdit = api.props.canEdit;
+  const setSounds = (next: NonNullable<Composition["sounds"]>, key: string) =>
+    api.update((s) => ({ ...s, compositions: s.compositions.map((c) => (c.id === item.id ? { ...c, sounds: next } : c)) }), { coalesce: `snd:${item.id}:${key}` });
+  const clamp = (g: number) => Math.max(-30, Math.min(0, Math.round(g)));
+  return (
+    <section className="border-b border-white/[0.06] px-4 pb-4">
+      <div className="flex items-center justify-between gap-2 py-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+          <Volume2 className="h-4 w-4 text-accent-hi" aria-hidden /> Sonidos ({sounds.length})
+        </h3>
+        {canEdit && (
+          <span className="flex gap-1">
+            <Button size="sm" variant="subtle" className="!px-2" onClick={() => setSounds(sounds.map((x) => ({ ...x, gain: clamp(x.gain - 3) })), "all")}>
+              Más bajos
+            </Button>
+            <Button size="sm" variant="subtle" className="!px-2" onClick={() => setSounds(sounds.map((x) => ({ ...x, gain: clamp(x.gain + 3) })), "all")}>
+              Más fuertes
+            </Button>
+          </span>
+        )}
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {sounds.map((x, i) => (
+          <li key={`${x.name}-${x.at}-${i}`} className="flex items-center gap-2 rounded-xl border border-white/10 px-2 py-1.5">
+            <button type="button" onClick={() => void playSfx(x.name, x.gain)} className="grid h-7 w-7 flex-none place-items-center rounded-lg bg-white/[0.06] text-white hover:bg-white/[0.12]" aria-label={`Escuchar «${SFX_LIBRARY[x.name]?.label ?? x.name}» a su volumen`}>
+              <Play className="h-3 w-3" aria-hidden />
+            </button>
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => start != null && api.actions.seek(Math.max(0, start + x.at - 0.4))} title="Ir a ese momento">
+              <span className="block truncate text-xs font-semibold text-white">{SFX_LIBRARY[x.name]?.label ?? x.name}</span>
+              <span className="block font-mono text-[10px] text-muted tabular-nums">{start != null ? timeLabel(start + x.at) : `${x.at.toFixed(1)} s`}</span>
+            </button>
+            {canEdit && (
+              <>
+                <input
+                  type="range"
+                  className="range w-24 flex-none"
+                  min={-30}
+                  max={0}
+                  step={1}
+                  value={x.gain}
+                  aria-label={`Volumen de «${SFX_LIBRARY[x.name]?.label ?? x.name}»`}
+                  onChange={(e) => setSounds(sounds.map((y, k) => (k === i ? { ...y, gain: Number(e.target.value) } : y)), String(i))}
+                  style={{ ["--pct" as string]: `${((x.gain + 30) / 30) * 100}%` }}
+                />
+                <button type="button" onClick={() => setSounds(sounds.filter((_, k) => k !== i), `rm${i}`)} className="grid h-7 w-7 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.07] hover:text-white" aria-label={`Quitar «${SFX_LIBRARY[x.name]?.label ?? x.name}»`}>
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11px] text-muted">El play suena al volumen que va en el video. Para cambiar qué sonido es o agregar otros, pídelo en la charla o arrástralos desde Biblioteca → Sonidos.</p>
+    </section>
   );
 }

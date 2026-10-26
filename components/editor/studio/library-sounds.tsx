@@ -18,7 +18,7 @@ export function LibrarySounds({ canEdit, onAdd }: { canEdit: boolean; onAdd: (it
       <p className="text-xs text-muted">Sonidos propios del Estudio (sin derechos de autor). Suenan aunque los automáticos estén apagados y van en la pista de Sonido, donde los mueves o cambias su volumen.</p>
       <SearchBox value={q} onChange={setQ} label="Buscar sonidos" placeholder={`Buscar en ${SFX_NAMES.length} sonidos…`} />
       <div role="tablist" aria-label="Categorías de sonidos" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
-        <Chip active={cat === "todos"} onClick={() => setCat("todos")} label="Todos" count={40} />
+        <Chip active={cat === "todos"} onClick={() => setCat("todos")} label="Todos" count={SFX_NAMES.length} />
         {SFX_CATEGORIES.map((c) => (
           <Chip key={c} active={cat === c} onClick={() => setCat(c)} label={SFX_CATEGORY_LABELS[c]} />
         ))}

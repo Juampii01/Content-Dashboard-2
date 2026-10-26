@@ -94,9 +94,11 @@ async function sheetImages(keys: { key: string }[]) {
   return out;
 }
 
+/** Las palabras que quedan, con las correcciones de los subtítulos (igual que las ve la animación en env.words). */
 const keptWords = (ctx: WorkCtx): Word[] => {
   const removed = removedIds(ctx.plan, ctx.words.length);
-  return ctx.words.filter((w) => !removed.has(w.id));
+  const fixes = ctx.plan.corrections ?? {};
+  return ctx.words.filter((w) => !removed.has(w.id)).map((w) => (fixes[String(w.id)] ? { ...w, text: fixes[String(w.id)]! } : w));
 };
 
 const sentencesText = (words: Word[]) =>

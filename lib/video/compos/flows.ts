@@ -48,7 +48,7 @@ import { frameFor, loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type C
  *   respecto de los últimos videos de la marca.
  */
 
-type RecipeMoment = RecipeWire["moments"][number] & { id: string };
+export type RecipeMoment = RecipeWire["moments"][number] & { id: string };
 
 type CopyState = {
   referenceId: string;
@@ -83,7 +83,7 @@ async function saveDirectorExtra(projectId: string, director: DirectorState, ext
     .where(eq(schema.videoProjects.id, projectId));
 }
 
-async function sheetImages(keys: { key: string }[]) {
+export async function sheetImages(keys: { key: string }[]) {
   const out: { mediaType: "image/jpeg"; data: string }[] = [];
   for (const k of keys) {
     try {
@@ -96,13 +96,13 @@ async function sheetImages(keys: { key: string }[]) {
 }
 
 /** Las palabras que quedan, con las correcciones de los subtítulos (igual que las ve la animación en env.words). */
-const keptWords = (ctx: WorkCtx): Word[] => {
+export const keptWords = (ctx: WorkCtx): Word[] => {
   const removed = removedIds(ctx.plan, ctx.words.length);
   const fixes = ctx.plan.corrections ?? {};
   return ctx.words.filter((w) => !removed.has(w.id)).map((w) => (fixes[String(w.id)] ? { ...w, text: fixes[String(w.id)]! } : w));
 };
 
-const sentencesText = (words: Word[]) =>
+export const sentencesText = (words: Word[]) =>
   sentences(words)
     .map((f) => `[${f.from}–${f.to}] ${f.start.toFixed(1)}–${f.end.toFixed(1)} s: ${f.text}`)
     .join("\n");
@@ -184,7 +184,7 @@ export async function recipeStep(projectId: string): Promise<{ step: string; lab
   return { step: "adapt", label: `Adaptando ${withIds.moments.length} momentos de la referencia a tu video` };
 }
 
-const momentDetail = (m: RecipeMoment) =>
+export const momentDetail = (m: RecipeMoment) =>
   `${m.id} (${m.kind}, ${m.function}, ${m.t0.toFixed(1)}–${m.t1.toFixed(1)} s en la referencia, cuadros ${m.frames.map((f) => `R#${f}`).join(", ")})\nSe ve: ${m.visual}\nMovimiento: ${m.motion}\nCon lo que se dice: ${m.relation}`;
 
 /** Adaptación: cada momento al tramo del video nuevo que cumple la misma función. Arma el taller. */
@@ -385,7 +385,11 @@ export const MAX_ACTIVE_REQUESTS = MAX_ACTIVE;
  * cada uno es su propia fila con su reserva del tope de IA y su trabajo VIDEO_COMPOS (lib/video/compos/requests.ts).
  * Si no alcanza el tope, el pedido queda fallido con el aviso (`error`) sin frenar a los demás.
  */
-export async function startStudioRequest(projectId: string, input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null; refs?: unknown }, userId: string | null): Promise<{ workId: string; error: string | null }> {
+export async function startStudioRequest(
+  projectId: string,
+  input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null; refs?: unknown; look?: { moment: string; detail: string; sheets: { key: string; width: number; height: number }[] } | null },
+  userId: string | null,
+): Promise<{ workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
@@ -417,6 +421,13 @@ export async function startStudioRequest(projectId: string, input: { from_word: 
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
       if (refs.length) task.refs = refs;
+      // «Mira este video»: el momento de la referencia que se adapta, con sus hojas de cuadros.
+      if (input.look && !base) {
+        task.source = "copy";
+        task.moment = input.look.moment;
+        task.momentDetail = input.look.detail.slice(0, 2000);
+        task.refSheets = input.look.sheets.filter((s) => s.key.startsWith(`editor/${projectId}/mirar/`)).slice(0, 2);
+      }
       if (!needsPlan) task.status = "code";
       // Pieza única: se conserva todo (escenas, franja fija) y, si se pidió en un punto, se cambia solo esa escena.
       if (base?.long) {

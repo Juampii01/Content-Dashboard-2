@@ -1707,7 +1707,7 @@ export function Studio(props: StudioProps) {
     segments,
     fxSegs,
     composSegs,
-    compos: { requests: composWork.requests, legacy: composWork.legacy, sending: composWork.sending, error: composWork.error, request: requestAnimation, cancel: composWork.cancel, dismiss: composWork.dismiss, imageUrls: composImageUrls },
+    compos: { requests: composWork.requests, legacy: composWork.legacy, sending: composWork.sending, error: composWork.error, request: requestAnimation, cancel: composWork.cancel, dismiss: composWork.dismiss, refresh: composWork.refresh, imageUrls: composImageUrls },
     trSegs,
     cutList,
     zooms,

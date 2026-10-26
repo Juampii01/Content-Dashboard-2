@@ -1037,6 +1037,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "CLAUDE_LOGIN", // conectar la suscripción de Claude del cliente: el worker corre `claude setup-token` y la persona pega el código
   "AUDIO_SPLIT", // "Sacar la música de un reel": bajar el reel (o el archivo subido) y separar la voz del resto (input.trackId)
   "VIDEO_COMPOS", // animaciones del Estudio: Claude escribe una composición (con imágenes generadas y revisión con cuadros) (input.projectId, input.requestId)
+  "VIDEO_LOOK", // «Mira este video»: bajar y medir una referencia para conversar sobre su edición (input.projectId, input.lookId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 
@@ -1632,4 +1633,37 @@ export const composChats = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.compId] })],
+);
+
+/**
+ * «Mira este video y dime qué ves» (lib/video/look.ts): una referencia que el worker baja y mide (VIDEO_LOOK), Claude
+ * la desarma en momentos y conversa con la persona sobre qué adaptar a su video; al aplicar, cada momento elegido es un
+ * pedido de animación. La referencia nunca se guarda: solo sus medidas y las hojas de cuadros.
+ */
+export const videoLooks = pgTable(
+  "video_looks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => videoProjects.id, { onDelete: "cascade" }),
+    /** queued → analyzing (worker) → thinking (Claude) → ready | failed */
+    status: text("status").notNull().default("queued"),
+    /** { kind: "link", url } | { kind: "upload", key, name } */
+    source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+    error: text("error"),
+    /** Lo que midió el worker: { metrics, moments, transcript, sheets }. */
+    data: jsonb("data").$type<Record<string, unknown> | null>(),
+    /** La receta: momentos de edición con su id (m1, m2…). */
+    recipe: jsonb("recipe").$type<Record<string, unknown> | null>(),
+    /** [{ role: "user" | "assistant" | "applied", text, at }] */
+    messages: jsonb("messages").$type<{ role: "user" | "assistant" | "applied"; text: string; at: string }[]>().notNull().default([]),
+    /** Lo acordado: [{ moment, include, from_word, to_word, brief, why }] */
+    proposal: jsonb("proposal").$type<Record<string, unknown>[]>().notNull().default([]),
+    jobId: uuid("job_id"),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("video_looks_project_idx").on(t.projectId, t.createdAt)],
 );

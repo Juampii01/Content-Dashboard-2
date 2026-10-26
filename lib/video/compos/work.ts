@@ -84,6 +84,8 @@ export type ComposTask = {
   momentDetail?: string;
   /** Cuadros de la referencia (R#n) de ese momento. */
   refFrames?: number[];
+  /** Hojas de cuadros de la referencia de «Mira este video» donde se ve el momento (como mucho 2). */
+  refSheets?: { key: string; width: number; height: number }[];
   /** Pedido de la persona (Estudio o "Edítalo así"). */
   request?: string;
   /** Animación que se cambia ("Pídele un cambio a esta animación"). */
@@ -681,7 +683,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         return `Mirando las imágenes de la animación ${of}`;
       }
       case "code": {
-        const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : [];
+        const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
         const readyImages = task.images.filter((i) => i.status === "ready");
         const wire = await generateStructured({
           feature: "video.compos.codigo",
@@ -710,7 +712,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           task.status = "done";
           return `Revisando la animación ${of}`;
         }
-        const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : [];
+        const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
         const wire = await generateStructured({
           feature: "video.compos.mirar",
           model: "deep",
@@ -823,7 +825,7 @@ const AGENT_PLACEHOLDER = "export default { render(ctx, t, env) {} };";
 async function agentRequest(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promise<WorkerNext | null> {
   const s = span(ctx, task);
   if (!s) return null;
-  const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : [];
+  const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
   const stub = itemOf(task, { name: (task.moment ?? task.brief).slice(0, 40) || "Animación", why: "", code: AGENT_PLACEHOLDER, params: [], sounds: [], hide_captions: false, tags: [] });
   const spec = envFor(ctx, stub);
   if (!spec) return null;

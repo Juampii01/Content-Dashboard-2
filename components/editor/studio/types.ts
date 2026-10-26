@@ -98,6 +98,8 @@ export type StudioApi = {
     request: (req: ComposRequest) => Promise<boolean>;
     cancel: (id: string) => Promise<void>;
     dismiss: (id: string) => Promise<void>;
+    /** Vuelve a consultar los pedidos (por ejemplo, después de aplicar lo de «Mira este video»). */
+    refresh: () => Promise<void>;
     imageUrls: Record<string, string>;
   };
   /** Transiciones que se dibujan (en su corte) y todos los cortes del video final. */

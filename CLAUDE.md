@@ -180,6 +180,8 @@ success #1f7a4d · warning #8a5a00 · danger #c0362c
 
 **Adjuntos para Claude:** ✅ en el asistente de pedidos de la pestaña Edición se adjunta un video propio (queda en la biblioteca de b-roll y se pone en el momento que se dice, con palabras, tema o minuto) o imágenes; en «Pide una animación aquí» y en la charla de una animación, imágenes de referencia de estilo (Claude las mira en el plan, el código y la revisión) o para usar dentro (se copian a las imágenes de la animación). Se guardan achicadas en `editor/<proyecto>/refs/` (`lib/video/refs.ts`, `components/editor/studio/attachments.tsx`).
 
+**Mira este video y dime qué ves:** ✅ en la pestaña IA del Estudio: link o archivo de una edición que gusta → el worker la baja y la mide con cuadros densos (`VIDEO_LOOK`, `worker/video/look.py`, mismo análisis que la referencia de Copiar edición) → Claude la desarma en momentos y conversa: qué ve, dónde lo pondría en el video, qué va y qué no (`lib/video/look.ts`, `lib/ai/prompts/mirar.ts`, tabla `video_looks`) → «Crear lo elegido» pide una animación por momento con sus hojas de cuadros. El video de referencia nunca se guarda.
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

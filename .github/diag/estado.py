@@ -1,17 +1,23 @@
-"""Solo lectura: trabajos en curso o en cola (para no desplegar el worker en medio de uno) y credenciales que quedan."""
-import json, os
+"""Diagnóstico de solo lectura: por qué no baja el link de Instagram (yt-dlp desde el worker)."""
+import json, os, subprocess, sys
 import psycopg
 from psycopg.rows import dict_row
-url = os.environ.get("DATABASE_URL_UNPOOLED") or os.environ["DATABASE_URL"]
+
+out = {}
+url = os.environ.get("DATABASE_URL_UNPOOLED") or os.environ.get("DATABASE_URL")
 with psycopg.connect(url, row_factory=dict_row) as conn:
-    conn.execute("set default_transaction_read_only = on")
-    q = lambda s: [dict(r) for r in conn.execute(s).fetchall()]
-    out = {
-        "en_curso": q("select type::text, status::text, count(*) n from jobs where status in ('QUEUED','RUNNING') group by 1,2"),
-        "pedidos_animacion_activos": q("select status, count(*) n from compos_requests where status in ('waiting','queued','running') group by 1"),
-        "credenciales": q("select provider::text from service_credentials order by 1"),
-        "redes": q("select platform::text, status::text, last_synced_at::text from social_accounts order by 1"),
-        "ultimos_trabajos": q("select type::text, status::text, created_at::text, left(coalesce(error_message,''),120) err from jobs order by created_at desc limit 8"),
-        "latido_worker": q("select version, seen_at::text from worker_heartbeats order by seen_at desc limit 2"),
-    }
+    conn.execute("SET TRANSACTION READ ONLY")
+    rows = conn.execute("""select id, status, error, created_at::text, source->>'kind' kind from video_looks order by created_at desc limit 6""").fetchall()
+    out["looks"] = rows
+    jobs = conn.execute("""select type, status, error_message, output::text, finished_at::text from jobs where type='VIDEO_LOOK' order by created_at desc limit 4""").fetchall()
+    out["jobs"] = jobs
+try:
+    import yt_dlp
+    out["yt_dlp"] = yt_dlp.version.__version__
+except Exception as e:
+    out["yt_dlp"] = repr(e)
+for u in ["https://www.instagram.com/reel/DerY94iOOTY/", "https://www.youtube.com/shorts/aqz-KE-bpKQ"]:
+    p = subprocess.run([sys.executable, "-m", "yt_dlp", "-v", "--simulate", "--no-cache-dir", u], capture_output=True, text=True, timeout=120)
+    lines = [l for l in (p.stdout + p.stderr).splitlines() if "ERROR" in l or "WARNING" in l or "[instagram]" in l or "[youtube]" in l]
+    out[u] = {"code": p.returncode, "lines": lines[-15:]}
 print(json.dumps(out, default=str, indent=1))

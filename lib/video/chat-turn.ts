@@ -109,7 +109,7 @@ async function imagesFor(refs: RefImage[]): Promise<{ images: Vision[]; sizes: {
 }
 
 /** Ficha y hojas de cuadros de los videos de la charla (los últimos), leídas de la base: nunca del navegador. */
-async function clipVision(clips: ReturnType<typeof conversationClips>): Promise<{ text: string; images: Vision[]; sizes: { width: number; height: number }[]; clips: (ChatClip & { code: string; kind: "video" | "image"; reference: boolean })[] }> {
+export async function clipVision(clips: ReturnType<typeof conversationClips>): Promise<{ text: string; images: Vision[]; sizes: { width: number; height: number }[]; clips: (ChatClip & { code: string; kind: "video" | "image"; reference: boolean })[] }> {
   const recent = clips.slice(-MAX_CLIPS);
   if (!recent.length) return { text: "", images: [], sizes: [], clips: [] };
   const rows = await getDb().select().from(schema.brollClips).where(inArray(schema.brollClips.id, recent.map((c) => c.id)));
@@ -139,6 +139,15 @@ async function clipVision(clips: ReturnType<typeof conversationClips>): Promise<
     out.push({ ...c, kind: piece.kind, reference: c.reference });
   }
   return { text: lines.join("\n"), images, sizes, clips: out };
+}
+
+/**
+ * Los videos adjuntos a un pedido (pestaña Edición, o cualquier lugar fuera de la charla), como los mira el chat: V1,
+ * V2… con su ficha y sus hojas de cuadros. `reference` si el pedido dice que es una referencia de estilo.
+ */
+export function attachedClips(attachments: { ref: string; kind: "video" | "image"; name: string; libraryId?: string }[], wish: string) {
+  const reference = REFERENCE_RE.test(wish);
+  return attachments.filter((a) => a.kind === "video" && a.libraryId).map((a, i) => ({ ref: a.ref, id: a.libraryId!, name: a.name, code: `V${i + 1}`, reference }));
 }
 
 /** Valida el pedido contra el proyecto y arma lo que la IA necesita ver. */

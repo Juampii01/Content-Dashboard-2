@@ -236,9 +236,9 @@ describe("biblioteca en la base", { skip: !url && "TEST_DATABASE_URL no está de
         const task = JSON.stringify(msg.messages);
         const images = msg.messages[0]!.content.filter((c) => c.type === "image").length;
         if (!task.includes("FICHA DE")) {
-          // Un turno del chat del video: se guarda lo que recibió Claude para revisarlo.
+          // Un turno del chat del video o del asistente de pedidos: se guarda lo que recibió Claude para revisarlo.
           chatRequests.push(msg);
-          const reply = { reply: "En los cuadros veo un personaje redondo naranja que rebota.", go: false, items: [{ kind: "animacion", scope: "momento", from_word: 0, to_word: 3, title: "Personaje que rebota", prompt: "Un personaje redondo naranja rebota sobre la frase clave.", attachments: [], layout: null, library: null, clip_start: null }] };
+          const reply = { reply: "En los cuadros veo un personaje redondo naranja que rebota.", go: false, items: [{ kind: "animacion", scope: "momento", from_word: 0, to_word: 3, title: "Personaje que rebota", prompt: "Un personaje redondo naranja rebota sobre la frase clave.", attachments: [], layout: null, library: null, clip_start: null }], note: "" };
           return stream(res, reply);
         }
         const ficha = task.includes("FICHA DE UNA IMAGEN")
@@ -417,6 +417,43 @@ describe("biblioteca en la base", { skip: !url && "TEST_DATABASE_URL no está de
       // 4. Y en los turnos que siguen, el video sigue a la vista (con la charla guardada).
       await chatTurn({ ...ctx, attachments: [] }, [...messages, { role: "assistant", text: "Veo un personaje.", at: new Date().toISOString() }, { role: "user", text: "Hazlo más lento", at: new Date().toISOString() }], userId, null, "Hazlo más lento");
       assert.equal(chatRequests.at(-1)!.messages[0]!.content.filter((c) => c.type === "image").length, 2);
+    } finally {
+      await db.getDb().execute(sql`delete from video_projects where id = ${PROJECT}`);
+    }
+  });
+
+  test("asistente de pedidos (pestaña Edición): el video adjunto se espera, después Claude recibe sus hojas y la animación las lleva de referencia", async () => {
+    const { runEditAssistant } = await import("../lib/video/edit-assistant");
+    const PROJECT = "44444444-4444-4444-8444-444444444444";
+    await db.getDb().execute(sql`delete from video_projects where id = ${PROJECT}`);
+    const words = "Hoy te muestro cómo animar tu marca con un personaje".split(" ").map((text, id) => ({ id, text, start: id * 0.5, end: id * 0.5 + 0.4 }));
+    await db.getDb().insert(db.schema.videoProjects).values({ id: PROJECT, title: "Asistente", createdBy: userId, transcript: { version: 1, provider: "prueba", language: "es", duration: 6, words } as never });
+    try {
+      const { id } = await upload("personaje-ref.mp4", "video/mp4", Buffer.from("reel"));
+      await mod.completeClipUpload(id, userId);
+      const input = { projectId: PROJECT, wish: "Anima el gancho con este estilo, es una referencia", sentences: [{ from: 0, to: 9, start: 0, end: 5, text: words.map((w) => w.text).join(" ") }], duration: 6, format: "9:16" as const, selection: null, playhead: null, prefer: null, attachments: [{ ref: "A1", kind: "video" as const, name: "personaje-ref", duration: 20, libraryId: id }] };
+      const before = chatRequests.length;
+      const wait = await runEditAssistant(input, userId);
+      assert.ok(wait.ok && wait.waiting?.includes(id), "mientras se mira, espera");
+      assert.equal(chatRequests.length, before, "no llama a Claude todavía");
+      await db.getDb().execute(sql`update broll_clips set status = 'READY', duration = 20, width = 1080, height = 1920 where id = ${id}`);
+      const sharp = (await import("sharp")).default;
+      const { writeBytes } = await import("../lib/storage/files");
+      const key = `editor/biblioteca/${id}/hoja-01.jpg`;
+      await writeBytes(key, await sharp({ create: { width: 1296, height: 1218, channels: 3, background: "#0a8" } }).jpeg().toBuffer(), "image/jpeg");
+      assert.ok(await mod.saveClipSheets(id, { ok: true, sheets: [{ key, width: 1296, height: 1218, frames: [1, 2], times: [0.2, 9] }] }));
+      await mod.generateFicha(id);
+      const out = await runEditAssistant(input, userId);
+      assert.equal(chatRequests.length, before + 1);
+      const content = chatRequests.at(-1)!.messages[0]!.content;
+      assert.equal(content.filter((c) => c.type === "image").length, 1, "va la hoja de cuadros");
+      const task = content.find((c) => c.type === "text")!.text!;
+      assert.match(task, /A1: el video V1 de abajo/);
+      assert.match(task, /VIDEOS ADJUNTOS/);
+      assert.match(task, /Recepcionista con auriculares/, "la ficha");
+      assert.match(task, /#2 9\.0 s/);
+      assert.ok(out.ok && !out.waiting);
+      if (out.ok) assert.deepEqual(out.items[0]!.styleClips, [id]);
     } finally {
       await db.getDb().execute(sql`delete from video_projects where id = ${PROJECT}`);
     }

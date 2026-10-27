@@ -335,7 +335,8 @@ export function assemblePlan(input: {
     removals: normalized,
     proposed_removals: normalized.map((r) => ({ ...r })),
     hook_candidates: hooks,
-    selected_hook: hooks.length ? 0 : null,
+    // La IA no trae un gancho de otra parte del video: la persona lo elige a mano si quiere.
+    selected_hook: null,
     captions: { preset: input.preset, emphasis_words: emphasis },
     corrections: input.corrections,
     overlays: [],

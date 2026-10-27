@@ -211,11 +211,18 @@ describe("plan del director", () => {
     assert.equal(out.plan.removals.length, 1);
   });
 
-  test("los bloques movidos tienen que ser frases completas", () => {
-    const bad = planFromDirector(emptyWire({ moves: [{ from_word: phrase(4).from + 1, to_word: phrase(4).to, after_word: phrase(1).to, why: "" }] }), input());
-    assert.equal(bad.plan.moves, undefined);
-    const ok = planFromDirector(emptyWire({ moves: [{ from_word: phrase(4).from, to_word: phrase(4).to, after_word: phrase(1).to, why: "La prueba antes." }] }), input());
-    assert.equal(ok.plan.moves?.length, 1);
+  test("la IA no mueve partes ni trae un gancho de otro lado; lo que la persona eligió a mano se conserva", () => {
+    const wire = emptyWire({ hooks: [{ from_word: phrase(5).from, to_word: phrase(5).to, score: 1, why: "" }], moves: [{ from_word: phrase(4).from, to_word: phrase(4).to, after_word: phrase(1).to, why: "La prueba antes." }] });
+    const out = planFromDirector(wire, input());
+    assert.equal(out.plan.moves, undefined);
+    assert.equal(out.plan.selected_hook, null);
+    assert.ok(out.plan.hook_candidates.length >= 1, "los ganchos quedan como sugerencias");
+    // La persona eligió un gancho y movió un bloque a mano: al corregir, se conservan.
+    const manual: EditPlan = { ...out.plan, selected_hook: 0, moves: [{ from_word: phrase(4).from, to_word: phrase(4).to, after_word: phrase(1).to, why: "A mano." }] };
+    const again = planFromDirector(emptyWire(), { ...input(), base: manual });
+    assert.equal(again.plan.selected_hook, 0);
+    assert.equal(again.plan.hook_candidates[0]!.from_word, manual.hook_candidates[0]!.from_word);
+    assert.equal(again.plan.moves?.length, 1);
   });
 
   test("versiones: una corta con cortes extra; usarla guarda la anterior", () => {
@@ -278,14 +285,16 @@ describe("cuadros clave", () => {
       input(),
     );
     const plan: EditPlan = { ...out.plan, broll: [{ id: "b1", from_word: phrase(4).from, to_word: phrase(4).to, query_en: "", keywords: [], choice: { source: "pexels", id: "1", duration: 5, width: 1080, height: 1920 }, options: [] }] };
-    const tl = buildTimeline(words, plan, duration);
-    const frames = keyFrames({ plan, words, timeline: tl, eyes });
+    // El gancho lo elige la persona a mano.
+    const withHook: EditPlan = { ...plan, selected_hook: 0 };
+    const tl = buildTimeline(words, withHook, duration);
+    const frames = keyFrames({ plan: withHook, words, timeline: tl, eyes });
     assert.ok(frames[0]!.label.startsWith("Gancho"));
     assert.ok(frames.some((f) => /B-roll B1/.test(f.label)));
     assert.ok(frames.some((f) => /corte/.test(f.label)));
     assert.ok(frames.at(-1)!.label.includes("Final"));
     assert.ok(frames.every((f, i) => i === 0 || f.t > frames[i - 1]!.t));
-    assert.ok(keyFrames({ plan, words, timeline: tl, eyes, max: 5 }).length <= 5);
+    assert.ok(keyFrames({ plan: withHook, words, timeline: tl, eyes, max: 5 }).length <= 5);
   });
 
   test("los zooms del director no caen encima de un b-roll", () => {

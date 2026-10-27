@@ -82,8 +82,6 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
   const dropped: string[] = [];
   const valid = (a: number, b: number) => Number.isInteger(a) && Number.isInteger(b) && a >= 0 && b < n && a <= b;
   const phrases = sentences(words);
-  const sentenceStart = new Set(phrases.map((f) => f.from));
-  const sentenceEnd = new Set(phrases.map((f) => f.to));
   const keep = input.mustKeep;
 
   // 1. Cortes.
@@ -129,22 +127,15 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     const extra = fallbackHooks(words, removedSet).filter((f) => !hooks.some((h) => h.from_word <= f.to_word && f.from_word <= h.to_word));
     hooks = [...hooks, ...extra].slice(0, 3);
   }
-  const hook = hooks[0] && !input.keepOpening ? hooks[0] : null;
+  // La IA nunca cambia el orden del video: el gancho es la apertura tal como se grabó. Los ganchos quedan como
+  // sugerencias y solo se usa uno si la persona lo eligió a mano antes (se conserva al corregir).
+  const prev = input.base;
+  const chosen = prev && prev.selected_hook != null ? (prev.hook_candidates[prev.selected_hook] ?? null) : null;
+  const hook = chosen && hookIsValid(chosen, words, removedSet) ? chosen : null;
+  if (hook) hooks = [hook, ...hooks.filter((h) => !overlaps({ from: h.from_word, to: h.to_word }, { from: hook.from_word, to: hook.to_word }))].slice(0, 3);
 
-  // 3. Bloques movidos: frases completas, sin superponerse, a un límite de frase.
-  const moves: PlanMove[] = [];
-  for (const m of ai.moves.slice(0, 2)) {
-    const from = Math.min(m.from_word, m.to_word);
-    const to = Math.max(m.from_word, m.to_word);
-    if (!valid(from, to) || !sentenceStart.has(from) || !sentenceEnd.has(to)) {
-      dropped.push("Un bloque movido no era de frases completas: lo dejé en su lugar.");
-      continue;
-    }
-    if (m.after_word !== -1 && (!valid(m.after_word, m.after_word) || !sentenceEnd.has(m.after_word) || (m.after_word >= from && m.after_word <= to))) continue;
-    if (moves.some((x) => overlaps({ from: x.from_word, to: x.to_word }, { from, to }))) continue;
-    if (hook && overlaps({ from: hook.from_word, to: hook.to_word }, { from, to })) continue;
-    moves.push({ from_word: from, to_word: to, after_word: m.after_word, why: clip(m.why, 300) });
-  }
+  // 3. Bloques movidos: solo los que movió la persona a mano (la IA no mueve partes del video).
+  const moves: PlanMove[] = (prev?.moves ?? []).map((m) => ({ ...m }));
 
   // 4. Palabras resaltadas.
   const emphasis = [...new Set(ai.emphasis_words.filter((id) => id >= 0 && id < n && !removedSet.has(id)))].slice(0, 8);
@@ -248,7 +239,7 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     removals,
     proposed_removals: removals.map((r) => ({ ...r })),
     hook_candidates: hooks,
-    selected_hook: hooks.length && !input.keepOpening ? 0 : null,
+    selected_hook: hook ? 0 : null,
     captions: {
       preset: base?.captions.preset ?? input.preset,
       emphasis_words: emphasis,
@@ -296,11 +287,8 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     }
     const vRemovals = normalizeRemovals([...removals, ...extra], n);
     const vRemoved = removedIds({ removals: vRemovals }, n);
-    let vHook: HookCandidate | null = hook;
-    if (v.hook_from_word >= 0 && valid(Math.min(v.hook_from_word, v.hook_to_word), Math.max(v.hook_from_word, v.hook_to_word))) {
-      const h = trimHook({ from_word: Math.min(v.hook_from_word, v.hook_to_word), to_word: Math.max(v.hook_from_word, v.hook_to_word), score: 0.8, why: clip(v.why, 300) }, vRemoved);
-      if (hookIsValid(h, words, vRemoved)) vHook = h;
-    }
+    // Las versiones cambian la duración (cortes), nunca el gancho ni el orden.
+    const vHook: HookCandidate | null = hook;
     const keptBroll = v.keep_broll ? broll.filter((b) => !Array.from({ length: b.to_word - b.from_word + 1 }, (_, k) => b.from_word + k).some((id) => vRemoved.has(id))).map((b) => ({ ...b })) : [];
     const tl = buildTimeline(words, { removals: vRemovals, hook_candidates: vHook ? [vHook] : [], selected_hook: vHook ? 0 : null, corrections: plan.corrections, captions: plan.captions, pacing: plan.pacing, moves: plan.moves }, input.duration);
     if (tl.duration < 3 || Math.abs(tl.duration - buildTimeline(words, derived, input.duration).duration) < 2 && extra.length === 0 && vHook === hook) continue;

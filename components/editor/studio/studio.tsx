@@ -62,6 +62,7 @@ import { suggestTrimAction } from "../edit-actions";
 import { StudioTimeline, type DropPreview, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
 import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
+import { FEATURES } from "@/lib/features";
 
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
@@ -2106,7 +2107,7 @@ export function Studio(props: StudioProps) {
                             </div>
                           )}
                         </div>
-                        <PhraseFixPanel
+                        {(FEATURES.clone || (phrase.fixes?.length ?? 0) > 0) && <PhraseFixPanel
                           projectId={projectId}
                           fixes={phrase.fixes}
                           canEdit={canEdit}
@@ -2128,7 +2129,7 @@ export function Studio(props: StudioProps) {
                           onCoverWithBroll={(fix) => addBroll({ from: fix.fromWord, to: fix.toWord })}
                           onListen={listenFrom}
                           hasBrollAt={(from, to) => s.broll.some((b) => b.choice && b.from_word <= to && from <= b.to_word)}
-                        />
+                        />}
                         <TranscriptEditor
                           words={words}
                           removed={removedSet}

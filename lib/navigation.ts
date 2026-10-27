@@ -12,6 +12,7 @@ import {
   Settings,
   UserRound,
 } from "lucide-react";
+import { FEATURES } from "@/lib/features";
 
 export type NavItem = {
   href: string;
@@ -78,12 +79,16 @@ export const navigation: NavGroup[] = [
         icon: Clapperboard,
         description: "Tu video crudo, editado",
       },
-      {
-        href: "/clon",
-        label: "Videos con clon",
-        icon: UserRound,
-        description: "Videos con tu clon digital",
-      },
+      ...(FEATURES.clone
+        ? [
+            {
+              href: "/clon",
+              label: "Videos con clon",
+              icon: UserRound,
+              description: "Videos con tu clon digital",
+            },
+          ]
+        : []),
       {
         href: "/miniaturas",
         label: "Títulos y miniaturas",

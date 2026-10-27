@@ -25,6 +25,7 @@ import { reasonLabel } from "../labels";
 import { AskAnimation, ComposInspectorBody, RequestsPanel } from "../compos/compos-inspector";
 import type { StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
+import { FEATURES } from "@/lib/features";
 
 /** Lo elegido en la línea de tiempo con todos sus controles (se abre en el panel de herramientas). */
 export function StudioInspector({ api }: { api: StudioApi }) {
@@ -760,7 +761,7 @@ function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: numb
               Poner un zoom aquí
             </Button>
           )}
-          {edit && (
+          {edit && FEATURES.clone && (
             <Button size="sm" variant="ghost" icon={<Mic className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.openPhraseFix(span)}>
               Corregir esta frase con tu voz
             </Button>

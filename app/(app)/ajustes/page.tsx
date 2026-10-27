@@ -13,6 +13,7 @@ import { ImageKeysSection, ImageKeysSectionSkeleton } from "@/components/ajustes
 import { MusicKeysSection } from "@/components/ajustes/music-keys-section";
 import { AnthropicKeySection } from "@/components/ajustes/anthropic-key-section";
 import { ReportSettingsSection, ReportSettingsSkeleton } from "@/components/informes/settings-section";
+import { FEATURES } from "@/lib/features";
 
 export const metadata: Metadata = { title: "Ajustes" };
 
@@ -46,14 +47,16 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
         </Suspense>
 
         <div id="claves" className="scroll-mt-6">
-          <Section title="Claves de servicios" description="Tu clave de API de Anthropic para toda la IA, la de OpenAI para las imágenes, la de HeyGen para los videos con clon y, si quieres, Jamendo para música de artistas. El consumo se cobra en tus cuentas. Se guardan cifradas y nunca se muestran completas.">
+          <Section title="Claves de servicios" description="Tu clave de API de Anthropic para toda la IA, la de OpenAI para las imágenes y, si quieres, Jamendo para música de artistas. El consumo se cobra en tus cuentas. Se guardan cifradas y nunca se muestran completas.">
             <div className="flex flex-col gap-6">
               <Suspense fallback={<div aria-hidden className="skeleton h-36" />}>
                 <AnthropicKeySection />
               </Suspense>
-              <Suspense fallback={<HeyGenSectionSkeleton />}>
-                <HeyGenSection />
-              </Suspense>
+              {FEATURES.clone && (
+                <Suspense fallback={<HeyGenSectionSkeleton />}>
+                  <HeyGenSection />
+                </Suspense>
+              )}
               <Suspense fallback={<ImageKeysSectionSkeleton />}>
                 <ImageKeysSection />
               </Suspense>

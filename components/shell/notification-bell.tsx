@@ -151,7 +151,7 @@ export function NotificationBell({ align = "left" }: { align?: "left" | "right" 
           <p className="eyebrow px-3 pb-1 pt-2">Avisos</p>
           {!current.items.length ? (
             <p className="px-3 pb-4 pt-1 text-sm text-muted">
-              Aún no hay avisos. Cuando termine un video, un carrusel o un video con clon, te avisamos aquí y por correo.
+              Aún no hay avisos. Cuando termine un video o un carrusel, te avisamos aquí y por correo.
             </p>
           ) : (
             <ul className="space-y-1">

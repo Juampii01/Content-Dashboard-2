@@ -37,6 +37,7 @@ import { scriptStats } from "@/lib/scripts/stats";
 import { cn } from "@/lib/utils";
 import { ScorePanel } from "./score-panel";
 import { adaptScriptAction, restoreVersionAction, runScriptAction, saveScriptAction, setScriptStatusAction, type ActionResult } from "./actions";
+import { FEATURES } from "@/lib/features";
 
 type Format = keyof typeof formatLabel;
 type Version = { id: string; action: string; createdAt: string };
@@ -368,9 +369,11 @@ export function ScriptEditor({
             <ButtonLink href={`/editor/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<Film className="h-4 w-4" aria-hidden />}>
               Editar mi grabación
             </ButtonLink>
-            <ButtonLink href={`/clon/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<UserRound className="h-4 w-4" aria-hidden />}>
-              Generar con mi clon
-            </ButtonLink>
+            {FEATURES.clone && (
+              <ButtonLink href={`/clon/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<UserRound className="h-4 w-4" aria-hidden />}>
+                Generar con mi clon
+              </ButtonLink>
+            )}
             <ButtonLink href={`/carruseles/nuevo?guion=${scriptId}`} variant="ghost" size="sm" icon={<GalleryHorizontalEnd className="h-4 w-4" aria-hidden />}>
               Convertir en carrusel
             </ButtonLink>

@@ -54,7 +54,7 @@ export default function MarcaPage() {
       <PageHeader
         eyebrow="Mi marca"
         title="Cómo suena tu marca"
-        description="Lo que pongas aquí lo usan los guiones, los carruseles y el clon. Cuanto más concreto, más suenan a ti."
+        description="Lo que pongas aquí lo usan los guiones, los carruseles y el editor de video. Cuanto más concreto, más suenan a ti."
         icon={<Palette className="h-5 w-5" aria-hidden />}
       />
       <Suspense fallback={<Skeleton className="h-96" />}>

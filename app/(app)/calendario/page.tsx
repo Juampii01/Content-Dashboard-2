@@ -17,12 +17,14 @@ import { env } from "@/lib/env";
 export const metadata: Metadata = { title: "Calendario" };
 
 type Params = Awaited<PageProps<"/calendario">["searchParams"]>;
+import { FEATURES } from "@/lib/features";
+
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 
 const sourceParams: { param: string; kind: SourceKind; label: string; missing: string }[] = [
   { param: "guion", kind: "guion", label: "desde tu guion", missing: "No encontramos ese guion. Puede que se haya borrado." },
   { param: "carrusel", kind: "carrusel", label: "desde tu carrusel", missing: "No encontramos ese carrusel. Puede que se haya borrado." },
-  { param: "clon", kind: "clon", label: "desde tu video con clon", missing: "No encontramos ese video con clon. Puede que se haya borrado." },
+  ...(FEATURES.clone ? [{ param: "clon", kind: "clon" as const, label: "desde tu video con clon", missing: "No encontramos ese video con clon. Puede que se haya borrado." }] : []),
   { param: "video", kind: "editor", label: "desde tu video editado", missing: "No encontramos ese video del editor. Puede que se haya borrado." },
 ];
 

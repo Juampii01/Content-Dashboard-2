@@ -11,6 +11,7 @@ import { reportColors } from "@/lib/reports/colors";
 import { addMonths, change, monthLabel } from "@/lib/reports/month";
 import type { MonthlyReportData, Pair, ReportPiece } from "@/lib/reports/types";
 import { GenerateReportButton, PdfLinks, SendReportButton } from "./report-actions";
+import { FEATURES } from "@/lib/features";
 
 const signed = (v: number | null) => (v == null ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatNumber(Math.abs(v))}`);
 
@@ -234,7 +235,7 @@ export function ReportPreview({
             <Stat label="Guiones" value={formatNumber(data.production.scripts)} icon={<PenLine className="h-4 w-4" aria-hidden />} />
             <Stat label="Videos editados" value={formatNumber(data.production.videosEdited)} icon={<Clapperboard className="h-4 w-4" aria-hidden />} />
             <Stat label="Carruseles" value={formatNumber(data.production.carouselsCreated)} icon={<GalleryHorizontal className="h-4 w-4" aria-hidden />} sub={data.production.carouselsExported ? `${data.production.carouselsExported} exportados` : undefined} />
-            <Stat label="Videos con clon" value={formatNumber(data.production.cloneVideos)} icon={<UserRound className="h-4 w-4" aria-hidden />} />
+            {FEATURES.clone && <Stat label="Videos con clon" value={formatNumber(data.production.cloneVideos)} icon={<UserRound className="h-4 w-4" aria-hidden />} />}
           </dl>
         </Section>
       </div>

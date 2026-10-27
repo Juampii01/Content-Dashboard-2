@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import type { Platform } from "@/lib/social/types";
 import type { SetupProgress } from "@/lib/home/onboarding";
+import { FEATURES } from "@/lib/features";
 
 /**
  * Qué hizo ya la instalación (guía de primer uso y bloques de Inicio). Las cuentas de demostración no cuentan
@@ -102,7 +103,7 @@ export async function getActiveWork(): Promise<ActiveWork[]> {
       needsAction: v.status === "AWAITING_REVIEW",
       href: `/editor/${v.id}`,
     })),
-    ...clones.rows.map((c) => ({
+    ...clones.rows.filter(() => FEATURES.clone).map((c) => ({
       id: c.id,
       kind: "clon" as const,
       title: c.title,

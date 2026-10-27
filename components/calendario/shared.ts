@@ -1,5 +1,6 @@
 import type { CalendarView } from "@/lib/calendar/dates";
 import { CALENDAR_STATUSES, PLATFORMS, type CalendarPlatform, type CalendarStatus, type PlannedFormat } from "@/lib/calendar/labels";
+import { FEATURES } from "@/lib/features";
 
 /** Tipos y utilidades compartidas por los componentes del Calendario (cliente y servidor). */
 export type { CalendarEntry, CalendarTarget, LinkedItem } from "@/lib/dal/calendar";
@@ -58,7 +59,7 @@ export function sourceLinks(e: { scriptId: string | null; scriptTitle?: string |
   const links: { href: string; label: string }[] = [];
   if (e.scriptId) links.push({ href: `/guiones/${e.scriptId}`, label: "Abrir guion" });
   if (e.carouselId) links.push({ href: `/carruseles/${e.carouselId}`, label: "Abrir carrusel" });
-  if (e.cloneVideoId) links.push({ href: `/clon/${e.cloneVideoId}`, label: "Abrir video con clon" });
+  if (e.cloneVideoId && FEATURES.clone) links.push({ href: `/clon/${e.cloneVideoId}`, label: "Abrir video con clon" });
   if (e.videoProjectId) links.push({ href: `/editor/${e.videoProjectId}`, label: "Abrir en el editor" });
   return links;
 }

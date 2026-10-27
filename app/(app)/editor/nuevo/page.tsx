@@ -14,6 +14,7 @@ import { briefHints, getCloneSource, listScriptOptions } from "@/lib/dal/video";
 import { workerStatus } from "@/lib/jobs";
 import { fileDriver } from "@/lib/storage";
 import { brandGraphicLook } from "@/lib/video/graphics";
+import { FEATURES } from "@/lib/features";
 
 export const metadata: Metadata = { title: "Nuevo video" };
 
@@ -27,7 +28,7 @@ async function Flow({ searchParams }: { searchParams: PageProps<"/editor/nuevo">
   const me = await getCurrentUser();
   const params = await searchParams;
   const guion = typeof params.guion === "string" ? params.guion : null;
-  const clon = typeof params.clon === "string" ? params.clon : null;
+  const clon = FEATURES.clone && typeof params.clon === "string" ? params.clon : null;
   const estilo = typeof params.estilo === "string" ? params.estilo : null;
   const [scripts, clone, worker, styles, broll, brand, editor, hints] = await Promise.all([
     listScriptOptions(),

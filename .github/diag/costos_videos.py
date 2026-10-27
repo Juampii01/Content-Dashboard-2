@@ -1,39 +1,22 @@
-"""Costo de IA de los últimos videos del Editor (solo lectura): total, por función y por tanda de pedidos.
+"""Qué disparó el ciclo del director del último video (solo lectura): pedidos de «Edítalo así» y vueltas."""
 
-No imprime claves, tokens, URLs ni código de animaciones.
-"""
-
+import json
 import os
 
 import psycopg
 
 url = os.environ.get("DATABASE_URL_UNPOOLED") or os.environ["DATABASE_URL"]
 with psycopg.connect(url) as conn:
-    projects = conn.execute(
-        "select id, title, created_at, (media->>'duration') from video_projects where created_at > now() - interval '4 days' order by created_at desc limit 1"
-    ).fetchall()
-    print("== costos de IA de los últimos videos")
-    for pid, title, created, dur in projects:
-        total = conn.execute("select coalesce(sum(cost_usd),0), count(*) from ai_usage where video_project_id = %s", (pid,)).fetchone()
-        print(f"\n## {title[:60]} | {pid} | creado {str(created)[:19]} | dura {dur} s | TOTAL USD {total[0]:.2f} en {total[1]} llamadas")
-        for f, m, c, n in conn.execute(
-            "select feature, model, sum(cost_usd), count(*) from ai_usage where video_project_id = %s group by 1,2 order by 3 desc", (pid,)
-        ).fetchall():
-            print(f"   {f:32} {m:28} USD {c:7.2f}  ({n})")
-        print("   -- por hora (tandas)")
-        for h, c, n in conn.execute(
-            "select date_trunc('minute', created_at) - (extract(minute from created_at)::int %% 15) * interval '1 minute', sum(cost_usd), count(*) from ai_usage where video_project_id = %s group by 1 order by 1",
-            (pid,),
-        ).fetchall():
-            print(f"   {str(h)[:16]}  USD {c:7.2f}  ({n})")
-        print("   -- llamadas en orden")
-        for cr, f, m, c, i, o in conn.execute("select created_at, feature, model, cost_usd, input_tokens, output_tokens from ai_usage where video_project_id = %s order by created_at", (pid,)).fetchall():
-            print(f"   {str(cr)[11:19]} {f:28} {m:18} USD {c:5.2f} in {i} out {o}")
-        print("   -- pedidos de animación")
-        for st, used, res, cr, up, req in conn.execute(
-            "select status, used_usd, reserved_usd, created_at, updated_at, coalesce(work->'tasks'->0->>'request','') from compos_requests where project_id = %s order by created_at",
-            (pid,),
-        ).fetchall():
-            print(f"   {str(cr)[:19]} → {str(up)[:19]} {st:9} usado USD {used:.2f} (reserva {res:.2f}) | {req[:110].replace(chr(10), ' ')}")
-        for j in conn.execute("select type, status, created_at, finished_at from jobs where video_project_id = %s order by created_at", (pid,)).fetchall():
-            print(f"   trabajo {j[0]:14} {j[1]:9} {str(j[2])[:19]} → {str(j[3])[:19]}")
+    pid, title, d, mode = conn.execute("select id, title, director, edit_mode from video_projects order by created_at desc limit 1").fetchone()
+    d = d or {}
+    print("== director del último video", title, pid, "edit_mode", mode)
+    print("ciclo:", d.get("cycle"), "| claves:", sorted(d.keys()))
+    req = d.get("request") or {}
+    print("pedido:", json.dumps({k: (str(v)[:300]) for k, v in req.items() if k in ("instruction", "text", "source", "at", "createdAt")}, ensure_ascii=False))
+    print("activo:", json.dumps({k: str(v)[:200] for k, v in (d.get("active") or {}).items()}, ensure_ascii=False)[:800])
+    for e in (d.get("edits") or [])[-4:]:
+        print("edición:", json.dumps({k: str(v)[:250] for k, v in e.items() if k not in ("plan", "compliance", "before")}, ensure_ascii=False)[:900])
+    for r in (d.get("rounds") or []):
+        print("vuelta:", r.get("n"), r.get("score"), str(r.get("verdict"))[:160])
+    print("budget:", json.dumps(d.get("budget"), ensure_ascii=False)[:600])
+    print("steps:", d.get("steps"))

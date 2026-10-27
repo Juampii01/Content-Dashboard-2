@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { Settings } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -52,6 +53,12 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
               <Suspense fallback={<div aria-hidden className="skeleton h-36" />}>
                 <AnthropicKeySection />
               </Suspense>
+              <p className="text-sm text-muted">
+                <Link href="/ajustes/consumo" className="font-semibold text-white underline-offset-2 hover:underline">
+                  Ver cuánto gasta la IA
+                </Link>{" "}
+                por video y por paso.
+              </p>
               {FEATURES.clone && (
                 <Suspense fallback={<HeyGenSectionSkeleton />}>
                   <HeyGenSection />

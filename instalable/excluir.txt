@@ -1,0 +1,20 @@
+# Lo que NO va al repo instalable (rutas del repo principal, una por línea; carpetas con / al final).
+# Material interno, diagnósticos de producción, análisis de costos y lo que tiene datos de Juampi o de su instalación.
+CLAUDE.md
+docs/auditoria/
+docs/plan-lanzamiento.md
+docs/meta-app-review.md
+docs/ruteo-modelos.md
+docs/carruseles-creator.md
+.github/diag/
+.github/workflows/diagnostico-render.yml
+.github/workflows/ab-animaciones.yml
+.github/workflows/sincronizar-instalable.yml
+scripts/armar-instalable.sh
+scripts/ab-animaciones.mts
+scripts/compos-sim.mts
+scripts/compos-worker-sim.mts
+worker/diag_render.py
+worker/diag_separar.py
+worker/diag_costos.py
+instalable/

@@ -1,0 +1,41 @@
+# Trae las mejoras de la plantilla (content-studio-instalable) y abre un PR. Nada se mergea solo.
+# Requisitos y detalles en ACTUALIZAR.md.
+name: Actualizar desde la plantilla
+
+on:
+  schedule:
+    - cron: "17 13 * * 1" # lunes, 13:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    env:
+      # Variable de repo PLANTILLA_REPO = dueño/nombre de la plantilla (Settings → Secrets and variables → Variables).
+      PLANTILLA: ${{ vars.PLANTILLA_REPO }}
+    steps:
+      - name: Revisar la configuración
+        run: '[ -n "$PLANTILLA" ] || { echo "Falta la variable de repo PLANTILLA_REPO (dueño/nombre de la plantilla)."; exit 1; }'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Traer la plantilla
+        run: |
+          git config user.name "actualizacion" && git config user.email "actualizacion@users.noreply.github.com"
+          url="https://github.com/${PLANTILLA}.git"
+          if [ -n "${{ secrets.PLANTILLA_TOKEN }}" ]; then url="https://x-access-token:${{ secrets.PLANTILLA_TOKEN }}@github.com/${PLANTILLA}.git"; fi
+          git remote add plantilla "$url"
+          git fetch plantilla main
+          git checkout -B actualizacion
+          git merge --no-edit --allow-unrelated-histories plantilla/main || { echo "Hay conflictos: se abre el PR igual para resolverlos."; git add -A; git commit -m "Actualización con conflictos para resolver" || true; }
+          git push -f origin actualizacion
+      - name: Abrir el PR (si hay cambios)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(git rev-list --count origin/main..actualizacion)" = "0" ]; then echo "Sin cambios."; exit 0; fi
+          gh pr view actualizacion --json number >/dev/null 2>&1 || gh pr create --base main --head actualizacion --title "Actualización de la plantilla" --body "Mejoras traídas de la plantilla. Revisa los cambios, mira que no haya trabajos en curso en Ajustes → Estado del sistema y mergea. Detalle en ACTUALIZAR.md."

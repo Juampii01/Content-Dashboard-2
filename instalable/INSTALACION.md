@@ -1,0 +1,115 @@
+# Instalación por cliente
+
+Cada cliente tiene su propia instalación: **su propio repo** (copia de este), un proyecto de Vercel, una base Neon, un almacenamiento Blob, un worker en Fly.io y **sus propias claves**. Las cuentas son del cliente (él paga Vercel, Neon, Fly e IA) y nosotros las habilitamos. Calcula unos **45 a 90 minutos** la primera vez.
+
+> Regla de oro: **nunca** pegues claves en chats, documentos ni commits. Van solo en Vercel → Settings → Environment Variables, como tipo **Secret**.
+
+## 0. Antes de empezar
+
+Pide al cliente:
+
+1. Una cuenta de **Vercel** en plan **Pro** (Hobby no permite uso comercial y solo deja un cron por día). Que te invite como miembro del equipo.
+2. El **dominio** donde va a vivir (por ejemplo `studio.sumarca.com`) o acepta el de Vercel.
+3. El **correo del dueño** (quien va a entrar primero).
+4. La **zona horaria** de la marca (por ejemplo `America/Mexico_City`, `America/Bogota`, `America/Argentina/Buenos_Aires`).
+5. Su clave de API de **Anthropic** (console.anthropic.com, con saldo cargado) y, si quiere imágenes con IA, su clave de **OpenAI** (platform.openai.com). Las pega él mismo (ver §3): nunca por chat ni por correo.
+
+## 1. Proyecto en Vercel
+
+1. En GitHub, crea el repo del cliente desde este: **Use this template → Create a new repository**, privado, con un nombre como `studio-<marca>`. (Así cada cliente tiene su repo y recibe las mejoras con un PR: ver `ACTUALIZAR.md`.)
+2. Vercel → **Add New → Project** → importa el repo del cliente.
+3. Framework: Next.js. No cambies el comando de build: el proyecto usa `vercel-build` (migra la base y crea al dueño antes de compilar).
+4. No hagas el primer deploy todavía: primero la base y las variables.
+
+## 2. Base de datos (Neon) y archivos (Blob)
+
+1. En el proyecto: **Storage → Create Database → Neon** (plan Launch o superior para producción). La integración crea sola `DATABASE_URL` y `DATABASE_URL_UNPOOLED`.
+2. **Storage → Create → Blob**, acceso **público**, prefijo por defecto. Crea `BLOB_READ_WRITE_TOKEN` (solo miniaturas).
+3. **Storage → Create → Blob** otra vez, acceso **privado**, y al conectarlo elige el prefijo **`VIDEO_BLOB`**. Crea `VIDEO_BLOB_READ_WRITE_TOKEN` (videos del Editor). En Vercel Blob el acceso es del store, por eso son dos.
+
+## 3. Variables de entorno
+
+En **Settings → Environment Variables**, entorno **Production** (los secretos como **Secret**). Genera los secretos en tu computadora, nunca en una web:
+
+```bash
+openssl rand -base64 32   # BETTER_AUTH_SECRET
+openssl rand -base64 32   # TOKEN_ENCRYPTION_KEY
+openssl rand -hex 32      # CRON_SECRET
+```
+
+| Variable | Valor |
+|---|---|
+| `NEXT_PUBLIC_APP_URL` | `https://<dominio del cliente>` (sin barra al final) |
+| `NEXT_PUBLIC_APP_NAME` | Nombre que ve el cliente (por ejemplo, su marca + "Studio") |
+| `APP_TIMEZONE` | Zona horaria de la marca |
+| `BETTER_AUTH_SECRET` | generado |
+| `TOKEN_ENCRYPTION_KEY` | generado. **Guárdalo en el gestor de contraseñas**: si se pierde, hay que reconectar todas las redes |
+| `CRON_SECRET` | generado |
+| `OWNER_EMAIL`, `OWNER_NAME` | correo y nombre del dueño |
+| `ANTHROPIC_API_KEY` | **la clave de Anthropic del cliente** (BYOK). Opcional: también la puede pegar él en Ajustes → Claves de servicios, y esa manda sobre la variable |
+| `AI_MONTHLY_CREDIT_USD` | tope de IA por persona y por mes en USD (por defecto 50). Con la clave del cliente, ponlo alto o en lo que él quiera gastar: el dueño lo cambia en Ajustes → Consumo |
+| `RESEND_API_KEY`, `EMAIL_FROM` | correo (invitaciones, recuperación, resumen semanal). `EMAIL_FROM` con un dominio verificado en Resend |
+| `LEGAL_COMPANY_NAME`, `LEGAL_CONTACT_EMAIL` | datos de las páginas de privacidad y términos |
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | de la app de Meta (ver `docs/apps-redes.md`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | de Google Cloud |
+| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | de TikTok for Developers |
+
+Las variables del editor de video (worker) están en `docs/worker.md`.
+
+## 4. Primer deploy y dueño
+
+1. **Deploy**. En el log del build tiene que aparecer `[preparar] Migraciones al día.` y `[preparar] Dueño creado`.
+2. Con Resend configurado, el dueño recibe el correo de invitación. Sin Resend, el enlace para definir la contraseña queda en el log del build (vence en 7 días): pásaselo por un canal privado.
+3. El dueño entra, define su contraseña e invita al resto del equipo desde **Ajustes → Equipo**.
+
+## 5. Dominio
+
+**Settings → Domains** → agrega el dominio del cliente y sigue las instrucciones de DNS. Cuando esté activo, actualiza `NEXT_PUBLIC_APP_URL` y haz **Redeploy**.
+
+## 6. Redes sociales
+
+1. En las consolas de Meta, Google y TikTok agrega las tres URLs de regreso de esta instalación:
+   ```
+   https://<dominio>/api/social/instagram/callback
+   https://<dominio>/api/social/youtube/callback
+   https://<dominio>/api/social/tiktok/callback
+   ```
+2. Mientras las apps no pasen la revisión, agrega las cuentas del cliente como **testers** (detalle en `docs/apps-redes.md`).
+3. El dueño entra a **Ajustes → Redes conectadas → Conectar** en cada red. El histórico se importa solo en unos minutos.
+
+## 7. Claves del cliente (BYOK)
+
+- **Anthropic (toda la IA):** el dueño entra a **Ajustes → Claves de servicios → Claude (Anthropic)** y pega su clave. La app la prueba con Anthropic antes de guardarla (sin gastar) y la guarda cifrada. Si prefieren dejarla en Vercel, va en `ANTHROPIC_API_KEY` (la de Ajustes manda sobre la variable).
+- **OpenAI (imágenes de carruseles, animaciones y miniaturas):** **Ajustes → Claves de servicios → API key de OpenAI**. Sin ella, la generación de imágenes queda desactivada con un aviso.
+- **Recomiéndale** poner un tope de gasto mensual en su consola de Anthropic (Settings → Limits) además del de la app.
+- **El costo queda a la vista:** **Ajustes → Consumo** muestra cuánto gastó la IA por video, por paso y por persona, con los precios oficiales.
+
+## 8. Editor de video (worker)
+
+El editor necesita el servicio de procesamiento en Fly.io, **una app por cliente**: en `worker/fly.toml` cambia `app = "content2-worker-CAMBIAR"` por `content2-worker-<marca>` (o define la variable de repo `FLY_WORKER_APP`, ver `.github/workflows/worker-deploy.yml`). Pasos y costos en `docs/worker.md`. Sin worker, el resto de la app funciona y el editor muestra un aviso.
+
+## 9. Verificación final
+
+- [ ] Entrar con el dueño, cambiar el nombre de la marca en **Mi marca** y guardar.
+- [ ] **Mi marca → Prueba de voz** devuelve un guion (confirma la clave de IA).
+- [ ] Conectar al menos una red y ver piezas en **Métricas** a los pocos minutos.
+- [ ] Vercel → **Cron Jobs** muestra `/api/cron/sync` cada hora y la última ejecución en 200.
+- [ ] Abrir `https://<dominio>/privacidad` sin sesión.
+- [ ] Crear un guion, mandarlo al calendario y exportar un carrusel.
+- [ ] **Ajustes → Consumo** muestra el gasto de la prueba de voz (confirma el registro de costos).
+
+## 10. Demo para ventas
+
+En una instalación sin redes reales, **Ajustes → Datos de demostración → Cargar** llena 6 meses de métricas, el calendario y dos carruseles. Se borra con un clic y nunca se mezcla con cuentas reales: si ya hay una red conectada, la demo no se carga, y al conectar la primera red real se borra toda la demo (métricas, calendario y carruseles).
+
+## Costos mensuales de referencia (por cliente)
+
+| Servicio | Aproximado |
+|---|---|
+| Vercel Pro | USD 20 |
+| Neon (Launch) | USD 19 |
+| Vercel Blob | menos de USD 10 |
+| IA (Anthropic, en la cuenta del cliente) | según uso: un video editado con IA ~USD 1 a 3; con animaciones, más (Ajustes → Consumo lo muestra) |
+| Fly.io (worker del editor, se apaga solo) | unos USD 2 a 10 |
+
+Un pago único no cubre estos costos: definan con el cliente un mantenimiento mensual o que la infraestructura quede a su nombre.

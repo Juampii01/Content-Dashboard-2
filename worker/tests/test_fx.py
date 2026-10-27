@@ -103,7 +103,7 @@ def test_temporal_filter_keeps_real_motion() -> None:
 def test_preview_strip_is_white_with_alpha(tmp_path: Path) -> None:
     arr = np.zeros((30, 960, 540), np.uint8)
     arr[:, 200:700, 150:400] = 255
-    key = "9x16-op000-prueba"
+    key = "9x16-op000-prueba"  # gitleaks:allow (nombre de un tramo, no es una clave)
     (tmp_path / key).mkdir()
     np.savez_compressed(fx_mask.chunk_path(tmp_path, key, 0), m=arr)
     out = fx_mask.preview_strip(tmp_path, key, 0, "9:16", tmp_path / "tira.png")

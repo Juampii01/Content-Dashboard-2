@@ -1694,11 +1694,13 @@ export function Studio(props: StudioProps) {
             track: "anim" as const,
             start: seg.start,
             end: seg.end,
-            label: r.request.instruction,
+            // El pedido completo es largo: en la pista se ve qué es y cómo va (el pedido entero, al tocarlo).
+            label: "Nueva animación",
             detail: requestStage(r),
             tone: "border-[#a78bfa]/80",
             pending: true,
-            z: 100_000 + i,
+            // Abajo de todo al acomodar los carriles: lo que se está creando no corre de lugar a lo que ya está.
+            z: -100_000 - i,
             selection: { kind: "request" as const, id: r.id },
           },
         ];

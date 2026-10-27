@@ -7,6 +7,9 @@ import { VIDEO_CHAT_RULES, videoChatSchema, videoChatTask, type VideoChatOutput 
 import { isDenied, requireEditor } from "@/lib/auth";
 import { clearChat, loadChat, saveChat, type ChatMessage } from "@/lib/video/compos/chat";
 import { findLinks } from "@/lib/video/director/request";
+import { cleanRefs } from "@/lib/video/refs";
+import { readBytes } from "@/lib/storage";
+import type { RefImage } from "@/lib/video/compos/schema";
 import { VIDEO_CHAT_ID } from "@/lib/video/chat-conversation";
 import { LookError, lookForChat, startLook } from "@/lib/video/look";
 import { loadProject } from "@/lib/video/service";
@@ -20,7 +23,7 @@ type Fail = { ok: false; error: string };
 const CHAT_ID = VIDEO_CHAT_ID;
 export type VideoChatItem = VideoChatOutput["items"][number];
 /** looking: la referencia que la IA está mirando (el cliente pregunta cada pocos segundos hasta que responde). */
-export type VideoChatThread = { messages: { role: "user" | "assistant" | "applied"; text: string; at: string; items?: VideoChatItem[] }[]; looking?: string };
+export type VideoChatThread = { messages: { role: "user" | "assistant" | "applied"; text: string; at: string; items?: VideoChatItem[]; images?: number }[]; looking?: string };
 
 /** La última referencia pedida en la charla que todavía no tuvo respuesta. */
 function pendingLook(messages: ChatMessage[]): string | null {
@@ -40,7 +43,7 @@ function lastLook(messages: ChatMessage[]): string | null {
 
 const view = (messages: ChatMessage[]): VideoChatThread => {
   const looking = pendingLook(messages);
-  return { messages: messages.slice(-120).map((m) => ({ role: m.role, text: m.text, at: m.at, ...(m.items?.length ? { items: m.items as VideoChatItem[] } : {}) })), ...(looking ? { looking } : {}) };
+  return { messages: messages.slice(-120).map((m) => ({ role: m.role, text: m.text, at: m.at, ...(m.items?.length ? { items: m.items as VideoChatItem[] } : {}), ...(m.refs?.length ? { images: m.refs.length } : {}) })), ...(looking ? { looking } : {}) };
 };
 
 export async function loadVideoChatAction(projectId: string): Promise<{ ok: true; thread: VideoChatThread } | Fail> {
@@ -71,6 +74,8 @@ const inputSchema = z.object({
     .array(z.object({ ref: z.string().regex(/^A[1-9]$/), kind: z.enum(["video", "image"]), name: z.string().max(120), duration: z.number().min(0).max(3600).nullable() }))
     .max(8)
     .default([]),
+  /** Imágenes adjuntas a este mensaje (capturas, referencias): Claude las mira. Se vuelven a validar contra el proyecto. */
+  images: z.array(z.unknown()).max(4).optional(),
 });
 
 type ChatInput = z.output<typeof inputSchema>;
@@ -92,11 +97,28 @@ async function prepare(d: Omit<ChatInput, "text">) {
 }
 
 /** Un turno de la IA sobre la charla guardada; devuelve el mensaje de respuesta (sin guardarlo). */
-async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId: string, reference: { source: string; text: string } | null, lastText: string): Promise<{ message: ChatMessage; go: boolean } | Fail> {
+/** Lee las imágenes adjuntas (ya validadas) para mandarlas a Claude. */
+async function imagesFor(refs: RefImage[]): Promise<{ images: { mediaType: "image/jpeg" | "image/png" | "image/webp"; data: string }[]; sizes: { width: number; height: number }[] }> {
+  const images: { mediaType: "image/jpeg" | "image/png" | "image/webp"; data: string }[] = [];
+  const sizes: { width: number; height: number }[] = [];
+  for (const r of refs) {
+    try {
+      const buf = await readBytes(r.key, 8 * 1024 * 1024);
+      images.push({ mediaType: r.key.endsWith(".png") ? "image/png" : r.key.endsWith(".webp") ? "image/webp" : "image/jpeg", data: buf.toString("base64") });
+      sizes.push({ width: r.width, height: r.height });
+    } catch (error) {
+      console.error("[chat del video] no se pudo leer una imagen:", error instanceof Error ? error.message : error);
+    }
+  }
+  return { images, sizes };
+}
+
+async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId: string, reference: { source: string; text: string } | null, lastText: string, refs: RefImage[] = []): Promise<{ message: ChatMessage; go: boolean } | Fail> {
   const prep = await prepare(d);
   if (!prep) return { ok: false, error: "Este video todavía no tiene transcripción." };
   const { max, ids, sel, sentencesText } = prep;
   const brandCtx = await brandContext(await getBrand());
+  const pics = refs.length ? await imagesFor(refs) : null;
   const history = messages.slice(-30).map((m) => (m.role === "applied" ? { role: "assistant" as const, text: `[HECHO] ${m.text}` } : { role: m.role, text: m.text }));
   const out = await withAiScope(d.projectId, () =>
     generateStructured({
@@ -110,11 +132,14 @@ async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId:
         playhead: d.playhead,
         selection: sel,
         state: d.state || "(nada todavía)",
-        attachments: d.attachments.length ? d.attachments.map((a) => `${a.ref}: ${a.kind === "video" ? `video «${a.name}»${a.duration ? `, dura ${a.duration.toFixed(1)} s` : ""}` : `imagen «${a.name}»`}`).join("\n") : null,
+        attachments: d.attachments.length
+          ? `${d.attachments.map((a) => `${a.ref}: ${a.kind === "video" ? `video «${a.name}»${a.duration ? `, dura ${a.duration.toFixed(1)} s` : ""}` : `imagen «${a.name}»`}`).join("\n")}${pics?.images.length ? `\nLas imágenes de este mensaje van adjuntas en ese mismo orden: míralas y responde sobre lo que se ve en ellas (si es una captura del editor o del video, di qué ves y qué harías).` : ""}`
+          : null,
         reference,
         messages: history,
       }),
       schema: videoChatSchema,
+      ...(pics?.images.length ? { images: pics.images, imageSizes: pics.sizes } : {}),
       maxTokens: 5000,
       userId,
       fake: () => {
@@ -163,7 +188,8 @@ export async function videoChatAction(input: z.input<typeof inputSchema>): Promi
   if (!aiConfigured()) return { ok: false, error: "La IA no está configurada en esta instalación." };
   const saved = await loadChat(d.projectId, CHAT_ID);
   const now = new Date().toISOString();
-  const messages: ChatMessage[] = [...saved.messages, { role: "user", text: d.text, at: now }];
+  const refs = cleanRefs(d.projectId, d.images ?? []);
+  const messages: ChatMessage[] = [...saved.messages, { role: "user", text: d.text, at: now, ...(refs.length ? { refs } : {}) }];
   try {
     // Un link de Instagram, TikTok o YouTube: la app lo baja y lo mira cuadro a cuadro (VIDEO_LOOK); la IA contesta cuando termina.
     const link = findLinks(d.text)[0];
@@ -175,7 +201,7 @@ export async function videoChatAction(input: z.input<typeof inputSchema>): Promi
     }
     const lookId = lastLook(saved.messages);
     const ref = lookId ? await lookForChat(d.projectId, lookId) : null;
-    const reply = await turn(d, messages, user.id, ref?.text ? { source: ref.source, text: ref.text } : null, d.text);
+    const reply = await turn(d, messages, user.id, ref?.text ? { source: ref.source, text: ref.text } : null, d.text, refs);
     if ("ok" in reply) return reply;
     const next = [...messages, reply.message];
     await saveChat(d.projectId, CHAT_ID, { messages: next, agreed: null });

@@ -13,7 +13,7 @@ import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
 import { editAction } from "../director-actions";
-import { AttachButton, AttachList, refsOf, useAttachments } from "./attachments";
+import { AttachButton, AttachList, refsOf, useAttachments, type Attachment } from "./attachments";
 import type { StudioApi } from "./types";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -34,6 +34,12 @@ export function VideoChat({ api }: { api: StudioApi }) {
   const [done, setDone] = useState<Set<string>>(new Set());
   const [pending, start] = useTransition();
   const files = useAttachments(projectId, { video: true });
+  // Adjuntos que ya se mandaron, por el mensaje de la persona (así los botones de las acciones los encuentran).
+  const [sent, setSent] = useState<Record<number, Attachment[]>>({});
+  const filesFor = (i: number): Attachment[] => {
+    for (let j = i; j >= 0; j--) if (sent[j]) return sent[j]!;
+    return files.list;
+  };
   const list = useRef<HTMLOListElement>(null);
   const looking = thread.looking;
 
@@ -61,9 +67,11 @@ export function VideoChat({ api }: { api: StudioApi }) {
   /** Lo que la IA mira en cada turno: frases, cabezal, tramo elegido, lo que ya tiene y los adjuntos listos. */
   function context() {
     const sel = api.selection?.kind === "range" ? { from: api.selection.from, to: api.selection.to } : null;
-    const attachments = files.list.filter((a) => a.status === "ready").map((a) => ({ ref: a.ref, kind: a.kind, name: a.name, duration: a.duration ?? null }));
+    const ready = files.list.filter((a) => a.status === "ready");
+    const attachments = ready.map((a) => ({ ref: a.ref, kind: a.kind, name: a.name, duration: a.duration ?? null }));
+    const images = ready.flatMap((a) => (a.kind === "image" && a.image ? [{ ...a.image, use: "style" as const }] : []));
     const list = sentences(timeline.words as unknown as Word[]).map((f) => ({ from: f.from, to: f.to, start: f.start, end: f.end, text: f.text.slice(0, 600) }));
-    return { projectId, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, playhead: api.time, selection: sel, state: stateText(), attachments };
+    return { projectId, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, playhead: api.time, selection: sel, state: stateText(), attachments, images };
   }
   const contextRef = useRef(context);
   useEffect(() => {
@@ -100,14 +108,22 @@ export function VideoChat({ api }: { api: StudioApi }) {
     setText("");
     setError(null);
     const before = thread;
-    setThread({ messages: [...thread.messages, { role: "user", text: t, at: new Date().toISOString() }], ...(thread.looking ? { looking: thread.looking } : {}) });
+    const sending = files.list.filter((a) => a.status === "ready");
+    const ctx = context();
+    setThread({ messages: [...thread.messages, { role: "user", text: t, at: new Date().toISOString(), ...(sending.some((a) => a.kind === "image") ? { images: sending.filter((a) => a.kind === "image").length } : {}) }], ...(thread.looking ? { looking: thread.looking } : {}) });
+    // Los adjuntos se van con el mensaje: el cuadro de escribir queda libre.
+    if (sending.length) files.clear();
     start(async () => {
-      const r = await videoChatAction({ ...context(), text: t });
+      const r = await videoChatAction({ ...ctx, text: t });
       if (!r.ok) {
         setThread(before);
         setText(t);
         setError(r.error);
         return;
+      }
+      if (sending.length) {
+        const userIdx = [...r.thread.messages].map((m, i) => (m.role === "user" ? i : -1)).filter((i) => i >= 0).pop();
+        if (userIdx != null) setSent((m) => ({ ...m, [userIdx]: sending }));
       }
       setThread(r.thread);
       // «Edítalo», «dale», «hazlo»: las acciones del último mensaje se hacen solas.
@@ -139,7 +155,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
       if (!r.ok) return toast.error(r.error);
       toast.success(r.removed ? `Se cortaron ${r.removed} palabras y se acortaron los silencios.` : "Solo se acortaron los silencios.");
     } else if (it.kind === "video") {
-      const clip = files.list.find((a) => a.ref === it.attachments.find((x) => x.use === "broll")?.ref)?.clip;
+      const clip = filesFor(Number(key.split("-")[0])).find((a) => a.ref === it.attachments.find((x) => x.use === "broll")?.ref)?.clip;
       if (!clip) return toast.error("Ese video ya no está en los adjuntos. Vuelve a adjuntarlo.");
       api.tools.clipAt(range, clip);
     } else if (it.scope === "todo" && it.kind === "animacion") {
@@ -149,7 +165,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
     else if (it.kind === "grafico") api.tools.graphicAt(range, it.prompt);
     else {
       const pick = it.attachments.filter((x) => x.use !== "broll").map((x) => ({ ref: x.ref, use: x.use as RefImage["use"] }));
-      api.tools.animationAt(range, it.prompt, pick.length ? refsOf(files.list, pick) : undefined, { fromChat: true });
+      api.tools.animationAt(range, it.prompt, pick.length ? refsOf(filesFor(Number(key.split("-")[0])), pick) : undefined, { fromChat: true });
     }
     setDone((d) => new Set(d).add(key));
     void videoChatDoneAction(projectId, `${KIND_LABEL[it.kind]}: ${it.title} (${timeOf(it)})`);
@@ -180,7 +196,10 @@ export function VideoChat({ api }: { api: StudioApi }) {
             </li>
           ) : (
             <li key={i} className={cn("flex flex-col gap-2", m.role === "user" ? "items-end" : "items-start")}>
-              <span className={cn("max-w-[94%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "bg-white text-paper" : "border border-white/10 bg-card text-text")}>{m.text}</span>
+              <span className={cn("max-w-[94%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "bg-white text-paper" : "border border-white/10 bg-card text-text")}>
+                {m.text}
+                {m.images ? <span className="mt-1 block text-[11px] opacity-75">Con {m.images === 1 ? "1 imagen" : `${m.images} imágenes`}</span> : null}
+              </span>
               {m.items?.map((it, k) => {
                 const key = `${i}-${k}`;
                 const isDone = done.has(key);

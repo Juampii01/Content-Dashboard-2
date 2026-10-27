@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 30
     services:
       pg:
-        image: postgres:17
+        image: postgres:18
         env: { POSTGRES_PASSWORD: prueba, POSTGRES_DB: copia }
         ports: ["5432:5432"]
         options: --health-cmd pg_isready --health-interval 5s --health-retries 20
@@ -45,18 +45,18 @@ jobs:
       - name: Copiar producción (pg_dump, solo lectura)
         run: |
           mkdir -p /tmp/out
-          docker run --rm --network host postgres:17 psql "$PROD" -Atc "select version()" | cut -c1-40 > /tmp/out/version.txt
-          docker run --rm --network host postgres:17 psql "$PROD" -At -f - < .github/diag/conteos.sql > /tmp/out/prod-antes.txt
-          docker run --rm --network host -v /tmp:/tmp postgres:17 pg_dump "$PROD" --no-owner --no-privileges -Fc -f /tmp/prod.dump
-          docker run --rm --network host -v /tmp:/tmp postgres:17 pg_restore --no-owner --no-privileges -d "$COPIA" /tmp/prod.dump 2> /tmp/out/restore-avisos.txt || true
+          docker run --rm --network host postgres:18 psql "$PROD" -Atc "select version()" | cut -c1-40 > /tmp/out/version.txt
+          docker run -i --rm --network host postgres:18 psql "$PROD" -At -f - < .github/diag/conteos.sql > /tmp/out/prod-antes.txt
+          docker run --rm --network host -v /tmp:/tmp postgres:18 pg_dump "$PROD" --no-owner --no-privileges -Fc -f /tmp/prod.dump
+          docker run --rm --network host -v /tmp:/tmp postgres:18 pg_restore --no-owner --no-privileges -d "$COPIA" /tmp/prod.dump 2> /tmp/out/restore-avisos.txt || true
           rm -f /tmp/prod.dump
-          docker run --rm --network host postgres:17 psql "$COPIA" -At -f - < .github/diag/conteos.sql > /tmp/out/copia-antes.txt
+          docker run -i --rm --network host postgres:18 psql "$COPIA" -At -f - < .github/diag/conteos.sql > /tmp/out/copia-antes.txt
       - run: pnpm install --frozen-lockfile
       - name: Migrar la copia (mismo script que Vercel)
         run: |
           DATABASE_URL_UNPOOLED="$COPIA" DATABASE_URL="$COPIA" pnpm preparar 2>&1 | tee /tmp/out/migrar.txt
-          docker run --rm --network host postgres:17 psql "$COPIA" -At -f - < .github/diag/conteos.sql > /tmp/out/copia-despues.txt
-          docker run --rm --network host postgres:17 psql "$COPIA" -Atc "select (select count(*) from ai_usage) ai_usage, (select count(*) from api_usage) api_usage, (select round(sum(cost_usd)::numeric,2) from api_usage) usd" > /tmp/out/consumo.txt 2>&1 || true
+          docker run -i --rm --network host postgres:18 psql "$COPIA" -At -f - < .github/diag/conteos.sql > /tmp/out/copia-despues.txt
+          docker run --rm --network host postgres:18 psql "$COPIA" -Atc "select (select count(*) from ai_usage) ai_usage, (select count(*) from api_usage) api_usage, (select round(sum(cost_usd)::numeric,2) from api_usage) usd" > /tmp/out/consumo.txt 2>&1 || true
       - name: El schema coincide con el código
         run: DATABASE_URL_UNPOOLED="$COPIA" pnpm exec drizzle-kit check 2>&1 | tail -5 | tee /tmp/out/check.txt; DATABASE_URL_UNPOOLED="$COPIA" pnpm exec drizzle-kit migrate 2>&1 | tail -3 | tee /tmp/out/migrar-otra-vez.txt
       - name: Guardar la salida

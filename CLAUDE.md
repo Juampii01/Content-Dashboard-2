@@ -188,6 +188,8 @@ success #1f7a4d · warning #8a5a00 · danger #c0362c
 
 **Versiones del video:** ✅ antes de cada plan que escribe la IA (el director: dirigir, corregir, «Edítalo así», versiones) se guarda el plan anterior en `video_plan_versions` (`saveDirector` → `snapshotPlan`, `lib/video/versions.ts`); «Editor IA» → Versiones vuelve a cualquiera y guarda la actual antes, así que volver también se deshace. Nunca se borran.
 
+**Biblioteca con visión:** ✅ videos e imágenes (`broll_clips.kind`) con su ficha: el worker saca hojas de cuadros con su segundo (`VIDEO_CLIP`, `worker/video/library.py`), Claude (Sonnet con visión, paso `biblioteca.ficha`) escribe qué se ve, momentos con su tramo, colores, estilo, usos y etiquetas (`lib/video/library.ts`, `lib/video/library-ficha.ts`); si falla, la pieza se usa igual y la ficha se reintenta. Búsqueda por texto en Postgres (`search_text`, índice en español), ficha editable en Biblioteca. El plan de b-roll, el director y el chat eligen por la ficha con el segundo exacto del clip (`edit.clip_start`); las imágenes van de b-roll fijo. En el chat, `@nombre` nombra una pieza (autocompletado) y un video adjunto se mira antes de contestar («Estoy mirando tu video…»): Claude recibe sus hojas y su ficha en ese turno y los que siguen, y las animaciones de esa charla las llevan de referencia de estilo (`lib/video/chat-turn.ts`).
+
 **Extras ya construidos:** "¿Por qué funcionó?" por pieza, ranking de ganchos (alimenta los prompts), meta de seguidores con proyección y constancia en Inicio, resumen semanal con IA (también por correo), páginas legales públicas (`/privacidad`, `/terminos`, `/eliminar-datos`).
 
 El diseño detallado de cada herramienta está en `docs/plan-lanzamiento.md` y `docs/auditoria/`. Léelo antes de construir un módulo.

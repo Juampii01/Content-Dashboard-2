@@ -29,19 +29,19 @@ async function LibraryContent() {
           Esta instalación todavía no tiene dónde guardar los videos (VIDEO_BLOB_READ_WRITE_TOKEN). Avísale a soporte.
         </Notice>
       )}
-      <WorkerNotice online={worker.online} autoStart={worker.autoStart} waiting={!worker.autoStart && (clips.some((c) => c.status === "PROCESSING") || tracks.some((t) => t.status === "PROCESSING"))} />
+      <WorkerNotice online={worker.online} autoStart={worker.autoStart} waiting={!worker.autoStart && (clips.some((c) => c.status === "PROCESSING" || (c.kind === "video" && c.status === "READY" && c.fichaStatus === "pending")) || tracks.some((t) => t.status === "PROCESSING"))} />
       {!availability.stock && (
         <Notice tone="info" title="El b-roll sale solo de tu biblioteca">
           Esta instalación no tiene activados los videos de stock. Sube aquí tus clips y el editor los usa donde encajan.
         </Notice>
       )}
-      <SectionTitle id="clips" icon={<Clapperboard className="h-4 w-4" aria-hidden />} title="Clips de b-roll" description="Tomas tuyas que el editor pone mientras hablas." />
+      <SectionTitle id="clips" icon={<Clapperboard className="h-4 w-4" aria-hidden />} title="Clips e imágenes" description="Tomas y fotos tuyas. La IA mira cada una y las usa como b-roll o como referencia; nómbralas con @ en el chat del video." />
       <LibraryManager clips={clips.map((c) => ({ ...c, job: c.job ? { progress: c.job.progress, stage: c.job.stage } : null }))} canEdit={canEdit} />
       {clips.length === 0 && (
         <EmptyState
           icon={<Library className="h-5 w-5" aria-hidden />}
           title="Tu biblioteca está vacía"
-          description="Sube clips cortos que muestren tu negocio. Ponles etiquetas (por ejemplo: oficina, teléfono, equipo) y el editor los elige solo cuando lo que dices encaja."
+          description="Sube clips cortos e imágenes de tu negocio. La IA mira cada uno, escribe qué se ve y en qué segundos, y el editor lo pone cuando lo que dices encaja."
         />
       )}
       <section aria-labelledby="musica" className="mt-4 flex flex-col gap-4 border-t border-white/10 pt-8">
@@ -76,7 +76,7 @@ export default function LibraryPage() {
       <PageHeader
         eyebrow="Editor de video"
         title="Tu biblioteca"
-        description="Clips tuyos que el editor usa como tomas de apoyo y música para el fondo de tus videos. Súbelos una vez y úsalos siempre."
+        description="Clips, imágenes y música tuyos para tus videos. Súbelos una vez: la IA los mira y los usa donde encajan."
         icon={<Library className="h-5 w-5" aria-hidden />}
       />
       <Suspense fallback={<Skeleton className="h-96" />}>

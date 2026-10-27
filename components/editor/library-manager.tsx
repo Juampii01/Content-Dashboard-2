@@ -1,23 +1,30 @@
 "use client";
 
-import { useRef, useState, useTransition, type KeyboardEvent } from "react";
+import { useMemo, useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Film, RefreshCcw, Tag, Trash2, X } from "lucide-react";
+import { Eye, Film, ImageIcon, Loader2, RefreshCcw, Sparkles, Tag, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/feedback";
 import { toast } from "@/components/ui/toast";
+import { ChipGroup, SearchInput } from "@/components/ui/filters";
 import { UploadDropzone } from "@/components/ui/upload-dropzone";
+import type { Ficha, FichaStatus } from "@/lib/video/library-ficha";
+import { FichaDialog } from "./library-ficha-dialog";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { VIDEO_ACCEPT } from "./constants";
-import { completeClipUploadAction, createClipUploadAction, deleteClipAction, retryClipAction, updateClipAction } from "./media-actions";
+import { completeClipUploadAction, createClipUploadAction, deleteClipAction, retryClipAction, retryFichaAction, searchLibraryAction, updateClipAction } from "./media-actions";
 import { putFile } from "./upload-manager";
 import { useAutoRefresh } from "./use-auto-refresh";
 
 export type ClipItem = {
   id: string;
+  kind: "video" | "image";
+  ficha: Ficha | null;
+  fichaStatus: FichaStatus;
+  fichaError: string | null;
   title: string;
   tags: string[];
   status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
@@ -32,12 +39,41 @@ export type ClipItem = {
 type Uploading = { name: string; pct: number; error?: string };
 
 const MAX_CLIP = 2 * 1024 ** 3;
+const IMAGE_ACCEPT = ["image/jpeg", "image/png", "image/webp", ".jpg", ".jpeg", ".png", ".webp"];
+type KindFilter = "video" | "image";
 
-/** Biblioteca de b-roll: subir clips (varios a la vez), etiquetarlos y borrarlos. */
+/**
+ * Biblioteca: subir videos e imágenes (varios a la vez), buscarlos por lo que se ve (nombre, etiquetas y ficha), ver y
+ * corregir la ficha que escribió la IA, etiquetarlos y borrarlos.
+ */
 export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit: boolean }) {
   const router = useRouter();
   const [uploads, setUploads] = useState<Record<string, Uploading>>({});
-  useAutoRefresh(clips.some((c) => c.status === "PROCESSING"));
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<string[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [kinds, setKinds] = useState<KindFilter[]>([]);
+  useAutoRefresh(clips.some((c) => c.status === "PROCESSING" || (c.status === "READY" && (c.fichaStatus === "pending" || c.fichaStatus === "thinking"))));
+
+  function search(q: string) {
+    setQuery(q);
+    if (q.trim().length < 2) {
+      setFound(null);
+      return;
+    }
+    setSearching(true);
+    void searchLibraryAction(q)
+      .then((r) => setFound(r.ok && r.data ? r.data.ids : []))
+      .finally(() => setSearching(false));
+  }
+
+  const visible = useMemo(() => {
+    const byKind = clips.filter((c) => !kinds.length || kinds.includes(c.kind));
+    if (!found) return byKind;
+    const rank = new Map(found.map((id, i) => [id, i]));
+    return byKind.filter((c) => rank.has(c.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  }, [clips, kinds, found]);
+  const counts = { video: clips.filter((c) => c.kind === "video").length, image: clips.filter((c) => c.kind === "image").length };
 
   async function uploadOne(file: File, tempId: string) {
     const created = await createClipUploadAction({ fileName: file.name, fileType: file.type, fileSize: file.size });
@@ -75,13 +111,13 @@ export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit:
       {canEdit && (
         <div className="flex flex-col gap-3">
           <UploadDropzone
-            accept={VIDEO_ACCEPT}
-            acceptLabel="clips MP4, MOV, WEBM o MKV"
+            accept={[...VIDEO_ACCEPT, ...IMAGE_ACCEPT]}
+            acceptLabel="clips MP4, MOV, WEBM o MKV, o imágenes JPG, PNG o WebP"
             maxSize={MAX_CLIP}
             multiple
             onFiles={onFiles}
-            title="Arrastra tus clips de b-roll"
-            hint="Tomas tuyas que se repiten en tus videos: tu oficina, tu equipo, tu producto, tus clientes. Puedes subir varios a la vez."
+            title="Arrastra tus clips e imágenes"
+            hint="Tomas tuyas y fotos que se repiten en tus videos: tu oficina, tu equipo, tu producto, tu logo. La IA mira cada una y escribe su ficha para usarla donde encaja."
           />
           {pending.length > 0 && (
             <ul className="grid gap-2 sm:grid-cols-2" aria-label="Subidas en curso">
@@ -117,8 +153,28 @@ export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit:
         </div>
       )}
       {clips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchInput value={query} onChange={search} label="Buscar en tu biblioteca" placeholder="Busca por lo que se ve: manos, teléfono, oficina de noche…" className="min-w-[16rem] flex-1" />
+          <ChipGroup<KindFilter>
+            label="Tipo"
+            value={kinds}
+            onChange={setKinds}
+            options={[
+              { value: "video", label: "Videos", count: counts.video, icon: <Film className="h-3.5 w-3.5" aria-hidden /> },
+              { value: "image", label: "Imágenes", count: counts.image, icon: <ImageIcon className="h-3.5 w-3.5" aria-hidden /> },
+            ]}
+          />
+          {searching && <Loader2 className="h-4 w-4 animate-spin text-muted motion-reduce:animate-none" aria-label="Buscando" />}
+        </div>
+      )}
+      {clips.length > 0 && visible.length === 0 && (
+        <p className="rounded-2xl border border-dashed border-white/15 px-4 py-8 text-center text-sm text-muted">
+          {found ? `Nada en tu biblioteca coincide con «${query}». Prueba con otra palabra.` : "No hay piezas de ese tipo todavía."}
+        </p>
+      )}
+      {visible.length > 0 && (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          {clips.map((c) => (
+          {visible.map((c) => (
             <li key={c.id}>
               <ClipCard clip={c} canEdit={canEdit} />
             </li>
@@ -135,6 +191,10 @@ function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
   const [tags, setTags] = useState(clip.tags);
   const [draft, setDraft] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const [showFicha, setShowFicha] = useState(false);
+  // La ficha guardada desde el diálogo se ve enseguida; si no, la que llega del servidor (se refresca sola).
+  const [edited, setFicha] = useState<Ficha | null>(null);
+  const ficha = edited ?? clip.ficha;
   const [pending, start] = useTransition();
   const input = useRef<HTMLInputElement>(null);
   const vertical = (clip.height ?? 16) >= (clip.width ?? 9);
@@ -177,12 +237,20 @@ function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
           <img src={clip.thumbUrl} alt="" className={cn("h-full w-full", vertical ? "object-contain" : "object-cover")} loading="lazy" />
         ) : (
           <span className="grid h-full w-full place-items-center text-placeholder">
-            <Film className="h-7 w-7" aria-hidden />
+            {clip.kind === "image" ? <ImageIcon className="h-7 w-7" aria-hidden /> : <Film className="h-7 w-7" aria-hidden />}
           </span>
         )}
         <span className="absolute top-2 left-2">
           {clip.status === "READY" ? (
-            <span className="rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-paper">{formatDuration(clip.duration)}</span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-paper">
+              {clip.kind === "image" ? (
+                <>
+                  <ImageIcon className="h-3 w-3" aria-hidden /> Imagen
+                </>
+              ) : (
+                formatDuration(clip.duration)
+              )}
+            </span>
           ) : (
             <StatusBadge tone={clip.status === "FAILED" ? "danger" : "info"}>{clip.status === "FAILED" ? "Con error" : clip.status === "UPLOADING" ? "Subida incompleta" : "Preparando"}</StatusBadge>
           )}
@@ -191,6 +259,21 @@ function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
       <div className="flex flex-1 flex-col gap-3 p-4">
         {clip.status === "PROCESSING" && <Progress value={clip.job?.progress ?? 0} label={clip.job?.stage ?? "En cola"} />}
         {clip.status === "FAILED" && <p className="text-xs text-danger">{clip.errorMessage ?? "No pudimos preparar el clip."}</p>}
+        {clip.status === "READY" && (
+          <FichaLine
+            clip={{ ...clip, ficha }}
+            canEdit={canEdit}
+            busy={pending}
+            onOpen={() => setShowFicha(true)}
+            onRetry={() =>
+              start(async () => {
+                const r = await retryFichaAction(clip.id);
+                if (!r.ok) toast.error(r.error);
+                router.refresh();
+              })
+            }
+          />
+        )}
         <label className="sr-only" htmlFor={`clip-title-${clip.id}`}>
           Nombre del clip
         </label>
@@ -267,10 +350,11 @@ function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
           </div>
         )}
       </div>
+      {showFicha && <FichaDialog open={showFicha} onOpenChange={setShowFicha} clip={{ id: clip.id, title: clip.title, kind: clip.kind, duration: clip.duration, ficha }} canEdit={canEdit} onSaved={setFicha} />}
       <Dialog
         open={confirm}
         onOpenChange={setConfirm}
-        title="¿Borrar este clip?"
+        title={clip.kind === "image" ? "¿Borrar esta imagen?" : "¿Borrar este clip?"}
         description="Los videos ya renderizados no cambian. En los que estás revisando, este b-roll deja de estar disponible."
         footer={
           <>
@@ -291,11 +375,51 @@ function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
                 })
               }
             >
-              {pending ? "Borrando…" : "Borrar clip"}
+              {pending ? "Borrando…" : clip.kind === "image" ? "Borrar imagen" : "Borrar clip"}
             </Button>
           </>
         }
       />
     </article>
+  );
+}
+
+/** Estado de la ficha en la tarjeta: lo que vio la IA (con «Ver ficha»), que la está escribiendo, o el aviso para reintentar. */
+function FichaLine({ clip, canEdit, busy, onOpen, onRetry }: { clip: ClipItem; canEdit: boolean; busy: boolean; onOpen: () => void; onRetry: () => void }) {
+  const st = clip.fichaStatus;
+  if (st === "pending" || st === "thinking") {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-muted">
+        <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> La IA está mirando {clip.kind === "image" ? "la imagen" : "el clip"}…
+      </p>
+    );
+  }
+  if (st === "ready" && clip.ficha) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <p className="line-clamp-2 text-xs text-text">{clip.ficha.description || "Ficha sin descripción."}</p>
+        <div className="flex items-center gap-2">
+          <span className="flex gap-1" aria-hidden>
+            {clip.ficha.colors.slice(0, 5).map((c) => (
+              <span key={c} className="h-3.5 w-3.5 rounded-full border border-white/10" style={{ background: /^#[0-9a-f]{6}$/i.test(c) ? c : undefined }} />
+            ))}
+          </span>
+          {clip.kind === "video" && clip.ficha.moments.length > 0 && <span className="text-[11px] text-muted">{clip.ficha.moments.length === 1 ? "1 momento" : `${clip.ficha.moments.length} momentos`}</span>}
+          <Button size="sm" variant="ghost" className="ml-auto" icon={<Eye className="h-3.5 w-3.5" aria-hidden />} onClick={onOpen}>
+            Ver ficha
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <p className={cn("text-xs", st === "failed" ? "text-danger" : "text-muted")}>{st === "failed" ? (clip.fichaError ?? "No pudimos escribir la ficha.") : "Todavía sin ficha: la IA no sabe qué se ve."}</p>
+      {canEdit && (
+        <Button size="sm" variant="ghost" disabled={busy} icon={st === "failed" ? <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />} onClick={onRetry}>
+          {st === "failed" ? "Reintentar" : "Crear ficha"}
+        </Button>
+      )}
+    </div>
   );
 }

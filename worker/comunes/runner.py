@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import os
 import threading
 import time
 from dataclasses import dataclass
@@ -154,10 +153,6 @@ class Worker:
         types = [t for t in self.config.capabilities if t in _handlers]
         side = threading.Thread(target=self.side_loop, daemon=True)
         side.start()
-        # Puerta de IA con la suscripción de Claude del cliente (comunes/ia_server.py), en su propio hilo.
-        from . import ia_server  # noqa: PLC0415
-
-        ia = ia_server.start(self.config.worker_secret, self.config.work_dir) if os.environ.get("IA_SERVER", "1") != "0" else None
         idle_since = time.monotonic()
         self.cleanup()
         try:
@@ -174,16 +169,14 @@ class Worker:
                     self.cleanup()
                     idle_since = time.monotonic()
                     continue
-                # Sin trabajos y sin llamadas de IA (en curso o recientes) durante el tiempo de espera: se apaga.
-                idle = min(time.monotonic() - idle_since, ia_server.STATE.idle_for() if ia else float("inf"))
+                # Sin trabajos durante el tiempo de espera: se apaga.
+                idle = time.monotonic() - idle_since
                 if self.config.idle_exit_minutes and idle >= self.config.idle_exit_minutes * 60:
                     log.info("sin trabajos hace %s min: me apago", self.config.idle_exit_minutes)
                     break
                 self.shutdown.wait(self.config.poll_seconds)
         finally:
             self.shutdown.set()
-            if ia:
-                ia.shutdown()
             side.join(timeout=5)
             try:
                 db.goodbye(self.conn, self.config.worker_id)

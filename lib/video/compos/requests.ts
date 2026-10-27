@@ -1,6 +1,5 @@
 import "server-only";
 import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
-import { claudePlanConnected } from "@/lib/ai/claude-plan";
 import { getDb, schema } from "@/lib/db";
 import { enqueueJob } from "@/lib/jobs";
 import type { Composition } from "./schema";
@@ -69,7 +68,6 @@ export async function enqueueRequest(input: {
     await db.insert(schema.composRequests).values({ id: work.id, projectId: input.projectId, status: "waiting", work: work as unknown as Record<string, unknown>, reservedUsd: 0, createdBy: input.userId });
     return { workId: work.id, error: null };
   }
-  const planOn = await claudePlanConnected().catch(() => false);
   const out = await db.transaction(async (tx) => {
     // Un pedido a la vez reserva en este video: los demás esperan aquí unos milisegundos.
     await tx.execute(sql`select id from video_projects where id = ${input.projectId} for update`);
@@ -79,8 +77,7 @@ export async function enqueueRequest(input: {
       .where(and(eq(schema.composRequests.projectId, input.projectId), inArray(schema.composRequests.status, [...RUNNING])));
     const held = active.reduce((n, r) => n + Math.max(0, r.reserved - r.used), 0);
     const free = input.cap - input.spent - held;
-    // Con la suscripción, lo que reserva el pedido no sale del tope en USD (no gasta la API): dos vueltas de revisión.
-    const plan = planOn ? { lookRounds: 1, reserved: requestEstimate({ plan: input.needsPlan, lookRounds: 1 }) } : planReservation(free, input.needsPlan);
+    const plan = planReservation(free, input.needsPlan);
     const work = input.build(plan?.lookRounds ?? 0);
     work.reservedUsd = plan?.reserved ?? 0;
     work.usedUsd = 0;
@@ -218,13 +215,12 @@ export async function promoteWaiting(projectId: string, info?: { cap: number; sp
     if (!ctx) return 0;
     money = { cap: ctx.cap, spent: ctx.spent };
   }
-  const planOn = await claudePlanConnected().catch(() => false);
   let moved = 0;
   let running = MAX_ACTIVE - room;
   for (const row of waiting.slice(0, room)) {
-    // Sin la suscripción, cada uno reserva del tope en USD: si ahora no alcanza, espera a que terminen los que corren
+    // Cada uno reserva del tope en USD: si ahora no alcanza, espera a que terminen los que corren
     // (liberan su reserva). Solo si no corre ninguno y aun así no alcanza, entra y queda fallido con el aviso.
-    if (!planOn && running > 0) {
+    if (running > 0) {
       const active = await db
         .select({ reserved: schema.composRequests.reservedUsd, used: schema.composRequests.usedUsd })
         .from(schema.composRequests)

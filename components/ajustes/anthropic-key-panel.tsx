@@ -10,7 +10,7 @@ import { Notice } from "@/components/ui/feedback";
 import { toast } from "@/components/ui/toast";
 import { formatRelative } from "@/lib/format";
 import type { AnthropicKeyPanelStatus } from "@/lib/dal/anthropic-key";
-import { removeAnthropicKeyAction, removeLegacyClaudeAction, saveAnthropicKeyAction, type AnthropicKeyState } from "./anthropic-key-actions";
+import { removeAnthropicKeyAction, saveAnthropicKeyAction, type AnthropicKeyState } from "./anthropic-key-actions";
 
 const CONSOLE_KEYS = "https://console.anthropic.com/settings/keys";
 const CONSOLE_BILLING = "https://console.anthropic.com/settings/billing";
@@ -99,32 +99,9 @@ export function AnthropicKeyPanel({ status }: { status: AnthropicKeyPanelStatus 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, start] = useTransition();
 
-  const legacy = status.legacyPlan && status.isOwner && (
-    <Notice tone="info" title="Tu suscripción de Claude ya no se usa">
-      <p>Anthropic no permite que otras apps usen los planes Pro o Max, así que la IA ahora funciona con tu clave de API. Puedes borrar la conexión vieja.</p>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="mt-2"
-        disabled={pending}
-        onClick={() =>
-          start(async () => {
-            const r = await removeLegacyClaudeAction();
-            if (r.error) toast.error(r.error);
-            else toast.success("Conexión vieja borrada.");
-          })
-        }
-        icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
-      >
-        Borrar la conexión vieja
-      </Button>
-    </Notice>
-  );
-
   if (!status.key.configured) {
     return (
       <div className="flex flex-col gap-4">
-        {legacy}
         {!status.isOwner ? (
           <p className="flex items-center gap-2 text-sm text-muted">
             <KeyRound className="h-4 w-4 text-accent-hi" aria-hidden />
@@ -162,7 +139,6 @@ export function AnthropicKeyPanel({ status }: { status: AnthropicKeyPanelStatus 
 
   return (
     <div className="flex flex-col gap-4">
-      {legacy}
       <div className="card flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-4">
           <span className="tile-icon h-11 w-11 flex-none">

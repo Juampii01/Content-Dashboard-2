@@ -62,8 +62,6 @@ const schema = z.object({
   FLY_API_TOKEN: optional,
   FLY_WORKER_APP: optional,
   FLY_WORKER_MACHINE_ID: optional,
-  // Puerta de IA del worker (suscripción de Claude del cliente). Sin esta variable se usa https://<FLY_WORKER_APP>.fly.dev.
-  CLAUDE_GATEWAY_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
 
   // Integraciones (se exigen en cada módulo)
   INSTAGRAM_APP_ID: optional,
@@ -87,11 +85,9 @@ const schema = z.object({
   HEYGEN_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.heygen.com")),
   // Música de Jamendo (opcional): el cliente guarda su client_id en Ajustes. Esto solo cambia la dirección (simulador).
   JAMENDO_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.jamendo.com/v3.0")),
-  // Imágenes de Carruseles: cada cliente conecta su ChatGPT (Codex en el worker) o guarda su API key de OpenAI en
-  // Ajustes. Estas variables solo cambian modelos y dirección de la API (pruebas con un simulador). Todas opcionales.
+  // Imágenes: cada cliente guarda su API key de OpenAI en Ajustes. Estas variables solo cambian modelos y dirección de la API (pruebas con un simulador). Todas opcionales.
   OPENAI_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.openai.com/v1")),
   OPENAI_IMAGE_MODEL: z.string().trim().min(1).default("gpt-image-2.5-flare"),
-  CODEX_MODEL: z.string().trim().min(1).default("gpt-5.6-terra"),
 });
 
 export type Env = z.infer<typeof schema>;

@@ -1,8 +1,6 @@
 # Worker de video de Content 2 en Fly Machines (una app por cliente).
-# Sale a buscar trabajos a la base y habla con la app. Además expone la puerta de IA (comunes/ia_server.py, solo con
-# WORKER_SECRET) para que la app use la suscripción de Claude del cliente: el proxy de Fly enciende la máquina si llega
-# una llamada y está apagada.
-# Se apaga solo después de IDLE_EXIT_MINUTES sin trabajos ni llamadas de IA; la app lo enciende con la Machines API al encolar.
+# Sale a buscar trabajos a la base y habla con la app. No expone ningún puerto a internet.
+# Se apaga solo después de IDLE_EXIT_MINUTES sin trabajos; la app lo enciende con la Machines API al encolar.
 # `app` es el worker de esta instalación; en la de cada cliente cámbialo por content2-worker-<cliente> (solo minúsculas, números y guiones).
 app = "content2-worker-juampi"
 primary_region = "iad"
@@ -30,18 +28,6 @@ kill_timeout = "60s"
 [[vm]]
   size = "performance-4x"
   memory = "8gb"
-
-# Puerta de IA. El proxy nunca la apaga (auto_stop "off": podría cortar un render); se apaga sola por inactividad.
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = "off"
-  auto_start_machines = true
-  min_machines_running = 0
-  [http_service.concurrency]
-    type = "requests"
-    soft_limit = 8
-    hard_limit = 16
 
 # Si el proceso termina bien (sin trabajos), la máquina queda detenida; si se cae, Fly la reinicia.
 [[restart]]

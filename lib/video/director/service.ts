@@ -52,7 +52,7 @@ export type { EditEstimate } from "./cost";
 import { newReferenceId, referenceFromPayload, referenceSettings, referenceSummary, referenceText, type DirectorReference, type ReferencePayload, type ReferenceSource } from "./reference";
 import { applyRequest, checkCompliance, enforceRequest, findLinks, isReferenceLink, mergeCompliance, missingKey, missingOf, parseRequest, planBaseline, requestOverrides, requestText, settingsFromRequest, type ParsedRequest } from "./request";
 import { diffPlans } from "./diff";
-import { advanceWork, readWork, type AgentDone, type WorkerNext } from "../compos/work";
+import { advanceWork, readWork } from "../compos/work";
 import { adaptStep, asksForAnimation, finishCopy, readCopy, recentUsage, recipeStep, startCopy, startEditRequest, startVariety, wantsCopy } from "../compos/flows";
 import type { FxKind } from "../fx/catalog";
 import { keyFrames, type KeyFrame } from "./keyframes";
@@ -77,7 +77,6 @@ export type DirectorNext =
   | { step: "understand" | "direct" | "revise" | "finalize" | "edit" | "recipe" | "adapt" | "compos"; label?: string }
   | { step: "compos-images"; items: { taskId: string; imageId: string; prompt: string; aspect: string }[]; label: string }
   | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string }
-  | Extract<WorkerNext, { step: "compos-agent" }>
   | { step: "preview"; round: number; render: Record<string, unknown>; frames: KeyFrame[] }
   | null;
 
@@ -97,8 +96,7 @@ export type DirectorBody =
   | { step: "adapt" }
   | { step: "compos"; workId?: string }
   | { step: "compos-images-done"; results: unknown[]; workId?: string }
-  | { step: "compos-look"; sheets: { taskId: string; key: string; width: number; height: number; times?: number[] }[]; workId?: string }
-  | { step: "compos-agent-done"; agent: AgentDone; workId?: string };
+  | { step: "compos-look"; sheets: { taskId: string; key: string; width: number; height: number; times?: number[] }[]; workId?: string };
 
 const STAGE_LABEL: Record<string, string> = {
   "video.director.mapa": "Entender el video",
@@ -296,8 +294,7 @@ export async function directorStep(projectId: string, body: DirectorBody): Promi
       }
       case "compos":
       case "compos-images-done":
-      case "compos-look":
-      case "compos-agent-done": {
+      case "compos-look": {
         const r = await advanceWork(projectId, body);
         if (!r.finished) return { next: r.next, status: (await loadProject(projectId))?.status ?? "PROCESSING" };
         // Un pedido del Estudio (su propia fila): termina ahí, el Estudio lo entrega.

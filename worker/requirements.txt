@@ -12,6 +12,3 @@ faster-whisper==1.2.1
 # Estilos desde un video de referencia: cortes, zooms y caras (YuNet) con OpenCV; bajar links con yt-dlp.
 opencv-python-headless==5.0.0.93
 yt-dlp==2026.8.19
-# Animaciones con la suscripción de Claude del cliente (video/compos_agent.py): SDK de agentes de Claude (MIT), trae su
-# propia CLI. Usa el token del plan del cliente, no una API key.
-claude-agent-sdk==0.2.174

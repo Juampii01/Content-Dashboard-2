@@ -3,7 +3,6 @@
 import { refresh } from "next/cache";
 import { z } from "zod";
 import { AnthropicKeyError, removeAnthropicKey, saveAnthropicKey } from "@/lib/ai/anthropic-key";
-import { removeClaudePlanToken } from "@/lib/ai/claude-plan";
 import { isDenied, requireOwner } from "@/lib/auth";
 
 export type AnthropicKeyState = { ok?: boolean; error?: string };
@@ -31,15 +30,6 @@ export async function removeAnthropicKeyAction(): Promise<{ ok: boolean; error?:
   const owner = await requireOwner();
   if (isDenied(owner)) return { ok: false, error: owner.error };
   await removeAnthropicKey();
-  refresh();
-  return { ok: true };
-}
-
-/** Borra el token de la suscripción de Claude que haya quedado guardado de antes (ya no se usa). */
-export async function removeLegacyClaudeAction(): Promise<{ ok: boolean; error?: string }> {
-  const owner = await requireOwner();
-  if (isDenied(owner)) return { ok: false, error: owner.error };
-  await removeClaudePlanToken();
   refresh();
   return { ok: true };
 }

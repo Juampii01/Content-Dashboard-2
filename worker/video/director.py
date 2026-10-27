@@ -127,6 +127,14 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
             with lock:
                 sheets = compos.stills(ctx, project, nxt.get("render") or {}, nxt.get("items") or [])
             res = ctx.app.director(pid, {"step": "compos-look", "sheets": sheets, **extra})
+        elif step == "compos-ai":
+            from . import claude_api  # noqa: PLC0415
+
+            # El código de una pieza larga (o de una que se cortó en la app): la llamada a Claude la hace el worker, sin
+            # el límite de 13 minutos de la función. Corre en paralelo con otros pedidos (no toma el candado).
+            ctx.stage(str(nxt.get("label") or "Programando la animación")[:120], a, b)
+            done = claude_api.run_call(ctx, pid, nxt, extra)
+            res = ctx.app.director(pid, {"step": "compos-ai-done", "remote": done, **extra})
         else:
             ctx.stage(str(nxt.get("label") or STEP_LABELS.get(step, "Dirigiendo la edición"))[:120], a, b)
             res = ctx.app.director(pid, {"step": step, **extra})

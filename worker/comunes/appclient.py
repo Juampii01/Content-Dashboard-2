@@ -69,6 +69,11 @@ class AppClient:
         key = res.get("apiKey")
         return key if isinstance(key, str) and key else None
 
+    def ai_call(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Una llamada larga a Claude del taller de animaciones: la clave de API del cliente, la dirección y el cuerpo del
+        pedido, solo para la llamada que la app está esperando (video/claude_api.py). La clave no se guarda ni se loguea."""
+        return self._post(f"/api/worker/projects/{project_id}/ia", payload, timeout=120)
+
     def notify(self) -> None:
         """Avisa a la app que terminó un trabajo (arma los avisos y correos). Nunca tira error."""
         try:

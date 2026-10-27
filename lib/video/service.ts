@@ -50,6 +50,8 @@ import { FPS, type BrollOption, type CaptionPresetKey, type EditPlan, type Media
  * → AWAITING_REVIEW (la persona revisa) → RENDERING (worker) → DONE. Cualquier etapa puede terminar en FAILED.
  */
 import { VideoError } from "./errors";
+import { snapshotBeforeStudioSave } from "./versions";
+import { renderMix } from "./audio-mix";
 export { VideoError };
 
 export type Project = typeof schema.videoProjects.$inferSelect;
@@ -435,13 +437,19 @@ async function projectForEdit(projectId: string) {
   return { project, plan: project.plan as EditPlan, transcript: project.transcript as Transcript, media: (project.media ?? {}) as MediaInfo };
 }
 
-export async function saveReview(projectId: string, review0: Review, format: VideoFormat): Promise<void> {
+/**
+ * Guarda la revisión del Estudio. Antes, una versión del plan que había (una por tanda de cambios, o siempre con
+ * `checkpoint`: ver `snapshotBeforeStudioSave` en lib/video/versions.ts).
+ */
+export async function saveReview(projectId: string, review0: Review, format: VideoFormat, opts: { userId?: string | null; checkpoint?: string | null } = {}): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
   const review = await withTrustedCompositions(project, review0, plan, transcript, media, format);
   const next = applyReview(plan, review, transcript.words, media.duration || transcript.duration, format);
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
+  // Si no se pudo guardar la versión, el guardado sigue (lo de la persona no se pierde por eso).
+  await snapshotBeforeStudioSave(projectId, { current: plan, next, userId: opts.userId ?? null, checkpoint: opts.checkpoint }).catch((error) => console.error("[versiones] no se pudo guardar la versión del Estudio:", error instanceof Error ? error.message : error));
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: review.preset }).where(eq(schema.videoProjects.id, projectId));
   // Efectos con recorte: el worker prepara la máscara de esos segundos para la vista previa (si falta).
   if (next.effects?.length || next.compositions?.length) {
@@ -572,7 +580,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
     dense: planDensity(next) === "reels",
     // Los que puso la persona en la pista de Sonido.
-    manual: soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+    manual: soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain, trim_in: cue.trim_in, trim_out: cue.trim_out, fade_in: cue.fade_in, fade_out: cue.fade_out })),
     // El de cada transición (en su corte) y los de las animaciones (con techo y sin amontonarse).
     extras: [
       ...transitionSounds(fx.transitions).filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: TRANSITION_SOUND_GAIN })),
@@ -581,6 +589,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     volumeDb: next.audio.sfx_db ?? 0,
     speech: timeline.words.map((w) => ({ start: w.start, end: w.end })),
   });
+  const mix = renderMix(next.audio);
   // Música: una pista generada (la arma el worker con el mismo generador que la vista previa) o una pista lista de la
   // biblioteca (la clave sale de la base, no del navegador).
   const track = !next.audio.music_gen && next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
@@ -590,7 +599,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
       ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db, ...(track.attribution ? { attribution: track.attribution } : {}) }
       : null;
   // Créditos: los del b-roll de stock y la atribución que pide la licencia de la música (catálogo CC BY).
-  const credits = [stockCredits, track?.status === "READY" && !next.audio.music_gen && track.attribution ? `Música\n\n${track.attribution}` : ""].filter(Boolean).join("\n\n");
+  const credits = [stockCredits, mix.music && track?.status === "READY" && !next.audio.music_gen && track.attribution ? `Música\n\n${track.attribution}` : ""].filter(Boolean).join("\n\n");
   // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
   const phraseFixes = await phraseFixesForRender(projectId);
 
@@ -629,7 +638,8 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     credits,
     creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
     srt: toSrt(timeline.words),
-    audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music, studio: studioLevel(next.audio.studio) },
+    // Mezcla del Estudio (lib/video/audio-mix.ts): lo silenciado no va; la voz con su volumen; la música con sus fundidos.
+    audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx: mix.sfx ? sfx : [], music: mix.music ? music : null, studio: studioLevel(next.audio.studio), mix },
     phraseFixes,
     outputKey: `${keyPrefix(projectId)}render-${stamp}.mp4`,
     srtKey: `${keyPrefix(projectId)}render-${stamp}.srt`,

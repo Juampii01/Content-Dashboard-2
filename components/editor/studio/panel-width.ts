@@ -45,7 +45,8 @@ function storeFor(key: string, limits: PanelLimits) {
   return s;
 }
 
-export function usePanelWidth(key: string, limits: PanelLimits, side: "left" | "right") {
+/** `side: "bottom"`: un panel de abajo (la línea de tiempo): se arrastra su borde de arriba y cambia el alto. */
+export function usePanelWidth(key: string, limits: PanelLimits, side: "left" | "right" | "bottom") {
   const s = storeFor(key, limits);
   const stored = useSyncExternalStore(s.subscribe, s.read, () => limits.default);
   const [drag, setDrag] = useState<number | null>(null);
@@ -58,18 +59,19 @@ export function usePanelWidth(key: string, limits: PanelLimits, side: "left" | "
     [s],
   );
   const sign = side === "left" ? 1 : -1;
+  const pos = (e: { clientX: number; clientY: number }) => (side === "bottom" ? e.clientY : e.clientX);
   function onPointerDown(e: React.PointerEvent<HTMLElement>) {
     e.preventDefault();
-    const startX = e.clientX;
+    const startX = pos(e);
     const startW = width;
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => setDrag(s.clamp(startW + sign * (ev.clientX - startX)));
+    const move = (ev: PointerEvent) => setDrag(s.clamp(startW + sign * (pos(ev) - startX)));
     const up = (ev: PointerEvent) => {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", up);
-      save(startW + sign * (ev.clientX - startX));
+      save(startW + sign * (pos(ev) - startX));
     };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
@@ -78,17 +80,17 @@ export function usePanelWidth(key: string, limits: PanelLimits, side: "left" | "
   /** Props del borde para arrastrar (también con flechas y doble clic para volver al ancho de siempre). */
   const handle = {
     role: "separator" as const,
-    "aria-orientation": "vertical" as const,
+    "aria-orientation": side === "bottom" ? ("horizontal" as const) : ("vertical" as const),
     "aria-valuemin": limits.min,
     "aria-valuemax": limits.max,
     "aria-valuenow": width,
     tabIndex: 0,
-    title: "Arrastra para cambiar el ancho (doble clic: ancho de siempre)",
+    title: side === "bottom" ? "Arrastra para cambiar el alto (doble clic: alto de siempre)" : "Arrastra para cambiar el ancho (doble clic: ancho de siempre)",
     onPointerDown,
     onDoubleClick: () => save(limits.fraction ? window.innerWidth * limits.fraction : limits.default),
     onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === "ArrowLeft") save(width - sign * 24);
-      else if (e.key === "ArrowRight") save(width + sign * 24);
+      if (e.key === (side === "bottom" ? "ArrowUp" : "ArrowLeft")) save(width - sign * 24);
+      else if (e.key === (side === "bottom" ? "ArrowDown" : "ArrowRight")) save(width + sign * 24);
     },
   };
   return { width, handle };

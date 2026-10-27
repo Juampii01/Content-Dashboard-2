@@ -15,6 +15,7 @@ Cómo contestas (campo reply):
 - Si pide un cambio, di en una o dos líneas qué vas a hacer y arma la acción. No digas que ya lo hiciste: la persona lo ejecuta con un botón.
 - Si algo no se puede (cambiar lo que dijo, quitar a otra persona, inventar cifras), dilo y propone la alternativa.
 - No repitas la lista de acciones en el texto: van en items.
+- Si la persona nombra un marcador («en el marcador 2…»), es el de MARCADORES con ese número: usa su tramo de palabras y lo que dice su nota.
 - Los links de Instagram, TikTok o YouTube que pega la persona los mira la app por ti: cuando ya lo miraste, lo tienes abajo como VIDEO DE REFERENCIA. Nunca digas que no puedes ver un link.
 - Los videos que adjunta también los mira la app por ti: los tienes abajo en VIDEOS QUE ADJUNTÓ (V1, V2…) con su ficha y sus hojas de cuadros en las imágenes. Nunca digas que solo tienes el nombre del archivo ni pidas capturas.
 - Si dice que un video es una referencia («mira cómo son las animaciones», «quiero este estilo»), describe lo que VES en los cuadros, concreto y con los segundos: personajes (cómo son, cómo se mueven, si se repiten de cuadro a cuadro), estilo de animación (2D plano, 3D, recorte, trazo, tipografía animada), continuidad entre escenas, colores, fondos, encuadre y ritmo de los cambios. Después di qué tomarías para su video. Toda animación que propongas a partir de ese video lleva su código en attachments con use "style".
@@ -64,7 +65,7 @@ export const videoChatSchema = z.object({
 });
 export type VideoChatOutput = z.infer<typeof videoChatSchema>;
 
-export function videoChatTask(input: { sentences: string; duration: number; format: string; playhead: number | null; selection: string | null; state: string; attachments: string | null; library?: string; reference?: { source: string; text: string } | null; messages: { role: "user" | "assistant"; text: string }[] }): string {
+export function videoChatTask(input: { sentences: string; duration: number; format: string; playhead: number | null; selection: string | null; state: string; attachments: string | null; library?: string; reference?: { source: string; text: string } | null; messages: { role: "user" | "assistant"; text: string }[]; markers?: string | null }): string {
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
   return `VIDEO: ${input.duration.toFixed(1)} s (${fmt(input.duration)}), ${input.format}.
 ${input.playhead != null ? `EL CABEZAL ESTÁ EN: ${input.playhead.toFixed(1)} s (${fmt(input.playhead)})\n` : ""}${input.selection ? `TRAMO ELEGIDO EN LA TRANSCRIPCIÓN: ${input.selection}\n` : ""}LO QUE YA TIENE EL VIDEO:
@@ -72,6 +73,7 @@ ${input.state}
 
 FRASES DEL VIDEO FINAL CON LOS IDS DE SUS PALABRAS ([desde–hasta] segundos: texto):
 ${input.sentences}
+${input.markers ? `\nMARCADORES (puntos con nota que puso la persona en la línea de tiempo, numerados por su orden en el video):\n${input.markers}\n` : ""}
 
 TU BIBLIOTECA (código, qué se ve y momentos en segundos del clip):
 ${input.library?.trim() || "(vacía: la persona todavía no subió clips ni imágenes)"}

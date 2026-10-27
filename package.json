@@ -35,6 +35,7 @@
     "test:consumo": "node --conditions=react-server --import tsx --test tests/api-usage.test.mts",
     "test:creditos": "node --conditions=react-server --import tsx --test tests/ai-credits.test.mts",
     "test:biblioteca": "node --require ./tests/support/sin-server-only.cjs --import tsx --test tests/biblioteca.test.mts",
+    "test:linea": "node --import tsx --test tests/linea-de-tiempo.test.mts",
     "test:versiones": "node --conditions=react-server --import tsx --test tests/plan-versions.test.mts",
     "test:musica": "node --conditions=react-server --import tsx --test tests/music-catalog.test.mts",
     "test:director": "node --import tsx --test tests/director.test.mts tests/rhythm.test.mts tests/director-pedidos.test.mts",

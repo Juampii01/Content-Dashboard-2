@@ -22,7 +22,7 @@ Object.assign(process.env, {
 });
 
 const { getDb, schema } = await import("../lib/db");
-const { snapshotPlan, listVersions, restoreVersion } = await import("../lib/video/versions");
+const { snapshotPlan, listVersions, restoreVersion, snapshotBeforeStudioSave, STUDIO_VERSION_EVERY_MS } = await import("../lib/video/versions");
 const { eq } = await import("drizzle-orm");
 const { readFileSync } = await import("node:fs");
 
@@ -74,5 +74,58 @@ describe("versiones del plan", () => {
     // Ninguna otra escritura del plan en el director fuera de saveDirector.
     const writes = [...src.matchAll(/\.set\(\{[^}]*\bplan\b/g)];
     assert.equal(writes.length, 0, "el director escribe el plan solo con saveDirector(…, { plan })");
+  });
+});
+
+describe("versiones de los cambios a mano en el Estudio", () => {
+  const base = { version: 2, marca: "C", removals: [], audio: { cues: [] } } as never;
+  const moved = { version: 2, marca: "C", removals: [{ from_word: 1, to_word: 2 }], audio: { cues: [{ id: "s1" }] } } as never;
+
+  before(async () => {
+    await getDb().delete(schema.videoProjects).where(eq(schema.videoProjects.id, ID));
+    await getDb().insert(schema.videoProjects).values({ id: ID, title: "Prueba versiones Estudio", plan: base, status: "AWAITING_REVIEW" });
+  });
+  after(async () => {
+    await getDb().delete(schema.videoProjects).where(eq(schema.videoProjects.id, ID));
+  });
+
+  test("una versión por tanda: muchos guardados seguidos guardan una sola, con etiqueta legible", async () => {
+    const t0 = new Date();
+    assert.equal(await snapshotBeforeStudioSave(ID, { current: base, next: moved, userId: null, now: t0 }), true);
+    for (let i = 1; i < 6; i++) assert.equal(await snapshotBeforeStudioSave(ID, { current: base, next: moved, userId: null, now: new Date(t0.getTime() + i * 1200) }), false);
+    const versions = await listVersions(ID);
+    assert.equal(versions.length, 1);
+    assert.equal(versions[0]!.source, "estudio");
+    assert.equal(versions[0]!.label, "Antes de tus cambios en el Estudio (cortes y sonido)");
+  });
+
+  test("sin cambios no se guarda nada; pasada la ventana, otra versión", async () => {
+    assert.equal(await snapshotBeforeStudioSave(ID, { current: base, next: base, userId: null }), false);
+    // La ventana se mide contra la última versión: se simula que pasó el tiempo.
+    await getDb().update(schema.videoProjects).set({ plan: { ...(base as object), marca: "D" } }).where(eq(schema.videoProjects.id, ID));
+    const later = new Date(Date.now() + STUDIO_VERSION_EVERY_MS + 1000);
+    assert.equal(await snapshotBeforeStudioSave(ID, { current: { ...(base as object), marca: "D" } as never, next: moved, userId: null, now: later }), true);
+    assert.equal((await listVersions(ID)).length, 2);
+  });
+
+  test("después de un cambio de la IA, la siguiente tanda guarda versión aunque no pasó la ventana", async () => {
+    await getDb().update(schema.videoProjects).set({ plan: { ...(base as object), marca: "E" } }).where(eq(schema.videoProjects.id, ID));
+    await snapshotPlan(ID, { label: "Antes de: la IA", source: "ia" });
+    await getDb().update(schema.videoProjects).set({ plan: { ...(base as object), marca: "F" } }).where(eq(schema.videoProjects.id, ID));
+    assert.equal(await snapshotBeforeStudioSave(ID, { current: { ...(base as object), marca: "F" } as never, next: moved, userId: null }), true);
+    const [last] = await listVersions(ID);
+    assert.equal(last!.source, "estudio");
+  });
+
+  test("un reemplazo desde el chat siempre guarda su versión, con su etiqueta", async () => {
+    await getDb().update(schema.videoProjects).set({ plan: { ...(base as object), marca: "G" } }).where(eq(schema.videoProjects.id, ID));
+    const label = "Antes de cambiar una animación (pedido: «más grande»)";
+    assert.equal(await snapshotBeforeStudioSave(ID, { current: { ...(base as object), marca: "G" } as never, next: moved, userId: null, checkpoint: label }), true);
+    assert.equal((await listVersions(ID))[0]!.label, label);
+  });
+
+  test("saveReview guarda la versión antes de escribir (camino del guardado automático)", () => {
+    const src = readFileSync(new URL("../lib/video/service.ts", import.meta.url), "utf8");
+    assert.match(src, /export async function saveReview[\s\S]*?snapshotBeforeStudioSave\([\s\S]*?\.set\(\{ plan: next/);
   });
 });

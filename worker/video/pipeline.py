@@ -20,7 +20,7 @@ from comunes import db, ffmpeg
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, music_gen, reference, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
+from . import ass, audio_preview, broll_edit, director, energy, eyes, fx, ingest, library, motion, music_gen, peaks, reference, render, style_job, transcribe  # library y style_job registran VIDEO_CLIP y VIDEO_STYLE
 from . import clips as long_clips  # registra LONG_VIDEO_CLIPS (clips desde un video largo)
 from . import compos as _compos  # noqa: F401 — registra VIDEO_COMPOS (animaciones pedidas desde el Estudio)
 from . import phrase_fix  # registra VIDEO_PHRASE_CLIP y reemplaza las frases corregidas antes de cortar
@@ -162,6 +162,16 @@ def analyze(ctx: JobContext) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             log.warning("no se pudo armar la muestra de audio de %s", pid, exc_info=True)
 
+    if (media.get("peaks") or {}).get("version") != peaks.VERSION:
+        # Forma de onda de la voz para la línea de tiempo (chica y rápida). Si falla, el análisis sigue.
+        try:
+            media = {**media, "peaks": peaks.make(ctx, pid, workdir / "audio.wav", workdir / "picos")}
+            peaks.save_media(ctx, pid, media["peaks"])
+        except Cancelled:
+            raise
+        except Exception:  # noqa: BLE001
+            log.warning("no se pudo dibujar la forma de onda de %s", pid, exc_info=True)
+
     # Ojos y director de edición: mira el video, lo entiende, dirige la edición y la revisa antes de entregarla.
     director.see(ctx, project, workdir, media, 0.67, 0.73)
     # Un link de referencia en el brief: el director lo mira antes de dirigir.
@@ -247,10 +257,13 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
 
 
 def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: Path, audio_cfg: dict[str, Any], duration: float, info: dict[str, Any]) -> Path:
-    """Efectos de sonido y música de fondo debajo de la voz. Sin ninguno de los dos, la voz queda tal cual."""
-    sfx = [c for c in audio_cfg.get("sfx") or [] if isinstance(c, dict)]
-    music_cfg = audio_cfg.get("music") if isinstance(audio_cfg.get("music"), dict) else None
-    if not sfx and not music_cfg:
+    """Efectos de sonido y música de fondo debajo de la voz, con la mezcla del Estudio (`audio.mix`: volumen de la voz,
+    pistas silenciadas o en solo y fundidos de la música; lib/video/audio-mix.ts). Sin efectos, sin música y con la voz
+    a 0 dB, la voz queda tal cual."""
+    mix = mix_settings(audio_cfg)
+    sfx = [c for c in audio_cfg.get("sfx") or [] if isinstance(c, dict)] if mix["sfx"] else []
+    music_cfg = (audio_cfg.get("music") if isinstance(audio_cfg.get("music"), dict) else None) if mix["music"] else None
+    if not sfx and not music_cfg and mix["voiceDb"] is not None and abs(mix["voiceDb"]) < 0.05:
         return voice
     music_path = None
     if music_cfg and music_cfg.get("gen") is not None:
@@ -266,9 +279,39 @@ def mix_extras(ctx: JobContext, pid: str, workdir: Path, out_dir: Path, voice: P
         if not music_path.exists():
             ctx.app.download(None, key, music_path, owner={"trackId": track_id})
     mixed = out_dir / "mix.wav"
-    result = render.mix_audio(voice, mixed, duration, sfx=sfx, music=music_path, music_db=float((music_cfg or {}).get("db", -16)), target=float(audio_cfg.get("targetLufs", -14)))
+    result = render.mix_audio(
+        voice,
+        mixed,
+        duration,
+        sfx=sfx,
+        music=music_path,
+        music_db=float((music_cfg or {}).get("db", -16)),
+        target=float(audio_cfg.get("targetLufs", -14)),
+        voice_db=mix["voiceDb"],
+        music_fade=mix["musicFade"],
+    )
     info.update(result)
     return mixed
+
+
+def mix_settings(audio_cfg: dict[str, Any]) -> dict[str, Any]:
+    """La mezcla que manda la app (`audio.mix`). Sin el campo (entradas de antes): todo suena, voz a 0 dB y los fundidos
+    de siempre."""
+    raw = audio_cfg.get("mix") if isinstance(audio_cfg.get("mix"), dict) else {}
+    voice_db: float | None
+    if "voiceDb" in raw and raw.get("voiceDb") is None:
+        voice_db = None
+    else:
+        try:
+            voice_db = max(-30.0, min(0.0, float(raw.get("voiceDb", 0) or 0)))
+        except (TypeError, ValueError):
+            voice_db = 0.0
+    fade = raw.get("musicFade") if isinstance(raw.get("musicFade"), dict) else {}
+    try:
+        fades = (float(fade.get("in", render.MUSIC_FADE_IN)), float(fade.get("out", render.MUSIC_FADE_OUT)))
+    except (TypeError, ValueError):
+        fades = (render.MUSIC_FADE_IN, render.MUSIC_FADE_OUT)
+    return {"voiceDb": voice_db, "music": raw.get("music", True) is not False, "sfx": raw.get("sfx", True) is not False, "musicFade": fades}
 
 
 def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, preview: bool = False) -> dict[str, Any]:
@@ -423,7 +466,9 @@ def render_job(ctx: JobContext) -> dict[str, Any]:
     # Sincronía real: el audio del MP4 tiene que ser el del original en el lugar que dice el timeline (el mismo de la
     # vista previa). Si no, no se entrega: se borran los tramos de este render (por si alguno quedó viejo en la caché)
     # y el reintento los rehace desde el original.
-    sync = render.sync_check(final, built["source_wav"], data["clips"])
+    # Con la voz silenciada en la mezcla no hay con qué medir: la imagen sigue el timeline igual (no se frena).
+    voice_muted = mix_settings(data.get("audio") or {})["voiceDb"] is None
+    sync = render.sync_check(final, built["source_wav"], data["clips"]) if not voice_muted else {"name": "Sincronía con el original", "ok": True, "detail": "voz silenciada en la mezcla: no se mide", "points": []}
     qc["checks"].append({k: sync[k] for k in ("name", "ok", "detail")})
     if sync["ok"] and sync.get("warn"):
         log.warning("sincronía con avisos en %s: %s · %s", pid, sync["detail"], sync["points"])

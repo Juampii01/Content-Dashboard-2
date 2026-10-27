@@ -11,6 +11,8 @@ import type { Composition } from "./compos/schema";
 import type { TransitionItem } from "./fx/transitions";
 import type { MusicGenSpec } from "./music-gen/spec";
 import type { SoundCue } from "./sfx";
+import type { AudioMix, MusicFade } from "./audio-mix";
+import type { Marker } from "./markers";
 import type { GraphicSpec } from "./graphics";
 import type { MotionScene } from "./motion/schema";
 import type { AudioPreviewMedia } from "./studio-audio";
@@ -56,6 +58,8 @@ export type MediaInfo = {
    * original que ya tienen su tira de máscaras en `editor/<id>/fx/<clave>/m-NNNNN.png`.
    */
   fxMasks?: Record<string, FxMaskMedia>;
+  /** Forma de onda de la voz para la línea de tiempo (worker/video/peaks.py, lib/video/peaks.ts). */
+  peaks?: { version: number; key: string; rate: number; count: number };
 };
 
 export type FxMaskMedia = { chunks: number[]; fps: number; tile: [number, number]; at: string };
@@ -166,7 +170,9 @@ export type EditPlan = {
    * `cues`: sonidos de la biblioteca puestos a mano en la pista de Sonido (anclados a palabras).
    * `music_gen`: música generada de la biblioteca (estilo, semilla y tempo); manda sobre `music_asset_id`.
    */
-  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; /** «Volumen de los efectos» (dB sobre todos). */ sfx_db?: number; studio?: "off" | "soft" | "strong"; cues?: SoundCue[]; music_gen?: MusicGenSpec | null };
+  audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; /** «Volumen de los efectos» (dB sobre todos). */ sfx_db?: number; studio?: "off" | "soft" | "strong"; cues?: SoundCue[]; music_gen?: MusicGenSpec | null; /** Volumen de la voz (dB, lib/video/audio-mix.ts). */ voice_db?: number; /** Pistas silenciadas y en solo. */ mix?: AudioMix; /** Fundidos de la música (s). */ music_fade?: MusicFade };
+  /** Marcadores con nota (lib/video/markers.ts), anclados a palabras. No cambian el render. */
+  markers?: Marker[];
   /** Recorte para 16:9 → 9:16. offset_x va de -1 (izquierda) a 1 (derecha); 0 es el centro. */
   framing: { mode: "center" | "manual"; offset_x: number };
   /** Palabras que no están en el guion (se marcan, no se cortan). */

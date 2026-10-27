@@ -23,6 +23,8 @@ import type { PickerTab, SignedOption } from "../broll-panel";
 import type { TrackItem } from "../music-manager";
 import type { StudioSelection } from "./studio-timeline";
 import type { StudioState, StudioUpdate } from "./use-studio-state";
+import type { MixMeters } from "./use-studio-mix";
+import type { PlacedMarker } from "@/lib/video/markers";
 
 export type StudioStyle = { id: string; name: string; zoom: StylePreset["zoom"]; captions: CaptionStyle | null; focusY: number } | null;
 
@@ -131,6 +133,10 @@ export type StudioApi = {
   signedOf: (o: BrollItem["choice"]) => SignedOption | null;
   /** Controles de posición y animación de lo elegido (los del lienzo), o null si no se puede mover. */
   transformControls: (selection: StudioSelection) => ReactNode;
+  /** Mezcla: medidores en vivo de la vista previa y si ya está la forma de onda de la voz. */
+  mixer: { read: () => MixMeters; voiceReady: boolean };
+  /** Marcadores con nota, en el orden del video final (número, segundo). */
+  markers: PlacedMarker[];
   /** Lo que ejecutan el chat con la IA y los asistentes: las mismas herramientas de la pestaña Edición. */
   tools: {
     /** fromChat: va la charla del Chat con la IA entera y reemplaza la animación que ya esté en ese tramo. */
@@ -186,6 +192,8 @@ export type StudioApi = {
     restorePauses: () => void;
     /** Vuelve a lo que propuso el editor (cortes y pausas). */
     backToProposal: () => void;
+    /** Pone un marcador en el cabezal (tecla M) y lo elige. */
+    addMarker: () => void;
     /** Lleva lo elegido al frente o atrás entre lo que se le superpone (orden de capas). */
     restack: (sel: StudioSelection, where: "front" | "back") => void;
   };

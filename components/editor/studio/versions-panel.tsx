@@ -11,7 +11,7 @@ import type { PlanVersionItem } from "@/lib/video/versions";
 import { listPlanVersionsAction, restorePlanVersionAction } from "../director-actions";
 
 /**
- * Versiones del video: antes de cada cambio de la IA queda guardado cómo estaba. Se puede volver a cualquiera; la
+ * Versiones del video: antes de cada cambio de la IA (y de cada tanda de cambios a mano en el Estudio) queda guardado cómo estaba. Se puede volver a cualquiera; la
  * versión actual también queda guardada, así que volver también se puede deshacer.
  */
 export function VersionsPanel({ projectId, busy }: { projectId: string; busy: boolean }) {
@@ -51,7 +51,7 @@ export function VersionsPanel({ projectId, busy }: { projectId: string; busy: bo
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
           <History className="h-4 w-4" aria-hidden /> Versiones del video
         </h3>
-        <p className="mt-1 text-xs text-muted">Antes de cada cambio de la IA guardamos cómo estaba tu video. Vuelve a cualquiera: la versión de ahora también queda guardada.</p>
+        <p className="mt-1 text-xs text-muted">Antes de cada cambio de la IA, y mientras editas a mano (como mucho una cada 10 minutos), guardamos cómo estaba tu video. Vuelve a cualquiera: la versión de ahora también queda guardada.</p>
       </div>
       {busy && <Notice tone="info">La IA o la exportación están trabajando en este video. Cuando terminen vas a poder volver a una versión.</Notice>}
       {error && <Notice tone="danger">{error}</Notice>}
@@ -60,7 +60,7 @@ export function VersionsPanel({ projectId, busy }: { projectId: string; busy: bo
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Buscando versiones…
         </p>
       )}
-      {versions && !versions.length && <p className="text-sm text-muted">Todavía no hay versiones guardadas. Aparecen la primera vez que la IA cambia tu video.</p>}
+      {versions && !versions.length && <p className="text-sm text-muted">Todavía no hay versiones guardadas. Aparecen cuando la IA cambia tu video o cuando lo editas a mano.</p>}
       {versions && versions.length > 0 && (
         <ul className="flex flex-col gap-2">
           {versions.map((v) => (

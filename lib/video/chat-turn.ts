@@ -13,7 +13,9 @@ import type { RefImage } from "./compos/schema";
 import { pieceOf } from "./library";
 import { fichaText } from "./library-ficha";
 import { loadProject } from "./service";
-import type { Transcript } from "./types";
+import { markersForPrompt } from "./markers";
+import { buildTimeline } from "./timeline";
+import type { EditPlan, MediaInfo, Transcript } from "./types";
 
 /**
  * Un turno del chat del video (lo usan las acciones del Estudio y las pruebas). Claude recibe la transcripción, lo que
@@ -154,7 +156,10 @@ async function prepare(d: ChatContext) {
     .filter((f) => f.from <= max)
     .map((f) => `[${f.from}–${Math.min(f.to, max)}] ${f.start.toFixed(1)}–${f.end.toFixed(1)} s: ${f.text}`)
     .join("\n");
-  return { max, ids, sel, sentencesText };
+  // Marcadores del plan guardado (la persona dice «en el marcador 2…»).
+  const plan = project.plan as EditPlan | null;
+  const markers = plan?.markers?.length ? markersForPrompt(buildTimeline(words, plan, (project.media as MediaInfo | null)?.duration || (project.transcript as Transcript).duration), plan.markers) : "";
+  return { max, ids, sel, sentencesText, markers };
 }
 
 export type TurnResult = { message: ChatMessage; go: boolean } | { ok: false; error: string };
@@ -203,6 +208,7 @@ export async function chatTurn(d: ChatContext, messages: ChatMessage[], userId: 
         reference,
         library: library.text,
         messages: history,
+        markers: prep.markers || null,
       }),
       schema: videoChatSchema,
       ...(images.length ? { images, imageSizes: sizes } : {}),

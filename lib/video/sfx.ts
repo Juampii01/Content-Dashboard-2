@@ -15,6 +15,7 @@ import type { OutputBroll } from "./effects";
 import { SFX_LIBRARY, SFX_NAMES, type SfxName } from "./sfx-library";
 import { outputRange, type Timeline } from "./timeline";
 import { FPS } from "./types";
+import { CUE_FADE_MAX } from "./audio-mix";
 
 export type { SfxName } from "./sfx-library";
 
@@ -50,6 +51,11 @@ export const soundCueSchema = z.object({
   offset: z.number().min(-2).max(2).default(0),
   gain: z.number().min(SOUND_GAIN.min).max(SOUND_GAIN.max).default(SOUND_GAIN.default),
   source: z.enum(["director", "user"]).optional(),
+  /** Recorte (s que no suenan al principio y al final del archivo) y fundidos (s). Sin los campos, el sonido entero. */
+  trim_in: z.number().min(0).max(CUE_FADE_MAX * 2).optional(),
+  trim_out: z.number().min(0).max(CUE_FADE_MAX * 2).optional(),
+  fade_in: z.number().min(0).max(CUE_FADE_MAX).optional(),
+  fade_out: z.number().min(0).max(CUE_FADE_MAX).optional(),
 });
 export type SoundCue = z.infer<typeof soundCueSchema>;
 export const soundCueListSchema = z.array(soundCueSchema).max(MAX_SOUND_CUES);
@@ -62,10 +68,53 @@ export function cleanSoundCues(raw: unknown[], wordCount: number): SoundCue[] {
     const p = soundCueSchema.safeParse(r);
     if (!p.success || p.data.at_word >= wordCount || ids.has(p.data.id)) continue;
     ids.add(p.data.id);
-    out.push({ ...p.data, offset: Math.round(p.data.offset * 1000) / 1000, gain: Math.round(p.data.gain * 10) / 10 });
+    out.push(fitCueClip({ ...p.data, offset: Math.round(p.data.offset * 1000) / 1000, gain: Math.round(p.data.gain * 10) / 10 }));
     if (out.length >= MAX_SOUND_CUES) break;
   }
   return out;
+}
+
+/** Lo mínimo que tiene que sonar de un sonido recortado (s). */
+export const MIN_CUE_LENGTH = 0.08;
+
+/**
+ * Recorte y fundidos de un sonido dentro de su archivo: el recorte deja al menos MIN_CUE_LENGTH y los fundidos no
+ * pasan de lo que suena (si no entran los dos, se achican en proporción). Los campos en 0 no se guardan.
+ */
+export function fitCueClip<T extends Pick<SoundCue, "name" | "trim_in" | "trim_out" | "fade_in" | "fade_out">>(cue: T): T {
+  const file = SFX_LIBRARY[cue.name];
+  const { trim_in: _ti, trim_out: _to, fade_in: _fi, fade_out: _fo, ...rest } = cue;
+  void _ti;
+  void _to;
+  void _fi;
+  void _fo;
+  if (!file) return rest as T;
+  const dur = file.duration;
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const tin = Math.max(0, Math.min(dur - MIN_CUE_LENGTH, cue.trim_in ?? 0));
+  const tout = Math.max(0, Math.min(dur - MIN_CUE_LENGTH - tin, cue.trim_out ?? 0));
+  const len = dur - tin - tout;
+  let fin = Math.max(0, cue.fade_in ?? 0);
+  let fout = Math.max(0, cue.fade_out ?? 0);
+  if (fin + fout > len) {
+    const k = len / (fin + fout);
+    fin *= k;
+    fout *= k;
+  }
+  return {
+    ...rest,
+    ...(tin > 0.0005 ? { trim_in: r3(tin) } : {}),
+    ...(tout > 0.0005 ? { trim_out: r3(tout) } : {}),
+    ...(fin > 0.0005 ? { fade_in: r3(fin) } : {}),
+    ...(fout > 0.0005 ? { fade_out: r3(fout) } : {}),
+  } as T;
+}
+
+/** Tramo del archivo que suena (desde su inicio, en s) y cuánto dura. */
+export function cueClip(cue: Pick<SoundCue, "name" | "trim_in" | "trim_out">): { from: number; length: number } {
+  const dur = SFX_LIBRARY[cue.name]?.duration ?? 0;
+  const from = Math.max(0, cue.trim_in ?? 0);
+  return { from, length: Math.max(0, dur - from - Math.max(0, cue.trim_out ?? 0)) };
 }
 
 /** Dónde suena cada sonido puesto a mano en el video final (su punto fuerte), o null si su palabra se cortó. */
@@ -94,7 +143,20 @@ const UNDER_VOICE_DB = 2;
 /** «Volumen de los efectos» (dB sobre todos): de casi nada a un poco más fuerte. */
 export const SFX_VOLUME = { min: -18, max: 12, default: 0 } as const;
 
-export type SfxCue = { name: SfxName; /** Inicio del archivo en el video final (s). */ at: number; gain: number };
+/**
+ * Un sonido del video final. `at`: dónde caería el inicio del archivo (s del video final). Los puestos a mano pueden
+ * traer recorte (`from`: s del archivo donde empieza a sonar, `length`: cuánto suena) y fundidos (s); sin esos campos,
+ * suena el archivo entero.
+ */
+export type SfxCue = { name: SfxName; at: number; gain: number; from?: number; length?: number; fade_in?: number; fade_out?: number };
+
+/** Lo que suena de un sonido: desde `at + from` durante `length` (todo el archivo si no tiene recorte). */
+export function cueSpan(c: SfxCue): { start: number; end: number } {
+  const file = SFX_FILES[c.name];
+  const from = c.from ?? 0;
+  const length = c.length ?? (file ? file.duration - from : 0);
+  return { start: c.at + from, end: c.at + from + Math.max(0, length) };
+}
 
 /** Fin del gancho en el video final (s), si el video arranca con un gancho y sigue con el resto. */
 export function hookEnd(timeline: Pick<Timeline, "clips">): number | null {
@@ -131,7 +193,7 @@ export function sfxCues(input: {
    * Sonidos elegidos: los que puso la persona en la pista de Sonido y los de las transiciones. Suenan siempre (también
    * con "Sin efectos", que apaga solo los automáticos) y van primero.
    */
-  manual?: { name: SfxName; hitAt: number; gain: number }[];
+  manual?: { name: SfxName; hitAt: number; gain: number; trim_in?: number; trim_out?: number; fade_in?: number; fade_out?: number }[];
   /**
    * Sonidos que trae lo que se agregó (animaciones, transiciones): suenan siempre como los elegidos, pero con un techo
    * de volumen y sin amontonarse (uno cada AUTO_GAP s como mucho).
@@ -158,7 +220,19 @@ export function sfxCues(input: {
     const at = Math.round(Math.max(0, m.hitAt - file.hit) * 1000) / 1000;
     if (at >= input.duration - 0.02) continue;
     if (manual.some((c) => c.name === m.name && Math.abs(c.at - at) < 0.05)) continue;
-    manual.push({ name: m.name, at, gain: Math.max(SOUND_GAIN.min, Math.min(SOUND_GAIN.max, m.gain)) });
+    // Recorte y fundidos del clip (solo si los tiene: los de antes suenan enteros, como siempre).
+    const clip = fitCueClip({ name: m.name, trim_in: m.trim_in, trim_out: m.trim_out, fade_in: m.fade_in, fade_out: m.fade_out });
+    const trimmed = clip.trim_in != null || clip.trim_out != null;
+    const span = trimmed ? cueClip(clip) : null;
+    if (span && at + span.from >= input.duration - 0.02) continue;
+    manual.push({
+      name: m.name,
+      at,
+      gain: Math.max(SOUND_GAIN.min, Math.min(SOUND_GAIN.max, m.gain)),
+      ...(span ? { from: span.from, length: span.length } : {}),
+      ...(clip.fade_in ? { fade_in: clip.fade_in } : {}),
+      ...(clip.fade_out ? { fade_out: clip.fade_out } : {}),
+    });
   }
   // Los de las animaciones y transiciones: con techo y sin golpes pegados (antes sonaban 4 o 5 seguidos a todo volumen).
   for (const m of [...(input.extras ?? [])].sort((a, b) => a.hitAt - b.hitAt).slice(0, MAX_CUES)) {

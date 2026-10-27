@@ -13,6 +13,7 @@ Trabajos del worker (tabla `jobs`):
 | `VIDEO_STYLE` | "Edita como este": baja la referencia (subida o link) y mide su estilo (`worker/video/style.py`). |
 | `VIDEO_CLIP` | Biblioteca de b-roll: datos (duración, tamaño) y miniatura de un clip del cliente. |
 | `VIDEO_FX` | Recorte de la persona para la vista previa de los efectos (tiras de máscaras por segundo del original). |
+| `VIDEO_PEAKS` | Forma de onda de la voz para la línea de tiempo del Estudio (`worker/video/peaks.py`, migración 0044): picos y RMS cada 20 ms en `editor/<id>/picos-v1.json`. El análisis ya la arma; este trabajo es para los videos de antes (baja solo el proxy). |
 | `LONG_VIDEO_CLIPS` | Clips desde un video largo: baja (o recibe) el video, transcribe, pide los momentos a la app y sigue las caras de cada uno (ver abajo). |
 
 ## Cómo funciona
@@ -501,3 +502,7 @@ Requiere ffmpeg con libass, libx264, libopus y zimg, y Tesseract.
    Antes, la app compara lo que mostraba la vista previa (tramos y gancho) con el timeline que arma el servidor al exportar; si no coinciden (el plan guardado cambió por detrás), no exporta (`lib/video/review.ts`, `previewMismatch`).
 
 Pendiente para v2: seguimiento de cara, b-roll generado con IA, mezclar el audio en la vista previa (hoy los efectos y la música se escuchan por separado en la revisión), aplicar la sonoridad medida en la referencia (hoy se mide y se muestra; el render sigue a -14 LUFS).
+
+## Mezcla del Estudio (voz, música y efectos)
+
+La entrada del render trae `audio.mix` (lo arma `renderMix` en `lib/video/audio-mix.ts`): `voiceDb` (volumen de la voz, de -30 a 0 dB, o `null` si está silenciada o fuera del solo), `music` y `sfx` (si van) y `musicFade` (fundidos de entrada y salida de la música). Lo silenciado ya llega fuera (`sfx: []`, `music: null`). `render.mix_audio` aplica la voz después de separar la señal del ducking (silenciada, la música sigue bajando cuando hablas, como en la vista previa), los fundidos de la música y, por sonido, el recorte (`from`, `length`) y sus fundidos (`fade_in`, `fade_out`). Sin `audio.mix` (entradas de antes), todo suena como siempre. Con la voz silenciada no se mide la sincronía con el original (no hay con qué). Pruebas: `worker/tests/test_audio_mixer.py` (niveles medidos con `volumedetect` y `astats`).

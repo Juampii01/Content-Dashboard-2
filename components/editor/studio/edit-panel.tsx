@@ -27,6 +27,7 @@ export function EditPanel({
   onEffectAt,
   onOpenChat,
   parts,
+  framing,
   rangeHere,
 }: {
   api: StudioApi;
@@ -43,6 +44,8 @@ export function EditPanel({
   onOpenChat: () => void;
   /** Mover partes del video a mano (dividir, mover antes o después, quitar). */
   parts?: React.ReactNode;
+  /** Encuadre y zooms del estilo (solo si aplican). */
+  framing?: React.ReactNode;
   /** El tramo elegido (en la transcripción o la línea de tiempo) o, si no hay, la frase donde está el cabezal. */
   rangeHere: () => { range: WordSpan; from: "seleccion" | "cabezal" } | null;
 }) {
@@ -89,6 +92,8 @@ export function EditPanel({
       </Tool>
 
       {parts}
+
+      {framing}
 
       <Tool icon={<Sparkles className="h-4 w-4" aria-hidden />} title="Añadir en este momento" text={hereLabel}>
         <div className="grid grid-cols-2 gap-1.5">

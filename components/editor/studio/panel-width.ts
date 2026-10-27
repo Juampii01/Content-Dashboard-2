@@ -6,14 +6,16 @@ import { useCallback, useState, useSyncExternalStore } from "react";
  * Ancho de un panel lateral del Estudio que se arrastra desde su borde y se recuerda en este navegador. `side` dice de
  * qué lado está el panel: el izquierdo crece al arrastrar hacia la derecha y el derecho, hacia la izquierda.
  */
-export type PanelLimits = { min: number; max: number; default: number };
+/** `fraction`: sin ancho guardado, esa parte del ancho de la ventana (por ejemplo, 0.5 = la mitad). */
+export type PanelLimits = { min: number; max: number; default: number; fraction?: number };
 
 function store(key: string, limits: PanelLimits) {
   const clamp = (w: number) => Math.round(Math.min(limits.max, Math.max(limits.min, w)));
   const read = (): number => {
     try {
       const saved = Number(localStorage.getItem(key));
-      return saved ? clamp(saved) : limits.default;
+      if (saved) return clamp(saved);
+      return limits.fraction ? clamp(window.innerWidth * limits.fraction) : limits.default;
     } catch {
       return limits.default;
     }
@@ -83,7 +85,7 @@ export function usePanelWidth(key: string, limits: PanelLimits, side: "left" | "
     tabIndex: 0,
     title: "Arrastra para cambiar el ancho (doble clic: ancho de siempre)",
     onPointerDown,
-    onDoubleClick: () => save(limits.default),
+    onDoubleClick: () => save(limits.fraction ? window.innerWidth * limits.fraction : limits.default),
     onKeyDown: (e: React.KeyboardEvent) => {
       if (e.key === "ArrowLeft") save(width - sign * 24);
       else if (e.key === "ArrowRight") save(width + sign * 24);

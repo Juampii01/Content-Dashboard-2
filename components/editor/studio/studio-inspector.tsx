@@ -1,15 +1,11 @@
 "use client";
 
-import { VideoChat } from "./video-chat";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { AudioLines, Bot, MessageSquareText, Settings2, BringToFront, SendToBack, Check, ChevronDown, Clapperboard, Headphones, Mic, Palette, PenLine, RefreshCcw, RotateCcw, Scissors, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Wand2, WandSparkles, X, ZoomIn } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, Bot, BringToFront, SendToBack, Check, ChevronDown, Clapperboard, Headphones, Mic, PenLine, RefreshCcw, RotateCcw, Scissors, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Wand2, WandSparkles, X, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
-import { SegmentedControl } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/format";
-import { isCaptionStyle } from "@/lib/video/caption-styles";
-import { CAPTION_PICKER_ORDER, CAPTION_PRESETS } from "@/lib/video/captions";
 import { resolveEdit } from "@/lib/video/broll-edit";
 import { FX_INFO } from "@/lib/video/fx/catalog";
 import { graphicKindLabel, isMotionScene, sceneFields, setSceneField, unsupportedGraphicNumbers, unsupportedSceneNumbers } from "@/lib/video/motion-graphics";
@@ -24,77 +20,68 @@ import { TransitionTile } from "../fx/fx-library";
 import { playSfx } from "../sound/use-sound";
 import { BrollEditBody } from "../broll-edit-panel";
 import { SourceLine } from "../broll-panel";
-import { CaptionPicker } from "../caption-picker";
 import { FxEditorBody } from "../fx/fx-panel";
 import { reasonLabel } from "../labels";
-import { RhythmPanel } from "../rhythm-panel";
 import { AskAnimation, ComposInspectorBody, RequestsPanel } from "../compos/compos-inspector";
 import type { StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
-/** Panel derecho del Estudio: lo elegido con todos sus controles, o los ajustes del video si no hay nada elegido. */
-const RIGHT_TAB_KEY = "studio.rightTab";
-const rightTabListeners = new Set<() => void>();
-export type RightTab = "chat" | "ia" | "ajustes";
-let memTab: RightTab | null = null;
-function readRightTab(): RightTab {
-  if (memTab) return memTab;
-  try {
-    const v = localStorage.getItem(RIGHT_TAB_KEY);
-    return v === "ajustes" || v === "ia" ? v : "chat";
-  } catch {
-    return "chat";
-  }
-}
-/** Cambia la pestaña del panel derecho desde cualquier parte del Estudio (por ejemplo, «Pídeselo al chat»). */
-export function openRightTab(t: RightTab) {
-  try {
-    localStorage.setItem(RIGHT_TAB_KEY, t);
-  } catch {
-    // Sin almacenamiento local queda solo en memoria.
-  }
-  memTab = t;
-  rightTabListeners.forEach((l) => l());
-}
-function subscribeRightTab(cb: () => void) {
-  rightTabListeners.add(cb);
-  return () => rightTabListeners.delete(cb);
+/** Lo elegido en la línea de tiempo con todos sus controles (se abre en el panel de herramientas). */
+export function StudioInspector({ api }: { api: StudioApi }) {
+  const sel = api.selection;
+  if (!sel) return null;
+  return (
+    <div className="flex min-h-full flex-col" data-testid="studio-inspector">
+      <SelectionInspector api={api} sel={sel} />
+    </div>
+  );
 }
 
-/**
- * Panel derecho: todo lo de la IA en un solo lugar (el chat y lo que hizo la IA) y los ajustes del video; con algo
- * elegido, sus controles. Se recuerda la última pestaña.
- */
-export function StudioInspector({ api, aiPanel, actions }: { api: StudioApi; aiPanel: ReactNode; actions?: ReactNode }) {
-  const sel = api.selection;
-  const tab = useSyncExternalStore(subscribeRightTab, readRightTab, () => "chat" as const);
-  const choose = openRightTab;
-  if (sel) {
-    return (
-      <div className="flex min-h-full flex-col" data-testid="studio-inspector">
-        <SelectionInspector api={api} sel={sel} />
-      </div>
-    );
-  }
+/** Encuadre (video horizontal en formato vertical) y zooms del estilo: van en la pestaña Edición. */
+export function FramingAndZooms({ api }: { api: StudioApi }) {
+  const { state, props } = api;
+  if (!api.showFraming && !props.style) return null;
   return (
-    <div className={cn("flex flex-col", tab === "chat" ? "h-full" : "min-h-full")} data-testid="studio-inspector">
-      <div className="sticky top-0 z-20 flex items-center gap-1 border-b border-white/10 bg-card/95 px-2 py-2 backdrop-blur">
-        <SegmentedControl
-          label="Panel derecho"
-          size="sm"
-          className="min-w-0 flex-1"
-          value={tab}
-          onValueChange={choose}
-          options={[
-            { value: "chat", label: "Chat con la IA", icon: <MessageSquareText className="h-3.5 w-3.5" aria-hidden /> },
-            { value: "ia", label: "Edición IA", icon: <Bot className="h-3.5 w-3.5" aria-hidden /> },
-            { value: "ajustes", label: "Ajustes", icon: <Settings2 className="h-3.5 w-3.5" aria-hidden /> },
-          ]}
-        />
-        {actions}
-      </div>
-      {tab === "chat" ? <VideoChat api={api} /> : tab === "ia" ? aiPanel : <GlobalInspector api={api} />}
-    </div>
+    <section className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-card p-4">
+      {api.showFraming && (
+        <div className="flex flex-col gap-2">
+          <label htmlFor="studio-framing" className="flex items-center justify-between text-sm font-semibold text-white">
+            Encuadre
+            {state.offsetX !== 0 && props.canEdit && (
+              <button type="button" className="inline-flex items-center gap-1 text-xs font-medium text-accent-hi" onClick={() => api.update((s) => ({ ...s, offsetX: 0 }))}>
+                <RotateCcw className="h-3 w-3" aria-hidden /> Centrar
+              </button>
+            )}
+          </label>
+          <input
+            id="studio-framing"
+            type="range"
+            className="range"
+            min={-1}
+            max={1}
+            step={0.05}
+            value={state.offsetX}
+            disabled={!props.canEdit}
+            onChange={(e) => {
+              const offsetX = Number(e.target.value);
+              api.update((s) => ({ ...s, offsetX }), { coalesce: "framing" });
+            }}
+            style={{ ["--pct" as string]: `${((state.offsetX + 1) / 2) * 100}%` }}
+            aria-valuetext={state.offsetX === 0 ? "Centrado" : state.offsetX < 0 ? "Hacia la izquierda" : "Hacia la derecha"}
+          />
+          <p className="text-xs text-muted">Tu video es horizontal: mueve el recorte para que tu cara quede al centro.</p>
+        </div>
+      )}
+      {props.style?.zoom.enabled && (
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+          <span className="flex items-center gap-2 text-sm text-text">
+            <ZoomIn className="h-4 w-4 text-accent-hi" aria-hidden />
+            Zooms del estilo «{props.style.name}» {state.zoomsOn ? `(${formatNumber(api.zooms.length)})` : ""}
+          </span>
+          <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={state.zoomsOn} disabled={!props.canEdit} onChange={(e) => api.update((s) => ({ ...s, zoomsOn: e.target.checked }))} />
+        </label>
+      )}
+    </section>
   );
 }
 
@@ -635,7 +622,17 @@ function ClipInspector({ api, index, onClose }: { api: StudioApi; index: number;
       <Header eyebrow="Tramo de video" title={clip.role === "hook" ? "Gancho (va al principio)" : `Tramo ${index + 1} de ${api.timeline.clips.length}`} onClose={onClose} />
       <div className="flex flex-col gap-3 p-4">
         <Spoken text={kept.map((w) => w.text).join(" ")} start={start} end={end} />
-        <p className="text-xs text-muted">Para cortar solo una parte, pon el cabezal y toca Dividir (C): el tramo queda en partes y quitas la que sobra con Supr.</p>
+        <p className="text-xs text-muted">Para cortar o mover solo una parte, pon el cabezal y toca Dividir (C): el tramo queda en partes.</p>
+          {api.props.canEdit && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="ghost" icon={<ArrowLeft className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.movePart(-1)} title="Mayús + Alt + ←">
+                Mover antes
+              </Button>
+              <Button size="sm" variant="ghost" icon={<ArrowRight className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.movePart(1)} title="Mayús + Alt + →">
+                Mover después
+              </Button>
+            </div>
+          )}
         <div className="flex flex-wrap gap-2">
           {api.props.canEdit && (
             <Button size="sm" variant="ghost" icon={<Scissors className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.cut(kept.map((w) => w.id), true)}>
@@ -710,40 +707,6 @@ function PauseInspector({ api, word, onClose }: { api: StudioApi; word: number; 
   );
 }
 
-/** Lo que el editor sacó del video (palabras y pausas), con los botones para restaurarlo todo o volver a la propuesta. */
-function TrimsGroup({ api }: { api: StudioApi }) {
-  const edit = api.props.canEdit;
-  const trimmed = api.pauses.filter((p) => p.trimmed);
-  const words = api.removedSet.size;
-  const nothing = words === 0 && trimmed.length === 0;
-  return (
-    <Group title="Recortes" icon={<Scissors className="h-4 w-4" aria-hidden />}>
-      <p className="text-sm text-text" data-testid="trims-status">
-        {nothing
-          ? "Sin recortes: el video queda como lo grabaste."
-          : `${formatNumber(words)} ${words === 1 ? "palabra cortada" : "palabras cortadas"} · ${formatNumber(trimmed.length)} ${trimmed.length === 1 ? "pausa acortada" : "pausas acortadas"}.`}
-      </p>
-      <p className="text-xs text-muted">Toca una marca de corte (roja) o de pausa (⏸) en la pista de video para restaurarla, o hazlo desde la Transcripción.</p>
-      {edit && (
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="ghost" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.restoreAll} disabled={nothing} data-testid="restore-all">
-            Sin recortes automáticos
-          </Button>
-          {trimmed.length > 0 && (
-            <Button size="sm" variant="subtle" onClick={api.actions.restorePauses}>
-              Dejar todas las pausas
-            </Button>
-          )}
-          {api.changedFromProposal && (
-            <Button size="sm" variant="subtle" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.backToProposal} data-testid="back-to-proposal">
-              Volver a la propuesta
-            </Button>
-          )}
-        </div>
-      )}
-    </Group>
-  );
-}
 
 function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: number; to: number; onClose: () => void }) {
   const range = outputRange(api.timeline, from, to);
@@ -756,6 +719,16 @@ function RangeInspector({ api, from, to, onClose }: { api: StudioApi; from: numb
       <Header eyebrow={part ? "Parte del video" : "Tramo elegido"} title={range ? `${timeLabel(range.start)} – ${timeLabel(range.end)}` : "Tramo"} onClose={onClose} />
       <div className="flex flex-col gap-3 p-4">
         <Spoken text={api.textOf(from, to, 240)} start={range?.start} end={range?.end} />
+          {api.props.canEdit && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="ghost" icon={<ArrowLeft className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.movePart(-1)} title="Mayús + Alt + ←">
+                Mover antes
+              </Button>
+              <Button size="sm" variant="ghost" icon={<ArrowRight className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.movePart(1)} title="Mayús + Alt + →">
+                Mover después
+              </Button>
+            </div>
+          )}
         <div className="grid grid-cols-1 gap-2">
           {edit && (
             <Button size="sm" icon={<Scissors className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.cutSpan(span)}>
@@ -954,7 +927,7 @@ function SoundInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
   );
 }
 
-function AudioBlock({ api }: { api: StudioApi }) {
+export function AudioBlock({ api }: { api: StudioApi }) {
   const { state, props } = api;
   return (
     <AudioPanel
@@ -974,106 +947,3 @@ function AudioBlock({ api }: { api: StudioApi }) {
   );
 }
 
-/** Sin nada elegido: los ajustes de todo el video (formato, subtítulos, ritmo, zooms y sonido). */
-function GlobalInspector({ api }: { api: StudioApi }) {
-  const { state, props } = api;
-  const captionStyle = props.style?.captions ?? null;
-  return (
-    <>
-      <Header eyebrow="Ajustes del video" title="Todo el video">
-        <p className="mt-0.5 text-xs text-muted">Elige algo en la línea de tiempo para editarlo. Aquí ajustas lo que vale para todo el video.</p>
-      </Header>
-      <TrimsGroup api={api} />
-      <Group title="Formato y encuadre" icon={<RotateCcw className="h-4 w-4" aria-hidden />}>
-        <SegmentedControl
-          label="Formato"
-          size="sm"
-          value={state.format}
-          onValueChange={(v) => props.canEdit && api.update((s) => ({ ...s, format: v }))}
-          options={[
-            { value: "9:16", label: "Vertical 9:16" },
-            { value: "16:9", label: "Horizontal 16:9" },
-          ]}
-        />
-        {api.showFraming && (
-          <div className="flex flex-col gap-2">
-            <label htmlFor="studio-framing" className="flex items-center justify-between text-sm font-semibold text-white">
-              Encuadre
-              {state.offsetX !== 0 && props.canEdit && (
-                <button type="button" className="inline-flex items-center gap-1 text-xs font-medium text-accent-hi" onClick={() => api.update((s) => ({ ...s, offsetX: 0 }))}>
-                  <RotateCcw className="h-3 w-3" aria-hidden /> Centrar
-                </button>
-              )}
-            </label>
-            <input
-              id="studio-framing"
-              type="range"
-              className="range"
-              min={-1}
-              max={1}
-              step={0.05}
-              value={state.offsetX}
-              disabled={!props.canEdit}
-              onChange={(e) => {
-                const offsetX = Number(e.target.value);
-                api.update((s) => ({ ...s, offsetX }), { coalesce: "framing" });
-              }}
-              style={{ ["--pct" as string]: `${((state.offsetX + 1) / 2) * 100}%` }}
-              aria-valuetext={state.offsetX === 0 ? "Centrado" : state.offsetX < 0 ? "Hacia la izquierda" : "Hacia la derecha"}
-            />
-            <p className="text-xs text-muted">Tu video es horizontal: mueve el recorte para que tu cara quede al centro.</p>
-          </div>
-        )}
-      </Group>
-      <Group title="Subtítulos" icon={<PenLine className="h-4 w-4" aria-hidden />}>
-        <CaptionPicker
-          value={state.preset}
-          onChange={(preset) => props.canEdit && api.update((s) => ({ ...s, preset }))}
-          options={CAPTION_PICKER_ORDER.filter((k) => k !== "estilo" || Boolean(captionStyle))}
-          accent={props.accent}
-          brandFont={props.graphicLook.font}
-          emoji={state.emoji}
-          captionStyle={captionStyle}
-          disabled={!props.canEdit}
-        />
-        <p className="text-xs text-muted" aria-live="polite">
-          <span className="font-semibold text-text">{CAPTION_PRESETS[state.preset].label}:</span> {CAPTION_PRESETS[state.preset].description}
-        </p>
-        {isCaptionStyle(state.preset) && (
-          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
-            <span className="flex flex-col">
-              <span className="text-sm text-text">Emojis en las palabras clave</span>
-              <span className="text-xs text-muted">Uno por frase, solo donde encaja (dinero, tiempo, idea…).</span>
-            </span>
-            <input type="checkbox" className="h-4 w-4 flex-none accent-[var(--color-accent)]" checked={state.emoji} disabled={!props.canEdit} onChange={(e) => api.update((s) => ({ ...s, emoji: e.target.checked }))} />
-          </label>
-        )}
-      </Group>
-      <Group title="Ritmo" icon={<Sparkles className="h-4 w-4" aria-hidden />}>
-        <RhythmPanel score={api.rhythm} cuts={[]} sfx={[]} entries={[]} time={api.time} density={state.density} onDensity={api.actions.changeDensity} onSeek={(t) => api.actions.seek(t)} canEdit={props.canEdit} showBar={false} />
-      </Group>
-      {props.style && (
-        <Group title="Zooms del estilo" icon={<Palette className="h-4 w-4" aria-hidden />} defaultOpen={false}>
-          <p className="text-sm text-text">
-            Estilo: <span className="font-semibold text-white">{props.style.name}</span>
-          </p>
-          {props.style.zoom.enabled ? (
-            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
-              <span className="flex items-center gap-2 text-sm text-text">
-                <ZoomIn className="h-4 w-4 text-accent-hi" aria-hidden />
-                Zooms del estilo {state.zoomsOn ? `(${formatNumber(api.zooms.length)})` : ""}
-              </span>
-              <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={state.zoomsOn} disabled={!props.canEdit} onChange={(e) => api.update((s) => ({ ...s, zoomsOn: e.target.checked }))} />
-            </label>
-          ) : (
-            <p className="text-xs text-muted">La referencia no usa zooms.</p>
-          )}
-          <p className="text-xs text-muted">Con los zooms del estilo apagados, puedes poner los tuyos en la línea de tiempo.</p>
-        </Group>
-      )}
-      <Group title="Audio y música" icon={<AudioLines className="h-4 w-4" aria-hidden />} defaultOpen={false}>
-        <AudioBlock api={api} />
-      </Group>
-    </>
-  );
-}

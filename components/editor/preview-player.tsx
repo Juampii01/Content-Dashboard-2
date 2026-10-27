@@ -153,6 +153,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   const lastReport = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [out, setOut] = useState(0);
+  // Segundo de la barra mientras se arrastra (null = sin arrastrar).
+  const [scrub, setScrub] = useState<number | null>(null);
   const [height, setHeight] = useState(640);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
@@ -524,9 +526,18 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
           min={0}
           max={Math.max(0.1, duration)}
           step={0.01}
-          value={Math.min(out, duration)}
-          style={{ ["--pct" as string]: `${pct}%` }}
-          onChange={(e) => seekOutput(Number(e.target.value), playing)}
+          // Mientras se arrastra, la barra sigue al mouse (la vista previa tarda un instante en llegar a ese segundo).
+          value={Math.min(scrub ?? out, duration)}
+          style={{ ["--pct" as string]: `${scrub != null ? (Math.min(scrub, duration) / Math.max(0.1, duration)) * 100 : pct}%` }}
+          onPointerDown={() => setScrub(out)}
+          onPointerUp={() => setScrub(null)}
+          onPointerCancel={() => setScrub(null)}
+          onBlur={() => setScrub(null)}
+          onChange={(e) => {
+            const t = Number(e.target.value);
+            if (scrub != null) setScrub(t);
+            seekOutput(t, playing);
+          }}
           aria-label="Posición en el video final"
           disabled={!ready}
         />

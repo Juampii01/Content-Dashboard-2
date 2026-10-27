@@ -46,6 +46,11 @@ export type DirectorInput = {
   base: EditPlan | null;
   /** Clips de un video largo: el gancho ya está al principio. */
   keepOpening?: boolean;
+  /**
+   * Al corregir, la IA no puede cortar más del 20 % de lo que quedaba (un arreglo que deja el video en 5 segundos es un
+   * error). Solo si la persona pidió acortar, el tope no corre.
+   */
+  allowBigCuts?: boolean;
   /** Efectos de la biblioteca: los que permite Mi marca y cuántos, y dónde se ve la cara (para los que te recortan). */
   fx?: { limits: FxLimits; faceWords?: Set<number> | null; keepUser?: boolean };
   /** Densidad de ritmo (lib/video/rhythm.ts): fuerza y separación de los zooms. Sin el campo, Normal. */
@@ -114,7 +119,16 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     }
   }
   // Las pausas largas las acorta el ritmo (pacing); los demás candidatos los decidió el director.
-  const removals = normalizeRemovals(cuts, n);
+  let removals = normalizeRemovals(cuts, n);
+  if (input.base && !input.allowBigCuts) {
+    const before = removedIds({ removals: input.base.removals }, n);
+    const keptBefore = n - before.size;
+    const extra = [...removedIds({ removals }, n)].filter((id) => !before.has(id)).length;
+    if (keptBefore > 0 && extra > Math.max(3, keptBefore * 0.2)) {
+      removals = normalizeRemovals(input.base.removals.map((r) => ({ ...r })), n);
+      dropped.push("La corrección quería cortar demasiado del video: dejé los cortes como estaban.");
+    }
+  }
   const removedSet = removedIds({ removals }, n);
 
   // 2. Ganchos (el primero se usa).

@@ -12,13 +12,14 @@ import type { RefImage } from "@/lib/video/compos/schema";
 import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
+import { editAction } from "../director-actions";
 import { AttachButton, AttachList, refsOf, useAttachments } from "./attachments";
 import type { StudioApi } from "./types";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const IDEAS = ["¿Qué le falta a este video para retener más?", "Ponle subtítulos y anima el gancho", "Dame 3 ideas de animaciones para el principio", "Recorta los silencios"];
 const POLL_MS = 5000;
-const KIND_LABEL: Record<VideoChatItem["kind"], string> = { animacion: "Animación", grafico: "Gráfico", video: "Tu video como b-roll", subtitulos: "Subtítulos", recortar: "Recortar" };
+const KIND_LABEL: Record<VideoChatItem["kind"], string> = { animacion: "Animación", grafico: "Gráfico", video: "Tu video como b-roll", subtitulos: "Subtítulos", recortar: "Recortar", editar: "Edición del video" };
 
 /**
  * Chat con la IA (panel derecho sin nada elegido): conversas sobre tu video, la IA contesta mirando la transcripción y lo
@@ -127,7 +128,12 @@ export function VideoChat({ api }: { api: StudioApi }) {
 
   async function run(it: VideoChatItem, key: string) {
     const range = { from: it.from_word, to: it.to_word };
-    if (it.kind === "subtitulos") api.tools.subtitle();
+    if (it.kind === "editar") {
+      // Lo hace el director sobre lo guardado (tarda unos minutos).
+      const r = await editAction(projectId, it.prompt.slice(0, 600));
+      if (!r.ok) return toast.error(r.error);
+      toast.success("Editando el video con lo que pediste.", { description: "Tarda unos minutos. Puedes ver el avance en el video." });
+    } else if (it.kind === "subtitulos") api.tools.subtitle();
     else if (it.kind === "recortar") {
       const r = await api.tools.trim();
       if (!r.ok) return toast.error(r.error);
@@ -205,7 +211,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
                     {(it.kind === "animacion" || it.kind === "grafico") && <p className="line-clamp-3 text-[11px] text-muted">{it.prompt}</p>}
                     {canEdit && (
                       <Button size="sm" variant={isDone ? "ghost" : "primary"} className="self-start" disabled={isDone} onClick={() => void run(it, key)} icon={isDone ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />}>
-                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : "Hacerlo"}
+                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : it.kind === "editar" ? "Editar así" : "Hacerlo"}
                       </Button>
                     )}
                   </div>

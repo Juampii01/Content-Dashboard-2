@@ -161,6 +161,8 @@ export type StudioApi = {
     split: () => void;
     /** Divide el video en el cabezal (solo el video: subtítulos, b-roll y animaciones quedan igual). */
     splitVideo: () => void;
+    /** Mueve la parte del video elegida un lugar antes o después (a mano). */
+    movePart: (dir: -1 | 1) => void;
     /** Quita palabras de los subtítulos (o las vuelve a mostrar) sin cortar el video. */
     setSubsHidden: (ids: number[], hidden: boolean) => void;
     accept: (sel: StudioSelection) => void;

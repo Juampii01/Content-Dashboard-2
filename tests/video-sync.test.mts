@@ -103,11 +103,7 @@ test("si el plan guardado cambió por detrás, no se exporta otro video del que 
   const preview = previewTimeline(words, plan, s, SYNC_DURATION);
   const review = { ...toReview(s, { plan, hasStyle: false, trackIds: [] }), preview: previewOf(plan, s, preview) };
 
-  // Otra lista de ganchos en la base (una versión del director): el mismo número elige otro gancho.
-  const stale: EditPlan = { ...plan, hook_candidates: [{ from_word: 0, to_word: 9, score: 0.9, why: "apertura" }, plan.hook_candidates[0]!] };
-  const next = applyReview(stale, review, words, SYNC_DURATION, "9:16");
-  const msg = previewMismatch(review.preview, next, buildTimeline(words, next, SYNC_DURATION));
-  assert.match(msg ?? "", /gancho/);
+  // (El Estudio ya no elige gancho: el video siempre empieza como se grabó, así que el caso del gancho no aplica.)
 
   // Los bloques movidos ya no están en la base: los tramos salen en otro orden.
   const noMoves: EditPlan = { ...plan, moves: [] };

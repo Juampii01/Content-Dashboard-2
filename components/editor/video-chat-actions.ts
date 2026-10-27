@@ -136,7 +136,7 @@ async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId:
   const items = out.items
     .map((raw) => {
       const it = { ...raw, attachments: raw.attachments.filter((a) => (a.use === "broll" ? kinds.get(a.ref) === "video" : kinds.get(a.ref) === "image" && raw.kind === "animacion")) };
-      if (it.kind === "subtitulos" || it.kind === "recortar") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1 };
+      if (it.kind === "subtitulos" || it.kind === "recortar" || it.kind === "editar") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1 };
       if (it.kind === "video" && !it.attachments.length) return null;
       if (it.scope === "todo") return it.kind === "video" ? null : { ...it, from_word: -1, to_word: -1 };
       const from = Math.max(0, Math.min(it.from_word, it.to_word));

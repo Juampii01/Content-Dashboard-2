@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Bot, Check, Clapperboard, Headphones, Library, Sparkles, WandSparkles } from "lucide-react";
+import { Bot, Check, Clapperboard, Library, Sparkles, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
 import { formatDuration, formatNumber } from "@/lib/format";
@@ -11,7 +11,6 @@ import { searchTransitions } from "@/lib/video/fx/transitions";
 import { GRAPHIC_TEMPLATES, GRAPHIC_TEMPLATE_KEYS } from "@/lib/video/graphics";
 import { cn } from "@/lib/utils";
 import { DecisionsPanel } from "../director/decisions-panel";
-import { EditRequestCard } from "../director/edit-request";
 import { CopyEditCard } from "../compos/copy-edit-card";
 import { EditAllCard } from "./edit-panel";
 import { RequestsPanel } from "../compos/compos-inspector";
@@ -124,59 +123,6 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
           </ul>
         )}
       </section>
-
-      <section aria-labelledby="hooks-title" className="flex flex-col gap-2">
-        <div>
-          <h2 id="hooks-title" className="text-sm font-semibold text-white">
-            Gancho
-          </h2>
-          <p className="text-xs text-muted">Por defecto el video empieza como lo grabaste. Si eliges una de estas frases, pasa al principio.</p>
-        </div>
-        <div role="radiogroup" aria-label="Gancho" className="flex flex-col gap-1.5">
-          {plan.hook_candidates.map((h, i) => {
-            const text = api.textOf(h.from_word, h.to_word, 140);
-            const secs = (words[h.to_word]?.end ?? 0) - (words[h.from_word]?.start ?? 0);
-            const active = state.selectedHook === i;
-            return (
-              <div key={`${h.from_word}-${h.to_word}`} className={cn("flex items-start gap-2 rounded-xl border p-2.5 transition", active ? "border-accent bg-accent/12" : "border-white/10 hover:border-white/25")}>
-                <button type="button" role="radio" aria-checked={active} disabled={!props.canEdit} onClick={() => api.update((s) => ({ ...s, selectedHook: i }))} className="flex min-w-0 flex-1 flex-col gap-1 text-left">
-                  <span className="flex items-center gap-2">
-                    <span className="eyebrow">Gancho {i + 1}</span>
-                    <span className="font-mono text-[11px] text-muted">{secs.toFixed(1).replace(".", ",")} s</span>
-                  </span>
-                  <span className="line-clamp-3 text-sm font-semibold text-white">“{text}”</span>
-                  <span className="line-clamp-2 text-xs text-muted">{api.humanize(h.why)}</span>
-                </button>
-                <Button size="sm" variant="subtle" className="!h-8 !w-8 flex-none !px-0" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} aria-label={`Escuchar el gancho ${i + 1}`} title="Escuchar" onClick={() => api.actions.listenHook(i)} />
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            role="radio"
-            aria-checked={state.selectedHook == null}
-            disabled={!props.canEdit}
-            onClick={() => api.update((s) => ({ ...s, selectedHook: null }))}
-            className={cn("flex flex-col gap-0.5 rounded-xl border p-2.5 text-left transition", state.selectedHook == null ? "border-accent bg-accent/12" : "border-white/10 hover:border-white/25")}
-          >
-            <span className="text-sm font-semibold text-white">Sin gancho</span>
-            <span className="text-xs text-muted">El video empieza como lo grabaste.</span>
-          </button>
-          {plan.hook_candidates.length === 0 && <p className="text-xs text-muted">No encontramos frases de 3 a 8 segundos que funcionen solas como gancho.</p>}
-        </div>
-      </section>
-
-      {props.canEdit && (
-        <EditRequestCard
-          projectId={props.projectId}
-          canEdit={props.canEdit}
-          estimate={props.director?.editEstimate ?? null}
-          spent={props.director?.cost.totalUsd ?? 0}
-          cap={props.director?.budgetUsd ?? 5}
-          edits={props.director?.state.edits ?? []}
-          dirty={dirty}
-        />
-      )}
 
       {props.director && <VariantsPanel projectId={props.projectId} variants={props.director.state.variants} current={api.timeline.duration} canEdit={props.canEdit} dirty={dirty} />}
 

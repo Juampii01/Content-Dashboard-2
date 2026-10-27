@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, Captions, Clapperboard, Keyboard, Library, Loader2, Maximize2, MessageSquareText, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pause, Play, Plus, Redo2, Scissors, Settings2, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
+import { ArrowLeft, AudioLines, BarChart3, Bot, Captions, Film, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { SegmentedControl } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-edit";
@@ -50,7 +49,8 @@ import { TranscriptEditor, type BrollMark } from "../transcript-editor";
 import { useCanvasEdits } from "../canvas/use-canvas-edits";
 import type { CaptionPlacement } from "@/lib/video/canvas/captions";
 import { HumanizeProvider } from "./humanize";
-import { openRightTab, StudioInspector, type RightTab } from "./studio-inspector";
+import { AudioBlock, FramingAndZooms, StudioInspector } from "./studio-inspector";
+import { AiTab } from "./ai-tab";
 import { HANDLE_CLASS, usePanelWidth } from "./panel-width";
 import { movePart } from "@/lib/video/sequence";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
@@ -66,20 +66,17 @@ import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, w
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
 const stripTag = (why: string | undefined) => (why ?? "").replace(RHYTHM_TAG, "").replace(USER_TAG, "").trim();
-type LeftTab = "edicion" | "subtitulos" | "texto" | "biblioteca";
-const LEFT_W = { min: 300, max: 640, default: 380 };
-const RIGHT_W = { min: 320, max: 720, default: 420 };
+type LeftTab = "ia" | "edicion" | "subtitulos" | "texto" | "audio" | "biblioteca";
+/** Panel de herramientas: arranca en la mitad de la pantalla (el video, la otra mitad) y se arrastra su borde. */
+const TOOLS_W = { min: 380, max: 1200, default: 640, fraction: 0.5 };
 const LEFT_TABS = [
+  { v: "ia", label: "Editor IA", Icon: Bot },
   { v: "edicion", label: "Edición", Icon: Scissors },
   { v: "subtitulos", label: "Subtítulos", Icon: Captions },
   { v: "texto", label: "Transcripción", Icon: Type },
+  { v: "audio", label: "Audio y música", Icon: AudioLines },
   { v: "biblioteca", label: "Biblioteca", Icon: Library },
 ] as const;
-const RIGHT_TABS: { v: RightTab; label: string; Icon: typeof Bot }[] = [
-  { v: "chat", label: "Chat con la IA", Icon: MessageSquareText },
-  { v: "ia", label: "Edición con IA", Icon: Bot },
-  { v: "ajustes", label: "Ajustes del video", Icon: Settings2 },
-];
 
 /** ¿El foco está en un campo donde se escribe? (ahí los atajos no se disparan). */
 function typing(target: EventTarget | null): boolean {
@@ -110,14 +107,24 @@ export function Studio(props: StudioProps) {
   const [activeTime, setActiveTime] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [leftTab, setLeftTab] = useState<LeftTab>("edicion");
+  const [leftTab, setLeftTab] = useState<LeftTab>("ia");
   const [leftOpen, setLeftOpen] = useState(true);
   // Anchos de los paneles (se arrastra su borde; se recuerdan en este navegador).
-  const { width: leftW, handle: leftHandle } = usePanelWidth("studio.leftW", LEFT_W, "left");
-  const { width: rightW, handle: rightHandle } = usePanelWidth("studio.rightW", RIGHT_W, "right");
-  const [rightOpen, setRightOpen] = useState(true);
+  const { width: leftW, handle: leftHandle } = usePanelWidth("studio.toolsW", TOOLS_W, "left");
   // Pantalla completa de la vista previa: solo el video (Esc o F para salir).
   const [full, setFull] = useState(false);
+  const center = useRef<HTMLDivElement>(null);
+  function toggleFull() {
+    const el = center.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else if (el.requestFullscreen) void el.requestFullscreen().catch(() => toast.error("Tu navegador no dejó abrir la pantalla completa."));
+  }
+  // Varios bloques elegidos juntos (rectángulo en la línea de tiempo) y el menú «Agregar aquí».
+  const [multi, setMulti] = useState<string[]>([]);
+  const [addMenu, setAddMenu] = useState<{ t: number; x: number; y: number } | null>(null);
+  // Lo usa el teclado (definido antes que los bloques de la línea de tiempo).
+  const removeManyRef = useRef<(keys: string[]) => void>(() => {});
   const [picking, setPicking] = useState<{ id: string; tab?: PickerTab; ask?: boolean; prompt?: string } | null>(null);
   const [gallery, setGallery] = useState<{ range: WordSpan | null; replace: string | null } | null>(null);
   const [fixRange, setFixRange] = useState<WordSpan | null>(null);
@@ -135,6 +142,8 @@ export function Studio(props: StudioProps) {
     const alt = s.broll.find((b) => b.id === `u${rawSelection.id}`.slice(0, 40) || `u${b.id}`.slice(0, 40) === rawSelection.id);
     return alt ? { kind: "broll", id: alt.id } : rawSelection;
   }, [rawSelection, s.broll]);
+  // Lo elegido se abre en el panel de herramientas, salvo lo que se elige escribiendo en la transcripción.
+  const panelSel = (Boolean(selection) && !(leftTab === "texto" && ["range", "pause", "cut", "caption"].includes(selection!.kind))) || multi.length > 1;
 
   useEffect(() => {
     outRef.current = outTime;
@@ -415,7 +424,9 @@ export function Studio(props: StudioProps) {
       if (index >= 0) setSelection({ kind: "caption", index });
     }
   }, []);
-  canvasStep.current = `canvas:${canvasSelected ?? ""}`;
+  useEffect(() => {
+    canvasStep.current = `canvas:${canvasSelected ?? ""}`;
+  }, [canvasSelected]);
   const canvasEdits = useCanvasEdits({
     canEdit,
     captions: plan.captions,
@@ -742,6 +753,26 @@ export function Studio(props: StudioProps) {
       if (clip) cut(timeline.words.filter((w) => w.id >= clip.firstWord && w.id <= clip.lastWord).map((w) => w.id), true);
     } else return;
     setSelection(null);
+  }
+
+  /** «Agregar aquí» (doble clic o clic derecho en la línea de tiempo): lo que se pone en ese segundo. */
+  function addHere(kind: "animacion" | "grafico" | "broll" | "efecto" | "zoom" | "sonido", t: number) {
+    setAddMenu(null);
+    const span = spanAround(timeline, t, kind === "zoom" ? 1.5 : 3);
+    if (!span) return void toast.info("Ahí no hay video. Elige otro lugar.");
+    const range = { from: span.from, to: span.to };
+    setLeftOpen(true);
+    if (kind === "animacion") animationAt(range);
+    else if (kind === "grafico") addBroll(range, true);
+    else if (kind === "broll") addBroll(range);
+    else if (kind === "efecto") setGallery({ range, replace: null });
+    else if (kind === "zoom") addZoom(range);
+    else {
+      seek(t);
+      setSelection(null);
+      setLeftTab("biblioteca");
+      toast.info("Arrastra un sonido de la Biblioteca a la pista Sonido.");
+    }
   }
 
   /**
@@ -1500,12 +1531,19 @@ export function Studio(props: StudioProps) {
           return;
         case "Delete":
         case "Backspace":
+          if (multi.length > 1) {
+            e.preventDefault();
+            removeManyRef.current(multi);
+            return;
+          }
           if (!selection) return;
           e.preventDefault();
           removeSelection();
           return;
         case "Escape":
           setSelection(null);
+          setMulti([]);
+          setAddMenu(null);
           return;
         case "+":
         case "=":
@@ -1536,7 +1574,6 @@ export function Studio(props: StudioProps) {
   }, []);
 
   // ─── Tamaño de la vista previa: lo más grande que entre en el centro ───
-  const center = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
     const el = center.current;
@@ -1551,12 +1588,6 @@ export function Studio(props: StudioProps) {
   const previewW = box && box.h > 200 ? Math.max(180, Math.min(box.w - 16, (box.h - (full ? 60 : 52)) * ratio)) : null;
 
   // Pantalla completa: solo el video, con su barra de reproducción. F o el botón; Esc o F para salir.
-  const toggleFull = useCallback(() => {
-    const el = center.current;
-    if (!el) return;
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-    else if (el.requestFullscreen) void el.requestFullscreen().catch(() => toast.error("Tu navegador no dejó abrir la pantalla completa."));
-  }, []);
   useEffect(() => {
     const on = () => setFull(Boolean(document.fullscreenElement) && document.fullscreenElement === center.current);
     document.addEventListener("fullscreenchange", on);
@@ -1690,6 +1721,49 @@ export function Studio(props: StudioProps) {
       : blocks;
     return ghostBlocks.length ? [...base, ...ghostBlocks] : base;
   }, [blocks, ghostBlocks, changing]);
+
+  /** Quita de una vez todo lo elegido junto (b-roll, gráficos, efectos, animaciones, zooms, transiciones y sonidos). */
+  function removeMany(keys: string[]) {
+    if (!canEdit || !keys.length) return;
+    const sels = keys.map((k) => allBlocks.find((b) => b.key === k)?.selection).filter((x): x is StudioSelection => Boolean(x));
+    const ids = (kind: string) => new Set(sels.flatMap((x) => (x.kind === kind && "id" in x && x.id ? [x.id] : [])));
+    const broll = ids("broll");
+    const fx = ids("fx");
+    const compos = ids("compos");
+    const sounds = ids("sound");
+    const trans = ids("transition");
+    const zooms = new Set(sels.flatMap((x) => (x.kind === "zoom" && x.index >= 0 ? [x.index] : [])));
+    update((st) => ({
+      ...st,
+      broll: st.broll.filter((b) => !broll.has(b.id)),
+      effects: st.effects.filter((e) => !fx.has(e.id)),
+      compositions: st.compositions.filter((c) => !compos.has(c.id)),
+      soundCues: st.soundCues.filter((c) => !sounds.has(c.id)),
+      transitions: st.transitions.filter((t) => !trans.has(t.id)),
+      ...(zooms.size ? { rhythmTouched: true, zoomMoments: st.zoomMoments.filter((_, i) => !zooms.has(i)) } : {}),
+    }));
+    setMulti([]);
+    setSelection(null);
+    toast.success(`Se ${sels.length === 1 ? "quitó 1 elemento" : `quitaron ${sels.length} elementos`}.`, { description: "Se deshace con Ctrl+Z." });
+  }
+
+  useEffect(() => {
+    removeManyRef.current = removeMany;
+  });
+
+  /** Mueve juntos los bloques elegidos `delta` segundos (cada uno se acomoda a sus palabras). */
+  function moveMany(keys: string[], delta: number) {
+    if (!canEdit) return;
+    for (const k of keys) {
+      const b = allBlocks.find((x) => x.key === k);
+      if (!b || !b.editable) continue;
+      const start = Math.max(0, Math.min(timeline.duration - (b.end - b.start), b.start + delta));
+      const span = b.free ? { from: 0, to: 0, start, end: start + (b.end - b.start) } : snap(start, start + (b.end - b.start), b);
+      if (span) commitBlock(b, span, "move");
+    }
+    setSelection(null);
+  }
+
   useEffect(() => {
     acksApi.current = { take: composWork.takeAcks, confirm: composWork.confirmAcks };
   }, [composWork.takeAcks, composWork.confirmAcks]);
@@ -1744,8 +1818,8 @@ export function Studio(props: StudioProps) {
   /** Lleva al Chat con la IA (panel derecho) y deja el cursor para escribir. */
   function openChat() {
     setSelection(null);
-    setRightOpen(true);
-    openRightTab("chat");
+    setLeftOpen(true);
+    setLeftTab("ia");
     setTimeout(() => document.getElementById("video-chat-msg")?.focus(), 120);
   }
   function openWholeVideo(notes?: string) {
@@ -1828,6 +1902,7 @@ export function Studio(props: StudioProps) {
       removeSelection,
       split,
       splitVideo,
+      movePart: moveChosen,
       setSubsHidden,
       accept: acceptSel,
       setBrollEdit,
@@ -1913,17 +1988,6 @@ export function Studio(props: StudioProps) {
             </div>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <SegmentedControl
-              label="Formato"
-              size="sm"
-              className="hidden md:inline-flex"
-              value={s.format}
-              onValueChange={(v) => canEdit && update((st) => ({ ...st, format: v }))}
-              options={[
-                { value: "9:16", label: "9:16" },
-                { value: "16:9", label: "16:9" },
-              ]}
-            />
             <button type="button" className="btn-ghost hidden !h-9 !w-9 !p-0 sm:inline-flex" onClick={() => setHelp(true)} aria-label="Atajos de teclado (?)" title="Atajos de teclado (?)">
               <Keyboard className="h-4 w-4" aria-hidden />
             </button>
@@ -1939,12 +2003,12 @@ export function Studio(props: StudioProps) {
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <div
             className={cn(
-              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_252px] lg:grid-cols-[var(--left)_minmax(0,1fr)_var(--right)]",
+              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_252px] lg:grid-cols-[var(--left)_minmax(0,1fr)]",
             )}
-            style={{ "--left": leftOpen ? `${leftW}px` : "52px", "--right": rightOpen || selection ? `${rightW}px` : "52px" } as React.CSSProperties}
+            style={{ "--left": leftOpen ? `${leftW}px` : "52px" } as React.CSSProperties}
           >
-            {/* Izquierda: transcripción, IA y biblioteca */}
-            <aside className="relative order-4 flex min-h-0 min-w-0 flex-col border-white/10 lg:order-none lg:border-r" aria-label="Transcripción, IA y biblioteca">
+            {/* Izquierda: todas las herramientas (y lo elegido en la línea de tiempo) */}
+            <aside className="relative order-4 flex min-h-0 min-w-0 flex-col border-white/10 bg-card/40 lg:order-none lg:border-r" aria-label="Herramientas">
               {leftOpen && (
                 // Borde para arrastrar: agranda o achica el panel (doble clic vuelve al ancho de siempre).
 <div {...leftHandle} aria-label="Ancho del panel izquierdo" className={cn(HANDLE_CLASS, "-right-1.5")} />
@@ -1952,16 +2016,16 @@ export function Studio(props: StudioProps) {
               {leftOpen ? (
                 <>
                   <div className="flex flex-none items-center gap-1 border-b border-white/10 px-2 py-1.5">
-                    <div role="tablist" aria-label="Paneles" className="grid min-w-0 flex-1 grid-cols-4 gap-1">
+                    <div role="tablist" aria-label="Herramientas" className="grid min-w-0 flex-1 grid-cols-6 gap-1">
                       {LEFT_TABS.map((t) => (
                         <button
                           key={t.v}
                           type="button"
                           role="tab"
                           aria-selected={leftTab === t.v}
-                          onClick={() => setLeftTab(t.v)}
+                          onClick={() => (setLeftTab(t.v), panelSel && setSelection(null))}
                           title={t.label}
-                          className={cn("flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[11px] font-semibold transition", leftTab === t.v ? "bg-white text-paper" : "text-muted hover:bg-white/[0.06] hover:text-white")}
+                          className={cn("flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] font-semibold transition", leftTab === t.v && !panelSel ? "bg-white text-paper" : "text-muted hover:bg-white/[0.06] hover:text-white")}
                         >
                           <t.Icon className="h-[18px] w-[18px]" aria-hidden />
                           <span className="max-w-full truncate">{t.label}</span>
@@ -1972,7 +2036,50 @@ export function Studio(props: StudioProps) {
                       <PanelLeftClose className="h-4 w-4" aria-hidden />
                     </button>
                   </div>
-                  <div key={leftTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" role="tabpanel">
+                  {multi.length > 1 && (
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 [scrollbar-width:thin]">
+                      <button type="button" onClick={() => setMulti([])} className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-white">
+                        <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Volver a {LEFT_TABS.find((t) => t.v === leftTab)?.label ?? "las herramientas"}
+                      </button>
+                      <p className="eyebrow">Elegidos juntos</p>
+                      <h2 className="mt-0.5 text-base font-semibold text-white">{formatNumber(multi.length)} elementos</h2>
+                      <p className="mt-1 text-xs text-muted">Arrastra cualquiera de ellos en la línea de tiempo y se mueven todos juntos. Supr los quita a todos.</p>
+                      <ul className="mt-3 flex flex-col divide-y divide-white/[0.06] rounded-xl border border-white/10">
+                        {multi.map((k) => {
+                          const b = allBlocks.find((x) => x.key === k);
+                          if (!b) return null;
+                          return (
+                            <li key={k}>
+                              <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-white/[0.03]" onClick={() => (setMulti([]), select(b.selection))}>
+                                <span className="w-12 flex-none font-mono text-[11px] text-muted tabular-nums">{formatDuration(b.start)}</span>
+                                <span className="min-w-0 flex-1 truncate font-semibold text-white">{b.label}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      {canEdit && (
+                        <Button size="sm" className="mt-3" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => removeMany(multi)}>
+                          Quitar los {formatNumber(multi.length)}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {panelSel && multi.length <= 1 && (
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+                      <button type="button" onClick={() => setSelection(null)} className="flex w-full items-center gap-1.5 border-b border-white/10 px-4 py-2 text-left text-xs font-semibold text-muted hover:text-white">
+                        <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Volver a {LEFT_TABS.find((t) => t.v === leftTab)?.label ?? "las herramientas"}
+                      </button>
+                      <StudioInspector api={api} />
+                    </div>
+                  )}
+                  <div key={leftTab} className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]", panelSel && "hidden", leftTab === "ia" && "flex flex-col overflow-hidden")} role="tabpanel">
+                    {leftTab === "ia" && <AiTab api={api} tools={<AiPanel api={api} dirty={dirty} onAcceptAll={acceptAll} />} />}
+                    {leftTab === "audio" && (
+                      <div className="p-4">
+                        <AudioBlock api={api} />
+                      </div>
+                    )}
                     {leftTab === "texto" && (
                       <div className="flex flex-col gap-3 p-3">
                         <SubtitleBar api={api} onOpenStyle={() => setLeftTab("subtitulos")} />
@@ -2106,6 +2213,7 @@ export function Studio(props: StudioProps) {
                     {leftTab === "subtitulos" && <SubtitlesPanel api={api} proofreading={proofreading} onProofread={proofread} />}
                     {leftTab === "edicion" && (
                       <EditPanel
+                        framing={<FramingAndZooms api={api} />}
                         api={api}
                         onRestoreAll={restoreAll}
                         onTrim={applyTrim}
@@ -2235,37 +2343,8 @@ export function Studio(props: StudioProps) {
               </div>
             </main>
 
-            {/* Derecha: inspector */}
-            <aside className="relative order-3 flex min-h-0 min-w-0 flex-col border-white/10 lg:order-none lg:border-l" aria-label="Chat con la IA, lo que hizo la IA y ajustes">
-              {(rightOpen || selection) && <div {...rightHandle} aria-label="Ancho del panel derecho" className={cn(HANDLE_CLASS, "-left-1.5")} />}
-              {rightOpen || selection ? (
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
-                  <StudioInspector
-                    api={api}
-                    aiPanel={<AiPanel api={api} dirty={dirty} onAcceptAll={acceptAll} />}
-                    actions={
-                      <button type="button" className="hidden h-8 w-8 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white lg:grid" onClick={() => setRightOpen(false)} aria-label="Ocultar el panel derecho" title="Ocultar el panel">
-                        <PanelRightClose className="h-4 w-4" aria-hidden />
-                      </button>
-                    }
-                  />
-                </div>
-              ) : (
-                <div className="hidden flex-col items-center gap-1 py-2 lg:flex">
-                  <button type="button" className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white" onClick={() => setRightOpen(true)} aria-label="Mostrar el panel derecho" title="Mostrar el panel">
-                    <PanelRightOpen className="h-4 w-4" aria-hidden />
-                  </button>
-                  {RIGHT_TABS.map((t) => (
-                    <button key={t.v} type="button" className="grid h-10 w-10 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white" onClick={() => (openRightTab(t.v), setSelection(null), setRightOpen(true))} aria-label={t.label} title={t.label}>
-                      <t.Icon className="h-[18px] w-[18px]" aria-hidden />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </aside>
-
             {/* Abajo: la línea de tiempo */}
-            <section className="order-2 h-[260px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-3 lg:h-auto" aria-label="Línea de tiempo">
+            <section className="order-2 h-[260px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-2 lg:h-auto" aria-label="Línea de tiempo">
               <StudioTimeline
                 duration={timeline.duration}
                 time={outTime}
@@ -2286,7 +2365,21 @@ export function Studio(props: StudioProps) {
                 canEdit={canEdit}
                 notes={{ zoom: styleZooms ? "Automáticos del estilo" : "Sin zooms", fx: "Arrastra un efecto o una transición desde la Biblioteca", broll: "Elige un tramo en la pista de video para poner b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Arrastra sonidos o elige música en la Biblioteca" : undefined }}
                 onSeek={(t) => seek(t, Boolean(videoEl() && !videoEl()!.paused))}
-                onSelect={(sel) => select(sel)}
+                onSelect={(sel) => (setMulti([]), select(sel))}
+                multi={multi}
+                onMarquee={(keys) => {
+                  if (keys.length === 1) {
+                    const b = allBlocks.find((x) => x.key === keys[0]);
+                    setMulti([]);
+                    if (b) select(b.selection);
+                    return;
+                  }
+                  setSelection(null);
+                  setMulti(keys);
+                  if (keys.length) setLeftOpen(true);
+                }}
+                onGroupMove={moveMany}
+                onAddAt={(t, at) => (seek(t), setAddMenu({ t, x: at.x, y: at.y }))}
                 onCommit={commitBlock}
                 onRange={(span) => {
                   setSelection({ kind: "range", from: span.from, to: span.to });
@@ -2353,6 +2446,33 @@ export function Studio(props: StudioProps) {
         }}
       />
       <ShortcutsHelp open={help} onClose={() => setHelp(false)} />
+      {addMenu && canEdit && (
+        <>
+          <button type="button" aria-label="Cerrar el menú" className="fixed inset-0 z-[60] cursor-default" onClick={() => setAddMenu(null)} />
+          <div
+            role="menu"
+            aria-label={`Agregar en ${timeLabel(addMenu.t)}`}
+            className="fixed z-[61] w-56 rounded-2xl border border-white/10 bg-card p-1.5 shadow-2xl"
+            style={{ left: Math.min(addMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1280) - 236), top: Math.max(8, addMenu.y - 260) }}
+          >
+            <p className="px-2.5 pt-1.5 pb-1 text-[11px] font-semibold text-muted">Agregar en {timeLabel(addMenu.t)}</p>
+            {(
+              [
+                ["animacion", "Animación", WandSparkles],
+                ["grafico", "Gráfico", BarChart3],
+                ["broll", "B-roll o tu video", Film],
+                ["efecto", "Efecto", Sparkles],
+                ["zoom", "Zoom", ZoomIn],
+                ["sonido", "Sonido", AudioLines],
+              ] as const
+            ).map(([k, label, Icon]) => (
+              <button key={k} type="button" role="menuitem" className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm text-text hover:bg-white/[0.06] hover:text-white" onClick={() => addHere(k, addMenu.t)}>
+                <Icon className="h-4 w-4 text-accent" aria-hidden /> {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {canEdit && <WholeVideoDialog projectId={projectId} open={wholeOpen} initialNotes={wholeNotes} audioOnly={props.audioOnly} onOpenChange={(o) => (setWholeOpen(o), o || setWholeNotes(""))} onStarted={() => void composWork.refresh()} />}
     </HumanizeProvider>
   );

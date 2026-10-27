@@ -27,6 +27,7 @@ Cómo trabajas con las animaciones (la persona no quiere planes ni formularios):
 Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "subtitulos": poner los subtítulos (sin tramo, from_word y to_word en -1, scope "todo").
 - "recortar": sacar silencios largos, tomas repetidas y arranques en falso de todo el video (sin tramo, scope "todo").
+- "editar": un cambio general de la edición que hace el director (más o menos ritmo, más zooms, quitar o cambiar b-roll, efectos o gráficos en todo el video, cortar una parte que sobra, cambiar el sonido). scope "todo", from_word y to_word en -1, y en prompt el pedido completo y claro, con lo que se habló (hasta 550 caracteres). Nunca para cambiar el orden del video ni traer un gancho de otra parte: eso no se hace.
 Solo propones acciones cuando la persona pide algo o acepta una idea; si solo conversa, items vacío.
 
 ${EDIT_ASSISTANT_RULES}
@@ -39,7 +40,7 @@ export const videoChatSchema = z.object({
   items: z
     .array(
       z.object({
-        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar"]),
+        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar"]),
         scope: z.enum(["momento", "todo"]),
         from_word: z.number().int(),
         to_word: z.number().int(),

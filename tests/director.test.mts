@@ -226,6 +226,14 @@ describe("plan del director", () => {
     assert.equal(again.plan.moves?.length, 1);
   });
 
+  test("al corregir, la IA no puede cortar casi todo el video; si la persona pide acortar, sí", () => {
+    const base = planFromDirector(emptyWire(), input()).plan;
+    const big = emptyWire({ cuts: [{ from_word: phrase(1).from, to_word: words.length - 1, reason: "off_topic", why: "" }] });
+    const fixed = planFromDirector(big, { ...input(), base });
+    assert.deepEqual(fixed.plan.removals, base.removals, "los cortes quedan como estaban");
+    assert.ok(fixed.dropped.some((d) => /demasiado/.test(d)));
+  });
+
   test("versiones: una corta con cortes extra; usarla guarda la anterior", () => {
     const out = planFromDirector(emptyWire({ variants: [{ label: "Versión de 15 s", why: "Corta", hook_from_word: -1, hook_to_word: -1, extra_cuts: [{ from_word: phrase(1).from, to_word: phrase(1).to }, { from_word: phrase(4).from, to_word: phrase(4).to }], keep_broll: true }] }), input());
     assert.equal(out.variants.length, 1);
@@ -362,7 +370,7 @@ describe("Edítalo así (simulador) y qué cambió", () => {
   test("\"no cortes la parte del precio\" protege la frase; \"versión de 15 s\" recorta", () => {
     const before = planFromDirector(sim(null), input()).plan;
     const w = sim("versión de 10 s", before);
-    const after = planFromDirector(w, input({ base: before })).plan;
+    const after = planFromDirector(w, { ...input({ base: before }), allowBigCuts: true }).plan; // pidió acortar
     assert.ok(buildTimeline(words, after, duration).duration < buildTimeline(words, before, duration).duration);
     const changes = diffPlans(before, after, words, duration);
     assert.ok(changes.some((c) => c.startsWith("El video pasó de")), changes.join(" | "));

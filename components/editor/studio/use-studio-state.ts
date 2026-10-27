@@ -73,7 +73,8 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
   for (const r of plan.removals) for (let id = r.from_word; id <= r.to_word; id++) removed.add(id);
   return {
     removed: [...removed].sort((a, b) => a - b),
-    selectedHook: plan.selected_hook,
+    // Ya no hay gancho: el video siempre empieza como se grabó (un gancho elegido en planes de antes se quita al guardar).
+    selectedHook: null,
     preset: plan.captions.preset,
     format: plan.format,
     offsetX: plan.framing.offset_x,

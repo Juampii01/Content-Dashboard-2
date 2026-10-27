@@ -12,7 +12,6 @@ import {
   directorApiSchema,
   directorFromApi,
   directorToApi,
-  FINAL_RULES,
   goalRules,
   mapTask,
   mapWireSchema,
@@ -59,7 +58,7 @@ import type { FxKind } from "../fx/catalog";
 import { keyFrames, type KeyFrame } from "./keyframes";
 import { mapFromMeasures, mapFromWire, mustKeepRanges } from "./map";
 import { mapToWire, simulateCritic, simulateDirector, simulateRequestCheck } from "./simulate";
-import { BUDGET, effectiveBrief, readBrief, readDirector, type Brief, type CriticIssue, type CriticRound, type DirectorState, type EditRequest, type Eyes, type FinalReview, type PendingRequest, type VideoMap } from "./types";
+import { BUDGET, effectiveBrief, readBrief, readDirector, type Brief, type CriticIssue, type CriticRound, type DirectorState, type EditRequest, type Eyes, type PendingRequest, type VideoMap } from "./types";
 
 /**
  * Director de edición (servidor). Una máquina de estados que maneja el worker paso a paso
@@ -285,7 +284,7 @@ export async function directorStep(projectId: string, body: DirectorBody): Promi
       case "reference":
         return saveReference(projectId, body);
       case "final":
-        await finalReview(projectId, body.sheets, body.frames);
+        // Sin revisión con IA después del render: el render entrega el video y listo (sus «arreglos» cortaban de más).
         return { next: null, status: "DONE" };
       case "recipe": {
         const r = await recipeStep(projectId);
@@ -622,6 +621,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     broll: { ...limits, stock: stockReady },
     base,
     keepOpening: ctx.project.origin === "clip",
+    allowBigCuts: Boolean(instruction && pending?.kind !== "fix" && /acort|m[aá]s corto|recort|dura|segundos|\d+\s*s\b|quita (la|esa|esta) parte|saca (la|esa|esta) parte/i.test(instruction)),
     fx: { limits: fx, faceWords, keepUser: !overrides.noFx && !(fxAsk && "none" in fxAsk) },
     density,
   });
@@ -1059,58 +1059,6 @@ async function abort(projectId: string, error: string | null): Promise<{ next: D
 
 // ─── Revisión final (después del render) ─────────────────────────────────
 
-async function finalReview(projectId: string, sheets: { key: string; width: number; height: number }[], frames: KeyFrame[]): Promise<void> {
-  const ctx = await load(projectId);
-  const plan = ctx.project.plan as EditPlan | null;
-  if (!plan) return;
-  const { words, duration, director } = ctx;
-  const rules = checkPlan({ plan, words, duration, map: director.map, eyes: ctx.eyes });
-  const budget = budgetOf(director);
-  const stage: StagePlan | null = budget ? budget.final : { model: "main", effort: null };
-  const remaining = ctx.cap - (await spentUsd(projectId));
-  let wire: CriticWire | null = null;
-  if (stage && sheets.length && remaining >= estimateStage("final", stage, costInput(ctx, 0)) * 0.6) {
-    try {
-      wire = await generateStructured({
-        feature: "video.director.final",
-        model: stage.model,
-        thinking: stage.effort ? { effort: stage.effort } : null,
-        context: `${FINAL_RULES}\n\n${ctx.brandCtx}`,
-        task: criticTask({
-          round: 0,
-          final: true,
-          brief: briefText(effectiveBrief(ctx.own, director.map?.inferredBrief ?? null)),
-          map: mapText(director.map, words),
-          plan: planText(plan, words),
-          frames: frames.map((f, i) => `#${i + 1} ${f.t.toFixed(1)} s: ${f.label}`).join("\n"),
-          checks: rules.map((i) => `- [${i.kind}, ${i.severity}, segundo ${i.at.toFixed(1)}] ${i.note}`).join("\n"),
-          duration: buildTimeline(words, plan, duration).duration,
-        }),
-        images: await sheetImages(sheets),
-        imageSizes: sheets.map((s) => ({ width: s.width, height: s.height })),
-        schema: criticWireSchema,
-        maxTokens: 10000,
-        timeoutMs: 240_000,
-        fake: () => simulateCritic(rules, frames),
-      });
-    } catch (error) {
-      console.error("[director] revisión final sin IA:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
-    }
-  }
-  const issues: CriticIssue[] = wire ? wire.issues.map((i) => ({ kind: i.kind, severity: i.severity, at: frames[i.frame - 1]?.t ?? 0, note: i.note.slice(0, 300), fix: i.fix.slice(0, 300), by: "ai" as const })) : rules;
-  const score = wire ? Math.max(0, Math.min(100, wire.score)) : Math.max(35, 96 - issues.reduce((a, i) => a + (i.severity === "alta" ? 18 : i.severity === "media" ? 9 : 4), 0));
-  const final: FinalReview = {
-    score,
-    ok: !issues.some((i) => i.severity === "alta") && score >= 75,
-    verdict: (wire?.verdict ?? (issues.length ? "Las verificaciones automáticas encontraron detalles." : "Las verificaciones automáticas no encontraron problemas.")).slice(0, 400),
-    issues: issues.slice(0, 12),
-    sheets: sheets.map((s) => s.key),
-    frames: frames.map((f) => f.t),
-    at: new Date().toISOString(),
-    by: wire ? "ai" : "reglas",
-  };
-  await saveDirector(projectId, { ...director, final });
-}
 
 // ─── Pedidos de la persona ────────────────────────────────────────────────
 

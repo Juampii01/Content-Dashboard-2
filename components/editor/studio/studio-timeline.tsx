@@ -170,6 +170,10 @@ export function StudioTimeline({
   toolbar,
   transitionSlots = [],
   dropPreview,
+  multi = [],
+  onMarquee,
+  onGroupMove,
+  onAddAt,
 }: {
   duration: number;
   time: number;
@@ -209,6 +213,13 @@ export function StudioTimeline({
   transitionSlots?: { at: number; word: number }[];
   /** La sombra de lo que se arrastra desde la Biblioteca en el segundo `t` (con su largo real), o null. */
   dropPreview?: (item: LibraryDrop, t: number) => DropPreview | null;
+  /** Bloques elegidos juntos (arrastrando un rectángulo sobre lo vacío). */
+  multi?: string[];
+  onMarquee?: (keys: string[]) => void;
+  /** Mueve juntos los bloques elegidos `delta` segundos. */
+  onGroupMove?: (keys: string[], delta: number) => void;
+  /** Doble clic o clic derecho en un lugar vacío de una pista: menú «Agregar aquí» en el segundo `t`. */
+  onAddAt?: (t: number, at: { x: number; y: number }) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
@@ -219,6 +230,58 @@ export function StudioTimeline({
   const [rangeGhost, setRangeGhost] = useState<{ start: number; end: number } | null>(null);
   const drag = useRef<Drag | null>(null);
   const selKey = selectionKey(selection);
+  const content = useRef<HTMLDivElement>(null);
+  const multiSet = useMemo(() => new Set(multi), [multi]);
+  // Arrastre de varios elegidos: cuánto se corrieron (en segundos), para dibujarlos juntos.
+  const [groupDx, setGroupDx] = useState<number | null>(null);
+  // Rectángulo de selección sobre lo vacío (en coordenadas del contenido).
+  const marq = useRef<{ x0: number; y0: number; pointer: number; moved: boolean; t: number } | null>(null);
+  const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const local = (clientX: number, clientY: number) => {
+    const r = content.current?.getBoundingClientRect();
+    return r ? { x: clientX - r.left, y: clientY - r.top } : { x: 0, y: 0 };
+  };
+  function onEmptyDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 || e.target !== e.currentTarget) return;
+    const p = local(e.clientX, e.clientY);
+    marq.current = { x0: p.x, y0: p.y, pointer: e.pointerId, moved: false, t: timeAt(e.clientX) };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onEmptyMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const m = marq.current;
+    if (!m || m.pointer !== e.pointerId) return;
+    const p = local(e.clientX, e.clientY);
+    if (!m.moved && Math.abs(p.x - m.x0) < 5 && Math.abs(p.y - m.y0) < 5) return;
+    m.moved = true;
+    setBox({ x0: m.x0, y0: m.y0, x1: p.x, y1: p.y });
+  }
+  function onEmptyUp(e: ReactPointerEvent<HTMLDivElement>) {
+    const m = marq.current;
+    if (!m || m.pointer !== e.pointerId) return;
+    marq.current = null;
+    if (!m.moved) {
+      setBox(null);
+      onSeek(m.t);
+      onSelect(null);
+      return;
+    }
+    // Lo que toca el rectángulo (menos el video y los subtítulos, que se eligen de otra forma).
+    const r = content.current?.getBoundingClientRect();
+    const b = box;
+    setBox(null);
+    if (!r || !b) return;
+    const left = r.left + Math.min(b.x0, b.x1);
+    const right = r.left + Math.max(b.x0, b.x1);
+    const top = r.top + Math.min(b.y0, b.y1);
+    const bottom = r.top + Math.max(b.y0, b.y1);
+    const keys: string[] = [];
+    content.current?.querySelectorAll<HTMLElement>("[data-block]").forEach((el) => {
+      if (el.dataset.track === "video" || el.dataset.track === "captions") return;
+      const q = el.getBoundingClientRect();
+      if (q.right > left && q.left < right && q.bottom > top && q.top < bottom) keys.push(el.dataset.block!);
+    });
+    onMarquee?.(keys);
+  }
   const byTrack = useMemo(() => {
     const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], audio: [] };
     for (const b of blocks) map[b.track].push(b);
@@ -316,6 +379,11 @@ export function StudioTimeline({
     if (!dr.moved && Math.abs(dx) < 4 && Math.abs(e.clientY - dr.y0) < 6) return;
     dr.moved = true;
     if (!canEdit || !dr.block.editable) return;
+    // Varios elegidos: se mueven juntos.
+    if (dr.mode === "move" && multiSet.size > 1 && multiSet.has(dr.block.key)) {
+      setGroupDx(dx / pps);
+      return;
+    }
     // Se suelta en cualquier lado y convive con lo que haya (en capas). Arrastrar hacia arriba o abajo cambia el carril.
     const track = TRACKS.find((t) => t.key === dr.block.track)!;
     const own = blocks.filter((b) => b.track === dr.block.track && b.key !== dr.block.key);
@@ -345,6 +413,11 @@ export function StudioTimeline({
     const dr = drag.current;
     if (!dr || dr.pointer !== e.pointerId) return;
     drag.current = null;
+    if (dr.moved && groupDx != null) {
+      if (Math.abs(groupDx) > 0.02) onGroupMove?.([...multiSet], groupDx);
+      setGroupDx(null);
+      return;
+    }
     if (dr.moved && ghost?.key === dr.block.key && ghost.span) onCommit(dr.block, ghost.span, dr.mode, ghost.order);
     else if (!dr.moved) onSelect(dr.block.selection, dr.block);
     setGhost(null);
@@ -462,7 +535,7 @@ export function StudioTimeline({
         onDrop={onDropItem}
         data-testid="studio-timeline"
       >
-        <div className="relative" style={{ width: LABEL_W + lane + 24 }}>
+        <div ref={content} className="relative" style={{ width: LABEL_W + lane + 24 }}>
           {/* Regla */}
           <div className="sticky top-0 z-30 flex h-6 border-b border-white/10 bg-card">
             <div className="sticky left-0 z-10 flex-none border-r border-white/10 bg-card" style={{ width: LABEL_W }} />
@@ -505,17 +578,19 @@ export function StudioTimeline({
               <div
                 className={cn("relative flex-none", track.key === "video" && canEdit && "cursor-text")}
                 style={{ width: lane + 24 }}
-                onPointerDown={
-                  track.key === "video"
-                    ? onVideoDown
-                    : (e) => {
-                        if (e.button !== 0 || e.target !== e.currentTarget) return;
-                        onSeek(timeAt(e.clientX));
-                        onSelect(null);
-                      }
-                }
-                onPointerMove={track.key === "video" ? onVideoMove : undefined}
-                onPointerUp={track.key === "video" ? onVideoUp : undefined}
+                onPointerDown={track.key === "video" ? onVideoDown : onEmptyDown}
+                onPointerMove={track.key === "video" ? onVideoMove : onEmptyMove}
+                onPointerUp={track.key === "video" ? onVideoUp : onEmptyUp}
+                onPointerCancel={() => ((marq.current = null), setBox(null))}
+                onDoubleClick={(e) => {
+                  if (!canEdit || !onAddAt || (e.target !== e.currentTarget && track.key !== "video")) return;
+                  onAddAt(timeAt(e.clientX), { x: e.clientX, y: e.clientY });
+                }}
+                onContextMenu={(e) => {
+                  if (!canEdit || !onAddAt || e.target !== e.currentTarget) return;
+                  e.preventDefault();
+                  onAddAt(timeAt(e.clientX), { x: e.clientX, y: e.clientY });
+                }}
                 data-track={track.key}
               >
                 {track.key === "captions" &&
@@ -544,7 +619,9 @@ export function StudioTimeline({
                   const e = g ? g.end : b.end;
                   const lane = g && track.lanes && track.key !== "audio" ? g.lane : (layout[track.key].lanes.get(b.key) ?? 0);
                   const w = Math.max(3, x(e - s));
-                  const selected = selKey === selectionKey(b.selection);
+                  const inGroup = multiSet.has(b.key);
+                  const selected = selKey === selectionKey(b.selection) || inGroup;
+                  const shift = inGroup && groupDx != null ? x(groupDx) : 0;
                   const handles = canEdit && b.editable && w >= 18;
                   return (
                     <button
@@ -565,7 +642,7 @@ export function StudioTimeline({
                         g && "z-20 opacity-90 shadow-[0_6px_18px_rgba(0,0,0,.45)]",
                         g && !g.span && "ring-2 ring-danger",
                       )}
-                      style={{ left: x(s), width: w, top: lane * track.lane + 3, height: track.lane - 6 }}
+                      style={{ left: x(s), width: w, top: lane * track.lane + 3, height: track.lane - 6, ...(shift ? { transform: `translateX(${shift}px)` } : {}) }}
                       data-lane={lane}
                       onPointerDown={(ev) => {
                         if (b.track === "video") return; // la pista de video elige tramos
@@ -742,6 +819,15 @@ export function StudioTimeline({
             </div>
             );
           })}
+
+          {box && (
+            <div
+              aria-hidden
+              data-testid="marquee"
+              className="pointer-events-none absolute z-50 rounded-md border border-accent-hi bg-accent/15"
+              style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
+            />
+          )}
 
           {/* Cabezal */}
           <div ref={playhead} aria-hidden className="pointer-events-none absolute top-0 bottom-0 left-0 z-40 w-0" style={{ transform: `translateX(${LABEL_W + time * pps}px)` }}>

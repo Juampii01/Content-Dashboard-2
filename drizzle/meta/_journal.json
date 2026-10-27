@@ -1,0 +1,307 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792303887422,
+      "tag": "0000_inicial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792306757978,
+      "tag": "0001_marca-y-guiones",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792308027287,
+      "tag": "0002_modulos-produccion",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792308651033,
+      "tag": "0003_analisis-piezas",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792308833968,
+      "tag": "0004_ganchos",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792309018436,
+      "tag": "0005_metas-y-resumen",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792310318718,
+      "tag": "0006_carruseles-demo",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792310377983,
+      "tag": "0007_calendario-demo",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792311337516,
+      "tag": "0008_clon-heygen",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792313310947,
+      "tag": "0009_clon-reintentos",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792467259254,
+      "tag": "0010_carruseles-plantillas-imagenes",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792471646015,
+      "tag": "0011_editor-estilos-broll",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792648509163,
+      "tag": "0012_avisos",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792674270908,
+      "tag": "0013_informe-mensual",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792676765648,
+      "tag": "0014_musica",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792679291643,
+      "tag": "0015_estratega",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792682634875,
+      "tag": "0016_jugo-y-autopiloto",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792683842650,
+      "tag": "0017_clips",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792686707578,
+      "tag": "0018_youtube-retencion-miniaturas",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792687923796,
+      "tag": "0019_primer-uso",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792691572398,
+      "tag": "0020_copia-este-reel",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792694161161,
+      "tag": "0021_hazlo-por-mi",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792694287594,
+      "tag": "0022_clon-traduccion-frases",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792706728427,
+      "tag": "0023_director-de-edicion",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792726793172,
+      "tag": "0024_efectos",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792844901603,
+      "tag": "0025_carruseles-creator",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792852954090,
+      "tag": "0026_biblioteca-musica",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1792853692356,
+      "tag": "0027_tope-ia-8",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1792863182188,
+      "tag": "0028_composiciones",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792871457565,
+      "tag": "0029_mis-efectos",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792876027892,
+      "tag": "0030_pedidos-animaciones",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792896499243,
+      "tag": "0031_claude-suscripcion",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792897418202,
+      "tag": "0032_claude-login",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792899269068,
+      "tag": "0033_uso-suscripcion",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792954571586,
+      "tag": "0034_sacar-musica",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792974078576,
+      "tag": "0035_edicion-limpia",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792985080122,
+      "tag": "0036_director-en-segundo-plano",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792992574839,
+      "tag": "0037_charla-animaciones",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792993255443,
+      "tag": "0038_clave-anthropic",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793034146756,
+      "tag": "0039_mirar-referencia",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793103489382,
+      "tag": "0040_registro-consumo-ia",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793104361661,
+      "tag": "0041_creditos-ia",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793104782261,
+      "tag": "0042_versiones-del-plan",
+      "breakpoints": true
+    }
+  ]
+}

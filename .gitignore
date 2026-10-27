@@ -1,0 +1,37 @@
+# Dependencias
+node_modules/
+.pnp
+.pnp.*
+
+# Next.js y builds
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+
+# Variables de entorno: nunca se suben, salvo el ejemplo
+.env*
+!.env.example
+
+# Supabase y Claude Code locales
+.claude/settings.local.json
+
+# Worker (Python)
+__pycache__/
+.venv/
+
+# Varios
+.DS_Store
+*.pem
+.vercel
+npm-debug.log*
+pnpm-debug.log*
+.claude/worktrees/
+
+# Archivos locales del Editor de video en desarrollo (almacenamiento y trabajo del worker)
+.data/
+worker/fonts/
+worker/models/
+.pytest_cache/

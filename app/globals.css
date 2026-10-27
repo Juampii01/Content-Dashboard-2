@@ -1,0 +1,241 @@
+@import "tailwindcss";
+
+/* Fuentes de la marca, autoalojadas. Inter y JetBrains Mono son variables: un archivo por subconjunto cubre todos los grosores. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/fonts/f06.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/fonts/f07.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap; src: url(/fonts/f47.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap; src: url(/fonts/f48.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+/*
+ * Tokens de la estética Content Studio (ver CLAUDE.md §6): clara, limpia, superficies blancas, bordes finos y un solo
+ * acento azul. `white` es la tinta: así las utilidades heredadas (text-white, bg-white/5, border-white/10) dan texto
+ * oscuro, tintes y bordes suaves sobre el fondo claro. El blanco de verdad es `paper` (texto sobre botones, video…).
+ * El Estudio del editor sigue oscuro: `.theme-dark` vuelve a los valores oscuros dentro de él.
+ */
+@theme {
+  --color-white: #16171b;
+  --color-paper: #ffffff;
+  --color-bg: #f6f6f4;
+  --color-bg-deep: #efeee9;
+  --color-card: #ffffff;
+  --color-accent: #2457f5;
+  --color-accent-hi: #2457f5;
+  --color-accent-glow: #2457f5;
+  --color-muted: #6a6e75;
+  --color-text: #2a2c31;
+  --color-line: #e7e6e2;
+  --color-line-strong: #c9c8c2;
+  --color-placeholder: #9a9da3;
+  --color-success: #1f7a4d;
+  --color-warning: #8a5a00;
+  --color-danger: #c0362c;
+  --color-ink-soft: #4a4e55;
+
+  /* Colores de cada red, solo para distinguirlas en gráficos y etiquetas. */
+  --color-instagram: #e1306c;
+  --color-youtube: #ff3b3b;
+  --color-tiktok: #25f4ee;
+
+  /*
+   * Colores para gráficos (validados con el validador de la skill de dataviz sobre la superficie #050d2b,
+   * banda de luminosidad oscura, separación para daltonismo y contraste ≥ 3:1).
+   * Los colores de marca de Instagram y YouTube son casi iguales entre sí (ΔE 9,3), por eso en gráficos
+   * cada red usa un tono propio: Instagram se corre a magenta, YouTube a rojo anaranjado y TikTok a un turquesa
+   * más profundo. Las etiquetas siguen usando --color-instagram/youtube/tiktok.
+   * El orden categórico es fijo: la serie 1 siempre es chart-1, nunca se reciclan colores.
+   */
+  --color-chart-1: #3a8ef5;
+  --color-chart-2: #d95926;
+  --color-chart-3: #199e70;
+  --color-chart-4: #c98500;
+  --color-chart-5: #d55181;
+  --color-chart-instagram: #c94cd8;
+  --color-chart-youtube: #ee4b2b;
+  --color-chart-tiktok: #0fa59c;
+  --color-chart-grid: rgba(22, 23, 27, 0.07);
+  --color-chart-axis: rgba(22, 23, 27, 0.18);
+  --color-chart-surface: #ffffff;
+
+  --font-sans: var(--font-geist-sans), "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --animate-step-in: step-in 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-pop-in: pop-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-ping-soft: ping-soft 2s ease-out infinite;
+  --animate-float: float 4s ease-in-out infinite;
+
+  @keyframes step-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  @keyframes pop-in { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: none; } }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  @keyframes ping-soft { 0% { box-shadow: 0 0 0 0 rgba(77, 163, 255, 0.5); } 100% { box-shadow: 0 0 0 10px rgba(77, 163, 255, 0); } }
+  @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+}
+
+/* Estilo limpio: fondo claro sin texturas, superficies blancas, bordes finos y un solo acento azul. */
+@layer base {
+  html { background: var(--color-bg); scroll-behavior: smooth; color-scheme: light; }
+  body { @apply bg-bg text-text font-sans antialiased; margin: 0; }
+  ::selection { background: rgba(36, 87, 245, 0.18); color: var(--color-white); }
+  :focus-visible { outline: 2px solid var(--color-accent-hi); outline-offset: 2px; border-radius: 6px; }
+  h1, h2, h3 { @apply font-sans text-white; letter-spacing: -0.02em; }
+  * { scrollbar-color: rgba(22, 23, 27, 0.18) transparent; }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+}
+
+/* El Estudio del editor (y lo que se marque así) sigue en la estética oscura de antes. */
+.theme-dark {
+  --color-white: #ffffff;
+  --color-bg: #030a22;
+  --color-bg-deep: #02061a;
+  --color-card: #07163f;
+  --color-accent: #0070f8;
+  --color-accent-hi: #4da3ff;
+  --color-accent-glow: #8cc6ff;
+  --color-muted: #a7b9d4;
+  --color-text: #dce7f7;
+  --color-line: rgba(91, 156, 225, 0.32);
+  --color-line-strong: rgba(91, 156, 225, 0.8);
+  --color-placeholder: #6f84a8;
+  --color-success: #3ddc97;
+  --color-warning: #e8b93a;
+  --color-danger: #ff8f8f;
+  --color-ink-soft: #c9d6ea;
+  --color-chart-grid: rgba(167, 185, 212, 0.12);
+  --color-chart-axis: rgba(167, 185, 212, 0.28);
+  --color-chart-surface: #050d2b;
+  color-scheme: dark;
+  scrollbar-color: rgba(91, 156, 225, 0.35) #02061a;
+}
+
+@layer components {
+  /* Superficies */
+  .card { @apply relative rounded-2xl border border-white/[0.09] bg-card transition-colors; }
+  .card-lift { transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease; }
+  .card-lift:hover { transform: translateY(-2px); border-color: rgba(22, 23, 27, 0.18); box-shadow: 0 10px 28px rgba(22, 23, 27, 0.08); }
+  .theme-dark .card-lift:hover { border-color: rgba(77, 163, 255, 0.55); box-shadow: 0 14px 34px rgba(0, 60, 160, 0.28); }
+  .hero-panel { @apply bg-card; }
+  .tile-hero { @apply grid h-12 w-12 flex-none place-items-center rounded-2xl bg-white text-paper; }
+  .tile-icon { @apply grid flex-none place-items-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-white; }
+  .theme-dark .tile-icon { @apply text-accent-hi; }
+  .section-shell { @apply relative rounded-2xl border border-white/[0.09] bg-card p-5 sm:p-7; }
+
+  /* Carga */
+  .skeleton {
+    @apply animate-shimmer rounded-xl;
+    background: linear-gradient(90deg, rgba(22, 23, 27, 0.05) 25%, rgba(22, 23, 27, 0.09) 50%, rgba(22, 23, 27, 0.05) 75%);
+    background-size: 200% 100%;
+  }
+  .theme-dark .skeleton { background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.04) 75%); }
+  .bar-shine { position: relative; overflow: hidden; }
+  .bar-shine::after {
+    @apply animate-shimmer;
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+    background-size: 200% 100%;
+  }
+  .stagger > * { @apply animate-pop-in; }
+  .stagger > *:nth-child(2) { animation-delay: 0.06s; }
+  .stagger > *:nth-child(3) { animation-delay: 0.12s; }
+  .stagger > *:nth-child(4) { animation-delay: 0.18s; }
+  .stagger > *:nth-child(5) { animation-delay: 0.24s; }
+  .stagger > *:nth-child(n + 6) { animation-delay: 0.3s; }
+
+  /* Botones: el principal en tinta (negro), el secundario con borde fino. */
+  .btn { @apply relative inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-paper transition duration-150 disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn:hover:not(:disabled) { background-color: #2c2e34; }
+  .btn:active:not(:disabled) { transform: scale(0.98); }
+  .theme-dark .btn { @apply bg-accent text-paper; background-image: linear-gradient(180deg, #2b92ff, #0070f8); box-shadow: 0 6px 18px rgba(0, 112, 248, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.22); }
+  .theme-dark .btn:hover:not(:disabled) { filter: brightness(1.1); background-color: var(--color-accent); }
+  .btn-ghost { @apply relative inline-flex items-center justify-center gap-2 rounded-xl border border-white/[0.14] bg-card px-4 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-ghost:hover:not(:disabled) { @apply border-white/25 bg-white/[0.04]; }
+  .theme-dark .btn-ghost { @apply bg-transparent; }
+
+  /* Formularios */
+  .field { @apply w-full rounded-xl border border-white/[0.14] bg-card px-4 py-2.5 text-base text-white placeholder:text-placeholder transition; }
+  .field:focus { outline: none; border-color: var(--color-accent-hi); box-shadow: 0 0 0 3px rgba(36, 87, 245, 0.15); }
+  .theme-dark .field { @apply border-white/10 bg-black/30; }
+  .range {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(90deg, var(--color-accent), var(--color-accent) var(--pct, 0%), rgba(22, 23, 27, 0.12) var(--pct, 0%));
+  }
+  .theme-dark .range { background: linear-gradient(90deg, #4da3ff, #0070f8 var(--pct, 0%), rgba(255, 255, 255, 0.14) var(--pct, 0%)); }
+  .range::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 1px solid rgba(22, 23, 27, 0.15); box-shadow: 0 2px 8px rgba(22, 23, 27, 0.2); transition: transform 0.15s ease; }
+  .range::-webkit-slider-thumb:hover { transform: scale(1.12); }
+  .range::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 1px solid rgba(22, 23, 27, 0.15); box-shadow: 0 2px 8px rgba(22, 23, 27, 0.2); }
+
+  /* Detalles */
+  .eyebrow { @apply text-xs font-semibold tracking-[0.02em] text-muted; }
+  .theme-dark .eyebrow { @apply font-mono text-[11px] tracking-[0.18em] text-accent-glow/90 uppercase; }
+  .pill { @apply inline-flex items-center gap-2 rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-white; }
+
+  /* Chips de filtro: apagados por defecto, en tinta cuando están activos. */
+  .chip { @apply inline-flex items-center gap-2 rounded-full border border-white/[0.12] bg-card px-3 py-1.5 text-xs font-semibold text-muted transition select-none; }
+  .chip:hover:not(:disabled) { @apply border-white/25 text-white; }
+  .chip[aria-pressed="true"], .chip[aria-checked="true"] { @apply border-white bg-white text-paper; }
+  .theme-dark .chip { @apply bg-white/[0.03]; }
+  .theme-dark .chip[aria-pressed="true"], .theme-dark .chip[aria-checked="true"] { @apply border-accent-hi/60 bg-accent/20 text-white; }
+  .chip:disabled { @apply cursor-not-allowed opacity-50; }
+
+  /* Capas flotantes: menús, selector de fechas, tooltips y avisos. Superficie sólida para que el texto se lea sobre cualquier fondo. */
+  .popover { @apply rounded-xl border border-white/[0.1] bg-card shadow-[0_16px_40px_rgba(22,23,27,0.12)]; }
+  .theme-dark .popover { @apply border-white/12 bg-[#081a4a] shadow-[0_18px_48px_rgba(0,8,40,0.6)]; }
+  .menu-item { @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-text outline-none transition-colors; }
+  .menu-item:hover:not([aria-disabled="true"]), .menu-item:focus-visible { @apply bg-white/[0.05] text-white; }
+  .menu-item:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--color-accent-hi); }
+  .menu-item[aria-disabled="true"] { @apply cursor-not-allowed opacity-45; }
+
+  /* Control segmentado y pestañas */
+  .segmented { @apply inline-flex items-center gap-1 rounded-xl border border-white/[0.09] bg-white/[0.04] p-1; }
+  .segmented-item { @apply inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted transition; }
+  .segmented-item:hover { @apply text-white; }
+  .segmented-item[aria-checked="true"] { @apply bg-card text-white shadow-[0_1px_2px_rgba(22,23,27,0.12)]; }
+  .theme-dark .segmented { @apply border-white/10 bg-black/30; }
+  .theme-dark .segmented-item[aria-checked="true"] { @apply bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]; }
+
+  /* Diálogo y panel lateral (<dialog> nativo). Tailwind quita el margen automático: se lo devolvemos. */
+  .dialog { @apply m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-2xl border border-white/[0.1] bg-card p-0 text-text shadow-[0_30px_80px_rgba(22,23,27,0.22)]; }
+  .dialog::backdrop { background: rgba(22, 23, 27, 0.36); backdrop-filter: blur(3px); }
+  .dialog[open] { @apply animate-pop-in; }
+  .sheet { @apply mr-0 ml-auto h-dvh max-h-none w-full max-w-md overflow-hidden rounded-none border-0 border-l border-white/[0.1] bg-card p-0 text-text shadow-[-20px_0_60px_rgba(22,23,27,0.16)] sm:rounded-l-2xl; }
+  .sheet::backdrop { background: rgba(22, 23, 27, 0.3); backdrop-filter: blur(2px); }
+  .sheet[open] { animation: sheet-in 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+  .theme-dark .dialog, .theme-dark .sheet { @apply bg-[#06143a]; }
+
+  /* Tablas de datos */
+  .data-table { @apply w-full border-separate border-spacing-0 text-sm; }
+  .data-table th { @apply border-b border-white/[0.09] bg-bg px-4 py-3 text-left text-xs font-semibold whitespace-nowrap text-muted; }
+  .data-table td { @apply border-b border-white/[0.06] px-4 py-3 align-middle text-text; }
+  .data-table tbody tr:last-child td { @apply border-b-0; }
+  .data-table tbody tr[data-interactive="true"] { @apply cursor-pointer; }
+  /* Resaltado con sombra interior: no reemplaza el fondo sólido de las columnas fijas. */
+  .data-table tbody tr[data-interactive="true"]:hover td, .data-table tbody tr[data-interactive="true"]:focus-visible td { box-shadow: inset 0 0 0 999px rgba(22, 23, 27, 0.03); }
+  .data-table tbody tr[data-interactive="true"]:focus-visible { outline-offset: -2px; }
+
+  /* Ruta de pasos: nodos hecho · activo · pendiente. En pantallas pequeñas, fila con scroll. */
+  .step-list { @apply m-0 flex list-none gap-1 overflow-x-auto p-0 pb-1 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0; }
+  .step-item { @apply relative flex-none; }
+  .step-item:not(:last-child)::after { @apply hidden lg:block; content: ""; position: absolute; left: 21px; top: 38px; height: 20px; width: 2px; border-radius: 2px; background: rgba(22, 23, 27, 0.1); }
+  .step-item[data-done="true"]:not(:last-child)::after { background: var(--color-white); }
+  .step { @apply relative flex w-full items-center gap-3 rounded-xl border border-transparent py-2.5 pr-3 pl-2 text-left text-sm font-medium whitespace-nowrap text-muted transition; }
+  .step:hover { @apply bg-white/[0.04] text-white; }
+  .step[aria-current="step"] { @apply border-white/[0.1] bg-card font-semibold text-white shadow-[0_1px_2px_rgba(22,23,27,0.08)]; }
+  .step-node { @apply grid h-7 w-7 flex-none place-items-center rounded-full border-2 border-white/20 text-[11px] font-bold text-muted transition; }
+  .step[data-state="done"] .step-node { @apply animate-pop-in border-white bg-white text-paper; }
+  .step[data-state="active"] .step-node { @apply border-white bg-white text-paper; }
+  .theme-dark .step[aria-current="step"] { @apply border-accent/40 bg-accent/15 shadow-none; }
+  .theme-dark .step[data-state="done"] .step-node { @apply border-accent-hi bg-accent-hi text-bg; }
+  .theme-dark .step[data-state="active"] .step-node { @apply animate-ping-soft border-accent-hi bg-accent text-white; }
+  .theme-dark .step-item[data-done="true"]:not(:last-child)::after { background: var(--color-accent-hi); }
+  .theme-dark .tile-hero { @apply border border-accent/40 text-white; background: linear-gradient(145deg, #0a7cff, #0b3fa8); box-shadow: 0 8px 22px rgba(0, 112, 248, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+  .theme-dark .hero-panel { background: radial-gradient(ellipse 80% 120% at 0% 0%, rgba(0, 112, 248, 0.22), transparent 60%), rgba(255, 255, 255, 0.025); }
+}
+
+@keyframes sheet-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Sin desplazamiento de la página mientras hay un diálogo o panel abierto. */
+html:has(dialog[open][data-lock-scroll]) { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

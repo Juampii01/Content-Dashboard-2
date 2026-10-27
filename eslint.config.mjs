@@ -1,0 +1,28 @@
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    // Carpetas de trabajo temporales de agentes
+    ".claude/**",
+    // Motor empaquetado para el worker (generado por scripts/motion-bundle.mjs)
+    "worker/motion/engine.mjs",
+    "worker/motion/fx-engine.mjs",
+    "worker/motion/music-engine.mjs",
+    "worker/motion/compos-engine.mjs",
+    "public/compos-sandbox.js",
+    "lib/video/compos/runtime-source.ts",
+    "worker/motion/node_modules/**",
+  ]),
+]);
+
+export default eslintConfig;

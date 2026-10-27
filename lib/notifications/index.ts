@@ -1,0 +1,205 @@
+import "server-only";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db";
+import { emailConfigured, sendEmail } from "@/lib/email";
+import { env } from "@/lib/env";
+
+/**
+ * Avisos de "listo" y "falló" de los trabajos lentos. Se arman a partir de la tabla `jobs` (el worker la actualiza
+ * directo en la base y después avisa a la app con /api/worker/avisos; el cron de cada hora barre lo que falte) y de
+ * los videos con clon (lib/heygen/service.ts llama a `notify`). Cada aviso tiene una clave única: nunca se repite.
+ * Si el trabajo tardó más de un minuto, también sale un correo a quien lo pidió.
+ */
+
+export type NotificationInput = {
+  key: string;
+  userId: string | null;
+  tone: "success" | "error";
+  title: string;
+  body: string;
+  href: string;
+  /** Mandar correo además del aviso en la app. */
+  email: boolean;
+  /** Nota al pie del correo (por defecto, la de los trabajos que tardan más de un minuto). */
+  footnote?: string;
+};
+
+const EMAIL_AFTER_SECONDS = 60;
+
+/** Crea el aviso (si no existía) y manda el correo. Nunca tira error: un aviso que falla no rompe nada. */
+export async function notify(input: NotificationInput): Promise<void> {
+  try {
+    const db = getDb();
+    const [row] = await db
+      .insert(schema.notifications)
+      .values({ key: input.key, userId: input.userId, tone: input.tone, title: input.title.slice(0, 140), body: input.body.slice(0, 400), href: input.href })
+      .onConflictDoNothing({ target: schema.notifications.key })
+      .returning({ id: schema.notifications.id });
+    // Sin Resend, el aviso queda en la app (no es un error: Estado del sistema ya avisa que falta el correo).
+    if (!row || !input.email || !input.userId || (!emailConfigured() && process.env.NODE_ENV === "production")) return;
+    const to = await emailOf(input.userId);
+    if (!to) return;
+    await sendEmail({
+      to,
+      subject: input.title,
+      heading: input.title,
+      intro: input.body,
+      actionLabel: input.tone === "success" ? "Abrir" : "Ver qué pasó",
+      actionUrl: `${env().NEXT_PUBLIC_APP_URL}${input.href}`,
+      footnote: input.footnote ?? "Te avisamos por correo cuando termina un trabajo que tarda más de un minuto, así no tienes que esperar con la pestaña abierta.",
+    });
+    await db.execute(sql`update notifications set emailed_at = now() where id = ${row.id}`);
+  } catch (error) {
+    console.error("[avisos]", input.key, error instanceof Error ? error.message : error);
+  }
+}
+
+async function emailOf(userId: string): Promise<string | null> {
+  const result = await getDb().execute<{ email: string }>(sql`
+    select u.email from users u join team_members tm on tm.user_id = u.id where u.id = ${userId} and tm.active limit 1
+  `);
+  return result.rows[0]?.email ?? null;
+}
+
+type JobRow = {
+  id: string;
+  type: string;
+  status: "SUCCEEDED" | "FAILED";
+  input: Record<string, unknown> | null;
+  error_message: string | null;
+  video_project_id: string | null;
+  created_by: string | null;
+  seconds: number;
+  project_title: string | null;
+  carousel_title: string | null;
+  long_video_title?: string | null;
+  package_title?: string | null;
+  clip_count?: number | null;
+  /** El proyecto tiene "Hazlo por mí": no se revisa, avisa solo al terminar el render. */
+  project_auto_export?: boolean | null;
+};
+
+const quoted = (title: string | null) => (title ? `"${title}"` : "Tu video");
+
+/** Qué aviso corresponde a cada tipo de trabajo terminado (null = ese trabajo no avisa). */
+export function jobNotification(job: JobRow): Omit<NotificationInput, "email" | "key" | "userId"> & { emailable: boolean } | null {
+  const ok = job.status === "SUCCEEDED";
+  const failure = job.error_message?.trim() || "Algo falló al procesarlo. Vuelve a intentarlo; si sigue pasando, avísale a soporte.";
+  const id = (k: string) => (typeof job.input?.[k] === "string" ? (job.input[k] as string) : null);
+  switch (job.type) {
+    case "VIDEO_ANALYZE":
+    case "VIDEO_EDIT": {
+      if (!job.video_project_id) return null;
+      // "Hazlo por mí" (o un clip con "Exportar directo") no se revisa: avisa solo al terminar el render.
+      if (ok && (job.project_auto_export || (job.input?.clip as { autoExport?: boolean } | undefined)?.autoExport)) return null;
+      const href = `/editor/${job.video_project_id}`;
+      return ok
+        ? { tone: "success", title: "Tu video está listo para revisar", body: `${quoted(job.project_title)} ya tiene la edición propuesta: cortes, subtítulos y b-roll. Revísala y expórtala.`, href, emailable: true }
+        : { tone: "error", title: "No pudimos preparar tu video", body: failure, href, emailable: true };
+    }
+    case "VIDEO_RENDER": {
+      if (!job.video_project_id) return null;
+      const href = `/editor/${job.video_project_id}`;
+      return ok
+        ? job.project_auto_export
+          ? { tone: "success", title: "Tu video está listo", body: `${quoted(job.project_title)} ya está editado y exportado, con tu estilo. Descárgalo o, si quieres cambiar algo, revísalo y vuelve a exportarlo.`, href, emailable: true }
+          : { tone: "success", title: "Tu video está exportado", body: `${quoted(job.project_title)} ya se puede descargar.`, href, emailable: true }
+        : { tone: "error", title: "No pudimos exportar tu video", body: failure, href, emailable: true };
+    }
+    case "CAROUSEL_IMAGES": {
+      const carouselId = id("carouselId");
+      if (!carouselId) return null;
+      const href = `/carruseles/${carouselId}`;
+      const name = job.carousel_title ? `"${job.carousel_title}"` : "Tu carrusel";
+      return ok
+        ? { tone: "success", title: "Las imágenes de tu carrusel están listas", body: `${name} ya tiene sus imágenes. Revísalo y descárgalo.`, href, emailable: true }
+        : { tone: "error", title: "No pudimos generar las imágenes", body: failure, href, emailable: true };
+    }
+    case "CAROUSEL_STYLE": {
+      const templateId = id("templateId");
+      if (!templateId) return null;
+      const href = `/carruseles/plantillas/${templateId}`;
+      return ok
+        ? { tone: "success", title: "Tu plantilla está lista", body: "Copiamos el diseño del carrusel de referencia. Ya puedes usarla.", href, emailable: false }
+        : { tone: "error", title: "No pudimos copiar la plantilla", body: failure, href, emailable: false };
+    }
+    case "VIDEO_STYLE": {
+      const styleId = id("styleId");
+      if (!styleId) return null;
+      const href = `/editor/estilos/${styleId}`;
+      return ok
+        ? { tone: "success", title: "Tu estilo de edición está listo", body: "Medimos el video de referencia. Ya puedes editar como ese video.", href, emailable: false }
+        : { tone: "error", title: "No pudimos medir el video de referencia", body: failure, href, emailable: false };
+    }
+    case "LONG_VIDEO_CLIPS": {
+      const longVideoId = id("longVideoId");
+      if (!longVideoId) return null;
+      const href = `/editor/clips/${longVideoId}`;
+      const name = job.long_video_title ? `"${job.long_video_title}"` : "Tu video";
+      const n = job.clip_count ?? 0;
+      return ok
+        ? { tone: "success", title: "Tus clips están listos", body: `Encontramos ${n === 1 ? "1 momento" : `${n} momentos`} en ${name} que funcionan solos como short. Elige cuáles exportar.`, href, emailable: true }
+        : { tone: "error", title: "No pudimos sacar clips de tu video", body: failure, href, emailable: true };
+    }
+    case "YT_THUMBNAILS": {
+      // Solo avisan los fondos de un paquete; el recorte de una foto suelta es instantáneo para la persona.
+      const packageId = id("packageId");
+      const concepts = Array.isArray(job.input?.concepts) ? job.input.concepts.length : 0;
+      if (!packageId || !concepts) return null;
+      const href = `/miniaturas/${packageId}`;
+      const name = job.package_title ? `"${job.package_title}"` : "tu video";
+      return ok
+        ? { tone: "success", title: "Tus miniaturas están listas", body: `Ya están los fondos de las miniaturas de ${name}. Elige una, ajusta el texto y descárgala.`, href, emailable: true }
+        : { tone: "error", title: "No pudimos generar los fondos de tus miniaturas", body: failure, href, emailable: true };
+    }
+    case "YOUTUBE_TRANSCRIPT": {
+      const contentItemId = id("contentItemId");
+      if (!contentItemId) return null;
+      const href = `/metricas/${contentItemId}`;
+      return ok
+        ? { tone: "success", title: "Ya sabemos qué decías en cada caída", body: "Trajimos los subtítulos de YouTube: en «Dónde se fue la gente» verás lo que estabas diciendo cuando se fue el público.", href, emailable: false }
+        : { tone: "error", title: "No pudimos traer los subtítulos de YouTube", body: failure, href, emailable: false };
+    }
+    case "REEL_COPY": {
+      const copyId = id("reelCopyId");
+      if (!copyId) return null;
+      const href = `/guiones/copiar/${copyId}`;
+      return ok
+        ? { tone: "success", title: "Tu versión del reel está lista", body: "Analizamos la estructura del original y escribimos tu guion con tu voz. También quedó listo su estilo de edición.", href, emailable: true }
+        : { tone: "error", title: "No pudimos copiar ese reel", body: failure, href, emailable: true };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Convierte en avisos los trabajos terminados en los últimos 2 días que todavía no avisaron. */
+export async function sweepJobNotifications(limit = 50): Promise<number> {
+  const result = await getDb().execute<JobRow>(sql`
+    select j.id, j.type, j.status, j.input, j.error_message, j.video_project_id, j.created_by,
+      extract(epoch from (j.finished_at - j.created_at))::float as seconds,
+      p.title as project_title, p.auto_export as project_auto_export, c.title as carousel_title,
+      lv.title as long_video_title, yp.title as package_title,
+      (select count(*)::int from long_video_clips lc where lc.long_video_id = lv.id) as clip_count
+    from jobs j
+    left join video_projects p on p.id = j.video_project_id
+    left join carousels c on j.type = 'CAROUSEL_IMAGES' and c.id::text = j.input->>'carouselId'
+    left join long_videos lv on j.type = 'LONG_VIDEO_CLIPS' and lv.id::text = j.input->>'longVideoId'
+    left join yt_packages yp on j.type = 'YT_THUMBNAILS' and yp.id::text = j.input->>'packageId'
+    where j.status in ('SUCCEEDED', 'FAILED')
+      and j.finished_at > now() - interval '2 days'
+      and j.type in ('VIDEO_ANALYZE', 'VIDEO_EDIT', 'VIDEO_RENDER', 'CAROUSEL_IMAGES', 'CAROUSEL_STYLE', 'VIDEO_STYLE', 'LONG_VIDEO_CLIPS', 'YT_THUMBNAILS', 'YOUTUBE_TRANSCRIPT', 'REEL_COPY')
+      and not exists (select 1 from notifications n where n.key = 'job:' || j.id::text)
+    order by j.finished_at
+    limit ${limit}
+  `);
+  let created = 0;
+  for (const job of result.rows) {
+    const n = jobNotification(job);
+    if (!n) continue;
+    const { emailable, ...rest } = n;
+    await notify({ ...rest, key: `job:${job.id}`, userId: job.created_by, email: emailable && job.seconds >= EMAIL_AFTER_SECONDS });
+    created++;
+  }
+  return created;
+}

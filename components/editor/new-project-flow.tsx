@@ -1,0 +1,480 @@
+"use client";
+
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, ArrowRight, Ban, Bot, Clapperboard, Library, Monitor, Palette, Smartphone, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Field, Input, Select } from "@/components/ui/field";
+import { Notice } from "@/components/ui/feedback";
+import { Steps, type StepState } from "@/components/ui/steps";
+import { toast } from "@/components/ui/toast";
+import { UploadDropzone } from "@/components/ui/upload-dropzone";
+import { CAPTION_PICKER_ORDER, CAPTION_PRESETS } from "@/lib/video/captions";
+import { describePreset, type StylePreset } from "@/lib/video/style";
+import type { CaptionPresetKey, VideoFormat } from "@/lib/video/types";
+import { cn } from "@/lib/utils";
+import { createFromCloneAction, createProjectAction, discardDraftAction } from "./actions";
+import { AutoExportToggle } from "./auto-export-toggle";
+import { CaptionPicker } from "./caption-picker";
+import { MAX_VIDEO_BYTES_CLIENT, PROJECT_ACCEPT } from "./constants";
+import { cancelUpload, startUpload, submitUpload, useUpload } from "./upload-manager";
+import { BriefFields, BudgetField } from "./director/brief-form";
+import { BUDGET, EMPTY_BRIEF, type Brief } from "@/lib/video/director/types";
+
+type ScriptOption = { id: string; title: string; status: string };
+type CloneSource = { id: string; title: string; aspectRatio: string; ready: boolean } | null;
+export type StyleOption = { id: string; name: string; thumbUrl: string | null; preset: StylePreset; aspect: string };
+type BrollAvailability = { stock: boolean; libraryClips: number };
+
+const STEPS = [
+  { id: "video", label: "Tu video" },
+  { id: "formato", label: "Formato" },
+  { id: "estilo", label: "Estilo y b-roll" },
+  { id: "subtitulos", label: "Subtítulos" },
+  { id: "guion", label: "Guion (opcional)" },
+  { id: "brief", label: "Para qué es (opcional)" },
+] as const;
+type StepId = (typeof STEPS)[number]["id"];
+/** Sin editar: solo lo necesario para preparar el video; el resto se hace por partes en la pestaña Edición. */
+const CLEAN_STEPS: readonly StepId[] = ["video", "formato", "guion"];
+
+const titleFromFile = (name: string) => name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 120) || "Video sin título";
+
+/** Lee ancho y alto del video en el navegador (sin subirlo) para sugerir el formato. */
+function readOrientation(file: File): Promise<{ w: number; h: number } | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.muted = true;
+    const done = (value: { w: number; h: number } | null) => {
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    v.onloadedmetadata = () => done(v.videoWidth && v.videoHeight ? { w: v.videoWidth, h: v.videoHeight } : null);
+    v.onerror = () => done(null);
+    setTimeout(() => done(null), 8000);
+    v.src = url;
+  });
+}
+
+export function NewProjectFlow({
+  scripts,
+  initialScriptId,
+  clone,
+  styles = [],
+  initialStyleId = null,
+  broll = { stock: false, libraryClips: 0 },
+  captionBrand = { accent: "#FFD84D", font: "montserrat" },
+  defaults = { format: "9:16", captions: "caja", broll: "auto" },
+  autoSummary,
+  briefHints = { audience: "", cta: "", scripts: {} },
+}: {
+  /** Para precargar el brief del director: público y CTA de Mi marca, y la CTA de cada guion. */
+  briefHints?: { audience: string; cta: string; scripts: Record<string, string> };
+  scripts: ScriptOption[];
+  initialScriptId: string | null;
+  clone: CloneSource;
+  styles?: StyleOption[];
+  initialStyleId?: string | null;
+  broll?: BrollAvailability;
+  /** Acento y fuente de títulos de Mi marca, para las miniaturas de los subtítulos. */
+  captionBrand?: { accent: string; font: "montserrat" | "inter" };
+  /** Valores por defecto del editor (Mi marca): formato, subtítulos y b-roll con que arranca el flujo. */
+  defaults?: { format: VideoFormat; captions: CaptionPresetKey; broll: "auto" | "off" };
+  /** Qué usa "Hazlo por mí" (subtítulos, música…), para mostrarlo al lado del interruptor. */
+  autoSummary?: string;
+}) {
+  const DEFAULT_PRESET = defaults.captions;
+  const router = useRouter();
+  const [step, setStep] = useState<StepId>("video");
+  const [visited, setVisited] = useState<Set<StepId>>(new Set(["video"]));
+  const [project, setProject] = useState<{ id: string; key: string; mode: "blob" | "local" } | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [title, setTitle] = useState(clone?.title ?? "");
+  const [format, setFormat] = useState<VideoFormat>(clone ? (clone.aspectRatio === "16:9" ? "16:9" : "9:16") : defaults.format);
+  const [formatTouched, setFormatTouched] = useState(false);
+  const [orientation, setOrientation] = useState<"landscape" | "portrait" | null>(clone ? (clone.aspectRatio === "16:9" ? "landscape" : "portrait") : null);
+  const initialStyle = styles.find((st) => st.id === initialStyleId) ?? null;
+  const [styleId, setStyleId] = useState<string | null>(initialStyle?.id ?? null);
+  const [preset, setPreset] = useState<CaptionPresetKey>(initialStyle?.preset.captions ? "estilo" : DEFAULT_PRESET);
+  const [presetTouched, setPresetTouched] = useState(false);
+  // Siempre hay b-roll posible: aunque no haya stock ni clips propios, la IA arma gráficos con tu marca.
+  const clipsReady = broll.stock || broll.libraryClips > 0;
+  const [brollMode, setBrollMode] = useState<"auto" | "off">(defaults.broll);
+  const [autoExport, setAutoExport] = useState(false);
+  // Por defecto el video llega limpio: sin cortes, subtítulos ni b-roll. La edición se pide por partes.
+  // El video siempre llega sin editar: se edita en el Estudio, a mano o con el chat (sin «Editado por la IA»).
+  const [editMode] = useState<"auto" | "clean">("clean");
+  const flowSteps = editMode === "clean" ? STEPS.filter((s) => CLEAN_STEPS.includes(s.id)) : STEPS;
+  const style = styles.find((st) => st.id === styleId) ?? null;
+  const presetKeys = CAPTION_PICKER_ORDER.filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
+
+  function chooseStyle(id: string | null) {
+    setStyleId(id);
+    const next = styles.find((st) => st.id === id);
+    // Al elegir un estilo con subtítulos, se usan los suyos (salvo que la persona ya eligió otros).
+    if (!presetTouched) setPreset(next?.preset.captions ? "estilo" : DEFAULT_PRESET);
+    else if (preset === "estilo" && !next?.preset.captions) setPreset(DEFAULT_PRESET);
+  }
+  const [scriptId, setScriptId] = useState<string | null>(initialScriptId);
+  // Brief del director (opcional): precargado con Mi marca y, si hay guion, con su llamada a la acción.
+  const [brief, setBrief] = useState<Brief>(() => ({ ...EMPTY_BRIEF, audience: briefHints.audience, cta: (initialScriptId && briefHints.scripts[initialScriptId]) || briefHints.cta }));
+  const [budget, setBudget] = useState<number>(BUDGET.default);
+  function chooseScript(id: string | null) {
+    setScriptId(id);
+    const fromScript = id ? briefHints.scripts[id] : undefined;
+    // La CTA del guion manda sobre la de la marca (si la persona no la cambió a mano).
+    setBrief((b) => (b.cta === briefHints.cta || Object.values(briefHints.scripts).includes(b.cta) ? { ...b, cta: fromScript ?? briefHints.cta } : b));
+  }
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, startSubmit] = useTransition();
+  const upload = useUpload(project?.id ?? "");
+  const formatTouchedRef = useRef(formatTouched);
+  useEffect(() => {
+    formatTouchedRef.current = formatTouched;
+  }, [formatTouched]);
+
+  const hasSource = Boolean(clone?.ready || project);
+  const index = Math.max(0, flowSteps.findIndex((s) => s.id === step));
+  const go = (id: StepId) => {
+    setStep(id);
+    setVisited((v) => new Set(v).add(id));
+  };
+  const steps = flowSteps.map((s) => ({
+    id: s.id,
+    label: s.label,
+    state: (s.id === step ? "active" : visited.has(s.id) && hasSource ? "done" : "pending") as StepState,
+  }));
+
+  async function onFile(file: File) {
+    setError(null);
+    if (project) {
+      cancelUpload(project.id);
+      void discardDraftAction(project.id);
+      setProject(null);
+    }
+    setFileName(file.name);
+    const nextTitle = title.trim() ? title : titleFromFile(file.name);
+    setTitle(nextTitle);
+    const dims = await readOrientation(file);
+    let nextFormat = format;
+    if (dims) {
+      const o = dims.w > dims.h ? "landscape" : "portrait";
+      setOrientation(o);
+      if (!formatTouchedRef.current) {
+        nextFormat = defaults.format; // Por defecto, el de Mi marca (Reels y TikTok primero); un horizontal se recorta y se puede mover el encuadre.
+        setFormat(nextFormat);
+      }
+    }
+    const result = await createProjectAction({ title: nextTitle, fileName: file.name, fileType: file.type, fileSize: file.size, format: nextFormat, preset, scriptId, styleId, brollMode, autoExport, editMode });
+    if (!result.ok || !result.data) {
+      setError(result.ok ? "No pudimos preparar la subida." : result.error);
+      return;
+    }
+    setProject(result.data);
+    startUpload({ file, projectId: result.data.id, key: result.data.key, mode: result.data.mode });
+  }
+
+  function process() {
+    startSubmit(async () => {
+      if (clone) {
+        const result = await createFromCloneAction(clone.id, format, preset, { styleId, brollMode, autoExport, editMode, brief, budgetUsd: budget });
+        if (result && !result.ok) toast.error(result.error);
+        return;
+      }
+      if (!project) return;
+      const result = await submitUpload(project.id, { title: title.trim() || "Video sin título", format, preset, scriptId, styleId, brollMode, autoExport, editMode, brief, budgetUsd: budget });
+      if (!result.ok && result.error) {
+        toast.error(result.error);
+        return;
+      }
+      router.push(`/editor/${project.id}`);
+    });
+  }
+
+  const uploadPct = upload?.total ? (upload.loaded / upload.total) * 100 : 0;
+  const uploadStatus = !upload ? "idle" : upload.status === "uploading" ? "uploading" : upload.status === "error" ? "error" : "done";
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="lg:pt-2">
+        <Steps steps={steps} onSelect={(id) => go(id as StepId)} />
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-6">
+        <div key={step} className="card animate-step-in flex flex-col gap-5 p-5 sm:p-7">
+          {step === "video" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold">Sube tu video crudo</h2>
+                <p className="mt-1 text-sm text-muted">Un video donde hablas a cámara, tal como lo grabaste. Mientras sube, puedes seguir con los pasos.</p>
+              </div>
+              {clone ? (
+                <div className="flex items-center gap-4 rounded-2xl border border-accent/40 bg-accent/10 p-4">
+                  <div className="tile-icon h-11 w-11">
+                    <Bot className="h-5 w-5" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-accent-glow">Video con clon</p>
+                    <p className="truncate text-sm font-semibold text-white">{clone.title}</p>
+                    {!clone.ready && <p className="text-xs text-warning">Todavía se está generando en HeyGen. Vuelve cuando esté listo.</p>}
+                  </div>
+                </div>
+              ) : (
+                <UploadDropzone
+                  accept={PROJECT_ACCEPT}
+                  acceptLabel="un video (MP4, MOV, WEBM o MKV) o un audio solo (MP3, M4A o WAV)"
+                  maxSize={MAX_VIDEO_BYTES_CLIENT}
+                  status={uploadStatus}
+                  progress={uploadPct}
+                  fileName={fileName ?? undefined}
+                  error={error ?? (upload?.status === "error" ? upload.error : null)}
+                  onCancel={
+                    project
+                      ? () => {
+                          cancelUpload(project.id);
+                          void discardDraftAction(project.id);
+                          setProject(null);
+                          setFileName(null);
+                        }
+                      : undefined
+                  }
+                  onFiles={([file]) => file && void onFile(file)}
+                  title="Arrastra tu video aquí"
+                  hint="MP4, MOV, WEBM o MKV, hasta 8 GB y 20 minutos"
+                />
+              )}
+              <Field label="Nombre" htmlFor="title" hint="Para encontrarlo después. No aparece en el video.">
+                <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="Por ejemplo: El error de la primera llamada" />
+              </Field>
+            </>
+          )}
+
+          {step === "formato" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold">¿Dónde lo vas a publicar?</h2>
+                <p className="mt-1 text-sm text-muted">Puedes cambiarlo después, en la revisión.</p>
+              </div>
+              <div role="radiogroup" aria-label="Formato" className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { value: "9:16" as const, label: "Vertical 9:16", hint: "Reels, TikTok y Shorts", icon: Smartphone },
+                  { value: "16:9" as const, label: "Horizontal 16:9", hint: "YouTube", icon: Monitor },
+                ].map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={format === f.value}
+                    onClick={() => {
+                      setFormat(f.value);
+                      setFormatTouched(true);
+                    }}
+                    className={cn("flex items-center gap-4 rounded-2xl border p-4 text-left transition", format === f.value ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
+                  >
+                    <span className="tile-icon h-11 w-11">
+                      <f.icon className="h-5 w-5" aria-hidden />
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold text-white">{f.label}</span>
+                      <span className="text-xs text-muted">{f.hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {orientation === "landscape" && format === "9:16" && (
+                <Notice tone="info">Tu video es horizontal: lo recortamos al centro y en la revisión puedes mover el encuadre para que quedes bien.</Notice>
+              )}
+              {orientation === "portrait" && format === "16:9" && <Notice tone="info">Tu video es vertical: queda al centro, sobre un fondo desenfocado del mismo video.</Notice>}
+            </>
+          )}
+
+          {step === "estilo" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold">¿Lo editamos como algún video que te guste?</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Un estilo copia el ritmo de cortes, los zooms, el b-roll y los subtítulos de un video de referencia.{" "}
+                  <Link href="/editor/estilos" className="font-semibold text-accent-hi hover:underline">
+                    Crear un estilo
+                  </Link>
+                </p>
+              </div>
+              <div role="radiogroup" aria-label="Estilo de edición" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={styleId == null}
+                  onClick={() => chooseStyle(null)}
+                  className={cn("flex items-center gap-3 rounded-2xl border p-3 text-left transition", styleId == null ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
+                >
+                  <span className="tile-icon h-11 w-11 flex-none">
+                    <Ban className="h-5 w-5" aria-hidden />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-white">Sin estilo</span>
+                    <span className="text-xs text-muted">Cortes y subtítulos de siempre, con tu marca.</span>
+                  </span>
+                </button>
+                {styles.map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={styleId === st.id}
+                    onClick={() => chooseStyle(st.id)}
+                    className={cn("flex gap-3 rounded-2xl border p-3 text-left transition", styleId === st.id ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
+                  >
+                    <span className={cn("relative flex-none overflow-hidden rounded-lg bg-black/40", st.aspect === "16:9" ? "aspect-video w-20 self-center" : "aspect-[9/16] w-12")}>
+                      {st.thumbUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={st.thumbUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <Palette className="m-auto h-5 w-5 text-placeholder" aria-hidden />
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-white">{st.name}</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-muted">{describePreset(st.preset).join(" · ")}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {styles.length === 0 && (
+                <Notice tone="info">
+                  Todavía no tienes estilos. Crea uno en{" "}
+                  <Link href="/editor/estilos" className="font-semibold text-accent-hi hover:underline">
+                    Estilos
+                  </Link>{" "}
+                  subiendo un reel que te guste o pegando su link.
+                </Notice>
+              )}
+
+              <div className="flex flex-col gap-3 border-t border-white/10 pt-5">
+                <div>
+                  <h3 className="text-base font-semibold">B-roll</h3>
+                  <p className="mt-1 text-sm text-muted">
+                    Tomas de apoyo y gráficos animados con tu marca que tapan unos segundos mientras tu voz sigue. Los elige la IA según lo que dices
+                    {style?.preset.broll.enabled ? ", con la cadencia del estilo" : ""}; en la revisión puedes cambiarlas o quitarlas.
+                  </p>
+                </div>
+                <div role="radiogroup" aria-label="B-roll" className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { value: "auto" as const, label: "Agregar b-roll", hint: ["Gráficos con tu marca", broll.libraryClips ? `${broll.libraryClips} clips de tu biblioteca` : null, broll.stock ? "videos de stock" : null].filter(Boolean).join(", "), icon: Clapperboard },
+                    { value: "off" as const, label: "Sin b-roll", hint: "Solo tú en cámara.", icon: Ban },
+                  ].map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={brollMode === o.value}
+                      onClick={() => setBrollMode(o.value)}
+                      className={cn("flex items-center gap-4 rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50", brollMode === o.value ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
+                    >
+                      <span className="tile-icon h-11 w-11 flex-none">
+                        <o.icon className="h-5 w-5" aria-hidden />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-semibold text-white">{o.label}</span>
+                        <span className="text-xs text-muted">{o.hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {!clipsReady && (
+                  <p className="text-xs text-muted">
+                    <Library className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+                    Por ahora el b-roll será de gráficos. Para sumar tomas de video, sube tus clips a la{" "}
+                    <Link href="/editor/biblioteca" className="font-semibold text-accent-hi hover:underline">
+                      biblioteca de b-roll
+                    </Link>
+                    .
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {step === "subtitulos" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold">Estilo de subtítulos</h2>
+                <p className="mt-1 text-sm text-muted">
+                  {style?.preset.captions ? "Puedes usar los del estilo que elegiste o los de tu marca." : "Usan el color de acento de Mi marca."} Siempre recibes también el archivo SRT.
+                </p>
+              </div>
+              <CaptionPicker
+                value={preset}
+                onChange={(k) => {
+                  setPreset(k);
+                  setPresetTouched(true);
+                }}
+                options={presetKeys}
+                accent={captionBrand.accent}
+                brandFont={captionBrand.font}
+                captionStyle={style?.preset.captions ?? null}
+                className="sm:grid-cols-3 lg:grid-cols-5"
+              />
+              <p className="text-sm text-muted" aria-live="polite">
+                <span className="font-semibold text-white">{CAPTION_PRESETS[preset].label}:</span> {CAPTION_PRESETS[preset].description} Los emojis y el sonido se eligen en la revisión.
+              </p>
+            </>
+          )}
+
+          {step === "brief" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold">¿Para qué es este video?</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Opcional. Con esto el director de edición decide qué cortar, qué no tapar y cómo cerrar. Si lo dejas vacío, lo entiende mirando el video y te lo muestra para confirmar.
+                </p>
+              </div>
+              <BriefFields value={brief} onChange={setBrief} idPrefix="new-brief" />
+              <BudgetField value={budget} onChange={setBudget} id="new-budget" />
+            </>
+          )}
+
+          {step === "guion" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold">¿Lo grabaste con un guion?</h2>
+                <p className="mt-1 text-sm text-muted">Con el guion detectamos mejor las tomas repetidas y corregimos cómo se escriben las palabras en los subtítulos.</p>
+              </div>
+              <Field label="Guion" htmlFor="script" hint={scripts.length ? undefined : "Todavía no tienes guiones. Puedes seguir sin guion."}>
+                <Select id="script" value={scriptId ?? ""} onChange={(e) => chooseScript(e.target.value || null)}>
+                  <option value="">Sin guion</option>
+                  {scripts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </>
+          )}
+        </div>
+
+        {editMode === "auto" && <AutoExportToggle checked={autoExport} onChange={setAutoExport} summary={autoSummary} />}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button variant="ghost" disabled={index === 0} icon={<ArrowLeft className="h-4 w-4" aria-hidden />} onClick={() => go(flowSteps[Math.max(0, index - 1)]!.id)}>
+            Atrás
+          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            {upload?.status === "uploading" && <span className="text-xs text-muted">Subiendo {Math.round(uploadPct)} %…</span>}
+            {index < flowSteps.length - 1 && (
+              <Button variant="ghost" disabled={!hasSource} onClick={() => go(flowSteps[index + 1]!.id)}>
+                Siguiente <ArrowRight className="h-4 w-4" aria-hidden />
+              </Button>
+            )}
+            <Button onClick={process} disabled={!hasSource || submitting || upload?.status === "error" || (clone ? !clone.ready : false)} icon={<Sparkles className="h-4 w-4" aria-hidden />}>
+              {submitting ? "Enviando…" : editMode === "clean" ? "Preparar video" : autoExport ? "Hacerlo por mí" : "Procesar"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

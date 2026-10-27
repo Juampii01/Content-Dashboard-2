@@ -1,0 +1,76 @@
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { notFound } from "next/navigation";
+import { Skeleton } from "@/components/ui/feedback";
+import { ProjectScreen } from "@/components/editor/project-screen";
+import { getBrand } from "@/lib/ai/brand-context";
+import { getEditorDefaults } from "@/lib/dal/editor-defaults";
+import { getStyle, listTracks, signedBroll } from "@/lib/dal/editor-media";
+import { getProject } from "@/lib/dal/video";
+import { getFxContext } from "@/lib/dal/video-fx";
+import { getMusicCatalogStatus } from "@/lib/dal/music-catalog";
+import { fileDriver } from "@/lib/storage";
+import { brandGraphicLook } from "@/lib/video/graphics";
+import { readEditorDefaults } from "@/lib/video/defaults";
+
+export const metadata: Metadata = { title: "Video" };
+// Las acciones del Estudio que esperan a la IA (por ejemplo, el plan de «Animar todo el video») pueden tardar minutos.
+export const maxDuration = 300;
+
+const DEFAULT_ACCENT = "#FFD84D";
+
+async function Project({ params }: { params: PageProps<"/editor/[id]">["params"] }) {
+  const { id } = await params;
+  const project = await getProject(id);
+  if (!project) notFound();
+  const brand = await getBrand();
+  const autoPending = project.autoPending;
+  const working = project.status === "PROCESSING" || project.status === "RENDERING" || autoPending;
+  const autoSummary = working && project.canEdit ? (await getEditorDefaults()).summary : undefined;
+  const accent = [brand?.colors?.accent, brand?.colors?.primary].find((c) => c && /^#[0-9a-f]{6}$/i.test(c)) ?? DEFAULT_ACCENT;
+  // Estilo y b-roll solo hacen falta en la revisión.
+  const reviewing = project.status === "AWAITING_REVIEW" && !autoPending && project.plan;
+  const styleId = project.plan?.style_id ?? project.styleId;
+  const style = reviewing && styleId ? await getStyle(styleId) : null;
+  const signed = reviewing ? await signedBroll(project.plan!.broll ?? []) : {};
+  const tracks = reviewing ? await listTracks({ readyOnly: true }) : [];
+  const fxContext = reviewing ? await getFxContext(project.id) : null;
+  const catalog = reviewing ? await getMusicCatalogStatus() : null;
+  return (
+    <ProjectScreen
+      project={{
+        ...project,
+        createdAt: project.createdAt.toISOString(),
+        updatedAt: project.updatedAt.toISOString(),
+        worker: { ...project.worker, lastSeen: project.worker.lastSeen },
+        accent,
+        uploadMode: fileDriver() === "blob" ? "blob" : "local",
+        autoSummary,
+      }}
+      signedBroll={signed}
+      fxContext={fxContext}
+      musicCatalog={catalog ? { jamendo: catalog.jamendo.configured } : null}
+      rhythmFx={(() => {
+        const fx = readEditorDefaults(brand).effects;
+        return fx.frequency === "ninguno" ? [] : fx.allowed;
+      })()}
+      captionDefault={readEditorDefaults(brand).captions}
+      graphicLook={brandGraphicLook(brand)}
+      tracks={tracks.map((t) => ({ id: t.id, title: t.title, status: t.status, duration: t.duration, url: t.url, attribution: t.attribution }))}
+      style={
+        style?.status === "READY" && style.preset
+          ? { id: style.id, name: style.name, zoom: style.preset.zoom, captions: style.preset.captions, focusY: Math.max(0.25, Math.min(0.6, style.metrics?.faces.center?.y ?? 0.42)) }
+          : null
+      }
+    />
+  );
+}
+
+export default function VideoProjectPage({ params }: PageProps<"/editor/[id]">) {
+  return (
+    // El enlace para volver va en la pantalla del proyecto (en la revisión, en la barra del Estudio).
+    <Suspense fallback={<Skeleton className="h-[600px]" />}>
+      <Project params={params} />
+    </Suspense>
+  );
+}

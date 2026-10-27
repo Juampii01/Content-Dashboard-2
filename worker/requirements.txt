@@ -1,0 +1,14 @@
+# Worker de Content 2 (Python 3.12). Todo open source: nada de esto tiene costo por uso ni pide claves.
+psycopg[binary]==3.2.13
+numpy==2.5.4
+# Carruseles: imágenes (medir referencias, validar y recortar) y descarga de links de Instagram (open source).
+pillow==11.3.0
+gallery-dl==1.32.17
+# Editor de video: transcripción local (Parakeet en ONNX y faster-whisper de respaldo).
+onnx-asr[cpu,hub]==0.12.0
+# Audio de estudio: DeepFilterNet3 en ONNX (video/studio.py). Ya venía con onnx-asr[cpu]; se fija porque se usa directo.
+onnxruntime==1.31.0
+faster-whisper==1.2.1
+# Estilos desde un video de referencia: cortes, zooms y caras (YuNet) con OpenCV; bajar links con yt-dlp.
+opencv-python-headless==5.0.0.93
+yt-dlp==2026.8.19

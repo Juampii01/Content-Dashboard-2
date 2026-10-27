@@ -1,0 +1,1 @@
+ALTER TABLE "video_projects" ALTER COLUMN "ai_budget_usd" SET DEFAULT 8;

@@ -41,6 +41,8 @@ jobs:
           flyctl ssh console --config fly.toml -C "sh -c 'echo $b64 | base64 -d > /tmp/diag_proyecto.py && cd /app && python /tmp/diag_proyecto.py ${{ steps.pid.outputs.pid }}'" 2>&1 | grep -v "^Connecting" | sed -E 's#https?://[^" ]+#<url>#g' | tee -a /tmp/diag.txt || true
           t64=$(base64 -w0 ../.github/diag/trabajos.py)
           flyctl ssh console --config fly.toml -C "sh -c 'echo $t64 | base64 -d > /tmp/trabajos.py && cd /app && python /tmp/trabajos.py'" 2>&1 | grep -v "^Connecting" | tee -a /tmp/diag.txt || true
+          c64=$(base64 -w0 ../.github/diag/costos_videos.py)
+          flyctl ssh console --config fly.toml -C "sh -c 'echo $c64 | base64 -d > /tmp/costos_videos.py && cd /app && python /tmp/costos_videos.py'" 2>&1 | grep -v "^Connecting" | tee -a /tmp/diag.txt || true
           # Costo de infraestructura (últimos 30 días) y la máquina de Fly.
           flyctl ssh console --config fly.toml -C "sh -c 'cd /app && python diag_costos.py'" 2>&1 | grep -v "^Connecting" | tee -a /tmp/diag.txt || true
           flyctl machines list --config fly.toml --json | jq '[.[] | {id, state, region, size: .config.guest}]' | tee -a /tmp/diag.txt || true

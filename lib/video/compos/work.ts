@@ -715,7 +715,8 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
         const wire = await generateStructured({
           feature: "video.compos.mirar",
-          model: "deep",
+          // Revisar cuadros y corregir detalles no necesita Opus (cuesta la mitad); el código sigue con Opus.
+          model: "main",
           thinking: { effort: "medium" },
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
           task: composLookTask({ brief: `${brief}${styleRefsText(task)}`, momentDetail: task.momentDetail ?? null, code: task.result.code, times: task.sheet.times, refFrames: refSheets.length, round: task.round + 1 }),
@@ -734,14 +735,17 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         task.score = Math.round(Math.max(0, Math.min(100, wire.score)));
         task.note = [task.note, wire.note].filter(Boolean).join(" ").slice(0, 300);
         task.sheet = null;
-        if (!wire.ok && wire.fixed.trim() && task.round < work.lookRounds) {
+        // El arreglo de la revisión se aplica si pasa la validación; solo se vuelve a mirar si quedan vueltas.
+        if (!wire.ok && wire.fixed.trim()) {
           const fixedItem = { ...task.result, code: wire.fixed };
           const spec = envFor(ctx, fixedItem);
           const check = spec ? await validateComposition(fixedItem.code, spec.compos!.env) : null;
           if (check?.ok) {
             task.result = { ...fixedItem, checked: check.hash };
-            task.status = remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
-            return `Puliendo la animación ${of} (vuelta ${task.round + 1})`;
+            if (task.round < work.lookRounds && remaining(ctx, work) >= STAGE_COST.look) {
+              task.status = "look";
+              return `Puliendo la animación ${of} (vuelta ${task.round + 1})`;
+            }
           }
         }
         task.status = "done";

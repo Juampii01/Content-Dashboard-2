@@ -36,7 +36,8 @@ export function requestEstimate(input: { plan: boolean; lookRounds: number }): n
  * reservado por los otros pedidos en curso). null si no alcanza ni para escribirla.
  */
 export function planReservation(free: number, needsPlan: boolean): { lookRounds: number; reserved: number } | null {
-  for (const lookRounds of [2, 1, 0]) {
+  // Una sola pasada de revisión: la segunda casi nunca cambiaba el resultado y duplicaba el costo de una corrección.
+  for (const lookRounds of [1, 0]) {
     const reserved = requestEstimate({ plan: needsPlan, lookRounds });
     // Con margen: dos vueltas solo si sobra bastante (como antes: más de USD 2 libres).
     if (lookRounds === 2 && free <= 2) continue;
@@ -79,7 +80,7 @@ export async function enqueueRequest(input: {
     const held = active.reduce((n, r) => n + Math.max(0, r.reserved - r.used), 0);
     const free = input.cap - input.spent - held;
     // Con la suscripción, lo que reserva el pedido no sale del tope en USD (no gasta la API): dos vueltas de revisión.
-    const plan = planOn ? { lookRounds: 2, reserved: requestEstimate({ plan: input.needsPlan, lookRounds: 2 }) } : planReservation(free, input.needsPlan);
+    const plan = planOn ? { lookRounds: 1, reserved: requestEstimate({ plan: input.needsPlan, lookRounds: 1 }) } : planReservation(free, input.needsPlan);
     const work = input.build(plan?.lookRounds ?? 0);
     work.reservedUsd = plan?.reserved ?? 0;
     work.usedUsd = 0;

@@ -470,6 +470,15 @@ describe("costo de un pedido y formato que va a la API", () => {
     assert.ok(withRef.estimate.first > rich.estimate.first, "la referencia cuesta más (imágenes)");
   });
 
+  test("un arreglo de un toque va con Sonnet y una sola vuelta, aunque sobre tope", () => {
+    const input = { words: 160, sheets: 4, sheet: { width: 1296, height: 1218 }, broll: 8 };
+    const fix = planEdit({ ...input, remaining: 10, kind: "fix" });
+    assert.equal(fix.director.model, "main");
+    assert.equal(fix.critic?.model, "main");
+    assert.equal(fix.extraRounds, 0);
+    assert.ok(fix.estimate.total < planEdit({ ...input, remaining: 10 }).estimate.total / 3, "cuesta mucho menos que un pedido");
+  });
+
   test("los esquemas siguen chicos", () => {
     for (const [name, sch] of [["director", directorApiSchema], ["crítico de pedidos", criticEditWireSchema]] as const) {
       const size = JSON.stringify(zodOutputFormat(sch as never).schema).length;

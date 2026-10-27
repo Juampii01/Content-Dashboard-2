@@ -500,7 +500,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
 
   // Modelo y razonamiento: en un pedido, el máximo que entra en lo que queda del tope (planEdit); al dirigir y al
   // corregir, el del plan de costo del análisis. Solo baja si de verdad no alcanza.
-  const editBudget = pending ? planEdit({ ...input, remaining }) : null;
+  const editBudget = pending ? planEdit({ ...input, remaining, kind: pending.kind === "fix" ? "fix" : "edit" }) : null;
   let stage: StagePlan = editBudget?.director ?? budget?.director ?? { model: "deep", effort: "xhigh" };
   if (!editBudget) {
     const est = mode ? estimateRevise(stage, input) : estimateStage("director", stage, input);
@@ -747,7 +747,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     const key = missingKey(compliance);
     const nextCost = estimateRevise(stage, input);
     // Otra vuelta solo si algo cambió desde la anterior (si quedó igual de lejos, insistir no suma y gasta).
-    if (missing.length && key !== pending.missingKey && attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= nextCost + (editBudget?.estimate.critic ?? 0)) {
+    if (pending.kind !== "fix" && missing.length && key !== pending.missingKey && attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= nextCost + (editBudget?.estimate.critic ?? 0)) {
       nextPending = { ...pending, id, attempt: attempt + 1, focus: missing, missingKey: key, baseline, changes, spentAtStart: active.spentAtStart };
     }
   }
@@ -960,9 +960,9 @@ async function critique(projectId: string, round: number, sheets: { key: string;
       const again = planEdit({ ...input, remaining: ctx.cap - (await spentUsd(projectId)) });
       // El crítico vio algo nuevo que falta (no lo mismo que ya se intentó sin éxito) y queda tope: otra vuelta.
       const seen = active.missingKey ?? "";
-      if (missing.length && missingKey(compliance) !== seen && active.attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= estimateRevise(again.director, input)) {
+      if (entry.source !== "arreglo" && missing.length && missingKey(compliance) !== seen && active.attempt < MAX_EDIT_ROUNDS && ctx.cap - (await spentUsd(projectId)) >= estimateRevise(again.director, input)) {
         const focus = [...missing, ...issues.filter((i) => i.severity !== "baja").slice(0, 3).map((i) => `${i.note} → ${i.fix}`)];
-        const pending: PendingRequest = { kind: entry.source === "arreglo" ? "fix" : "edit", instruction: entry.instruction, id: entry.id, attempt: active.attempt + 1, focus, missingKey: missingKey(compliance), baseline: active.baseline, changes: entry.changes.filter((c) => c !== "No hizo falta cambiar nada."), spentAtStart: active.spentAtStart, reference: active.referenceId && director.reference?.id === active.referenceId ? { id: active.referenceId, source: director.reference.source } : null };
+        const pending: PendingRequest = { kind: "edit", instruction: entry.instruction, id: entry.id, attempt: active.attempt + 1, focus, missingKey: missingKey(compliance), baseline: active.baseline, changes: entry.changes.filter((c) => c !== "No hizo falta cambiar nada."), spentAtStart: active.spentAtStart, reference: active.referenceId && director.reference?.id === active.referenceId ? { id: active.referenceId, source: director.reference.source } : null };
         record.fixed = true;
         await saveDirector(projectId, { ...director, rounds, degraded, edits, pending });
         return { next: { step: "edit", label: `Corrigiendo lo que faltó de tu pedido (vuelta ${active.attempt + 2})` }, status: "PROCESSING" };

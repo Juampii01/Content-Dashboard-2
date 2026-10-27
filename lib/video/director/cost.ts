@@ -141,22 +141,30 @@ export const MAX_EDIT_ROUNDS = 2;
 /** Lo que se muestra antes de pedir un cambio: cuánto cuesta la primera vuelta (con y sin referencia), el tope con todas las vueltas y con qué modelo. */
 export type EditEstimate = { usd: number; max: number; withReference: number; model: "Opus" | "Sonnet"; rounds: number; degraded: string[] };
 
-export function planEdit(input: CostInput & { remaining: number }): EditBudget {
+/** Un arreglo de un toque (sugerencia de la revisión) es chico: Sonnet, crítico Sonnet y sin vueltas extra. */
+const FIX_DIRECTORS: StagePlan[] = [{ model: "main", effort: "high" }, { model: "main", effort: null }];
+const FIX_CRITICS: (StagePlan | null)[] = [{ model: "main", effort: null }, null];
+
+export function planEdit(input: CostInput & { remaining: number; kind?: "edit" | "fix" }): EditBudget {
   const remaining = Math.max(0, input.remaining);
+  const fix = input.kind === "fix";
+  const directors = fix ? FIX_DIRECTORS : EDIT_DIRECTORS;
+  const critics = fix ? FIX_CRITICS : EDIT_CRITICS;
   let pick: EditBudget | null = null;
-  outer: for (const director of EDIT_DIRECTORS) {
-    for (const critic of EDIT_CRITICS) {
+  outer: for (const director of directors) {
+    for (const critic of critics) {
       const first = estimateRevise(director, input);
       const crit = critic ? estimateStage("round", critic, input) : 0;
-      if (first + crit <= remaining || (director === EDIT_DIRECTORS.at(-1) && critic === null)) {
+      if (first + crit <= remaining || (director === directors.at(-1) && critic === null)) {
         const round = first;
-        const extraRounds = Math.max(0, Math.min(MAX_EDIT_ROUNDS, Math.floor((remaining - first - crit) / Math.max(1e-6, round + crit))));
+        const extraRounds = fix ? 0 : Math.max(0, Math.min(MAX_EDIT_ROUNDS, Math.floor((remaining - first - crit) / Math.max(1e-6, round + crit))));
         pick = { director, critic, extraRounds, estimate: { first: r4(first), critic: r4(crit), round: r4(round + crit), total: r4(first + crit + extraRounds * (round + crit)) }, degraded: [] };
         break outer;
       }
     }
   }
   const plan = pick!;
+  if (fix) return plan;
   if (plan.director.model !== "deep") plan.degraded.push("Este pedido lo dirigió un modelo más económico: no alcanzaba el tope para Opus.");
   else if (plan.director.effort !== "xhigh") plan.degraded.push("Este pedido se dirigió con menos razonamiento para no pasar el tope.");
   if (!plan.critic) plan.degraded.push("Sin segunda mirada con IA en este pedido (solo verificaciones automáticas).");

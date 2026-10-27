@@ -10,6 +10,8 @@ import type { Composition } from "@/lib/video/compos/schema";
 import type { TransitionItem } from "@/lib/video/fx/transitions";
 import type { MusicGenSpec } from "@/lib/video/music-gen/spec";
 import type { SoundCue } from "@/lib/video/sfx";
+import { musicFade, NO_MIX, voiceDb, type AudioMix, type MusicFade } from "@/lib/video/audio-mix";
+import type { Marker } from "@/lib/video/markers";
 import { cleanCaptionPlacement, type CaptionPlacement } from "@/lib/video/canvas/captions";
 import { rangesFromIds } from "@/lib/video/plan";
 import { TIMING } from "@/lib/video/timeline";
@@ -66,6 +68,12 @@ export type StudioState = {
   pauses: { keep: number[]; all: boolean };
   /** Divisiones del video («Dividir» o la tecla C): id de la palabra con la que empieza cada parte. */
   splits: number[];
+  /** Mezcla: volumen de la voz (dB), pistas silenciadas o en solo y fundidos de la música (lib/video/audio-mix.ts). */
+  voiceDb: number;
+  mix: AudioMix;
+  musicFade: MusicFade;
+  /** Marcadores con nota (tecla M). */
+  markers: Marker[];
 };
 
 export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_INTEGER): StudioState {
@@ -104,6 +112,10 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     pauses: { keep: [...(plan.pacing?.keep ?? [])].sort((a, b) => a - b), all: plan.pacing?.keep_all === true },
     compositions: plan.compositions ?? [],
     splits: plan.splits ?? [],
+    voiceDb: voiceDb(plan.audio.voice_db),
+    mix: plan.audio.mix ?? NO_MIX,
+    musicFade: musicFade(plan.audio.music_fade),
+    markers: plan.markers ?? [],
   };
 }
 
@@ -172,6 +184,10 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     captionHide: s.captionHide,
     pauses: s.pauses,
     splits: s.splits,
+    voiceDb: s.voiceDb,
+    mix: s.mix,
+    musicFade: s.musicFade,
+    markers: s.markers,
     ...(s.rhythmTouched ? { rhythm: { density: s.density, added: s.rhythmLog, zoomMoments: s.zoomMoments, longPause: s.pacing?.long_pause ?? 0.5, emphasis: s.emphasis } } : {}),
   };
 }

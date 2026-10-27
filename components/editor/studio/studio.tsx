@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, AudioLines, BarChart3, Bot, Captions, Film, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
+import { ArrowLeft, AudioLines, BarChart3, Bot, Captions, Film, Flag, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
@@ -26,11 +26,20 @@ import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
 import { rangesFromIds } from "@/lib/video/plan";
 import { fillRhythm, rhythmScore, themeOfPlan, RHYTHM_TAG, type Density } from "@/lib/video/rhythm";
-import { hookEnd, newSoundCueId, SFX_FILES, sfxCues, soundCueTimes, SOUND_GAIN } from "@/lib/video/sfx";
+import { cueClip, fitCueClip, hookEnd, MIN_CUE_LENGTH, newSoundCueId, SFX_FILES, sfxCues, soundCueTimes, SOUND_GAIN } from "@/lib/video/sfx";
 import { isSfxName, SFX_LIBRARY, type SfxName } from "@/lib/video/sfx-library";
 import { compileTransition, cutPoints, freeAnchor, isFreeTransition, isTransitionKind, newTransitionId, TRANSITION_INFO, TRANSITION_SOUND_GAIN, transitionSegments, transitionSounds, type TransitionItem } from "@/lib/video/fx/transitions";
 import { musicGenLabel } from "@/lib/video/music-gen/catalog";
-import { useGeneratedMusic, useStudioSound } from "../sound/use-sound";
+import { useGeneratedMusic } from "../sound/use-sound";
+import { useMusicBuffer, peaksOfBuffer, useStudioMix } from "./use-studio-mix";
+import { useVoicePeaks } from "./use-voice-peaks";
+import { useTrackSize } from "./use-track-size";
+import { MiniWave, useSfxPeaks } from "./waveform";
+import { TrackToggles } from "./mixer";
+import { audible, fadeGainAt, fitMusicFade, MUSIC_FADE } from "@/lib/video/audio-mix";
+import { plainColumns, waveColumns } from "@/lib/video/peaks";
+import { anchorAt, MAX_MARKERS, newMarkerId, placeMarkers } from "@/lib/video/markers";
+import { stepFrame, timecode } from "@/lib/video/timecode";
 import { clipOffsets, cutMarks, replacedLabel, snapToWords, spanAround, splitSpan, timeLabel, wordAt, type SnappedSpan, type WordSpan } from "@/lib/video/studio";
 import { layerKey, layerOf, nextLayer, restack, stackIndex, stackSort, type LayerKind } from "@/lib/video/layers";
 import { buildTimeline, longPauses, outputRange } from "@/lib/video/timeline";
@@ -59,7 +68,7 @@ import { SubtitlesPanel } from "./subtitles-panel";
 import { SUBS_AFTER_KEY, SubtitleBar } from "./subtitle-bar";
 import type { RefImage } from "@/lib/video/compos/schema";
 import { suggestTrimAction } from "../edit-actions";
-import { StudioTimeline, type DropPreview, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
+import { StudioTimeline, type DropPreview, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey, type WaveTrack } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
 import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
 import { FEATURES } from "@/lib/features";
@@ -112,6 +121,8 @@ export function Studio(props: StudioProps) {
   const [leftOpen, setLeftOpen] = useState(true);
   // Anchos de los paneles (se arrastra su borde; se recuerdan en este navegador).
   const { width: leftW, handle: leftHandle } = usePanelWidth("studio.toolsW", TOOLS_W, "left");
+  // Alto de la línea de tiempo (se arrastra su borde de arriba): con las pistas de audio, más alta que antes.
+  const { width: timelineH, handle: timelineHandle } = usePanelWidth("studio.timelineH", { min: 200, max: 640, default: 380 }, "bottom");
   // Pantalla completa de la vista previa: solo el video (Esc o F para salir).
   const [full, setFull] = useState(false);
   const center = useRef<HTMLDivElement>(null);
@@ -262,7 +273,7 @@ export function Studio(props: StudioProps) {
         punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
         dense: s.density === "reels",
         // Igual que el render: los de la pista de Sonido, siempre; los de transiciones y animaciones, con techo.
-        manual: soundCueTimes(timeline, s.soundCues).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+        manual: soundCueTimes(timeline, s.soundCues).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain, trim_in: cue.trim_in, trim_out: cue.trim_out, fade_in: cue.fade_in, fade_out: cue.fade_out })),
         extras: [
           ...transitionSounds(trSegs).filter((x) => isSfxName(x.name)).map((x) => ({ name: x.name as SfxName, hitAt: x.hitAt, gain: TRANSITION_SOUND_GAIN })),
           ...composSounds(composSegs).map((x) => ({ name: x.name, hitAt: x.hitAt, gain: x.gain })),
@@ -740,6 +751,7 @@ export function Studio(props: StudioProps) {
     else if (sel.kind === "zoom" && sel.index >= 0) update((st) => ({ ...st, rhythmTouched: true, zoomMoments: st.zoomMoments.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === "transition") update((st) => ({ ...st, transitions: st.transitions.filter((t) => !(sel.id ? t.id === sel.id : t.at_word === sel.word && !isFreeTransition(t))) }));
     else if (sel.kind === "sound") update((st) => ({ ...st, soundCues: st.soundCues.filter((c) => c.id !== sel.id) }));
+    else if (sel.kind === "marker") update((st) => ({ ...st, markers: st.markers.filter((m) => m.id !== sel.id) }));
     else if (sel.kind === "caption") {
       const block = captions[sel.index];
       const first = block?.words[0];
@@ -873,6 +885,10 @@ export function Studio(props: StudioProps) {
   }
 
   // ─── Línea de tiempo ───
+  // Pistas de audio: la música (un bloque a lo largo del video, con sus fundidos) y la forma de onda de cada sonido.
+  const musicTrack = s.musicGen ? null : (tracks.find((t) => t.id === s.music.trackId) ?? null);
+  const musicLabel = s.musicGen ? `Música · ${musicGenLabel(s.musicGen)}` : musicTrack ? `Música · ${musicTrack.title}` : null;
+  const sfxPeaks = useSfxPeaks(s.soundCues.map((c) => c.name));
   const blocks = useMemo<TimelineBlock[]>(() => {
     const out: TimelineBlock[] = [];
     const offsets = clipOffsets(timeline);
@@ -996,21 +1012,43 @@ export function Studio(props: StudioProps) {
     }
     for (const { cue, hitAt } of soundCueTimes(timeline, s.soundCues)) {
       const file = SFX_FILES[cue.name];
-      const start = Math.max(0, hitAt - file.hit);
+      // El archivo empieza en `at`; suena su tramo recortado (lo que se ve del bloque).
+      const at = Math.max(0, hitAt - file.hit);
+      const clip = cueClip(cue);
+      const start = at + clip.from;
       out.push({
         key: `sound:${cue.id}`,
         track: "audio",
         start,
-        end: Math.min(timeline.duration, start + Math.max(0.12, file.duration)),
+        end: Math.min(timeline.duration, start + Math.max(MIN_CUE_LENGTH, clip.length)),
         label: SFX_LIBRARY[cue.name].label,
-        tone: "border-warning/70 bg-warning/35",
+        tone: "border-warning/70 bg-warning/30 text-[#5b3b00]",
         ai: cue.source === "director",
         editable: true,
-        min: Math.max(0.12, file.duration),
-        max: Math.max(0.12, file.duration),
+        // Se mueve en segundos (sin imán a las palabras) y sus bordes lo recortan dentro del archivo.
+        free: true,
+        min: MIN_CUE_LENGTH,
+        max: file.duration,
+        fades: { in: cue.fade_in ?? 0, out: cue.fade_out ?? 0, max: clip.length },
+        wave: <MiniWave peaks={sfxPeaks[cue.name]} from={clip.from} length={clip.length} fadeIn={cue.fade_in} fadeOut={cue.fade_out} className="h-full w-full text-[#8a5a00]/45" />,
+        dim: !audible(s.mix, "sfx"),
         // Varios sonidos a la vez suenan juntos: los carriles son solo para verlos.
         z: -s.soundCues.indexOf(cue),
         selection: { kind: "sound", id: cue.id },
+      });
+    }
+    if (musicLabel) {
+      const fade = fitMusicFade(s.musicFade, timeline.duration);
+      out.push({
+        key: "music",
+        track: "music",
+        start: 0,
+        end: timeline.duration,
+        label: musicLabel,
+        tone: "border-[#c98500]/45 bg-[#c98500]/[0.07] text-[#6b4700]",
+        fades: { in: fade.in, out: fade.out, max: Math.min(MUSIC_FADE.max, timeline.duration / 2) },
+        dim: !audible(s.mix, "music"),
+        selection: { kind: "audio" },
       });
     }
     if (styleZooms)
@@ -1038,7 +1076,7 @@ export function Studio(props: StudioProps) {
         });
       });
     return out;
-  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder, maskMissing, masks?.pending, s.splits]);
+  }, [timeline, captions, s.broll, s.zoomMoments, segments, fxSegs, composSegs, styleZooms, zooms, textOf, signedOf, trSegs, s.soundCues, stackOrder, maskMissing, masks?.pending, s.splits, sfxPeaks, s.mix, s.musicFade, musicLabel]);
 
   // Cortes sin transición donde se puede poner una con un toque (va encima de lo que haya).
   const transitionSlots = useMemo(() => {
@@ -1241,8 +1279,18 @@ export function Studio(props: StudioProps) {
       // Un sonido se ancla a la palabra donde cae su punto fuerte (sobrevive a los cortes); varios suenan a la vez.
       const cue = s.soundCues.find((c) => c.id === sel.id);
       if (!cue) return;
-      const hit = span.start + SFX_FILES[cue.name].hit;
-      placeSound(cue.id, cue.name, hit, cue.gain);
+      const file = SFX_FILES[cue.name];
+      const clip = cueClip(cue);
+      const at = block.start - clip.from;
+      if (mode === "move") {
+        placeSound(cue.id, cue.name, span.start - clip.from + file.hit, cue.gain);
+        return;
+      }
+      // Recortar: el archivo queda donde estaba; cambia qué parte suena.
+      const trimIn = mode === "start" ? Math.max(0, span.start - at) : (cue.trim_in ?? 0);
+      const trimOut = mode === "end" ? Math.max(0, at + file.duration - span.end) : (cue.trim_out ?? 0);
+      update((st) => ({ ...st, soundCues: st.soundCues.map((c) => (c.id === cue.id ? fitCueClip({ ...c, trim_in: trimIn, trim_out: trimOut, source: "user" as const }) : c)) }));
+      setSelection({ kind: "sound", id: cue.id });
       return;
     }
     if (sel.kind === "transition") {
@@ -1264,7 +1312,12 @@ export function Studio(props: StudioProps) {
     if (!w) return;
     const offset = Math.max(-2, Math.min(2, Math.round((hit - w.start) * 1000) / 1000));
     const cueId = id ?? newSoundCueId();
-    update((st) => ({ ...st, soundCues: [...st.soundCues.filter((c) => c.id !== cueId), { id: cueId, name, at_word: w.id, offset, gain, source: "user" as const }].slice(-40) }));
+    // Mover conserva el recorte y los fundidos del sonido; cambiarlo por otro los ajusta al archivo nuevo.
+    update((st) => {
+      const prev = st.soundCues.find((c) => c.id === cueId);
+      const next = fitCueClip({ ...(prev ?? {}), id: cueId, name, at_word: w.id, offset, gain, source: "user" as const });
+      return { ...st, soundCues: [...st.soundCues.filter((c) => c.id !== cueId), next].slice(-40) };
+    });
     setSelection({ kind: "sound", id: cueId });
   }
 
@@ -1451,6 +1504,22 @@ export function Studio(props: StudioProps) {
     });
   }
 
+  // Marcadores (tecla M): numerados por su orden en el video final.
+  const placedMarkers = useMemo(() => placeMarkers(timeline, s.markers, timeline.duration), [timeline, s.markers]);
+  function addMarker() {
+    if (!canEdit) return;
+    const t = outRef.current;
+    const near = placedMarkers.find((m) => Math.abs(m.at - t) < 0.1);
+    if (near) return void select({ kind: "marker", id: near.marker.id }, { seek: false });
+    if (s.markers.length >= MAX_MARKERS) return void toast.info(`Ya hay ${MAX_MARKERS} marcadores: quita alguno para poner otro.`);
+    const anchor = anchorAt(timeline, t);
+    if (!anchor) return void toast.info("Ahí no hay video. Mueve el cabezal a otro lugar.");
+    const id = newMarkerId();
+    update((st) => ({ ...st, markers: [...st.markers, { id, ...anchor, note: "" }] }));
+    setLeftOpen(true);
+    select({ kind: "marker", id }, { seek: false });
+  }
+
   // ─── Atajos de teclado ───
   const keys = useRef<(e: KeyboardEvent) => void>(() => undefined);
   useEffect(() => {
@@ -1522,9 +1591,14 @@ export function Studio(props: StudioProps) {
             const t = outRef.current;
             const w = dir > 0 ? list.find((x) => x.start > t + 0.02) : [...list].reverse().find((x) => x.start < t - 0.05);
             seek(w ? w.start : dir > 0 ? timeline.duration : 0);
-          } else seek(outRef.current + dir / FPS);
+          } else seek(stepFrame(outRef.current, dir, timeline.duration));
           return;
         }
+        case "m":
+        case "M":
+          e.preventDefault();
+          addMarker();
+          return;
         case "s":
         case "S":
           e.preventDefault();
@@ -1610,18 +1684,70 @@ export function Studio(props: StudioProps) {
     () => [...hiddenCaptions, ...fxCaptionHides(fxSegs), ...composCaptionHides(composSegs), ...segments.filter((sg) => sg.option.source === "graphic" && graphicHidesCaptions(sg.option.graphic)).map((sg) => ({ start: sg.start, end: sg.end }))],
     [hiddenCaptions, fxSegs, composSegs, segments],
   );
-  const musicTrack = s.musicGen ? null : (tracks.find((t) => t.id === s.music.trackId) ?? null);
-  // Sonidos y música también en la vista previa (los mismos archivos y el mismo generador que el render).
+  // Sonidos y música también en la vista previa (los mismos archivos, el mismo generador y la misma mezcla que el
+  // render): voz, música y efectos con su volumen, silenciar y solo, fundidos y la música bajando cuando hablas.
   const genMusic = useGeneratedMusic(s.musicGen, timeline.duration);
-  useStudioSound({
-    enabled: true,
+  const trackBuffer = useMusicBuffer(musicTrack?.url ?? null, musicTrack?.id ?? null);
+  const musicBuffer = s.musicGen ? genMusic.buffer : trackBuffer;
+  const voicePeaks = useVoicePeaks(projectId, Boolean(proxyUrl));
+  const mixer = useStudioMix({
     playing,
     time: outTime,
-    cues: sfxMarks.map((c) => ({ name: c.name, at: c.at, gain: c.gain })),
-    music: s.musicGen ? { kind: "buffer", buffer: genMusic.buffer } : musicTrack?.url ? { kind: "url", url: musicTrack.url } : null,
-    musicDb: s.music.db,
     duration: timeline.duration,
+    timeline,
+    cues: sfxMarks,
+    music: s.musicGen ? { kind: "buffer", buffer: genMusic.buffer } : trackBuffer ? { kind: "buffer", buffer: trackBuffer } : musicTrack?.url ? { kind: "url", url: musicTrack.url } : null,
+    musicDb: s.music.db,
+    musicFade: s.musicFade,
+    voiceDb: s.voiceDb,
+    mix: s.mix,
+    target: plan.audio.target_lufs,
+    voicePeaks,
+    video: videoEl,
   });
+  // Formas de onda de la voz (los tramos que quedan del original, con sus cortes) y de la música (en bucle, con sus
+  // fundidos y su volumen), para la línea de tiempo.
+  const musicPeaks = useMemo(() => peaksOfBuffer(musicBuffer), [musicBuffer]);
+  const waves = useMemo(() => {
+    const out: Partial<Record<TrackKey, WaveTrack>> = {};
+    const clipsKey = timeline.clips.map((c) => `${c.startFrame}-${c.endFrame}`).join(",");
+    if (voicePeaks) {
+      let acc = 0;
+      const marks = timeline.clips.slice(0, -1).map((c) => (acc += (c.endFrame - c.startFrame) / FPS));
+      // Se dibuja a escala de lo que hay (los teléfonos graban bajo): lo más fuerte llega casi arriba.
+      const scale = 0.92 / Math.max(0.04, loudestPeak(voicePeaks.peak));
+      out.voice = { columns: (t0, t1, n) => waveColumns(voicePeaks, timeline, t0, t1, n).map((v) => Math.min(1, v * scale)), version: `${clipsKey}|${voicePeaks.peak.length}`, color: audible(s.mix, "voice") ? "rgba(36,87,245,.55)" : "rgba(106,110,117,.35)", marks };
+    }
+    if (musicPeaks && musicLabel) {
+      const fade = fitMusicFade(s.musicFade, timeline.duration);
+      const level = Math.min(1, 10 ** ((s.music.db + 16) / 40));
+      out.music = {
+        columns: (t0, t1, n) => {
+          const cols = plainColumns(musicPeaks, 0, t0, t1, n, true);
+          const step = (t1 - t0) / Math.max(1, n);
+          for (let i = 0; i < cols.length; i++) cols[i] = cols[i]! * level * fadeGainAt(t0 + (i + 0.5) * step, 0, timeline.duration, fade.in, fade.out);
+          return cols;
+        },
+        version: `${musicPeaks.peak.length}|${fade.in}|${fade.out}|${s.music.db}|${timeline.duration}`,
+        color: audible(s.mix, "music") ? "rgba(201,133,0,.6)" : "rgba(106,110,117,.35)",
+      };
+    }
+    return out;
+  }, [voicePeaks, musicPeaks, musicLabel, timeline, s.mix, s.musicFade, s.music.db]);
+
+  // Alto de las pistas (se recuerda en este navegador).
+  const [trackSize, setTrackSize] = useTrackSize();
+
+  // Un fundido estirado con su manija en la línea de tiempo.
+  function fadeBlock(block: TimelineBlock, which: "in" | "out", seconds: number) {
+    const sel = block.selection;
+    if (sel.kind === "sound") {
+      update((st) => ({ ...st, soundCues: st.soundCues.map((c) => (c.id === sel.id ? fitCueClip({ ...c, [which === "in" ? "fade_in" : "fade_out"]: seconds, source: "user" as const }) : c)) }));
+      setSelection(sel);
+    } else if (sel.kind === "audio") {
+      update((st) => ({ ...st, musicFade: { ...st.musicFade, [which]: Math.round(seconds * 10) / 10 } }));
+    }
+  }
 
   // Pedidos de animaciones (Estudio), varios a la vez: cada uno aparece como un bloque fantasma en la pista Animaciones
   // y, cuando termina, entra sobre lo que la persona tenga en ese momento (con deshacer), en su propia capa: encima de
@@ -1927,7 +2053,10 @@ export function Studio(props: StudioProps) {
       restorePauses,
       backToProposal,
       restack: restackSel,
+      addMarker,
     },
+    mixer: { read: mixer.read, voiceReady: Boolean(voicePeaks) },
+    markers: placedMarkers,
   };
 
   // Lo que se ve ahora en la vista previa (para elegirlo con un toque).
@@ -1941,12 +2070,16 @@ export function Studio(props: StudioProps) {
       <button type="button" className="btn-ghost !h-8 !w-8 !p-0" onClick={togglePlay} disabled={!proxyUrl} aria-label={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"} title={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"}>
         {playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
       </button>
-      <span className="w-[7.5rem] font-mono text-xs text-text tabular-nums" aria-live="off">
-        {timeLabel(outTime)} <span className="text-muted">/ {formatDuration(timeline.duration)}</span>
+      <span className="flex flex-col leading-tight font-mono tabular-nums" aria-live="off" title="Código de tiempo: horas, minutos, segundos y cuadro (30 por segundo). ← → avanzan un cuadro." data-testid="studio-timecode">
+        <span className="text-xs text-text">{timecode(outTime)}</span>
+        <span className="text-[10px] text-muted">de {timecode(timeline.duration)}</span>
       </span>
       {canEdit && (
         <>
           <span className="mx-1 h-5 w-px bg-white/10" aria-hidden />
+          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Flag className="h-3.5 w-3.5" aria-hidden />} onClick={addMarker} title="Poner un marcador en el cabezal (M)">
+            <span className="hidden xl:inline">Marcador</span>
+          </Button>
           <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={splitVideo} title="Dividir el video en el cabezal (C)">
             <span className="hidden xl:inline">Dividir</span>
           </Button>
@@ -1962,6 +2095,22 @@ export function Studio(props: StudioProps) {
       )}
       <p className="ml-2 hidden min-w-0 flex-1 truncate text-[11px] text-placeholder lg:block">{canEdit ? "Pon el cabezal y toca Dividir (C) para cortar el video; elige la parte que sobra y bórrala con Supr." : "Solo lectura: tu usuario no puede editar."}</p>
       <div className="ml-auto flex items-center gap-1">
+        <div role="radiogroup" aria-label="Alto de las pistas" className="mr-1 hidden items-center rounded-lg border border-white/10 p-0.5 md:flex">
+          {(["s", "m", "l"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={trackSize === v}
+              onClick={() => setTrackSize(v)}
+              title={v === "s" ? "Pistas bajas" : v === "m" ? "Pistas normales" : "Pistas altas"}
+              className={cn("grid h-6 w-6 place-items-center rounded-md text-muted outline-none hover:text-white focus-visible:ring-2 focus-visible:ring-accent-hi", trackSize === v && "bg-white text-paper hover:text-paper")}
+            >
+              <span aria-hidden className="block w-3 rounded-[1px] bg-current" style={{ height: v === "s" ? 4 : v === "m" ? 7 : 10 }} />
+              <span className="sr-only">{v === "s" ? "Bajas" : v === "m" ? "Normales" : "Altas"}</span>
+            </button>
+          ))}
+        </div>
         <button type="button" className="btn-ghost !h-8 !w-8 !p-0" onClick={() => setZoom((z) => Math.max(1, z / 1.5))} disabled={zoom <= 1} aria-label="Alejar la línea de tiempo (−)" title="Alejar (−)">
           <Minus className="h-3.5 w-3.5" aria-hidden />
         </button>
@@ -2013,9 +2162,9 @@ export function Studio(props: StudioProps) {
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <div
             className={cn(
-              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_252px] lg:grid-cols-[var(--left)_minmax(0,1fr)]",
+              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_var(--tl)] lg:grid-cols-[var(--left)_minmax(0,1fr)]",
             )}
-            style={{ "--left": leftOpen ? `${leftW}px` : "52px" } as React.CSSProperties}
+            style={{ "--left": leftOpen ? `${leftW}px` : "52px", "--tl": `${timelineH}px` } as React.CSSProperties}
           >
             {/* Izquierda: todas las herramientas (y lo elegido en la línea de tiempo) */}
             <aside className="relative order-4 flex min-h-0 min-w-0 flex-col border-white/10 bg-card/40 lg:order-none lg:border-r" aria-label="Herramientas">
@@ -2354,7 +2503,8 @@ export function Studio(props: StudioProps) {
             </main>
 
             {/* Abajo: la línea de tiempo */}
-            <section className="order-2 h-[260px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-2 lg:h-auto" aria-label="Línea de tiempo">
+            <section className="relative order-2 h-[320px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-2 lg:h-auto" aria-label="Línea de tiempo">
+              <div {...timelineHandle} aria-label="Alto de la línea de tiempo" className="absolute inset-x-0 -top-1.5 z-40 hidden h-3 cursor-row-resize touch-none lg:block after:absolute after:inset-x-0 after:top-1/2 after:h-0.5 after:-translate-y-1/2 after:bg-transparent after:transition hover:after:bg-accent/60 focus-visible:outline-none focus-visible:after:bg-accent" />
               <StudioTimeline
                 duration={timeline.duration}
                 time={outTime}
@@ -2364,7 +2514,11 @@ export function Studio(props: StudioProps) {
                 blocks={allBlocks}
                 cuts={cuts}
                 sfx={sfxMarks}
-                music={s.musicGen ? { label: `Música · ${musicGenLabel(s.musicGen)}` } : musicTrack ? { label: `Música · ${musicTrack.title}` } : null}
+                heads={{ voice: <TrackToggles api={api} track="voice" />, music: <TrackToggles api={api} track="music" />, audio: <TrackToggles api={api} track="sfx" /> }}
+                waves={waves}
+                trackSize={trackSize}
+                markers={placedMarkers.map((m) => ({ id: m.marker.id, number: m.number, at: m.at, note: m.marker.note }))}
+                onFade={fadeBlock}
                 hiddenCaptions={captionGaps}
                 captionHides={canEdit ? captionHides : []}
                 onShowCaptions={(index) => update((st) => ({ ...st, captionHide: st.captionHide.filter((_, i) => i !== index) }))}
@@ -2373,7 +2527,7 @@ export function Studio(props: StudioProps) {
                 obstacles={obstacles}
                 snap={snap}
                 canEdit={canEdit}
-                notes={{ zoom: styleZooms ? "Automáticos del estilo" : "Sin zooms", fx: "Arrastra un efecto o una transición desde la Biblioteca", broll: "Elige un tramo en la pista de video para poner b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Arrastra sonidos o elige música en la Biblioteca" : undefined }}
+                notes={{ zoom: styleZooms ? "Automáticos del estilo" : "Sin zooms", fx: "Arrastra un efecto o una transición desde la Biblioteca", broll: "Elige un tramo en la pista de video para poner b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Arrastra sonidos desde la Biblioteca" : undefined, voice: proxyUrl ? "Preparando la forma de onda de tu voz…" : undefined, music: musicLabel ? "Leyendo la música…" : "Elige música en la Biblioteca o en Audio y música" }}
                 onSeek={(t) => seek(t, Boolean(videoEl() && !videoEl()!.paused))}
                 onSelect={(sel) => (setMulti([]), select(sel))}
                 multi={multi}
@@ -2493,6 +2647,7 @@ const SHORTCUTS: [string, string][] = [
   ["J · K · L", "Atrás 2 s · pausar · reproducir (otra vez L: más rápido)"],
   ["← →", "Un cuadro atrás o adelante"],
   ["Mayús + ← →", "Palabra anterior o siguiente"],
+  ["M", "Poner un marcador con nota en el cabezal (la IA los lee)"],
   ["C", "Dividir el video en el cabezal"],
   ["S", "Dividir lo elegido (b-roll, efecto o zoom) en el cabezal"],
   ["Alt + ← →", "Mover lo elegido una palabra"],
@@ -2521,4 +2676,11 @@ function ShortcutsHelp({ open, onClose }: { open: boolean; onClose: () => void }
       </dl>
     </Dialog>
   );
+}
+
+/** El pico «más fuerte» de una voz sin contar golpes sueltos (percentil 99). */
+function loudestPeak(peak: Float32Array): number {
+  if (!peak.length) return 1;
+  const sorted = Float32Array.from(peak).sort();
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))]!;
 }

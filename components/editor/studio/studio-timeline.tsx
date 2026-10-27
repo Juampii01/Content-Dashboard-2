@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { AudioLines, Captions, Clapperboard, Film, Pause, Scissors, Sparkles, WandSparkles, ZoomIn } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Film, Flag, Mic, Music, Pause, Scissors, Sparkles, WandSparkles, ZoomIn } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 import { laneLayout } from "@/lib/video/layers";
 import { clampDrag, secondsLabel, timeLabel, type CutMark, type SnappedSpan } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
+import { ViewportWave } from "./waveform";
 
-export type TrackKey = "video" | "captions" | "broll" | "fx" | "anim" | "zoom" | "audio";
+/** Pistas. `audio` es la de los efectos de sonido (A3); `voice` y `music`, la voz (A1) y la música (A2). */
+export type TrackKey = "video" | "captions" | "broll" | "fx" | "anim" | "zoom" | "voice" | "music" | "audio";
 
 /** Lo que está elegido en el Estudio (se abre en el inspector). */
 export type StudioSelection =
@@ -28,7 +30,9 @@ export type StudioSelection =
   /** Un sonido puesto a mano en la pista de Sonido. */
   | { kind: "sound"; id: string }
   /** Un pedido de animación en curso (bloque fantasma en la pista Animaciones). */
-  | { kind: "request"; id: string };
+  | { kind: "request"; id: string }
+  /** Un marcador con nota (tecla M). */
+  | { kind: "marker"; id: string };
 
 export function selectionKey(sel: StudioSelection | null): string | null {
   if (!sel) return null;
@@ -55,6 +59,8 @@ export function selectionKey(sel: StudioSelection | null): string | null {
       return `sound:${sel.id}`;
     case "request":
       return `request:${sel.id}`;
+    case "marker":
+      return `marker:${sel.id}`;
   }
 }
 
@@ -85,7 +91,19 @@ export type TimelineBlock = {
   pending?: boolean;
   selection: StudioSelection;
   thumb?: string | null;
+  /**
+   * Fundidos (s) del bloque, con manijas arriba en las esquinas para estirarlos (`onFade`). `max`: lo más que puede
+   * durar cada uno. Solo en los de audio.
+   */
+  fades?: { in: number; out: number; max: number };
+  /** Lo que se dibuja dentro del bloque, detrás del nombre (la forma de onda de un sonido). */
+  wave?: ReactNode;
+  /** El bloque no se escucha (su pista está silenciada o fuera del solo): se ve apagado. */
+  dim?: boolean;
 };
+
+/** Marcador en la regla: número por orden en el video, segundo y nota. */
+export type TimelineMarker = { id: string; number: number; at: number; note: string };
 
 /** Lo que se arrastra desde la Biblioteca a la línea de tiempo. */
 export type LibraryDrop =
@@ -116,19 +134,29 @@ export type DropPreview = { track: TrackKey; start: number; end: number; label: 
  * Pistas. `lane`: alto de cada carril (con bloques superpuestos la pista crece: un carril por capa, arriba lo que se
  * dibuja encima); `extra`: lo fijo de abajo (la música y los puntos de los sonidos automáticos).
  */
-const TRACKS: { key: TrackKey; label: string; icon: ReactNode; lane: number; extra: number; lanes: boolean }[] = [
-  { key: "video", label: "Video", icon: <Film className="h-3.5 w-3.5" aria-hidden />, lane: 40, extra: 0, lanes: false },
+type TrackDef = { key: TrackKey; label: string; code?: string; icon: ReactNode; lane: number; extra: number; lanes: boolean };
+const TRACKS: TrackDef[] = [
+  { key: "video", label: "Video", code: "V1", icon: <Film className="h-3.5 w-3.5" aria-hidden />, lane: 40, extra: 0, lanes: false },
   { key: "captions", label: "Subtítulos", icon: <Captions className="h-3.5 w-3.5" aria-hidden />, lane: 26, extra: 0, lanes: false },
   { key: "broll", label: "Gráficos y b-roll", icon: <Clapperboard className="h-3.5 w-3.5" aria-hidden />, lane: 32, extra: 0, lanes: true },
   { key: "fx", label: "Efectos", icon: <Sparkles className="h-3.5 w-3.5" aria-hidden />, lane: 32, extra: 0, lanes: true },
   { key: "anim", label: "Animaciones", icon: <WandSparkles className="h-3.5 w-3.5" aria-hidden />, lane: 32, extra: 0, lanes: true },
   { key: "zoom", label: "Zooms", icon: <ZoomIn className="h-3.5 w-3.5" aria-hidden />, lane: 24, extra: 0, lanes: true },
-  { key: "audio", label: "Sonido", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, lane: 28, extra: 14, lanes: true },
+  { key: "voice", label: "Voz", code: "A1", icon: <Mic className="h-3.5 w-3.5" aria-hidden />, lane: 36, extra: 0, lanes: false },
+  { key: "music", label: "Música", code: "A2", icon: <Music className="h-3.5 w-3.5" aria-hidden />, lane: 30, extra: 0, lanes: false },
+  { key: "audio", label: "Efectos de sonido", code: "A3", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, lane: 30, extra: 12, lanes: true },
 ];
+
+/** Altura de las pistas: compacta, normal o grande (se elige en la barra de la línea de tiempo). */
+export type TrackSize = "s" | "m" | "l";
+export const TRACK_SIZE_SCALE: Record<TrackSize, number> = { s: 0.78, m: 1, l: 1.4 };
+
+/** Pistas de audio que se dibujan con forma de onda (las arma el Estudio). */
+export type WaveTrack = { columns: (t0: number, t1: number, n: number) => Float32Array; version: string; color: string; marks?: number[] };
 
 type Drag = {
   block: TimelineBlock;
-  mode: "move" | "start" | "end";
+  mode: "move" | "start" | "end" | "fade-in" | "fade-out";
   x0: number;
   y0: number;
   moved: boolean;
@@ -152,7 +180,6 @@ export function StudioTimeline({
   blocks,
   cuts,
   sfx,
-  music,
   hiddenCaptions,
   captionHides = [],
   onShowCaptions,
@@ -174,6 +201,11 @@ export function StudioTimeline({
   onMarquee,
   onGroupMove,
   onAddAt,
+  heads = {},
+  waves = {},
+  trackSize = "m",
+  markers = [],
+  onFade,
 }: {
   duration: number;
   time: number;
@@ -184,7 +216,6 @@ export function StudioTimeline({
   blocks: TimelineBlock[];
   cuts: CutMark[];
   sfx: { at: number }[];
-  music: { label: string } | null;
   hiddenCaptions: { start: number; end: number }[];
   /** Tramos sin subtítulos que se pueden volver a mostrar (los que quitó la persona o el director). */
   captionHides?: { start: number; end: number; index: number }[];
@@ -220,12 +251,24 @@ export function StudioTimeline({
   onGroupMove?: (keys: string[], delta: number) => void;
   /** Doble clic o clic derecho en un lugar vacío de una pista: menú «Agregar aquí» en el segundo `t`. */
   onAddAt?: (t: number, at: { x: number; y: number }) => void;
+  /** Controles del encabezado de cada pista (silenciar y solo en las de audio). */
+  heads?: Partial<Record<TrackKey, ReactNode>>;
+  /** Formas de onda de las pistas de audio largas (voz y música). */
+  waves?: Partial<Record<TrackKey, WaveTrack>>;
+  /** Altura de las pistas. */
+  trackSize?: TrackSize;
+  /** Marcadores con nota, en la regla y como una línea fina en todas las pistas. */
+  markers?: TimelineMarker[];
+  /** Fundido de un bloque de audio estirado con su manija (segundos). */
+  onFade?: (block: TimelineBlock, which: "in" | "out", seconds: number) => void;
 }) {
+  const scale = TRACK_SIZE_SCALE[trackSize];
+  const tracks = useMemo(() => TRACKS.map((t) => ({ ...t, lane: Math.round(t.lane * scale) })), [scale]);
   const scroller = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
   // Columna de nombres de pista (más angosta en el teléfono).
-  const LABEL_W = width < 560 ? 84 : 108;
+  const LABEL_W = width < 560 ? 96 : 136;
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [rangeGhost, setRangeGhost] = useState<{ start: number; end: number } | null>(null);
   const drag = useRef<Drag | null>(null);
@@ -283,16 +326,16 @@ export function StudioTimeline({
     onMarquee?.(keys);
   }
   const byTrack = useMemo(() => {
-    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], audio: [] };
+    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], voice: [], music: [], audio: [] };
     for (const b of blocks) map[b.track].push(b);
     return map;
   }, [blocks]);
   // Carriles: con bloques superpuestos, uno por capa (arriba = lo que se dibuja encima).
   const layout = useMemo(() => {
     const out = {} as Record<TrackKey, { lanes: Map<string, number>; count: number }>;
-    for (const t of TRACKS) out[t.key] = t.lanes ? laneLayout(byTrack[t.key].map((b) => ({ key: b.key, start: b.start, end: b.end, z: b.z ?? 0 }))) : { lanes: new Map(), count: 1 };
+    for (const t of tracks) out[t.key] = t.lanes ? laneLayout(byTrack[t.key].map((b) => ({ key: b.key, start: b.start, end: b.end, z: b.z ?? 0 }))) : { lanes: new Map(), count: 1 };
     return out;
-  }, [byTrack]);
+  }, [byTrack, tracks]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -371,10 +414,23 @@ export function StudioTimeline({
     drag.current = { block, mode, x0: e.clientX, y0: e.clientY, moved: false, pointer: e.pointerId };
     e.currentTarget.setPointerCapture(e.pointerId);
   }
+  // Manija de un fundido: cuánto dura mientras se arrastra (s).
+  const [fadeGhost, setFadeGhost] = useState<{ key: string; which: "in" | "out"; value: number } | null>(null);
   function onBlockMove(e: ReactPointerEvent<HTMLElement>) {
     const dr = drag.current;
     if (!dr || dr.pointer !== e.pointerId) return;
     const dx = e.clientX - dr.x0;
+    if (dr.mode === "fade-in" || dr.mode === "fade-out") {
+      if (!dr.moved && Math.abs(dx) < 2) return;
+      dr.moved = true;
+      const f = dr.block.fades;
+      if (!f || !canEdit) return;
+      const which = dr.mode === "fade-in" ? "in" : "out";
+      const base = which === "in" ? f.in : f.out;
+      const value = Math.max(0, Math.min(f.max, base + (which === "in" ? dx : -dx) / pps));
+      setFadeGhost({ key: dr.block.key, which, value: Math.round(value * 100) / 100 });
+      return;
+    }
     // Hacia un lado o hacia arriba/abajo (cambiar de carril) cuenta como arrastre.
     if (!dr.moved && Math.abs(dx) < 4 && Math.abs(e.clientY - dr.y0) < 6) return;
     dr.moved = true;
@@ -385,7 +441,7 @@ export function StudioTimeline({
       return;
     }
     // Se suelta en cualquier lado y convive con lo que haya (en capas). Arrastrar hacia arriba o abajo cambia el carril.
-    const track = TRACKS.find((t) => t.key === dr.block.track)!;
+    const track = tracks.find((t) => t.key === dr.block.track)!;
     const own = blocks.filter((b) => b.track === dr.block.track && b.key !== dr.block.key);
     const cross = obstacles[dr.block.track] ?? [];
     const raw = clampDrag({ mode: dr.mode, start: dr.block.start, end: dr.block.end, delta: dx / pps, duration: d, obstacles: [], min: dr.block.min, max: dr.block.max });
@@ -413,6 +469,12 @@ export function StudioTimeline({
     const dr = drag.current;
     if (!dr || dr.pointer !== e.pointerId) return;
     drag.current = null;
+    if (dr.mode === "fade-in" || dr.mode === "fade-out") {
+      if (dr.moved && fadeGhost?.key === dr.block.key) onFade?.(dr.block, fadeGhost.which, fadeGhost.value);
+      else if (!dr.moved) onSelect(dr.block.selection, dr.block);
+      setFadeGhost(null);
+      return;
+    }
     if (dr.moved && groupDx != null) {
       if (Math.abs(groupDx) > 0.02) onGroupMove?.([...multiSet], groupDx);
       setGroupDx(null);
@@ -563,17 +625,46 @@ export function StudioTimeline({
               {cuts.map((c) => (
                 <span key={`r${c.at}`} aria-hidden className="absolute bottom-0 h-1.5 w-px bg-danger/70" style={{ left: x(c.at) }} />
               ))}
+              {markers.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  data-marker={m.number}
+                  className={cn(
+                    "absolute top-0 z-10 flex h-[18px] -translate-x-[3px] items-center gap-0.5 rounded-r-md rounded-bl-none border-l-2 border-accent bg-accent/15 pr-1 pl-0.5 font-mono text-[10px] leading-none font-semibold text-accent outline-none hover:bg-accent/25 focus-visible:ring-2 focus-visible:ring-accent-hi",
+                    selKey === `marker:${m.id}` && "bg-accent text-paper",
+                  )}
+                  style={{ left: x(m.at) }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSeek(m.at);
+                    onSelect({ kind: "marker", id: m.id });
+                  }}
+                  title={m.note ? `Marcador ${m.number}: ${m.note}` : `Marcador ${m.number} (sin nota)`}
+                  aria-label={`Marcador ${m.number} en ${timeLabel(m.at)}${m.note ? `: ${m.note}` : ""}`}
+                >
+                  <Flag className="h-2.5 w-2.5" aria-hidden />
+                  {m.number}
+                </button>
+              ))}
             </div>
           </div>
 
-          {TRACKS.map((track) => {
+          {tracks.map((track) => {
             const lanes = layout[track.key].count + (ghost && track.lanes && blocks.find((b) => b.key === ghost.key)?.track === track.key && ghost.lane >= layout[track.key].count ? 1 : 0);
             const h = lanes * track.lane + track.extra;
             return (
             <div key={track.key} className="flex border-b border-white/[0.06]" style={{ height: h }} data-lanes={layout[track.key].count}>
-              <div className="sticky left-0 z-20 flex flex-none items-center gap-1.5 border-r border-white/10 bg-card px-2.5 text-[11px] font-semibold text-muted" style={{ width: LABEL_W }} title={notes?.[track.key]}>
-                <span className="text-accent-hi">{track.icon}</span>
-                <span className="truncate">{track.label}</span>
+              <div
+                className={cn("sticky left-0 z-20 flex flex-none items-center gap-1.5 border-r border-white/10 bg-card px-2 text-[11px] font-semibold text-muted", (track.key === "voice" || track.key === "music" || track.key === "audio") && "bg-[#f9f9f7]")}
+                style={{ width: LABEL_W }}
+                title={notes?.[track.key] ?? track.label}
+                data-head={track.key}
+              >
+                {track.code ? <span className="flex-none rounded bg-white/[0.06] px-1 font-mono text-[9px] leading-[14px] text-muted">{track.code}</span> : <span className="flex-none text-accent-hi">{track.icon}</span>}
+                <span className="min-w-0 flex-1 truncate">{track.label}</span>
+                {heads[track.key]}
               </div>
               <div
                 className={cn("relative flex-none", track.key === "video" && canEdit && "cursor-text")}
@@ -593,6 +684,7 @@ export function StudioTimeline({
                 }}
                 data-track={track.key}
               >
+                {waves[track.key] && <ViewportWave scroller={scroller} labelWidth={LABEL_W} pps={pps} duration={d} height={track.lane} columns={waves[track.key]!.columns} version={waves[track.key]!.version} color={waves[track.key]!.color} marks={waves[track.key]!.marks} />}
                 {track.key === "captions" &&
                   hiddenCaptions.map((h, i) => <div key={`h${i}`} aria-hidden className="absolute inset-y-1 rounded bg-[repeating-linear-gradient(135deg,rgba(255,255,255,.06)_0_4px,transparent_4px_8px)]" style={{ left: x(h.start), width: Math.max(2, x(h.end - h.start)) }} title="Sin subtítulos aquí" />)}
                 {track.key === "captions" &&
@@ -639,6 +731,7 @@ export function StudioTimeline({
                         b.pending && "border-dashed bg-[#8b5cf6]/15 text-[#3d2a9a] animate-pulse motion-reduce:animate-none",
                         b.track !== "video" && b.track !== "captions" && canEdit && b.editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                         selected && "z-10 ring-2 ring-white",
+                        b.dim && "opacity-45 saturate-0",
                         g && "z-20 opacity-90 shadow-[0_6px_18px_rgba(0,0,0,.45)]",
                         g && !g.span && "ring-2 ring-danger",
                       )}
@@ -658,6 +751,15 @@ export function StudioTimeline({
                         if (ev.key === "Enter") onSelect(b.selection, b);
                       }}
                     >
+                      {b.wave && <span className="pointer-events-none absolute inset-0 flex items-center opacity-70">{b.wave}</span>}
+                      {b.fades && (
+                        <FadeShades
+                          width={w}
+                          duration={e - s}
+                          fadeIn={fadeGhost?.key === b.key && fadeGhost.which === "in" ? fadeGhost.value : b.fades.in}
+                          fadeOut={fadeGhost?.key === b.key && fadeGhost.which === "out" ? fadeGhost.value : b.fades.out}
+                        />
+                      )}
                       {b.thumb && w > 40 && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={b.thumb} alt="" className="h-full w-6 flex-none object-cover opacity-80" draggable={false} />
@@ -668,6 +770,26 @@ export function StudioTimeline({
                       </span>
                       {b.ai && w > 46 && <span className="mr-1 flex-none rounded bg-white/20 px-1 font-mono text-[9px] leading-[14px] text-white">IA</span>}
                       {b.ai && w <= 46 && <span aria-hidden className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-white/85" />}
+                      {b.fades && canEdit && w >= 30 && (
+                        <>
+                          <span
+                            aria-hidden
+                            title="Fundido de entrada: arrástralo"
+                            data-fade="in"
+                            className="absolute top-0 z-[2] h-2.5 w-2.5 -translate-x-1/2 cursor-ew-resize rounded-full border border-white bg-paper shadow"
+                            style={{ left: Math.min(w - 6, Math.max(6, x(fadeGhost?.key === b.key && fadeGhost.which === "in" ? fadeGhost.value : b.fades.in))) }}
+                            onPointerDown={(ev) => onBlockDown(ev, b, "fade-in")}
+                          />
+                          <span
+                            aria-hidden
+                            title="Fundido de salida: arrástralo"
+                            data-fade="out"
+                            className="absolute top-0 z-[2] h-2.5 w-2.5 translate-x-1/2 cursor-ew-resize rounded-full border border-white bg-paper shadow"
+                            style={{ right: Math.min(w - 6, Math.max(6, x(fadeGhost?.key === b.key && fadeGhost.which === "out" ? fadeGhost.value : b.fades.out))) }}
+                            onPointerDown={(ev) => onBlockDown(ev, b, "fade-out")}
+                          />
+                        </>
+                      )}
                       {handles && (
                         <>
                           <span
@@ -775,21 +897,11 @@ export function StudioTimeline({
                     </button>
                   ))}
 
-                {track.key === "audio" && music && (
-                  <button
-                    type="button"
-                    className={cn("absolute bottom-[3px] left-0 h-[12px] rounded border border-[#c98500]/50 bg-[#c98500]/20 px-2 text-left text-[9px] leading-[10px] font-semibold text-warning", selKey === "audio" && "ring-2 ring-white")}
-                    style={{ width: lane }}
-                    onClick={() => onSelect({ kind: "audio" })}
-                  >
-                    <span className="sticky truncate" style={{ left: LABEL_W + 8 }}>{music.label}</span>
-                  </button>
-                )}
                 {track.key === "audio" &&
                   sfx.map((c, i) => (
-                    <span key={`s${i}`} aria-hidden className="pointer-events-none absolute top-[12px] z-10 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-warning/80" style={{ left: x(c.at) }} />
+                    <span key={`s${i}`} aria-hidden className="pointer-events-none absolute bottom-[3px] z-10 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-warning/80" style={{ left: x(c.at) }} />
                   ))}
-                {notes?.[track.key] && byTrack[track.key].length === 0 && !(track.key === "audio" && (music || sfx.length)) && (
+                {notes?.[track.key] && byTrack[track.key].length === 0 && !waves[track.key] && !(track.key === "audio" && sfx.length) && (
                   <span className="pointer-events-none sticky inline-block px-2 text-[10px] text-placeholder" style={{ lineHeight: `${track.lane}px`, left: LABEL_W + 8 }}>
                     {notes[track.key]}
                   </span>
@@ -846,5 +958,19 @@ export function StudioTimeline({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Sombra de los fundidos de un bloque de audio: rampa de entrada y de salida sobre el bloque. */
+function FadeShades({ width, duration, fadeIn, fadeOut }: { width: number; duration: number; fadeIn: number; fadeOut: number }) {
+  if (duration <= 0 || (fadeIn <= 0 && fadeOut <= 0)) return null;
+  const a = Math.min(100, (fadeIn / duration) * 100);
+  const b = Math.max(0, 100 - (fadeOut / duration) * 100);
+  return (
+    <svg aria-hidden viewBox="0 0 100 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full" style={{ width }}>
+      {fadeIn > 0 && <polygon points={`0,0 ${a},0 0,100`} fill="rgba(22,23,27,.28)" />}
+      {fadeOut > 0 && <polygon points={`${b},0 100,0 100,100`} fill="rgba(22,23,27,.28)" />}
+      <polyline points={`0,100 ${a},2 ${b},2 100,100`} fill="none" stroke="rgba(255,255,255,.95)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }

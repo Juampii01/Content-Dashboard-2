@@ -5,16 +5,18 @@
 import type { EditPlan } from "./types";
 
 /** Partes del plan y su nombre para la persona, en el orden en que se nombran. */
+// Los valores por defecto cuentan como «sin cambio» (el primer guardado de un plan nuevo completa campos como
+// `emoji: false` o `sfx_db: 0` sin que la persona haya tocado nada).
 const PARTS: { name: string; pick: (p: EditPlan) => unknown }[] = [
-  { name: "cortes", pick: (p) => [p.removals, p.pacing, p.splits, p.sequence, p.moves] },
-  { name: "subtítulos", pick: (p) => [p.captions, p.corrections] },
+  { name: "cortes", pick: (p) => [p.removals, p.pacing?.long_pause ?? 0.5, p.pacing?.keep ?? [], p.pacing?.keep_all ?? false, p.splits ?? [], p.sequence ?? [], p.moves ?? []] },
+  { name: "subtítulos", pick: (p) => [{ ...p.captions, emoji: p.captions?.emoji ?? false }, p.corrections] },
   { name: "b-roll y gráficos", pick: (p) => p.broll },
-  { name: "efectos", pick: (p) => [p.effects, p.transitions] },
-  { name: "animaciones", pick: (p) => p.compositions },
-  { name: "zooms", pick: (p) => [p.zoom_moments, p.zooms_enabled, p.framing] },
-  { name: "sonido", pick: (p) => [p.audio?.cues, p.audio?.sfx, p.audio?.sfx_db, p.audio?.voice_db, p.audio?.mix, p.audio?.studio] },
-  { name: "música", pick: (p) => [p.audio?.music_asset_id, p.audio?.music_db, p.audio?.music_gen, p.audio?.music_fade] },
-  { name: "marcadores", pick: (p) => p.markers },
+  { name: "efectos", pick: (p) => [p.effects ?? [], p.transitions ?? []] },
+  { name: "animaciones", pick: (p) => p.compositions ?? [] },
+  { name: "zooms", pick: (p) => [p.zoom_moments ?? [], p.zooms_enabled ?? null, p.framing] },
+  { name: "sonido", pick: (p) => [p.audio?.cues ?? [], p.audio?.sfx ?? null, p.audio?.sfx_db ?? 0, p.audio?.voice_db ?? 0, p.audio?.mix ?? null, p.audio?.studio ?? null] },
+  { name: "música", pick: (p) => [p.audio?.music_asset_id ?? null, p.audio?.music_db ?? null, p.audio?.music_gen ?? null, p.audio?.music_fade ?? null] },
+  { name: "marcadores", pick: (p) => p.markers ?? [] },
 ];
 
 /** Qué partes cambiaron (nombres para la persona). */

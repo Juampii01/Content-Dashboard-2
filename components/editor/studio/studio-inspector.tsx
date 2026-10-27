@@ -13,7 +13,10 @@ import { outputRange } from "@/lib/video/timeline";
 import { secondsLabel, timeLabel } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
 import { TRANSITION_DURATION, TRANSITION_GALLERY_ORDER, TRANSITION_INFO } from "@/lib/video/fx/transitions";
-import { soundCueTimes, SOUND_GAIN } from "@/lib/video/sfx";
+import { cueClip, fitCueClip, soundCueTimes, SOUND_GAIN, type SoundCue } from "@/lib/video/sfx";
+import { MARKER_NOTE_MAX } from "@/lib/video/markers";
+import { timecode } from "@/lib/video/timecode";
+import { Mixer } from "./mixer";
 import { SFX_CATEGORIES, SFX_CATEGORY_LABELS, SFX_LIBRARY, SFX_NAMES, type SfxName } from "@/lib/video/sfx-library";
 import { AudioPanel } from "../audio-panel";
 import { TransitionTile } from "../fx/fx-library";
@@ -233,6 +236,8 @@ function SelectionInspector({ api, sel }: { api: StudioApi; sel: StudioSelection
       return <TransitionInspector api={api} word={sel.word} id={sel.id} onClose={close} />;
     case "sound":
       return <SoundInspector api={api} id={sel.id} onClose={close} />;
+    case "marker":
+      return <MarkerInspector api={api} id={sel.id} onClose={close} />;
     case "audio":
       return (
         <>
@@ -876,7 +881,7 @@ function SoundInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
           <label htmlFor="snd-name" className="text-sm font-semibold text-white">
             Cuál
           </label>
-          <select id="snd-name" className="field h-10 rounded-xl !py-0 text-sm" value={cue.name} disabled={!edit} onChange={(e) => set({ name: e.target.value as SfxName })}>
+          <select id="snd-name" className="field h-10 rounded-xl !py-0 text-sm" value={cue.name} disabled={!edit} onChange={(e) => set(fitCueClip({ ...cue, name: e.target.value as SfxName }))}>
             {SFX_CATEGORIES.map((c) => (
               <optgroup key={c} label={SFX_CATEGORY_LABELS[c]}>
                 {SFX_NAMES.filter((n) => SFX_LIBRARY[n].category === c).map((n) => (
@@ -905,6 +910,7 @@ function SoundInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
           aria-valuetext={`${cue.gain} decibeles`}
         />
         <p className="text-xs text-muted">Con -14 dB queda bajo tu voz; más alto se nota como golpe.</p>
+        <SoundClip api={api} id={id} />
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="subtle" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => void playSfx(cue.name, cue.gain)}>
             Escuchar
@@ -931,6 +937,8 @@ function SoundInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
 export function AudioBlock({ api }: { api: StudioApi }) {
   const { state, props } = api;
   return (
+    <div className="flex flex-col gap-5">
+    <Mixer api={api} />
     <AudioPanel
       studio={state.studio}
       onStudio={(studio) => api.update((s) => ({ ...s, studio }))}
@@ -945,6 +953,101 @@ export function AudioBlock({ api }: { api: StudioApi }) {
       tracks={props.tracks ?? []}
       canEdit={props.canEdit}
     />
+    </div>
   );
 }
 
+/** Un marcador: su nota (la lee Claude: «en el marcador 2 pon…»), dónde está y quitarlo. */
+function MarkerInspector({ api, id, onClose }: { api: StudioApi; id: string; onClose: () => void }) {
+  const placed = api.markers.find((m) => m.marker.id === id);
+  const marker = api.state.markers.find((m) => m.id === id);
+  if (!marker) return <Gone onClose={onClose} />;
+  const edit = api.props.canEdit;
+  const set = (note: string) => api.update((st) => ({ ...st, markers: st.markers.map((m) => (m.id === id ? { ...m, note: note.slice(0, MARKER_NOTE_MAX) } : m)) }), { coalesce: `marker:${id}` });
+  return (
+    <>
+      <Header eyebrow="Marcador" title={placed ? `Marcador ${placed.number}` : "Marcador"} onClose={onClose}>
+        <p className="mt-0.5 font-mono text-xs text-muted tabular-nums">{placed ? `${timecode(placed.at)} · con «${api.textOf(marker.at_word, marker.at_word + 3, 40)}»` : "Su palabra se cortó: no se ve en el video."}</p>
+      </Header>
+      <div className="flex flex-col gap-3 p-4">
+        <label htmlFor="marker-note" className="text-sm font-semibold text-white">
+          Nota
+        </label>
+        <textarea
+          id="marker-note"
+          className="field min-h-24 rounded-xl text-sm"
+          value={marker.note}
+          disabled={!edit}
+          maxLength={MARKER_NOTE_MAX}
+          placeholder="Por ejemplo: aquí va un gráfico con los 3 pasos."
+          onChange={(e) => set(e.target.value)}
+          autoFocus={edit && !marker.note}
+        />
+        <p className="text-xs text-muted">La IA lee tus marcadores: en el chat puedes decir «en el marcador {placed?.number ?? 1} pon una animación» y sabe dónde es.</p>
+        <div className="flex flex-wrap gap-2">
+          {placed && (
+            <Button size="sm" variant="subtle" icon={<Headphones className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.seek(placed.at, true)}>
+              Reproducir desde aquí
+            </Button>
+          )}
+          {edit && (
+            <Button size="sm" variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.removeSelection}>
+              Quitar el marcador
+            </Button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+
+/** Recorte y fundidos de un sonido (también se cambian arrastrando sus bordes y sus manijas en la línea de tiempo). */
+function SoundClip({ api, id }: { api: StudioApi; id: string }) {
+  const cue = api.state.soundCues.find((c) => c.id === id);
+  if (!cue) return null;
+  const edit = api.props.canEdit;
+  const dur = SFX_LIBRARY[cue.name].duration;
+  const clip = cueClip(cue);
+  const set = (patch: Partial<SoundCue>) => api.update((st) => ({ ...st, soundCues: st.soundCues.map((c) => (c.id === id ? fitCueClip({ ...c, ...patch, source: "user" as const }) : c)) }), { coalesce: `soundclip:${id}` });
+  const field = (label: string, key: "fade_in" | "fade_out", max: number) => (
+    <label className="flex flex-col gap-1 text-[11px] text-muted">
+      {label}
+      <span className="flex items-center gap-1">
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={Math.max(0, Math.round(max * 100) / 100)}
+          step={0.05}
+          className="field h-8 w-full rounded-lg !py-0 text-sm tabular-nums"
+          value={cue[key] ?? 0}
+          disabled={!edit}
+          onChange={(e) => set({ [key]: Math.max(0, Number(e.target.value) || 0) })}
+        />
+        <span>s</span>
+      </span>
+    </label>
+  );
+  const trimmed = (cue.trim_in ?? 0) > 0 || (cue.trim_out ?? 0) > 0;
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-white/10 p-3">
+      <p className="flex items-center justify-between text-sm font-semibold text-white">
+        Recorte y fundidos
+        <span className="font-mono text-xs font-normal text-muted tabular-nums">
+          suena {clip.length.toFixed(2).replace(".", ",")} de {dur.toFixed(2).replace(".", ",")} s
+        </span>
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {field("Fundido de entrada", "fade_in", clip.length)}
+        {field("Fundido de salida", "fade_out", clip.length)}
+      </div>
+      <p className="text-[11px] text-muted">Arrastra los bordes del sonido en la línea de tiempo para recortarlo, y los puntos de arriba para los fundidos.</p>
+      {edit && trimmed && (
+        <Button size="sm" variant="ghost" className="self-start" onClick={() => set({ trim_in: 0, trim_out: 0 })}>
+          Sin recorte
+        </Button>
+      )}
+    </div>
+  );
+}

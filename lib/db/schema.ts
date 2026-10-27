@@ -1158,6 +1158,31 @@ export const aiCreditLimits = pgTable("ai_credit_limits", {
   updatedAt: updatedAt(),
 });
 
+/**
+ * Versiones del plan de un video del Editor. Antes de que la IA cambie el plan (el director: dirigir, corregir,
+ * «Edítalo así», versiones para probar) se guarda aquí el plan que había, y también antes de volver a una versión. Nunca
+ * se borran: así una corrección de la IA no puede perder el trabajo anterior. Se borran solo con el video.
+ */
+export const videoPlanVersions = pgTable(
+  "video_plan_versions",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => videoProjects.id, { onDelete: "cascade" }),
+    plan: jsonb("plan").notNull(),
+    format: text("format"),
+    /** Qué estaba por pasar cuando se guardó ("Antes de: acorta el gancho", "Antes de volver a una versión"). */
+    label: text("label").notNull(),
+    /** "ia" (antes de un cambio de la IA) o "restaurar" (antes de volver a otra versión). */
+    source: text("source").notNull(),
+    requestId: text("request_id"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("video_plan_versions_project_idx").on(t.projectId, t.createdAt)],
+);
+
 // ─── Claves de servicios del cliente ───────────────────────────────────────
 
 export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI", "JAMENDO", "CLAUDE", "ANTHROPIC"]);

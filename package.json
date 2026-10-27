@@ -34,6 +34,7 @@
     "demo": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/demo.ts",
     "test:consumo": "node --conditions=react-server --import tsx --test tests/api-usage.test.mts",
     "test:creditos": "node --conditions=react-server --import tsx --test tests/ai-credits.test.mts",
+    "test:versiones": "node --conditions=react-server --import tsx --test tests/plan-versions.test.mts",
     "test:musica": "node --conditions=react-server --import tsx --test tests/music-catalog.test.mts",
     "test:director": "node --import tsx --test tests/director.test.mts tests/rhythm.test.mts tests/director-pedidos.test.mts",
     "test:compos": "node --import tsx --test tests/compos.test.mts",

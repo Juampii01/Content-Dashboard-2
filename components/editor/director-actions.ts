@@ -7,6 +7,7 @@ import { fileDriver } from "@/lib/storage";
 import { applyPlanVariant, requestEdit, reserveReferenceUpload, saveBrief } from "@/lib/video/director/service";
 import { BUDGET, briefSchema } from "@/lib/video/director/types";
 import { loadProject, VideoError } from "@/lib/video/service";
+import { listVersions, restoreVersion, type PlanVersionItem } from "@/lib/video/versions";
 
 /**
  * Acciones del director de edición: el brief (y el tope de IA), "Edítalo así", los arreglos de la revisión final y
@@ -103,6 +104,34 @@ export async function applyVariantAction(projectId: string, variantId: string): 
   if (!idSchema.safeParse(projectId).success || !/^v[a-z0-9]{1,20}$/.test(variantId)) return { ok: false, error: "Versión no válida." };
   try {
     await applyPlanVariant(projectId, variantId);
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/** Las versiones guardadas del plan (la más nueva primero), para volver a cualquiera. */
+export async function listPlanVersionsAction(projectId: string): Promise<{ ok: true; versions: PlanVersionItem[] } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(projectId).success) return { ok: false, error: "Proyecto no válido." };
+  try {
+    if (!(await loadProject(projectId))) return { ok: false, error: "No encontramos ese proyecto." };
+    return { ok: true, versions: await listVersions(projectId) };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/** Vuelve a una versión anterior del plan. La actual queda guardada como otra versión (se puede deshacer). */
+export async function restorePlanVersionAction(projectId: string, versionId: string): Promise<Result> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(projectId).success || !idSchema.safeParse(versionId).success) return { ok: false, error: "Versión no válida." };
+  try {
+    if (!(await loadProject(projectId))) return { ok: false, error: "No encontramos ese proyecto." };
+    await restoreVersion(projectId, versionId, user.id);
     refresh();
     return { ok: true };
   } catch (error) {

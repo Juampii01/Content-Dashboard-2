@@ -49,7 +49,8 @@ import { FPS, type BrollOption, type CaptionPresetKey, type EditPlan, type Media
  * UPLOADING → (subida directa al almacenamiento) → PROCESSING (worker: ingesta, transcripción; app: plan)
  * → AWAITING_REVIEW (la persona revisa) → RENDERING (worker) → DONE. Cualquier etapa puede terminar en FAILED.
  */
-export class VideoError extends Error {}
+import { VideoError } from "./errors";
+export { VideoError };
 
 export type Project = typeof schema.videoProjects.$inferSelect;
 

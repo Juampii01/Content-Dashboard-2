@@ -32,6 +32,7 @@ import { brollGraphicOption } from "../motion-graphics";
 import { planSchemaFor, type PlanStyle } from "../plan";
 import { alignScript } from "../script-align";
 import { proofreadTranscript } from "../transcript-fix";
+import { snapshotPlan } from "../versions";
 import { cleanPlan, legacyPlan, loadProject, renderInputFor, scriptText, VideoError, withEditorDefaults, type Project } from "../service";
 import type { StyleMetrics } from "../style";
 import { stylePreset } from "../styles";
@@ -169,6 +170,18 @@ export function readEyes(raw: unknown): Eyes | null {
 }
 
 async function saveDirector(projectId: string, next: DirectorState, extra: Partial<typeof schema.videoProjects.$inferInsert> = {}): Promise<void> {
+  // Antes de que la IA escriba un plan nuevo, el que había queda como versión (lib/video/versions.ts): ninguna
+  // corrección puede perder el trabajo anterior.
+  if (extra.plan !== undefined) {
+    const [row] = await getDb().select({ director: schema.videoProjects.director, createdBy: schema.videoProjects.createdBy }).from(schema.videoProjects).where(eq(schema.videoProjects.id, projectId)).limit(1);
+    const pending = row ? readDirector(row.director).pending : null;
+    const label = pending?.instruction ? `Antes de: ${pending.instruction}` : "Antes de que la IA dirija la edición";
+    await snapshotPlan(projectId, { label, source: "ia", requestId: pending?.id ?? null, userId: row?.createdBy ?? null }).catch((error) => {
+      // Sin la copia no se sigue: escribir el plan nuevo podría perder el anterior.
+      console.error("[versiones]", error instanceof Error ? error.message : error);
+      throw new VideoError("No pudimos guardar la versión anterior del video antes del cambio de la IA. Vuelve a intentarlo.");
+    });
+  }
   await getDb()
     .update(schema.videoProjects)
     .set({ director: { ...next, updatedAt: new Date().toISOString() } as unknown as Record<string, unknown>, ...extra })

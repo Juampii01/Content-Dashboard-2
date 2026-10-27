@@ -1,0 +1,68 @@
+# Etapa 1: prueba las migraciones pendientes (0040–0044) en una COPIA de la base de producción, nunca en producción.
+# Copia con pg_dump (solo lectura) a un Postgres descartable del runner, migra la copia con el mismo script que usa
+# Vercel (scripts/preparar.ts) y comprueba que el schema quede igual al código. La copia muere con el runner; la salida
+# (solo conteos y resultados, sin datos ni secretos) queda en la rama etapa1-salida.
+name: Etapa 1 · migraciones en una copia
+
+on:
+  push:
+    branches: [etapa1-migraciones]
+    paths: [".github/workflows/etapa1-migraciones.yml", ".github/diag/conteos.sql"]
+
+permissions:
+  contents: write
+
+jobs:
+  copia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      pg:
+        image: postgres:17
+        env: { POSTGRES_PASSWORD: prueba, POSTGRES_DB: copia }
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 20
+    env:
+      COPIA: postgres://postgres:prueba@localhost:5432/copia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Leer la conexión (enmascarada)
+        working-directory: worker
+        run: |
+          for id in $(flyctl machines list --config fly.toml --json | jq -r '.[].id'); do flyctl machines start "$id" --config fly.toml || true; done
+          sleep 20
+          url=$(flyctl ssh console --config fly.toml -C "printenv DATABASE_URL_UNPOOLED" 2>/dev/null | grep -E '^postgres' | tr -d '\r')
+          [ -n "$url" ] || url=$(flyctl ssh console --config fly.toml -C "printenv DATABASE_URL" 2>/dev/null | grep -E '^postgres' | tr -d '\r')
+          [ -n "$url" ] || { echo "sin conexión"; exit 1; }
+          echo "::add-mask::$url"
+          echo "PROD=$url" >> "$GITHUB_ENV"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Copiar producción (pg_dump, solo lectura)
+        run: |
+          mkdir -p /tmp/out
+          docker run --rm --network host postgres:17 psql "$PROD" -Atc "select version()" | cut -c1-40 > /tmp/out/version.txt
+          docker run --rm --network host postgres:17 psql "$PROD" -At -f - < .github/diag/conteos.sql > /tmp/out/prod-antes.txt
+          docker run --rm --network host -v /tmp:/tmp postgres:17 pg_dump "$PROD" --no-owner --no-privileges -Fc -f /tmp/prod.dump
+          docker run --rm --network host -v /tmp:/tmp postgres:17 pg_restore --no-owner --no-privileges -d "$COPIA" /tmp/prod.dump 2> /tmp/out/restore-avisos.txt || true
+          rm -f /tmp/prod.dump
+          docker run --rm --network host postgres:17 psql "$COPIA" -At -f - < .github/diag/conteos.sql > /tmp/out/copia-antes.txt
+      - run: pnpm install --frozen-lockfile
+      - name: Migrar la copia (mismo script que Vercel)
+        run: |
+          DATABASE_URL_UNPOOLED="$COPIA" DATABASE_URL="$COPIA" pnpm preparar 2>&1 | tee /tmp/out/migrar.txt
+          docker run --rm --network host postgres:17 psql "$COPIA" -At -f - < .github/diag/conteos.sql > /tmp/out/copia-despues.txt
+          docker run --rm --network host postgres:17 psql "$COPIA" -Atc "select (select count(*) from ai_usage) ai_usage, (select count(*) from api_usage) api_usage, (select round(sum(cost_usd)::numeric,2) from api_usage) usd" > /tmp/out/consumo.txt 2>&1 || true
+      - name: El schema coincide con el código
+        run: DATABASE_URL_UNPOOLED="$COPIA" pnpm exec drizzle-kit check 2>&1 | tail -5 | tee /tmp/out/check.txt; DATABASE_URL_UNPOOLED="$COPIA" pnpm exec drizzle-kit migrate 2>&1 | tail -3 | tee /tmp/out/migrar-otra-vez.txt
+      - name: Guardar la salida
+        if: always()
+        run: |
+          git config user.name "diag" && git config user.email "diag@users.noreply.github.com"
+          git checkout -q --orphan etapa1-salida && git rm -rq --cached . && git clean -fdq -e .git
+          cp /tmp/out/* . 2>/dev/null || true
+          git add -A && git commit -qm "Etapa 1: salida" && git push -qf origin etapa1-salida

@@ -5,9 +5,9 @@ import { Gauge } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Section } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Notice } from "@/components/ui/feedback";
 import { PRICES_CHECKED, PRICES_SOURCE } from "@/lib/ai/pricing";
-import { getUsageView, USAGE_PERIODS } from "@/lib/dal/usage";
+import { getCreditsView, getUsageView, USAGE_PERIODS } from "@/lib/dal/usage";
+import { CreditsPanel } from "@/components/consumo/credits-panel";
 import { formatDate, formatDuration, formatNumber, formatPercent, formatUsd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -27,11 +27,17 @@ function usd(value: number): string {
 async function UsageContent({ searchParams }: { searchParams: PageProps<"/ajustes/consumo">["searchParams"] }) {
   const params = await searchParams;
   const days = Number(Array.isArray(params.dias) ? params.dias[0] : params.dias) || 30;
-  const view = await getUsageView(days);
-  if (!view.allowed) return <Notice tone="warning">Solo el dueño de la cuenta ve el consumo de IA.</Notice>;
+  const [view, credits] = await Promise.all([getUsageView(days), getCreditsView()]);
+  const creditsSection = (
+    <Section title="Créditos de IA del mes" description={view.allowed ? "Cuánto puede gastar cada persona en IA por mes. Al 80 % le avisamos y al 100 % la IA se pausa hasta el mes que viene." : "Lo que llevas gastado en IA este mes y tu tope."}>
+      <CreditsPanel view={credits} />
+    </Section>
+  );
+  if (!view.allowed) return creditsSection;
   const { totals, videos, steps } = view;
   return (
     <div className="flex flex-col gap-6">
+      {creditsSection}
       <nav aria-label="Periodo" className="flex flex-wrap gap-2">
         {USAGE_PERIODS.map((d) => (
           <Link key={d} href={`/ajustes/consumo?dias=${d}`} className={cn("chip", d === view.days && "!border-white !bg-white !text-paper")} aria-current={d === view.days ? "page" : undefined}>
@@ -153,7 +159,7 @@ export default function ConsumoPage({ searchParams }: PageProps<"/ajustes/consum
       <PageHeader
         eyebrow="Ajustes"
         title="¿Cuánto gasta la IA?"
-        description="El consumo de Claude por video y por paso, para saber cuánto cuesta cada edición."
+        description="Tus créditos del mes y el consumo de Claude por video y por paso, para saber cuánto cuesta cada edición."
         icon={<Gauge className="h-5 w-5" aria-hidden />}
       />
       <Suspense fallback={<div aria-hidden className="skeleton h-96" />}>

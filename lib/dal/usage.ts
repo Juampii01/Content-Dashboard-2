@@ -71,3 +71,42 @@ export async function getUsageView(days: number): Promise<UsageView> {
       .sort((a, b) => b.usd - a.usd),
   };
 }
+
+// ─── Créditos del mes ─────────────────────────────────────────────────────
+
+export type CreditRow = { userId: string; name: string; email: string; role: string; spent: number; limit: number; ownLimit: boolean };
+export type CreditsView = {
+  me: { spent: number; limit: number };
+  month: string;
+  /** Solo para el dueño: el equipo, el tope por defecto y el de la instalación. */
+  team: { members: CreditRow[]; fallback: number; installationLimit: number | null; installationSpent: number } | null;
+};
+
+export async function getCreditsView(): Promise<CreditsView> {
+  const me = await getCurrentUser();
+  const { limitsFor, spentThisMonth, monthKey } = await import("@/lib/ai/credits");
+  const members =
+    me.role === "OWNER"
+      ? (
+          await getDb().execute<{ user_id: string; name: string | null; email: string; role: string }>(sql`
+            select tm.user_id, u.name, u.email, tm.role::text as role from team_members tm join users u on u.id = tm.user_id
+            where tm.active order by tm.created_at`)
+        ).rows
+      : [];
+  const ids = [...new Set([me.id, ...members.map((m) => m.user_id)])];
+  const [limits, spent] = await Promise.all([limitsFor(ids), spentThisMonth()]);
+  const limitOf = (id: string) => limits.byUser.get(id) ?? limits.fallback;
+  return {
+    me: { spent: spent.byUser.get(me.id) ?? 0, limit: limitOf(me.id) },
+    month: monthKey(),
+    team:
+      me.role === "OWNER"
+        ? {
+            members: members.map((m) => ({ userId: m.user_id, name: m.name?.trim() || m.email, email: m.email, role: m.role, spent: spent.byUser.get(m.user_id) ?? 0, limit: limitOf(m.user_id), ownLimit: limits.byUser.has(m.user_id) })),
+            fallback: limits.fallback,
+            installationLimit: limits.installation,
+            installationSpent: spent.total,
+          }
+        : null,
+  };
+}

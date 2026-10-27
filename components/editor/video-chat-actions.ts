@@ -203,7 +203,7 @@ export async function videoChatLookAction(input: z.input<typeof lookInputSchema>
   if (look.status !== "ready" && look.status !== "failed") return { ok: true, thread: view(saved.messages), waiting: true };
   let reply: ChatMessage;
   if (look.status === "failed" || !look.text) {
-    reply = { role: "assistant", text: `No pude mirar ese video: ${look.error ?? "algo falló al bajarlo"}. Prueba con otro link o sube el archivo con el clip.`, at: new Date().toISOString(), lookDone: d.lookId };
+    reply = { role: "assistant", text: `No pude mirar ese video: ${(look.error ?? "algo falló al bajarlo").replace(/[.\s]+$/, "")}. Pégame el link otra vez o prueba con otro.`, at: new Date().toISOString(), lookDone: d.lookId };
   } else {
     try {
       const lastUser = [...saved.messages].reverse().find((m) => m.role === "user")?.text ?? "";

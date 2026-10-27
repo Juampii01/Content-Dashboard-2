@@ -145,7 +145,11 @@ export async function thinkLook(projectId: string, lookId: string): Promise<void
     });
     const withIds: LookRecipe = { ...recipe, moments: recipe.moments.slice(0, 40).map((x, i) => ({ ...x, id: `m${i + 1}` })) };
     await setLook(lookId, { recipe: withIds as unknown as Record<string, unknown> });
-    const turn = await runTurn(projectId, withIds, [], []);
+    // La primera respuesta es un extra: si falla, lo que se miró queda igual (el chat y la charla de la referencia lo usan).
+    const turn = await runTurn(projectId, withIds, [], []).catch((error) => {
+      console.error("[mirar] primera respuesta:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
+      return { reply: `Ya miré el video: ${withIds.summary}\nDime qué te gustó y lo vemos para tu video.`.slice(0, 4000), items: [] as LookItem[] };
+    });
     await setLook(lookId, { status: "ready", messages: [{ role: "assistant", text: turn.reply, at: new Date().toISOString() }], proposal: turn.items as unknown as Record<string, unknown>[] });
   } catch (error) {
     console.error("[mirar] receta:", error instanceof AiError ? error.detail : error instanceof Error ? error.message : error);
@@ -182,7 +186,8 @@ async function runTurn(projectId: string, recipe: LookRecipe, history: LookMessa
       messages: msgs,
     }),
     schema: lookTurnSchema,
-    maxTokens: 8000,
+    // La primera vuelta trae hasta 16 momentos con su pedido: con 8 mil salía cortada.
+    maxTokens: 16000,
     videoProjectId: projectId,
     fake: () => {
       const said = sentences(words);

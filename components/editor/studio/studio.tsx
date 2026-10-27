@@ -1397,14 +1397,19 @@ export function Studio(props: StudioProps) {
   const sending = useRef(false);
   // Pedidos de animaciones entregados: se marcan en el servidor después del primer guardado que ya los incluye.
   const acksApi = useRef<{ take: () => string[]; confirm: (ids: string[], ok: boolean) => void } | null>(null);
+  // Versión que se guarda sí o sí antes del próximo guardado (un cambio grande, como reemplazar una animación).
+  const checkpoint = useRef<string | null>(null);
   useEffect(() => {
     if (!canEdit || reviewKey === savedKey) return;
     const timer = setTimeout(async () => {
       if (sending.current) return;
       setSaving("saving");
       const acks = acksApi.current?.take() ?? [];
-      const result = await saveReviewAction(projectId, review, s.format);
+      const label = checkpoint.current;
+      checkpoint.current = null;
+      const result = await saveReviewAction(projectId, review, s.format, label ? { checkpoint: label } : {});
       acksApi.current?.confirm(acks, result.ok);
+      if (!result.ok && label && !checkpoint.current) checkpoint.current = label;
       if (result.ok) {
         setSavedKey(reviewKey);
         setSaving("idle");
@@ -1629,6 +1634,8 @@ export function Studio(props: StudioProps) {
       const fixed = visualStack.filter((v) => v.kind !== "compos");
       const firstSeg = composSegments(timeline, [made[0]!])[0];
       const under = firstSeg ? visualStack.filter((v) => v.key !== layerKey("compos", made[0]!.id) && v.start < firstSeg.end - 0.01 && firstSeg.start < v.end - 0.01).map((v) => v.label) : [];
+      // Un reemplazo (el del chat o «Pídele un cambio») guarda antes una versión propia: se puede volver a la animación de antes.
+      if (req.request?.replaceId) checkpoint.current = `Antes de cambiar una animación (pedido: «${req.request.instruction.replace(/\s+/g, " ").slice(0, 90)}»)`;
       update((st) => {
         const list = [...st.compositions];
         const replaceId = req.request?.replaceId ?? null;

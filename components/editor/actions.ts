@@ -196,13 +196,17 @@ const reviewSchema = z.object({
     .optional(),
 });
 
-export async function saveReviewAction(projectId: string, review: Review, format: "9:16" | "16:9"): Promise<ActionResult> {
+/** `checkpoint`: etiqueta de una versión que se guarda sí o sí antes de este cambio (por ejemplo, un reemplazo desde el chat). */
+const checkpointSchema = z.string().trim().min(3).max(160).optional();
+
+export async function saveReviewAction(projectId: string, review: Review, format: "9:16" | "16:9", opts: { checkpoint?: string } = {}): Promise<ActionResult> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = reviewSchema.safeParse(review);
-  if (!parsed.success || !idSchema.safeParse(projectId).success || !formatSchema.safeParse(format).success) return { ok: false, error: "Los cambios no son válidos." };
+  const checkpoint = checkpointSchema.safeParse(opts?.checkpoint);
+  if (!parsed.success || !checkpoint.success || !idSchema.safeParse(projectId).success || !formatSchema.safeParse(format).success) return { ok: false, error: "Los cambios no son válidos." };
   try {
-    await saveReview(projectId, parsed.data, format);
+    await saveReview(projectId, parsed.data, format, { userId: user.id, checkpoint: checkpoint.data ?? null });
     return { ok: true };
   } catch (error) {
     return fail(error);

@@ -50,6 +50,7 @@ import { FPS, type BrollOption, type CaptionPresetKey, type EditPlan, type Media
  * → AWAITING_REVIEW (la persona revisa) → RENDERING (worker) → DONE. Cualquier etapa puede terminar en FAILED.
  */
 import { VideoError } from "./errors";
+import { snapshotBeforeStudioSave } from "./versions";
 export { VideoError };
 
 export type Project = typeof schema.videoProjects.$inferSelect;
@@ -435,13 +436,19 @@ async function projectForEdit(projectId: string) {
   return { project, plan: project.plan as EditPlan, transcript: project.transcript as Transcript, media: (project.media ?? {}) as MediaInfo };
 }
 
-export async function saveReview(projectId: string, review0: Review, format: VideoFormat): Promise<void> {
+/**
+ * Guarda la revisión del Estudio. Antes, una versión del plan que había (una por tanda de cambios, o siempre con
+ * `checkpoint`: ver `snapshotBeforeStudioSave` en lib/video/versions.ts).
+ */
+export async function saveReview(projectId: string, review0: Review, format: VideoFormat, opts: { userId?: string | null; checkpoint?: string | null } = {}): Promise<void> {
   const { project, plan, transcript, media } = await projectForEdit(projectId);
   if (project.status !== "AWAITING_REVIEW") throw new VideoError("Este video no está en revisión.");
   const review = await withTrustedCompositions(project, review0, plan, transcript, media, format);
   const next = applyReview(plan, review, transcript.words, media.duration || transcript.duration, format);
   const parsed = planSchemaFor(transcript.words.length).safeParse(next);
   if (!parsed.success) throw new VideoError("Los cambios no son válidos. Recarga la página y vuelve a intentarlo.");
+  // Si no se pudo guardar la versión, el guardado sigue (lo de la persona no se pierde por eso).
+  await snapshotBeforeStudioSave(projectId, { current: plan, next, userId: opts.userId ?? null, checkpoint: opts.checkpoint }).catch((error) => console.error("[versiones] no se pudo guardar la versión del Estudio:", error instanceof Error ? error.message : error));
   await getDb().update(schema.videoProjects).set({ plan: next, format, captionPreset: review.preset }).where(eq(schema.videoProjects.id, projectId));
   // Efectos con recorte: el worker prepara la máscara de esos segundos para la vista previa (si falta).
   if (next.effects?.length || next.compositions?.length) {

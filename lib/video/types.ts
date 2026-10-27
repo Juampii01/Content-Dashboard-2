@@ -132,6 +132,11 @@ export type EditPlan = {
    * (-1 = al principio, después del gancho). Sin cambiar el sentido; la persona puede deshacerlo en la revisión.
    */
   moves?: PlanMove[];
+  /**
+   * Orden de las partes que eligió la persona a mano (lib/video/sequence.ts): tramos de palabras del original en el
+   * orden en que salen. Manda sobre `moves`. La IA nunca lo cambia. Sin el campo, el video sale como se grabó.
+   */
+  sequence?: { from_word: number; to_word: number }[];
   /** Zooms que decidió el director (énfasis o ritmo), si no hay un estilo con sus propios zooms. */
   zoom_moments?: ZoomMoment[];
   /**

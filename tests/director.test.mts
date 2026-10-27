@@ -218,8 +218,9 @@ describe("plan del director", () => {
     assert.equal(out.plan.selected_hook, null);
     assert.ok(out.plan.hook_candidates.length >= 1, "los ganchos quedan como sugerencias");
     // La persona eligió un gancho y movió un bloque a mano: al corregir, se conservan.
-    const manual: EditPlan = { ...out.plan, selected_hook: 0, moves: [{ from_word: phrase(4).from, to_word: phrase(4).to, after_word: phrase(1).to, why: "A mano." }] };
+    const manual: EditPlan = { ...out.plan, selected_hook: 0, moves: [{ from_word: phrase(4).from, to_word: phrase(4).to, after_word: phrase(1).to, why: "A mano." }], sequence: [{ from_word: phrase(2).from, to_word: words.length - 1 }, { from_word: 0, to_word: phrase(2).from - 1 }] };
     const again = planFromDirector(emptyWire(), { ...input(), base: manual });
+    assert.deepEqual(again.plan.sequence, manual.sequence, "el orden a mano queda");
     assert.equal(again.plan.selected_hook, 0);
     assert.equal(again.plan.hook_candidates[0]!.from_word, manual.hook_candidates[0]!.from_word);
     assert.equal(again.plan.moves?.length, 1);

@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { DecisionsPanel } from "../director/decisions-panel";
 import { EditRequestCard } from "../director/edit-request";
 import { CopyEditCard } from "../compos/copy-edit-card";
-import { LookCard } from "../compos/look-card";
+import { EditAllCard } from "./edit-panel";
 import { RequestsPanel } from "../compos/compos-inspector";
 import type { CopyReport } from "@/lib/video/compos/flows";
 import { UnderstandingPanel } from "../director/understanding-panel";
@@ -51,7 +51,10 @@ export function aiItems(api: StudioApi): AiItem[] {
   return out.sort((a, b) => (a.at ?? 1e9) - (b.at ?? 1e9));
 }
 
-/** Pestaña IA: lo que entendió el director, sus decisiones con su porqué, ganchos, "Edítalo así" y versiones. */
+/**
+ * «Edición con IA» (panel derecho): editar todo, copiar la edición de un video, lo que puso la IA, el gancho (lo eliges
+ * tú), "Edítalo así", versiones y lo que entendió el director. El chat está en la pestaña de al lado.
+ */
 export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: boolean; onAcceptAll: () => void }) {
   const { props, state } = api;
   const { plan, words } = props;
@@ -62,8 +65,7 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
       {props.notice}
       {/* Las animaciones que se están creando (varias a la vez), con cancelar. */}
       <RequestsPanel api={api} />
-      {/* Arriba de todo: es lo primero que se busca en esta pestaña. */}
-      <LookCard api={api} />
+      {props.canEdit && <EditAllCard projectId={props.projectId} dirty={dirty} />}
       <CopyEditCard
         projectId={props.projectId}
         canEdit={props.canEdit}
@@ -128,7 +130,7 @@ export function AiPanel({ api, dirty, onAcceptAll }: { api: StudioApi; dirty: bo
           <h2 id="hooks-title" className="text-sm font-semibold text-white">
             Gancho
           </h2>
-          <p className="text-xs text-muted">Pasa al principio del video. Los primeros 3 segundos deciden si siguen mirando.</p>
+          <p className="text-xs text-muted">Por defecto el video empieza como lo grabaste. Si eliges una de estas frases, pasa al principio.</p>
         </div>
         <div role="radiogroup" aria-label="Gancho" className="flex flex-col gap-1.5">
           {plan.hook_candidates.map((h, i) => {

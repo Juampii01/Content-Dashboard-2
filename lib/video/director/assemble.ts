@@ -261,6 +261,8 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     pacing: { long_pause: style ? style.longPause : PACE_PAUSE[pace] },
     director: { version: 1, pace },
     ...(moves.length ? { moves } : {}),
+    // El orden de las partes que eligió la persona a mano se respeta siempre.
+    ...(prev?.sequence?.length ? { sequence: prev.sequence.map((r) => ({ ...r })) } : {}),
     ...(zooms.length ? { zoom_moments: zooms } : {}),
     ...(fx.items.length ? { effects: fx.items } : {}),
     ...(style ? { zooms_enabled: style.zoom, style_id: style.id } : {}),

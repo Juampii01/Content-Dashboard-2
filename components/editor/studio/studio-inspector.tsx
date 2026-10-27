@@ -35,33 +35,40 @@ import { USER_TAG, type StudioApi } from "./types";
 /** Panel derecho del Estudio: lo elegido con todos sus controles, o los ajustes del video si no hay nada elegido. */
 const RIGHT_TAB_KEY = "studio.rightTab";
 const rightTabListeners = new Set<() => void>();
-let memTab: "chat" | "ajustes" | null = null;
-function readRightTab(): "chat" | "ajustes" {
+export type RightTab = "chat" | "ia" | "ajustes";
+let memTab: RightTab | null = null;
+function readRightTab(): RightTab {
   if (memTab) return memTab;
   try {
-    return localStorage.getItem(RIGHT_TAB_KEY) === "ajustes" ? "ajustes" : "chat";
+    const v = localStorage.getItem(RIGHT_TAB_KEY);
+    return v === "ajustes" || v === "ia" ? v : "chat";
   } catch {
     return "chat";
   }
+}
+/** Cambia la pestaña del panel derecho desde cualquier parte del Estudio (por ejemplo, «Pídeselo al chat»). */
+export function openRightTab(t: RightTab) {
+  try {
+    localStorage.setItem(RIGHT_TAB_KEY, t);
+  } catch {
+    // Sin almacenamiento local queda solo en memoria.
+  }
+  memTab = t;
+  rightTabListeners.forEach((l) => l());
 }
 function subscribeRightTab(cb: () => void) {
   rightTabListeners.add(cb);
   return () => rightTabListeners.delete(cb);
 }
 
-export function StudioInspector({ api }: { api: StudioApi }) {
+/**
+ * Panel derecho: todo lo de la IA en un solo lugar (el chat y lo que hizo la IA) y los ajustes del video; con algo
+ * elegido, sus controles. Se recuerda la última pestaña.
+ */
+export function StudioInspector({ api, aiPanel, actions }: { api: StudioApi; aiPanel: ReactNode; actions?: ReactNode }) {
   const sel = api.selection;
-  // Sin nada elegido: el chat con la IA (por defecto) o los ajustes de todo el video. Se recuerda la última.
   const tab = useSyncExternalStore(subscribeRightTab, readRightTab, () => "chat" as const);
-  const choose = (t: "chat" | "ajustes") => {
-    try {
-      localStorage.setItem(RIGHT_TAB_KEY, t);
-    } catch {
-      // Sin almacenamiento local queda solo en memoria.
-    }
-    memTab = t;
-    rightTabListeners.forEach((l) => l());
-  };
+  const choose = openRightTab;
   if (sel) {
     return (
       <div className="flex min-h-full flex-col" data-testid="studio-inspector">
@@ -71,20 +78,22 @@ export function StudioInspector({ api }: { api: StudioApi }) {
   }
   return (
     <div className={cn("flex flex-col", tab === "chat" ? "h-full" : "min-h-full")} data-testid="studio-inspector">
-      <div className="sticky top-0 z-20 border-b border-white/10 bg-card/95 px-3 py-2 backdrop-blur">
+      <div className="sticky top-0 z-20 flex items-center gap-1 border-b border-white/10 bg-card/95 px-2 py-2 backdrop-blur">
         <SegmentedControl
           label="Panel derecho"
           size="sm"
-          className="w-full"
+          className="min-w-0 flex-1"
           value={tab}
           onValueChange={choose}
           options={[
             { value: "chat", label: "Chat con la IA", icon: <MessageSquareText className="h-3.5 w-3.5" aria-hidden /> },
-            { value: "ajustes", label: "Ajustes del video", icon: <Settings2 className="h-3.5 w-3.5" aria-hidden /> },
+            { value: "ia", label: "Edición IA", icon: <Bot className="h-3.5 w-3.5" aria-hidden /> },
+            { value: "ajustes", label: "Ajustes", icon: <Settings2 className="h-3.5 w-3.5" aria-hidden /> },
           ]}
         />
+        {actions}
       </div>
-      {tab === "chat" ? <VideoChat api={api} /> : <GlobalInspector api={api} />}
+      {tab === "chat" ? <VideoChat api={api} /> : tab === "ia" ? aiPanel : <GlobalInspector api={api} />}
     </div>
   );
 }

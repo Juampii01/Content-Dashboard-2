@@ -1,5 +1,6 @@
 "use client";
 
+import type { SeqRange } from "@/lib/video/sequence";
 import { useCallback, useMemo, useState } from "react";
 import { planDensity, type Density, type RhythmAddition } from "@/lib/video/rhythm";
 import { sfxLevel, type SfxLevel } from "@/lib/video/sfx";
@@ -36,6 +37,8 @@ export type StudioState = {
   music: { trackId: string | null; db: number };
   studio: StudioLevel;
   moves: PlanMove[];
+  /** Orden de las partes elegido a mano (null = como se grabó). */
+  sequence: SeqRange[] | null;
   effects: FxItem[];
   density: Density;
   zoomMoments: ZoomMoment[];
@@ -84,6 +87,7 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     music: { trackId: plan.audio.music_asset_id, db: plan.audio.music_db },
     studio: studioLevel(plan.audio.studio),
     moves: plan.moves ?? [],
+    sequence: plan.sequence?.length ? plan.sequence : null,
     effects: plan.effects ?? [],
     density: planDensity(plan),
     zoomMoments: plan.zoom_moments ?? [],
@@ -112,7 +116,7 @@ export function studioPacing(s: Pick<StudioState, "pacing" | "pauses">): NonNull
  * Lo que arma el timeline de la vista previa (lo mismo que el servidor aplica con `applyReview`): las palabras
  * cortadas, el gancho, las pausas y los bloques movidos.
  */
-export function studioTimelineInput(plan: EditPlan, s: Pick<StudioState, "removed" | "selectedHook" | "corrections" | "preset" | "emphasis" | "pacing" | "pauses" | "moves">) {
+export function studioTimelineInput(plan: EditPlan, s: Pick<StudioState, "removed" | "selectedHook" | "corrections" | "preset" | "emphasis" | "pacing" | "pauses" | "moves"> & Partial<Pick<StudioState, "sequence">>) {
   return {
     removals: rangesFromIds(s.removed, plan.removals),
     hook_candidates: plan.hook_candidates,
@@ -121,6 +125,7 @@ export function studioTimelineInput(plan: EditPlan, s: Pick<StudioState, "remove
     captions: { preset: s.preset, emphasis_words: s.emphasis },
     pacing: studioPacing(s),
     moves: s.moves,
+    ...(s.sequence ? { sequence: s.sequence } : {}),
   };
 }
 
@@ -159,6 +164,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     transitions: s.transitions,
     soundCues: s.soundCues,
     ...(ctx.plan.moves?.length ? { moves: s.moves } : {}),
+    sequence: s.sequence ?? [],
     effects: s.effects,
     compositions: s.compositions,
     captionPlace: s.captionPlace,

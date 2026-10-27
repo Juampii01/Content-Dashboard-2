@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Ban, Bot, Clapperboard, Film, Library, Monitor, Palette, Smartphone, Sparkles, Wand2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Ban, Bot, Clapperboard, Library, Monitor, Palette, Smartphone, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
@@ -105,7 +105,8 @@ export function NewProjectFlow({
   const [brollMode, setBrollMode] = useState<"auto" | "off">(defaults.broll);
   const [autoExport, setAutoExport] = useState(false);
   // Por defecto el video llega limpio: sin cortes, subtítulos ni b-roll. La edición se pide por partes.
-  const [editMode, setEditMode] = useState<"auto" | "clean">("clean");
+  // El video siempre llega sin editar: se edita en el Estudio, a mano o con el chat (sin «Editado por la IA»).
+  const [editMode] = useState<"auto" | "clean">("clean");
   const flowSteps = editMode === "clean" ? STEPS.filter((s) => CLEAN_STEPS.includes(s.id)) : STEPS;
   const style = styles.find((st) => st.id === styleId) ?? null;
   const presetKeys = CAPTION_PICKER_ORDER.filter((k) => k !== "estilo" || Boolean(style?.preset.captions));
@@ -245,32 +246,6 @@ export function NewProjectFlow({
                   hint="MP4, MOV, WEBM o MKV, hasta 8 GB y 20 minutos"
                 />
               )}
-              <div role="radiogroup" aria-label="Cómo llega el video" className="grid gap-3 sm:grid-cols-2">
-                {[
-                  { value: "clean" as const, label: "Sin editar", hint: "Llega tal cual. Tú eliges qué hacer en Edición: recortar, subtitular, animar.", icon: Film },
-                  { value: "auto" as const, label: "Editado por la IA", hint: "La IA corta, subtitula y agrega b-roll por ti.", icon: Wand2 },
-                ].map((m) => (
-                  <button
-                    key={m.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={editMode === m.value}
-                    onClick={() => {
-                      setEditMode(m.value);
-                      if (m.value === "clean") setAutoExport(false);
-                    }}
-                    className={cn("flex items-center gap-4 rounded-2xl border p-4 text-left transition", editMode === m.value ? "border-accent bg-accent/15" : "border-white/10 hover:border-white/25")}
-                  >
-                    <span className="tile-icon h-11 w-11 flex-none">
-                      <m.icon className="h-5 w-5" aria-hidden />
-                    </span>
-                    <span>
-                      <span className="block text-sm font-semibold text-white">{m.label}</span>
-                      <span className="text-xs text-muted">{m.hint}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
               <Field label="Nombre" htmlFor="title" hint="Para encontrarlo después. No aparece en el video.">
                 <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="Por ejemplo: El error de la primera llamada" />
               </Field>

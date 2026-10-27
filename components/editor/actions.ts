@@ -162,6 +162,7 @@ const reviewSchema = z.object({
   studio: z.enum(STUDIO_LEVELS).optional(),
   music: z.object({ trackId: z.uuid().nullable(), db: z.number().min(MUSIC_DB.min).max(MUSIC_DB.max) }).optional(),
   moves: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0), after_word: z.number().int().min(-1), why: z.string().max(300) })).max(6).optional(),
+  sequence: z.array(z.object({ from_word: z.number().int().min(0), to_word: z.number().int().min(0) })).max(400).optional(),
   effects: fxListSchema.optional(),
   // Animaciones (composiciones): se limpian y se vuelve a validar su código en el servidor (lib/video/compos/service.ts).
   compositions: z.array(z.unknown()).max(MAX_COMPOSITIONS).optional(),

@@ -3,6 +3,7 @@
  * render con esto y lib/video/service.ts lo reexporta. `previewMismatch` compara lo que mostraba la vista previa con
  * el timeline que va a renderizar el servidor.
  */
+import { normalizeSequence, validSequence } from "./sequence";
 import { cleanCaptionPlacement } from "./canvas/captions";
 import { cleanPlace } from "./canvas/transform";
 import { cleanFx } from "./fx/schema";
@@ -37,6 +38,8 @@ export type Review = {
   music?: { trackId: string | null; db: number };
   /** Bloques movidos por el director que siguen en pie (la persona puede dejar alguno en su lugar). */
   moves?: PlanMove[];
+  /** Orden de las partes elegido a mano ([] = como se grabó). */
+  sequence?: { from_word: number; to_word: number }[];
   /** Efectos de la biblioteca tal como quedaron en la revisión. */
   effects?: unknown[];
   /** Transiciones en los cortes (lib/video/fx/transitions). */
@@ -206,6 +209,13 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const kept = (plan.moves ?? []).filter((m) => review.moves!.some((r) => r.from_word === m.from_word && r.to_word === m.to_word && r.after_word === m.after_word));
     if (kept.length) next.moves = kept;
     else delete next.moves;
+  }
+  if (review.sequence) {
+    // Solo se guarda si cubre todo el video una vez (si no, queda como se grabó).
+    const valid = validSequence(words.length, review.sequence);
+    const seq = valid ? normalizeSequence(words.length, valid) : null;
+    if (seq) next.sequence = seq;
+    else delete next.sequence;
   }
   return withDerived(next, words, duration);
 }

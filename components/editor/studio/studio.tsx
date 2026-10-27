@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, Captions, Clapperboard, Copy, Keyboard, Library, Loader2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2, WandSparkles } from "lucide-react";
+import { ArrowLeft, Bot, Captions, Clapperboard, Keyboard, Library, Loader2, Maximize2, MessageSquareText, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pause, Play, Plus, Redo2, Scissors, Settings2, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SegmentedControl } from "@/components/ui/tabs";
@@ -50,9 +50,11 @@ import { TranscriptEditor, type BrollMark } from "../transcript-editor";
 import { useCanvasEdits } from "../canvas/use-canvas-edits";
 import type { CaptionPlacement } from "@/lib/video/canvas/captions";
 import { HumanizeProvider } from "./humanize";
-import { StudioInspector } from "./studio-inspector";
+import { openRightTab, StudioInspector, type RightTab } from "./studio-inspector";
+import { HANDLE_CLASS, usePanelWidth } from "./panel-width";
+import { movePart } from "@/lib/video/sequence";
 import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
-import { EditPanel } from "./edit-panel";
+import { EditPanel, PartsTool } from "./edit-panel";
 import { SubtitlesPanel } from "./subtitles-panel";
 import { SUBS_AFTER_KEY, SubtitleBar } from "./subtitle-bar";
 import type { RefImage } from "@/lib/video/compos/schema";
@@ -64,28 +66,20 @@ import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, w
 let brollCounter = 0;
 const newBrollId = () => `u${Date.now().toString(36)}${(brollCounter++).toString(36)}`;
 const stripTag = (why: string | undefined) => (why ?? "").replace(RHYTHM_TAG, "").replace(USER_TAG, "").trim();
-type LeftTab = "edicion" | "subtitulos" | "texto" | "ia" | "biblioteca";
-const LEFT_W = { min: 280, max: 640, default: 360 };
-const clampLeft = (w: number) => Math.round(Math.min(LEFT_W.max, Math.max(LEFT_W.min, w)));
-const LEFT_KEY = "studio.leftW";
-function readLeftW(): number {
-  try {
-    const saved = Number(localStorage.getItem(LEFT_KEY));
-    return saved ? clampLeft(saved) : LEFT_W.default;
-  } catch {
-    return LEFT_W.default;
-  }
-}
-function writeLeftW(w: number) {
-  try {
-    localStorage.setItem(LEFT_KEY, String(w));
-  } catch {}
-  window.dispatchEvent(new Event(LEFT_KEY));
-}
-function subscribeLeftW(cb: () => void) {
-  window.addEventListener(LEFT_KEY, cb);
-  return () => window.removeEventListener(LEFT_KEY, cb);
-}
+type LeftTab = "edicion" | "subtitulos" | "texto" | "biblioteca";
+const LEFT_W = { min: 300, max: 640, default: 380 };
+const RIGHT_W = { min: 320, max: 720, default: 420 };
+const LEFT_TABS = [
+  { v: "edicion", label: "Edición", Icon: Scissors },
+  { v: "subtitulos", label: "Subtítulos", Icon: Captions },
+  { v: "texto", label: "Transcripción", Icon: Type },
+  { v: "biblioteca", label: "Biblioteca", Icon: Library },
+] as const;
+const RIGHT_TABS: { v: RightTab; label: string; Icon: typeof Bot }[] = [
+  { v: "chat", label: "Chat con la IA", Icon: MessageSquareText },
+  { v: "ia", label: "Edición con IA", Icon: Bot },
+  { v: "ajustes", label: "Ajustes del video", Icon: Settings2 },
+];
 
 /** ¿El foco está en un campo donde se escribe? (ahí los atajos no se disparan). */
 function typing(target: EventTarget | null): boolean {
@@ -118,32 +112,12 @@ export function Studio(props: StudioProps) {
   const [zoom, setZoom] = useState(1);
   const [leftTab, setLeftTab] = useState<LeftTab>("edicion");
   const [leftOpen, setLeftOpen] = useState(true);
-  // Ancho del panel izquierdo (se arrastra su borde; se recuerda en este navegador).
-  const storedLeftW = useSyncExternalStore(subscribeLeftW, readLeftW, () => LEFT_W.default);
-  const [dragW, setDragW] = useState<number | null>(null);
-  const leftW = dragW ?? storedLeftW;
-  const saveLeftW = useCallback((w: number) => {
-    writeLeftW(clampLeft(w));
-    setDragW(null);
-  }, []);
-  function dragLeft(e: React.PointerEvent<HTMLDivElement>) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = leftW;
-    const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => setDragW(clampLeft(startW + ev.clientX - startX));
-    const up = (ev: PointerEvent) => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      el.removeEventListener("pointercancel", up);
-      saveLeftW(startW + ev.clientX - startX);
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
-  }
-  const compactTabs = leftW < 380;
+  // Anchos de los paneles (se arrastra su borde; se recuerdan en este navegador).
+  const { width: leftW, handle: leftHandle } = usePanelWidth("studio.leftW", LEFT_W, "left");
+  const { width: rightW, handle: rightHandle } = usePanelWidth("studio.rightW", RIGHT_W, "right");
+  const [rightOpen, setRightOpen] = useState(true);
+  // Pantalla completa de la vista previa: solo el video (Esc o F para salir).
+  const [full, setFull] = useState(false);
   const [picking, setPicking] = useState<{ id: string; tab?: PickerTab; ask?: boolean; prompt?: string } | null>(null);
   const [gallery, setGallery] = useState<{ range: WordSpan | null; replace: string | null } | null>(null);
   const [fixRange, setFixRange] = useState<WordSpan | null>(null);
@@ -191,10 +165,10 @@ export function Studio(props: StudioProps) {
 
   const review = useMemo(() => toReview(s, { plan, hasStyle: Boolean(style), trackIds }), [s, plan, style, trackIds]);
 
-  const { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves } = s;
+  const { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves, sequence: sSequence } = s;
   const timeline = useMemo(
-    () => buildTimeline(words, studioTimelineInput(plan, { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves }), duration),
-    [words, plan, sRemoved, sHook, sCorrections, sPreset, sEmphasis, sPacing, sPauses, sMoves, duration],
+    () => buildTimeline(words, studioTimelineInput(plan, { removed: sRemoved, selectedHook: sHook, corrections: sCorrections, preset: sPreset, emphasis: sEmphasis, pacing: sPacing, pauses: sPauses, moves: sMoves, sequence: sSequence }), duration),
+    [words, plan, sRemoved, sHook, sCorrections, sPreset, sEmphasis, sPacing, sPauses, sMoves, sSequence, duration],
   );
   // Pausas largas entre palabras que quedan: las que se recortan y las que dejaste completas.
   const pauseList = useMemo(() => longPauses(words, { removals: rangesFromIds(sRemoved, plan.removals), pacing: studioPacing({ pacing: sPacing, pauses: sPauses }) }), [words, sRemoved, plan.removals, sPacing, sPauses]);
@@ -701,6 +675,7 @@ export function Studio(props: StudioProps) {
       ...(studioPacing(s) ? { pacing: studioPacing(s) } : {}),
       captions: { ...plan.captions, preset: s.preset, emphasis_words: s.emphasis },
       moves: s.moves,
+      ...(s.sequence ? { sequence: s.sequence } : {}),
       rhythm: { density: s.density, added: s.rhythmLog },
     };
     const theme = themeOfPlan(current) ?? motionTheme(graphicLook);
@@ -783,6 +758,29 @@ export function Studio(props: StudioProps) {
     if (!clip || first?.id === w.id || s.splits.includes(w.id)) return void toast.info("Ahí ya hay un corte. Mueve el cabezal a otra palabra.");
     update((st) => ({ ...st, splits: [...st.splits, w.id].sort((a, b) => a - b) }));
     toast.success("Video dividido.", { description: "Toca una parte en la pista de video y bórrala con Supr si no la quieres." });
+  }
+
+  /** La parte del video elegida (un tramo de la pista Video o de la transcripción), en palabras del original. */
+  function chosenPart(): { from: number; to: number } | null {
+    if (selection?.kind === "range") return { from: selection.from, to: selection.to };
+    if (selection?.kind === "clip") {
+      const c = timeline.clips[selection.index];
+      return c ? { from: c.firstWord, to: c.lastWord } : null;
+    }
+    return null;
+  }
+
+  /** Mueve la parte elegida un lugar antes o después (a mano: la IA nunca cambia el orden). Se deshace con Ctrl+Z. */
+  function moveChosen(dir: -1 | 1) {
+    if (!canEdit) return;
+    const part = chosenPart();
+    if (!part) return void toast.info("Elige una parte en la pista Video (divide con C) y después muévela.");
+    const r = movePart({ wordCount: words.length, sequence: s.sequence, splits: s.splits, removed: removedSet, part, dir });
+    if (!r.ok) return void toast.info(r.error);
+    // Los bordes de la parte quedan como divisiones, así se puede seguir moviendo la misma parte.
+    const edges = [part.from, part.to + 1].filter((id) => id > 0 && id < words.length);
+    update((st) => ({ ...st, sequence: r.sequence, splits: [...new Set([...st.splits, ...edges])].sort((a, b) => a - b) }));
+    toast.success(dir < 0 ? "Parte movida antes." : "Parte movida después.", { description: "Se deshace con Ctrl+Z." });
   }
 
   /** Divide lo elegido en el cabezal (la segunda parte empieza en la palabra que suena). */
@@ -1438,6 +1436,12 @@ export function Studio(props: StudioProps) {
         return;
       }
       if (mod || typing(e.target)) return;
+      // Mayús + Alt + flechas: mueve la parte del video elegida un lugar antes o después.
+      if (e.altKey && e.shiftKey && (key === "ArrowLeft" || key === "ArrowRight") && (selection?.kind === "range" || selection?.kind === "clip")) {
+        e.preventDefault();
+        moveChosen(key === "ArrowRight" ? 1 : -1);
+        return;
+      }
       // Alt + flechas: mueve lo elegido una palabra (sin mouse).
       if (e.altKey && (key === "ArrowLeft" || key === "ArrowRight")) {
         e.preventDefault();
@@ -1517,6 +1521,11 @@ export function Studio(props: StudioProps) {
           e.preventDefault();
           setHelp(true);
           return;
+        case "f":
+        case "F":
+          e.preventDefault();
+          toggleFull();
+          return;
       }
     };
   });
@@ -1538,7 +1547,21 @@ export function Studio(props: StudioProps) {
   }, []);
   const ratio = s.format === "9:16" ? 9 / 16 : 16 / 9;
   // Debajo del cuadro va la línea de "en pantalla" (~36 px); la barra del reproductor se oculta en pantallas grandes.
-  const previewW = box && box.h > 200 ? Math.max(180, Math.min(box.w - 16, (box.h - 52) * ratio)) : null;
+  // En pantalla completa no hay línea de abajo, pero sí la barra del reproductor (~44 px).
+  const previewW = box && box.h > 200 ? Math.max(180, Math.min(box.w - 16, (box.h - (full ? 60 : 52)) * ratio)) : null;
+
+  // Pantalla completa: solo el video, con su barra de reproducción. F o el botón; Esc o F para salir.
+  const toggleFull = useCallback(() => {
+    const el = center.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else if (el.requestFullscreen) void el.requestFullscreen().catch(() => toast.error("Tu navegador no dejó abrir la pantalla completa."));
+  }, []);
+  useEffect(() => {
+    const on = () => setFull(Boolean(document.fullscreenElement) && document.fullscreenElement === center.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
 
   const rangeSel = selection?.kind === "range" ? outputRange(timeline, selection.from, selection.to) : null;
   const dirty = reviewKey !== savedKey;
@@ -1717,6 +1740,13 @@ export function Studio(props: StudioProps) {
   function applyTrim(ids: number[]) {
     update((st) => ({ ...st, removed: [...new Set([...st.removed, ...ids])].sort((a, b) => a - b), pauses: { keep: [], all: false } }));
     setSelection(null);
+  }
+  /** Lleva al Chat con la IA (panel derecho) y deja el cursor para escribir. */
+  function openChat() {
+    setSelection(null);
+    setRightOpen(true);
+    openRightTab("chat");
+    setTimeout(() => document.getElementById("video-chat-msg")?.focus(), 120);
   }
   function openWholeVideo(notes?: string) {
     setWholeNotes((notes ?? "").slice(0, 800));
@@ -1899,16 +1929,6 @@ export function Studio(props: StudioProps) {
             </button>
             {props.menu}
             {canEdit && (
-              <Button variant="ghost" className="!px-3 !py-2" icon={<WandSparkles className="h-4 w-4" aria-hidden />} onClick={() => setWholeOpen(true)} title="La IA anima todo el video, momento por momento">
-                <span className="hidden lg:inline">Animar todo</span>
-              </Button>
-            )}
-            {canEdit && (
-              <Button variant="ghost" className="!px-3 !py-2" icon={<Copy className="h-4 w-4" aria-hidden />} onClick={() => (setLeftTab("ia"), setLeftOpen(true))} title="Haz la misma edición que un video de referencia">
-                <span className="hidden lg:inline">Copiar edición</span>
-              </Button>
-            )}
-            {canEdit && (
               <Button onClick={render} disabled={rendering || timeline.clips.length === 0} className="!px-3 !py-2" icon={rendering ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />}>
                 {rendering ? "Enviando…" : <span>Renderizar</span>}
               </Button>
@@ -1919,45 +1939,21 @@ export function Studio(props: StudioProps) {
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <div
             className={cn(
-              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_252px] lg:grid-cols-[var(--left)_minmax(0,1fr)_320px] xl:grid-cols-[var(--left)_minmax(0,1fr)_360px]",
+              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_252px] lg:grid-cols-[var(--left)_minmax(0,1fr)_var(--right)]",
             )}
-            style={{ "--left": leftOpen ? `${leftW}px` : "44px" } as React.CSSProperties}
+            style={{ "--left": leftOpen ? `${leftW}px` : "52px", "--right": rightOpen || selection ? `${rightW}px` : "52px" } as React.CSSProperties}
           >
             {/* Izquierda: transcripción, IA y biblioteca */}
             <aside className="relative order-4 flex min-h-0 min-w-0 flex-col border-white/10 lg:order-none lg:border-r" aria-label="Transcripción, IA y biblioteca">
               {leftOpen && (
                 // Borde para arrastrar: agranda o achica el panel (doble clic vuelve al ancho de siempre).
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Ancho del panel"
-                  aria-valuemin={LEFT_W.min}
-                  aria-valuemax={LEFT_W.max}
-                  aria-valuenow={leftW}
-                  tabIndex={0}
-                  title="Arrastra para cambiar el ancho"
-                  onPointerDown={dragLeft}
-                  onDoubleClick={() => saveLeftW(LEFT_W.default)}
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowLeft") saveLeftW(leftW - 24);
-                    else if (e.key === "ArrowRight") saveLeftW(leftW + 24);
-                  }}
-                  className="absolute inset-y-0 -right-1.5 z-20 hidden w-3 cursor-col-resize touch-none lg:block after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:bg-transparent after:transition hover:after:bg-accent/60 focus-visible:outline-none focus-visible:after:bg-accent"
-                />
+<div {...leftHandle} aria-label="Ancho del panel izquierdo" className={cn(HANDLE_CLASS, "-right-1.5")} />
               )}
               {leftOpen ? (
                 <>
                   <div className="flex flex-none items-center gap-1 border-b border-white/10 px-2 py-1.5">
-                    <div role="tablist" aria-label="Paneles" className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
-                      {(
-                        [
-                          { v: "edicion", label: "Edición", icon: <Scissors className="h-3.5 w-3.5" aria-hidden /> },
-                          { v: "subtitulos", label: "Subtítulos", icon: <Captions className="h-3.5 w-3.5" aria-hidden /> },
-                          { v: "texto", label: "Transcripción", icon: <Type className="h-3.5 w-3.5" aria-hidden /> },
-                          { v: "ia", label: "IA", icon: <Bot className="h-3.5 w-3.5" aria-hidden /> },
-                          { v: "biblioteca", label: "Biblioteca", icon: <Library className="h-3.5 w-3.5" aria-hidden /> },
-                        ] as const
-                      ).map((t) => (
+                    <div role="tablist" aria-label="Paneles" className="grid min-w-0 flex-1 grid-cols-4 gap-1">
+                      {LEFT_TABS.map((t) => (
                         <button
                           key={t.v}
                           type="button"
@@ -1965,11 +1961,10 @@ export function Studio(props: StudioProps) {
                           aria-selected={leftTab === t.v}
                           onClick={() => setLeftTab(t.v)}
                           title={t.label}
-                          aria-label={t.label}
-                          className={cn("inline-flex flex-none items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold whitespace-nowrap transition", leftTab === t.v ? "bg-white/10 text-white" : "text-muted hover:text-white")}
+                          className={cn("flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[11px] font-semibold transition", leftTab === t.v ? "bg-white text-paper" : "text-muted hover:bg-white/[0.06] hover:text-white")}
                         >
-                          {t.icon}
-                          {(!compactTabs || leftTab === t.v) && t.label}
+                          <t.Icon className="h-[18px] w-[18px]" aria-hidden />
+                          <span className="max-w-full truncate">{t.label}</span>
                         </button>
                       ))}
                     </div>
@@ -2112,14 +2107,24 @@ export function Studio(props: StudioProps) {
                     {leftTab === "edicion" && (
                       <EditPanel
                         api={api}
-                        dirty={dirty}
                         onRestoreAll={restoreAll}
                         onTrim={applyTrim}
                         onTrimPauses={() => update((st) => ({ ...st, pauses: { keep: [], all: false } }))}
-                        onWholeVideo={openWholeVideo}
-                        onClipAt={addClipBroll}
-                        onAnimationAt={animationAt}
-                        onGraphicAt={(range, prompt) => addBroll(range, true, prompt)}
+                        onAnimationAt={(range) => animationAt(range)}
+                        onGraphicAt={(range) => addBroll(range, true)}
+                        onBrollAt={(range) => addBroll(range)}
+                        onEffectAt={(range) => setGallery({ range, replace: null })}
+                        onOpenChat={openChat}
+                        parts={
+                          <PartsTool
+                            chosen={chosenPart() ? textOf(chosenPart()!.from, chosenPart()!.to, 60) : null}
+                            reordered={Boolean(s.sequence)}
+                            onSplit={splitVideo}
+                            onMove={moveChosen}
+                            onRemove={removeSelection}
+                            onReset={() => update((st) => ({ ...st, sequence: null }))}
+                          />
+                        }
                         rangeHere={() => {
                           if (selection?.kind === "range") return { range: { from: selection.from, to: selection.to }, from: "seleccion" };
                           const span = spanAround(timeline, outTime, 4);
@@ -2127,7 +2132,6 @@ export function Studio(props: StudioProps) {
                         }}
                       />
                     )}
-                    {leftTab === "ia" && <AiPanel api={api} dirty={dirty} onAcceptAll={acceptAll} />}
                     {leftTab === "biblioteca" && <LibraryPanel api={api} onAdd={(item) => addFromLibrary(item)} />}
                   </div>
                 </>
@@ -2136,17 +2140,9 @@ export function Studio(props: StudioProps) {
                   <button type="button" className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white" onClick={() => setLeftOpen(true)} aria-label="Mostrar el panel" title="Mostrar el panel">
                     <PanelLeftOpen className="h-4 w-4" aria-hidden />
                   </button>
-                  {(
-                    [
-                      { v: "edicion", label: "Edición", icon: <Scissors className="h-4 w-4" aria-hidden /> },
-                      { v: "subtitulos", label: "Subtítulos", icon: <Captions className="h-4 w-4" aria-hidden /> },
-                      { v: "texto", label: "Transcripción", icon: <Type className="h-4 w-4" aria-hidden /> },
-                      { v: "ia", label: "IA", icon: <Bot className="h-4 w-4" aria-hidden /> },
-                      { v: "biblioteca", label: "Biblioteca", icon: <Library className="h-4 w-4" aria-hidden /> },
-                    ] as const
-                  ).map((t) => (
-                    <button key={t.v} type="button" className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white" onClick={() => (setLeftTab(t.v), setLeftOpen(true))} aria-label={t.label} title={t.label}>
-                      {t.icon}
+                  {LEFT_TABS.map((t) => (
+                    <button key={t.v} type="button" className="grid h-10 w-10 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white" onClick={() => (setLeftTab(t.v), setLeftOpen(true))} aria-label={t.label} title={t.label}>
+                      <t.Icon className="h-[18px] w-[18px]" aria-hidden />
                     </button>
                   ))}
                 </div>
@@ -2154,12 +2150,25 @@ export function Studio(props: StudioProps) {
             </aside>
 
             {/* Centro: la vista previa, lo más grande posible */}
-            <main ref={center} className="order-1 flex min-h-0 min-w-0 flex-col items-center justify-center p-3 lg:order-none" aria-label="Vista previa">
+            <main ref={center} className={cn("group/stage relative order-1 flex min-h-0 min-w-0 flex-col items-center justify-center p-3 lg:order-none", full && "theme-dark bg-black")} aria-label="Vista previa">
+              <button
+                type="button"
+                onClick={toggleFull}
+                className={cn(
+                  "absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition",
+                  full ? "border-white/20 bg-black/60 text-paper hover:bg-black/80" : "border-white/10 bg-card/90 text-muted opacity-70 hover:text-white hover:opacity-100 focus-visible:opacity-100 group-hover/stage:opacity-100",
+                )}
+                aria-label={full ? "Salir de la pantalla completa (F)" : "Ver en pantalla completa (F)"}
+                title={full ? "Salir de la pantalla completa (F o Esc)" : "Pantalla completa (F)"}
+              >
+                {full ? <Minimize2 className="h-4 w-4" aria-hidden /> : <Maximize2 className="h-4 w-4" aria-hidden />}
+                <span className="hidden xl:inline">{full ? "Salir" : "Pantalla completa"}</span>
+              </button>
               <div
                 ref={stage}
                 // En pantallas grandes, la barra propia del reproductor se oculta: la línea de tiempo de abajo ya tiene
                 // reproducir, el tiempo y el cabezal (así el cuadro del video queda más grande).
-                className="relative w-full max-w-[360px] lg:max-w-none [&_div[style*='aspect-ratio']]:!max-w-none lg:[&>div>div:has(>input[aria-label^='Posici'])]:hidden"
+                className={cn("relative w-full max-w-[360px] lg:max-w-none [&_div[style*='aspect-ratio']]:!max-w-none", !full && "lg:[&>div>div:has(>input[aria-label^='Posici'])]:hidden")}
                 style={previewW ? { width: previewW } : undefined}
                 data-testid="studio-stage"
               >
@@ -2202,7 +2211,7 @@ export function Studio(props: StudioProps) {
                   </div>
                 )}
               </div>
-              <div className="mt-1 flex h-8 items-center justify-center">
+              <div className={cn("mt-1 flex h-8 items-center justify-center", full && "hidden")}>
                 {composNow && (
                   <button
                     type="button"
@@ -2227,8 +2236,32 @@ export function Studio(props: StudioProps) {
             </main>
 
             {/* Derecha: inspector */}
-            <aside className="order-3 min-h-0 overflow-y-auto overscroll-contain border-white/10 [scrollbar-width:thin] lg:order-none lg:border-l" aria-label="Inspector">
-              <StudioInspector api={api} />
+            <aside className="relative order-3 flex min-h-0 min-w-0 flex-col border-white/10 lg:order-none lg:border-l" aria-label="Chat con la IA, lo que hizo la IA y ajustes">
+              {(rightOpen || selection) && <div {...rightHandle} aria-label="Ancho del panel derecho" className={cn(HANDLE_CLASS, "-left-1.5")} />}
+              {rightOpen || selection ? (
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+                  <StudioInspector
+                    api={api}
+                    aiPanel={<AiPanel api={api} dirty={dirty} onAcceptAll={acceptAll} />}
+                    actions={
+                      <button type="button" className="hidden h-8 w-8 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white lg:grid" onClick={() => setRightOpen(false)} aria-label="Ocultar el panel derecho" title="Ocultar el panel">
+                        <PanelRightClose className="h-4 w-4" aria-hidden />
+                      </button>
+                    }
+                  />
+                </div>
+              ) : (
+                <div className="hidden flex-col items-center gap-1 py-2 lg:flex">
+                  <button type="button" className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white" onClick={() => setRightOpen(true)} aria-label="Mostrar el panel derecho" title="Mostrar el panel">
+                    <PanelRightOpen className="h-4 w-4" aria-hidden />
+                  </button>
+                  {RIGHT_TABS.map((t) => (
+                    <button key={t.v} type="button" className="grid h-10 w-10 place-items-center rounded-lg text-muted hover:bg-white/[0.06] hover:text-white" onClick={() => (openRightTab(t.v), setSelection(null), setRightOpen(true))} aria-label={t.label} title={t.label}>
+                      <t.Icon className="h-[18px] w-[18px]" aria-hidden />
+                    </button>
+                  ))}
+                </div>
+              )}
             </aside>
 
             {/* Abajo: la línea de tiempo */}
@@ -2333,11 +2366,13 @@ const SHORTCUTS: [string, string][] = [
   ["C", "Dividir el video en el cabezal"],
   ["S", "Dividir lo elegido (b-roll, efecto o zoom) en el cabezal"],
   ["Alt + ← →", "Mover lo elegido una palabra"],
+  ["Mayús + Alt + ← →", "Mover la parte del video elegida antes o después"],
   ["Supr", "Quitar lo elegido (en un tramo de video: cortarlo)"],
   ["Esc", "Soltar la selección"],
   ["+ −", "Acercar o alejar la línea de tiempo (también Ctrl + rueda)"],
   ["Ctrl + Z", "Deshacer"],
   ["Mayús + Ctrl + Z", "Rehacer"],
+  ["F", "Pantalla completa (solo el video)"],
   ["?", "Ver estos atajos"],
 ];
 

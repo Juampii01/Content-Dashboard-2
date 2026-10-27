@@ -5,6 +5,7 @@
  * y el worker los renderiza tal cual, así lo que se ve en la revisión es lo que sale en el MP4.
  * Los bordes se ajustan a la rejilla de 30 cuadros por segundo; audio y video usan los mismos cuadros.
  */
+import { validSequence } from "./sequence";
 import { captionText, endsSentence } from "./text";
 import { FPS, type Clip, type EditPlan, type PlanMove, type PlanSegment, type TimedWord, type Word } from "./types";
 
@@ -148,7 +149,7 @@ export function bodySequence(wordCount: number, moves: PlanMove[] | undefined): 
 
 export function buildTimeline(
   words: Word[],
-  plan: Pick<EditPlan, "removals" | "hook_candidates" | "selected_hook" | "corrections" | "captions"> & Partial<Pick<EditPlan, "pacing" | "moves">>,
+  plan: Pick<EditPlan, "removals" | "hook_candidates" | "selected_hook" | "corrections" | "captions"> & Partial<Pick<EditPlan, "pacing" | "moves" | "sequence">>,
   duration: number,
 ): Timeline {
   const longPause = longPauseOf(plan.pacing);
@@ -158,12 +159,14 @@ export function buildTimeline(
   const inHook = (id: number) => Boolean(hook && id >= hook.from_word && id <= hook.to_word);
   // Si el gancho ya está al principio del video, no se mueve: es parte del cuerpo (salvo que otro bloque pase al inicio).
   const firstKept = words.find((w) => !removed.has(w.id));
-  const toStart = (plan.moves ?? []).some((m) => m.after_word === -1);
+  const manual = validSequence(words.length, plan.sequence);
+  const toStart = manual ? manual[0]![0] !== 0 : (plan.moves ?? []).some((m) => m.after_word === -1);
   const hookIsOpening = Boolean(hook && firstKept && hook.from_word <= firstKept.id && !toStart);
 
   const hookRuns = hook && !hookIsOpening ? runsFor(words, (id) => inHook(id) && !removed.has(id), duration, longPause, pauses) : [];
   const keepBody = (id: number) => !removed.has(id) && (hookIsOpening || !inHook(id));
-  const sequence = plan.moves?.length ? bodySequence(words.length, plan.moves) : [[0, words.length - 1] as [number, number]];
+  // El orden que eligió la persona manda; si no hay, el de los bloques movidos (planes de antes) o el de la grabación.
+  const sequence = manual ?? (plan.moves?.length ? bodySequence(words.length, plan.moves) : [[0, words.length - 1] as [number, number]]);
   const bodyClips = sequence.flatMap(([a, b]) => toClips(runsFor(words, (id) => id >= a && id <= b && keepBody(id), duration, longPause, pauses), "body"));
   const clips = [...toClips(hookRuns, "hook"), ...bodyClips];
 

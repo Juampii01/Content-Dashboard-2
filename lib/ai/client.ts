@@ -6,7 +6,7 @@ import { env } from "@/lib/env";
 import { readAnthropicKey } from "./anthropic-key";
 import { costOf, imageTokens, textTokens } from "./pricing";
 import { checkCredit } from "./credits";
-import { currentUsageScope, recordUsage, withUsageScope, type UsageStatus } from "./usage";
+import { currentUsageScope, recordUsage, withUsageScope, type TokenUsage, type UsageStatus } from "./usage";
 
 /**
  * Única puerta a Claude. Todas las funciones de IA pasan por aquí para tener:
@@ -57,7 +57,7 @@ export async function aiReady(): Promise<boolean> {
   return Boolean(env().ANTHROPIC_API_KEY) || Boolean(await readAnthropicKey().catch(() => null));
 }
 
-export async function generateStructured<S extends z.ZodType>(input: {
+export type StructuredInput<S extends z.ZodType> = {
   feature: string;
   model?: ModelKey;
   /** Contexto estable (reglas + marca): va en caché por una hora. */
@@ -81,13 +81,117 @@ export async function generateStructured<S extends z.ZodType>(input: {
   imageSizes?: { width: number; height: number }[];
   /** AI_FAKE=1: respuesta simulada armada con los datos reales (en lugar de los casos de fake.ts). */
   fake?: FakeFn;
-}): Promise<z.infer<S>> {
+};
+
+/** Respuestas simuladas (AI_FAKE=1): solo para probar la interfaz en desarrollo, nunca en producción. */
+export function aiFake(): boolean {
+  return process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production";
+}
+
+/**
+ * El cuerpo del pedido a la API de Mensajes (sin `stream`). `freeform`: el JSON se pide como texto, con el JSON Schema
+ * en la tarea (cuando la salida estructurada no admite el esquema).
+ */
+export function messagesBody<S extends z.ZodType>(input: StructuredInput<S>, freeform = false) {
+  const model = MODELS[input.model ?? "main"];
+  const params = {
+    model,
+    max_tokens: input.maxTokens ?? 4096,
+    system: [{ type: "text" as const, text: input.context, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }],
+    messages: [
+      {
+        role: "user" as const,
+        content: input.images?.length
+          ? [...input.images.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } })), { type: "text" as const, text: input.task }]
+          : input.task,
+      },
+    ],
+    ...(input.thinking ? { thinking: { type: "adaptive" as const } } : {}),
+    // Solo el JSON Schema, sin el `parse` del SDK: el JSON se lee aquí (readJson) para registrar el consumo aunque no se
+    // pueda leer.
+    output_config: { format: { type: "json_schema" as const, schema: zodOutputFormat(input.schema).schema }, ...(input.thinking ? { effort: input.thinking.effort } : {}) },
+  };
+  if (!freeform) return params;
+  const { output_config, ...rest } = params;
+  const jsonSchema = JSON.stringify(zodOutputFormat(input.schema).schema);
+  return {
+    ...rest,
+    ...(output_config.effort ? { output_config: { effort: output_config.effort } } : {}),
+    messages: [
+      {
+        role: "user" as const,
+        content: [
+          ...(Array.isArray(params.messages[0]!.content) ? params.messages[0]!.content : [{ type: "text" as const, text: params.messages[0]!.content }]),
+          { type: "text" as const, text: `FORMATO DE SALIDA: responde SOLO con un objeto JSON válido (sin texto antes ni después, sin bloques de código) que cumpla este JSON Schema:\n${jsonSchema}` },
+        ],
+      },
+    ],
+  };
+}
+
+/** ¿El error de la API dice que el esquema no entra en la salida estructurada? (entonces se pide como texto). */
+export function isGrammarError(status: number, message: string): boolean {
+  return status === 400 && /grammar is too large|too many|schema.*too (large|complex)/i.test(message);
+}
+
+/** Lo que importa de una respuesta para leerla y registrar su consumo (venga del SDK o del worker). */
+export type SettledMessage = {
+  stop_reason: string | null;
+  content: { type: string; text?: string }[];
+  usage: TokenUsage;
+  parsed_output?: unknown;
+};
+
+/**
+ * Lee la respuesta, registra el consumo una sola vez (con lo que pasó) y devuelve el resultado o lanza el AiError.
+ * Lo usan la llamada de aquí y la que hace el worker en las piezas largas (lib/video/compos/remote.ts).
+ */
+export async function settleStructured<S extends z.ZodType>(input: StructuredInput<S>, message: SettledMessage, opts: { freeform?: boolean; provider?: string } = {}): Promise<z.infer<S>> {
+  const model = MODELS[input.model ?? "main"];
+  const videoProjectId = input.videoProjectId ?? currentUsageScope().videoProjectId ?? null;
+  let status: UsageStatus = "ok";
+  let result: z.infer<S> | undefined;
+  let failure: AiError | null = null;
+  if (message.stop_reason === "refusal") {
+    status = "rechazada";
+    failure = new AiError("La IA no quiso generar ese contenido. Prueba con otra idea o redáctala distinto.", "refusal");
+  } else if (message.stop_reason === "max_tokens") {
+    status = "truncada";
+    failure = new AiError("El resultado salió demasiado largo. Prueba con un formato más corto.", "truncada: max_tokens");
+  } else {
+    const parsedOutput = message.parsed_output;
+    if (parsedOutput != null && !opts.freeform) result = parsedOutput as z.infer<S>;
+    else {
+      const read = readJson(message.content, input.schema);
+      if (read.ok) result = read.value as z.infer<S>;
+      else {
+        status = "error_lectura";
+        failure = new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", read.detail);
+      }
+    }
+  }
+  await recordUsage({ step: input.feature, model, usage: message.usage, status, userId: input.userId, jobId: input.jobId, videoProjectId, ...(opts.provider ? { provider: opts.provider } : {}) });
+  if (failure) throw Object.assign(failure, { costUsd: usageCost(model, message.usage) });
+  return result as z.infer<S>;
+}
+
+/** Costo en USD de un consumo (para cargarlo al pedido aunque la llamada haya fallado). */
+export function usageCost(model: string, usage: TokenUsage): number {
+  return costOf(model, {
+    input: Math.max(0, Math.round(usage.input_tokens ?? 0)),
+    output: Math.max(0, Math.round(usage.output_tokens ?? 0)),
+    cacheRead: Math.max(0, Math.round(usage.cache_read_input_tokens ?? 0)),
+    cacheWrite: Math.max(0, Math.round(usage.cache_creation_input_tokens ?? 0)),
+  });
+}
+
+export async function generateStructured<S extends z.ZodType>(input: StructuredInput<S>): Promise<z.infer<S>> {
   const model = MODELS[input.model ?? "main"];
   const videoProjectId = input.videoProjectId ?? currentUsageScope().videoProjectId ?? null;
   // Créditos del mes: al 100 % no se empieza ninguna llamada nueva (al 80 % se avisa). Ver lib/ai/credits.ts.
   await checkCredit({ userId: input.userId, videoProjectId });
   // Solo para probar la interfaz en desarrollo: nunca en producción.
-  if (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production") {
+  if (aiFake()) {
     await new Promise((r) => setTimeout(r, 800));
     let raw: unknown;
     if (input.fake) raw = input.fake();
@@ -107,28 +211,12 @@ export async function generateStructured<S extends z.ZodType>(input: {
   // La clave de API del cliente (Ajustes) o, si no cargó una, la del servidor. Nunca la suscripción de Claude: los
   // términos de Anthropic no permiten usar planes Pro o Max desde productos de terceros.
   const api = await anthropicClient();
-  const params = {
-    model,
-    max_tokens: input.maxTokens ?? 4096,
-    system: [{ type: "text" as const, text: input.context, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }],
-    messages: [
-      {
-        role: "user" as const,
-        content: input.images?.length
-          ? [...input.images.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } })), { type: "text" as const, text: input.task }]
-          : input.task,
-      },
-    ],
-    ...(input.thinking ? { thinking: { type: "adaptive" as const } } : {}),
-    // Solo el JSON Schema, sin el `parse` del SDK: el JSON se lee aquí (readJson) para registrar el consumo aunque no se
-    // pueda leer.
-    output_config: { format: { type: "json_schema" as const, schema: zodOutputFormat(input.schema).schema }, ...(input.thinking ? { effort: input.thinking.effort } : {}) },
-  };
+  const params = messagesBody(input);
   // Siempre por streaming y leyendo el JSON aquí: así el consumo se registra aunque la respuesta llegue cortada o no se
   // pueda leer (Anthropic la cobra igual). Sin streaming, el SDK corta a los 2 minutos y no devuelve el consumo si falla
   // la lectura.
   const long = Boolean(input.thinking) || (input.maxTokens ?? 4096) > 16_000 || (input.timeoutMs ?? 0) > 120_000;
-  const call = (p: typeof params | Omit<typeof params, "output_config">) =>
+  const call = (p: ReturnType<typeof messagesBody>) =>
     api.messages.stream(p as typeof params, { timeout: input.timeoutMs ?? (long ? 600_000 : 120_000) }).finalMessage();
   let message: Awaited<ReturnType<typeof call>>;
   let freeform = false;
@@ -138,24 +226,10 @@ export async function generateStructured<S extends z.ZodType>(input: {
     } catch (error) {
       // La salida estructurada compila el esquema a una gramática con tamaño máximo. Si un esquema la supera,
       // se pide el mismo JSON como texto (con el JSON Schema en la tarea) y se valida con Zod acá.
-      if (!(error instanceof APIError && error.status === 400 && /grammar is too large|too many|schema.*too (large|complex)/i.test(error.message))) throw error;
+      if (!(error instanceof APIError && isGrammarError(error.status ?? 0, error.message))) throw error;
       console.warn(`[ia] ${input.feature}: esquema demasiado grande para la salida estructurada; se pide como texto.`);
-      const { output_config, ...rest } = params;
-      const jsonSchema = JSON.stringify(zodOutputFormat(input.schema).schema);
       freeform = true;
-      message = await call({
-        ...rest,
-        ...(output_config.effort ? { output_config: { effort: output_config.effort } } : {}),
-        messages: [
-          {
-            role: "user" as const,
-            content: [
-              ...(Array.isArray(params.messages[0]!.content) ? params.messages[0]!.content : [{ type: "text" as const, text: params.messages[0]!.content }]),
-              { type: "text" as const, text: `FORMATO DE SALIDA: responde SOLO con un objeto JSON válido (sin texto antes ni después, sin bloques de código) que cumpla este JSON Schema:\n${jsonSchema}` },
-            ],
-          },
-        ],
-      } as Omit<typeof params, "output_config">);
+      message = await call(messagesBody(input, true));
     }
   } catch (error) {
     if (error instanceof AiError) throw error;
@@ -171,37 +245,12 @@ export async function generateStructured<S extends z.ZodType>(input: {
     }
     throw new AiError("No pudimos generar el resultado. Prueba de nuevo.", error instanceof Error ? error.message : String(error));
   }
-
-  // Primero se lee el resultado y después se registra el consumo una sola vez, con lo que pasó.
-  let status: UsageStatus = "ok";
-  let result: z.infer<S> | undefined;
-  let failure: AiError | null = null;
-  if (message.stop_reason === "refusal") {
-    status = "rechazada";
-    failure = new AiError("La IA no quiso generar ese contenido. Prueba con otra idea o redáctala distinto.", "refusal");
-  } else if (message.stop_reason === "max_tokens") {
-    status = "truncada";
-    failure = new AiError("El resultado salió demasiado largo. Prueba con un formato más corto.", "truncada: max_tokens");
-  } else {
-    const parsedOutput = (message as { parsed_output?: unknown }).parsed_output;
-    if (parsedOutput != null && !freeform) result = parsedOutput as z.infer<S>;
-    else {
-      const read = readJson(message.content, input.schema);
-      if (read.ok) result = read.value as z.infer<S>;
-      else {
-        status = "error_lectura";
-        failure = new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", read.detail);
-      }
-    }
-  }
-  await recordUsage({ step: input.feature, model, usage: message.usage, status, userId: input.userId, jobId: input.jobId, videoProjectId });
-  if (failure) throw failure;
-  return result as z.infer<S>;
+  return settleStructured(input, message as unknown as SettledMessage, { freeform });
 }
 
 /** Lee el JSON del texto de la respuesta (streaming o pedido como texto) y lo valida con el esquema. */
-function readJson(content: Anthropic.Messages.ContentBlock[], schema: z.ZodType): { ok: true; value: unknown } | { ok: false; detail: string } {
-  const text = content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+function readJson(content: SettledMessage["content"], schema: z.ZodType): { ok: true; value: unknown } | { ok: false; detail: string } {
+  const text = content.flatMap((b) => (b.type === "text" ? [b.text ?? ""] : [])).join("");
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) return { ok: false, detail: "sin JSON en la respuesta" };

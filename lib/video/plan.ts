@@ -15,6 +15,8 @@ import { transitionListSchema } from "./fx/transitions";
 import { compositionListSchema } from "./compos/schema";
 import { musicGenSchema } from "./music-gen/spec";
 import { soundCueListSchema } from "./sfx";
+import { mixSchema, musicFadeSchema, VOICE_DB } from "./audio-mix";
+import { markerListSchema } from "./markers";
 import { captionLinesSchema } from "./canvas/captions";
 import { transformSchema } from "./canvas/transform";
 import { buildTimeline, planSegments } from "./timeline";
@@ -119,7 +121,13 @@ export const planSchema = z.object({
     studio: z.enum(["off", "soft", "strong"]).optional(),
     cues: soundCueListSchema.optional(),
     music_gen: musicGenSchema.nullable().optional(),
+    /** Mezcla (lib/video/audio-mix.ts): volumen de la voz, silenciar y solo por pista y fundidos de la música. */
+    voice_db: z.number().min(VOICE_DB.min).max(VOICE_DB.max).optional(),
+    mix: mixSchema.optional(),
+    music_fade: musicFadeSchema.optional(),
   }),
+  /** Marcadores con nota (lib/video/markers.ts). No cambian el render. */
+  markers: markerListSchema.optional(),
   framing: z.object({ mode: z.enum(["center", "manual"]), offset_x: z.number().min(-1).max(1) }),
   off_script: z.array(z.number().int().min(0)).max(20000),
   summary: z.string().max(1000),
@@ -164,6 +172,7 @@ export function planIssues(plan: EditPlan, wordCount: number): string[] {
   for (const c of plan.compositions ?? []) check("Animación", c.from_word, c.to_word);
   for (const tr of plan.transitions ?? []) if (tr.at_word >= wordCount) issues.push(`Transición fuera de rango (${tr.at_word}).`);
   for (const c of plan.audio.cues ?? []) if (c.at_word >= wordCount) issues.push(`Sonido fuera de rango (${c.at_word}).`);
+  for (const m of plan.markers ?? []) if (m.at_word >= wordCount) issues.push(`Marcador fuera de rango (${m.at_word}).`);
   return issues;
 }
 

@@ -1146,6 +1146,18 @@ export const apiUsage = pgTable(
   ],
 );
 
+/**
+ * Créditos de IA por mes (en USD de consumo de api_usage). Una fila por persona del equipo con su tope propio, más dos
+ * filas especiales: `default` (el tope de quien no tiene fila propia) e `installation` (el tope de toda la instalación,
+ * opcional). Sin filas, se usa AI_MONTHLY_CREDIT_USD. Al 80 % se avisa y al 100 % la IA se frena hasta el mes que viene.
+ */
+export const aiCreditLimits = pgTable("ai_credit_limits", {
+  id: text("id").primaryKey(), // id del usuario, "default" o "installation"
+  monthlyUsd: doublePrecision("monthly_usd").notNull(),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});
+
 // ─── Claves de servicios del cliente ───────────────────────────────────────
 
 export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI", "JAMENDO", "CLAUDE", "ANTHROPIC"]);

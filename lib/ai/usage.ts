@@ -69,6 +69,14 @@ async function videoFacts(id: string): Promise<{ duration: number | null; create
   return out;
 }
 
+/** A quién se carga una llamada (el mismo orden que el registro): quien llama, el ámbito o quien creó el video. */
+export async function resolveUsageUser(userId: string | null | undefined, videoProjectId: string | null | undefined): Promise<string | null> {
+  const s = currentUsageScope();
+  if (userId ?? s.userId) return (userId ?? s.userId) as string;
+  const video = videoProjectId ?? s.videoProjectId;
+  return video ? ((await videoFacts(video).catch(() => null))?.createdBy ?? null) : null;
+}
+
 /** Guarda el consumo de UNA llamada. También las que fallan después de generar: igual se cobran. */
 export async function recordUsage(row: UsageRow): Promise<void> {
   try {

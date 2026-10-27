@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { env } from "@/lib/env";
 import { readAnthropicKey } from "./anthropic-key";
 import { costOf, imageTokens, textTokens } from "./pricing";
+import { checkCredit } from "./credits";
 import { currentUsageScope, recordUsage, withUsageScope, type UsageStatus } from "./usage";
 
 /**
@@ -17,15 +18,8 @@ import { currentUsageScope, recordUsage, withUsageScope, type UsageStatus } from
 import { MODELS, type ModelKey } from "./models";
 export { MODELS, type ModelKey };
 
-export class AiError extends Error {
-  constructor(
-    readonly userMessage: string,
-    readonly detail: string,
-  ) {
-    super(detail);
-    this.name = "AiError";
-  }
-}
+import { AiError } from "./errors";
+export { AiError, AiCreditError } from "./errors";
 
 let client: { key: string; sdk: Anthropic } | null = null;
 /** El cliente de Anthropic con la clave del cliente (Ajustes) o, si no cargó una, la del servidor. */
@@ -90,6 +84,8 @@ export async function generateStructured<S extends z.ZodType>(input: {
 }): Promise<z.infer<S>> {
   const model = MODELS[input.model ?? "main"];
   const videoProjectId = input.videoProjectId ?? currentUsageScope().videoProjectId ?? null;
+  // Créditos del mes: al 100 % no se empieza ninguna llamada nueva (al 80 % se avisa). Ver lib/ai/credits.ts.
+  await checkCredit({ userId: input.userId, videoProjectId });
   // Solo para probar la interfaz en desarrollo: nunca en producción.
   if (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production") {
     await new Promise((r) => setTimeout(r, 800));

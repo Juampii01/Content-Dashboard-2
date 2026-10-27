@@ -86,6 +86,8 @@ const schema = z.object({
   // Música de Jamendo (opcional): el cliente guarda su client_id en Ajustes. Esto solo cambia la dirección (simulador).
   JAMENDO_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.jamendo.com/v3.0")),
   // Imágenes: cada cliente guarda su API key de OpenAI en Ajustes. Estas variables solo cambian modelos y dirección de la API (pruebas con un simulador). Todas opcionales.
+  // Créditos de IA por persona y por mes (USD de consumo) si el dueño no puso otro en Ajustes → Consumo.
+  AI_MONTHLY_CREDIT_USD: z.coerce.number().min(0).default(50),
   OPENAI_API_BASE: z.preprocess((v) => (v === "" ? undefined : v), z.url().default("https://api.openai.com/v1")),
   OPENAI_IMAGE_MODEL: z.string().trim().min(1).default("gpt-image-2.5-flare"),
 });

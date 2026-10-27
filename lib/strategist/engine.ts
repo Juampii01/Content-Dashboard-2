@@ -2,6 +2,7 @@ import "server-only";
 import { APIError } from "@anthropic-ai/sdk";
 import type { MessageParam, ToolResultBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import { AiError, MODELS, anthropicClient } from "@/lib/ai/client";
+import { checkCredit } from "@/lib/ai/credits";
 import { recordUsage } from "@/lib/ai/usage";
 import type { StrategistCitation, StrategistIdea, StrategistToolCall } from "@/lib/db/schema";
 import { composeFakeAnswer, fakeIdeaCalls, planFakeTools } from "./fake";
@@ -95,7 +96,8 @@ function toAiError(error: unknown): AiError {
 }
 
 async function realTurn(input: TurnInput): Promise<TurnResult> {
-  // La misma clave que el resto de la IA: la del cliente (Ajustes) o, si no cargó una, la del servidor.
+  // Créditos del mes (lib/ai/credits.ts) y la misma clave que el resto de la IA: la del cliente o la del servidor.
+  await checkCredit({ userId: input.userId ?? null });
   const client = await anthropicClient();
   const model = MODELS.main;
   const tools = toolDefinitions();

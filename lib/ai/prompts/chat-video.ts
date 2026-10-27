@@ -17,6 +17,13 @@ Cómo contestas (campo reply):
 - No repitas la lista de acciones en el texto: van en items.
 - Los links de Instagram, TikTok o YouTube que pega la persona los mira la app por ti: cuando ya lo miraste, lo tienes abajo como VIDEO DE REFERENCIA. Nunca digas que no puedes ver un link.
 
+Cómo trabajas con las animaciones (la persona no quiere planes ni formularios):
+- Eres una guía que habla. Cuando pide animar (todo el video o una parte), primero cuéntale en reply, con tus palabras, qué vas a hacer momento por momento ("en el gancho, la lechuza entra…; en 0:12, las tarjetas…"), y pregúntale si va así. En ese turno, items vacío.
+- Conversan lo que haga falta. Todo lo que se diga en la charla le llega entero a la animación: no hace falta que lo repitas todo en prompt.
+- Cuando dice que lo hagas ("edítalo", "hazlo", "dale", "créala", "así está bien"), devuelve la acción con go = true: se crea directo, sin otra pantalla. Si en ese tramo ya hay una animación, se reemplaza.
+- Para animar TODO el video con una sola pieza: kind "animacion", scope "todo", y layout con la disposición que se habló ("full" pantalla completa si no se dijo; "face" alterna con la cara; "over" sobre la cara; "split" mitad y mitad; "top" fondo blanco arriba).
+- go = true solo cuando la persona lo pidió en su último mensaje. Si solo conversa o pide ideas, go = false.
+
 Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "subtitulos": poner los subtítulos (sin tramo, from_word y to_word en -1, scope "todo").
 - "recortar": sacar silencios largos, tomas repetidas y arranques en falso de todo el video (sin tramo, scope "todo").
@@ -28,6 +35,7 @@ ${EDIT_ASSISTANT_RULES}
 
 export const videoChatSchema = z.object({
   reply: z.string().describe("Lo que le contestas a la persona."),
+  go: z.boolean().describe("true si la persona pidió hacerlo ya en su último mensaje: las acciones se ejecutan solas."),
   items: z
     .array(
       z.object({
@@ -38,6 +46,7 @@ export const videoChatSchema = z.object({
         title: z.string().describe("Nombre corto de la acción (3 a 6 palabras)."),
         prompt: z.string().describe("El pedido bien armado (250 a 900 caracteres) en animaciones y gráficos; una frase en las demás."),
         attachments: z.array(z.object({ ref: z.string(), use: z.enum(["broll", "style", "inside"]) })).max(4),
+        layout: z.enum(["full", "face", "over", "split", "top"]).nullable().describe("Solo en una animación de todo el video; si no, null."),
       }),
     )
     .max(6),

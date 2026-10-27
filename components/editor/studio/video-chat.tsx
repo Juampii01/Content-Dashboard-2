@@ -109,6 +109,12 @@ export function VideoChat({ api }: { api: StudioApi }) {
         return;
       }
       setThread(r.thread);
+      // «Edítalo», «dale», «hazlo»: las acciones del último mensaje se hacen solas.
+      if (r.go) {
+        const i = r.thread.messages.length - 1;
+        const items = r.thread.messages[i]?.items ?? [];
+        for (const [k, it] of items.entries()) await run(it, `${i}-${k}`);
+      }
     });
   }
 
@@ -130,11 +136,14 @@ export function VideoChat({ api }: { api: StudioApi }) {
       const clip = files.list.find((a) => a.ref === it.attachments.find((x) => x.use === "broll")?.ref)?.clip;
       if (!clip) return toast.error("Ese video ya no está en los adjuntos. Vuelve a adjuntarlo.");
       api.tools.clipAt(range, clip);
+    } else if (it.scope === "todo" && it.kind === "animacion") {
+      // Directo, sin pantalla de plan: la animación recibe la charla entera.
+      if (!(await api.tools.wholeFromChat(it.prompt, it.layout ?? "full"))) return;
     } else if (it.scope === "todo") api.tools.wholeVideo(it.prompt);
     else if (it.kind === "grafico") api.tools.graphicAt(range, it.prompt);
     else {
       const pick = it.attachments.filter((x) => x.use !== "broll").map((x) => ({ ref: x.ref, use: x.use as RefImage["use"] }));
-      api.tools.animationAt(range, it.prompt, pick.length ? refsOf(files.list, pick) : undefined);
+      api.tools.animationAt(range, it.prompt, pick.length ? refsOf(files.list, pick) : undefined, { fromChat: true });
     }
     setDone((d) => new Set(d).add(key));
     void videoChatDoneAction(projectId, `${KIND_LABEL[it.kind]}: ${it.title} (${timeOf(it)})`);

@@ -133,10 +133,13 @@ export type StudioApi = {
   transformControls: (selection: StudioSelection) => ReactNode;
   /** Lo que ejecutan el chat con la IA y los asistentes: las mismas herramientas de la pestaña Edición. */
   tools: {
-    animationAt: (range: WordSpan, prompt: string, refs?: RefImage[]) => void;
+    /** fromChat: va la charla del Chat con la IA entera y reemplaza la animación que ya esté en ese tramo. */
+    animationAt: (range: WordSpan, prompt: string, refs?: RefImage[], opts?: { fromChat?: boolean }) => void;
     graphicAt: (range: WordSpan, prompt: string) => void;
     clipAt: (range: WordSpan, option: SignedOption) => void;
     wholeVideo: (notes?: string) => void;
+    /** «Animar todo» desde el chat: directo, sin pantalla de plan, con la charla entera. */
+    wholeFromChat: (prompt: string, layout: "full" | "face" | "over" | "split" | "top") => Promise<boolean>;
     subtitle: () => void;
     /** Recortar todo el video (silencios, tomas repetidas, arranques en falso). Devuelve cuántas palabras cortó. */
     trim: () => Promise<{ ok: true; removed: number } | { ok: false; error: string }>;

@@ -22,6 +22,7 @@ import { clearFaceBands, compileComposition, composCaptionHides, composSegments,
 import { WholeVideoDialog } from "../compos/whole-video-dialog";
 import { isActive, requestStage, useComposRequests, type ComposRequest, type LiveRequest } from "../compos/use-compos-work";
 import { placeMyEffectAction } from "../my-effects-actions";
+import { wholeFromChatAction } from "../compos-actions";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
 import { rangesFromIds } from "@/lib/video/plan";
@@ -1699,9 +1700,9 @@ export function Studio(props: StudioProps) {
   }, []);
 
   // Las herramientas de la pestaña Edición, también para el chat con la IA.
-  function animationAt(range: WordSpan, prompt?: string, refs?: RefImage[]) {
+  function animationAt(range: WordSpan, prompt?: string, refs?: RefImage[], opts?: { fromChat?: boolean }) {
     if (prompt) {
-      void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null, ...(refs?.length ? { refs } : {}) });
+      void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null, ...(refs?.length ? { refs } : {}), ...(opts?.fromChat ? { fromChat: true } : {}) });
       return;
     }
     setSelection({ kind: "range", from: range.from, to: range.to });
@@ -1722,7 +1723,17 @@ export function Studio(props: StudioProps) {
     setWholeOpen(true);
   }
   const tools: StudioApi["tools"] = {
-    animationAt: (range, prompt, refs) => animationAt(range, prompt, refs),
+    animationAt: (range, prompt, refs, opts) => animationAt(range, prompt, refs, opts),
+    wholeFromChat: async (prompt, layout) => {
+      const r = await wholeFromChatAction(projectId, { layout, prompt });
+      if (!r.ok || r.error) {
+        toast.error(r.ok ? (r.error ?? "") : r.error);
+        return false;
+      }
+      toast.success(r.replaced ? "Rehaciendo la animación de todo el video con lo que hablaron." : "Creando la animación de todo el video con lo que hablaron.", { description: "Tarda de 10 a 20 minutos: aparece sola en la pista Animaciones y puedes cerrar el Estudio y volver." });
+      void composWork.refresh();
+      return true;
+    },
     graphicAt: (range, prompt) => addBroll(range, true, prompt),
     clipAt: (range, option) => addClipBroll(range, option),
     wholeVideo: openWholeVideo,

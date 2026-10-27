@@ -11,6 +11,7 @@ import { composStatus, type ComposStatus } from "@/lib/video/compos/service";
 import { ackRequests, cancelRequest } from "@/lib/video/compos/requests";
 import { loadProject } from "@/lib/video/service";
 import { readBytes } from "@/lib/storage";
+import { videoChatConversation } from "@/lib/video/chat-conversation";
 import { cleanRefs, MAX_REF_INPUT_BYTES, RefError, refUrl, saveRefImage, type RefImage } from "@/lib/video/refs";
 
 /**
@@ -28,6 +29,8 @@ const requestSchema = z.object({
   at: z.number().min(0).max(600).nullable().optional(),
   /** Imágenes que mandó la persona (de estilo o para usar dentro). Se vuelven a validar contra el proyecto. */
   refs: z.array(z.unknown()).max(8).optional(),
+  /** Salió del Chat con la IA: va la charla entera (la lee el servidor) y, si ya hay una animación ahí, se reemplaza. */
+  fromChat: z.boolean().optional(),
 });
 
 /** Varios pedidos pueden correr a la vez. `error`: el pedido quedó creado pero sin tope de IA (se muestra en él). */
@@ -37,7 +40,8 @@ export async function requestAnimationAction(projectId: string, input: z.input<t
   const parsed = requestSchema.safeParse(input);
   if (!idSchema.safeParse(projectId).success || !parsed.success) return { ok: false, error: parsed.error?.issues[0]?.message ?? "Pedido no válido." };
   try {
-    const { workId, error } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null, at: parsed.data.at ?? null, refs: parsed.data.refs ?? [] }, user.id);
+    const conversation = parsed.data.fromChat ? await videoChatConversation(projectId) : null;
+    const { workId, error } = await startStudioRequest(projectId, { ...parsed.data, replace: parsed.data.replace ?? null, at: parsed.data.at ?? null, refs: parsed.data.refs ?? [], conversation, autoReplace: Boolean(parsed.data.fromChat) }, user.id);
     return { ok: true, workId, error };
   } catch (error) {
     if (error instanceof ComposRequestError) return { ok: false, error: error.message };
@@ -151,6 +155,34 @@ export async function startWholeVideoAction(projectId: string, plan: z.input<typ
     if (error instanceof ComposRequestError) return { ok: false, error: error.message };
     console.error("[animaciones] todo el video:", error instanceof Error ? error.message : error);
     return { ok: false, error: "No pudimos empezar las animaciones. Prueba de nuevo." };
+  }
+}
+
+/**
+ * «Animar todo» desde el Chat con la IA, sin pantalla de plan: si ya hay una pieza de todo el video, se rehace con la
+ * charla; si no, se arman las escenas con la charla entera y se crea directo. Cada etapa recibe la charla completa.
+ */
+export async function wholeFromChatAction(projectId: string, input: { layout: z.infer<typeof modeSchema>; prompt: string }): Promise<{ ok: true; replaced: boolean; error: string | null } | { ok: false; error: string }> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const layout = modeSchema.safeParse(input?.layout);
+  const prompt = String(input?.prompt ?? "").trim().slice(0, 1500);
+  if (!idSchema.safeParse(projectId).success || !layout.success || prompt.length < 3) return { ok: false, error: "Pedido no válido." };
+  try {
+    const conversation = await videoChatConversation(projectId);
+    const project = await loadProject(projectId);
+    const long = (((project?.plan as { compositions?: { id: string; long?: boolean; from_word: number; to_word: number }[] } | null)?.compositions) ?? []).find((c) => c.long);
+    if (long) {
+      const { error } = await startStudioRequest(projectId, { from_word: long.from_word, to_word: long.to_word, instruction: `Rehacer toda la pieza con lo que se habló en la charla: ${prompt}`.slice(0, 1500), replace: { id: long.id }, conversation }, user.id);
+      return { ok: true, replaced: true, error };
+    }
+    const plan = await planWholeVideo(projectId, { mode: layout.data, notes: prompt, conversation });
+    const r = await startWholeVideo(projectId, { mode: plan.mode, style: plan.style, moments: plan.moments, conversation }, user.id);
+    return { ok: true, replaced: false, error: r.error };
+  } catch (error) {
+    if (error instanceof ComposRequestError) return { ok: false, error: error.message };
+    console.error("[animaciones] todo el video desde el chat:", error instanceof Error ? error.message : error);
+    return { ok: false, error: "No pudimos empezar la animación. Prueba de nuevo." };
   }
 }
 

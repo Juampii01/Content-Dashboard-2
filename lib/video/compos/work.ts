@@ -109,6 +109,8 @@ export type ComposTask = {
   agent?: "off";
   /** Imágenes que mandó la persona: de estilo (Claude las mira) o para usar dentro (lib/video/refs.ts). */
   refs?: RefImage[];
+  /** La charla completa con la IA del Estudio cuando el pedido salió de ahí: va entera a cada etapa (nada se resume). */
+  conversation?: string;
   /** Pieza única de todo el video («Animar todo»), con sus escenas y la franja fija de la persona (si hay). */
   long?: boolean;
   scenes?: NonNullable<Composition["scenes"]>;
@@ -172,6 +174,12 @@ export const readWork = (d: DirectorState): ComposWork | null => ((d as Director
 let seq = 0;
 export const newTaskId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`;
 export const newWorkId = () => `w${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** La charla con la persona, entera, para las etapas de la IA (plan, código y revisión). */
+export function withConversation(brief: string, conversation: string | undefined): string {
+  if (!conversation?.trim()) return brief;
+  return `${brief}\n\nLA CHARLA COMPLETA CON LA PERSONA SOBRE ESTE VIDEO (de aquí sale el pedido: úsala entera, con cada detalle que pidió o aceptó; si algo de la charla choca con el resumen de arriba, manda la charla):\n${conversation}`;
+}
 
 export function newTask(input: Omit<ComposTask, "id" | "compId" | "images" | "status" | "attempts" | "round"> & { compId?: string }): ComposTask {
   return { ...input, id: newTaskId(), compId: input.compId ?? newComposId(), images: [], status: "plan", attempts: 0, round: 0 };
@@ -556,7 +564,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
     task.error = "Ese tramo ya no está en el video (se cortó).";
     return `Animación ${of}`;
   }
-  const brief = task.brief;
+  const brief = withConversation(task.brief, task.conversation);
   const duration = s.end - s.start;
   try {
     switch (task.status) {
@@ -577,7 +585,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         const inUse = [...(ctx.plan.compositions ?? []).flatMap((c) => (c.lib_id ? [c.lib_id] : [])), ...work.tasks.flatMap((t) => (t.reused ? [t.reused.id] : []))];
         // Una pieza única no se arma con Mis efectos (es una sola animación, escrita entera).
         const inside = (task.refs ?? []).filter((r) => r.use === "inside").slice(0, 4);
-        const library = task.base || task.long || task.refs?.length ? [] : await effectCandidates({ brief, said: said(ctx, task), exclude: inUse, duration }).catch(() => []);
+        const library = task.base || task.long || task.refs?.length || task.conversation ? [] : await effectCandidates({ brief, said: said(ctx, task), exclude: inUse, duration }).catch(() => []);
         const plan = await generateStructured({
           feature: "video.compos.plan",
           model: "main",
@@ -775,7 +783,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
 function codeTaskInput(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { start: number; end: number }, refFrames: number): Parameters<typeof composCodeTask>[0] {
   const readyImages = task.images.filter((i) => i.status === "ready");
   return {
-    brief: `${task.brief}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}${styleRefsText(task)}`,
+    brief: `${withConversation(task.brief, task.conversation)}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}${styleRefsText(task)}`,
     said: said(ctx, task),
     words: wordsText(ctx, task, s.start),
     duration: s.end - s.start,

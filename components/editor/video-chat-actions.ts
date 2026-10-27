@@ -7,6 +7,7 @@ import { VIDEO_CHAT_RULES, videoChatSchema, videoChatTask, type VideoChatOutput 
 import { isDenied, requireEditor } from "@/lib/auth";
 import { clearChat, loadChat, saveChat, type ChatMessage } from "@/lib/video/compos/chat";
 import { findLinks } from "@/lib/video/director/request";
+import { VIDEO_CHAT_ID } from "@/lib/video/chat-conversation";
 import { LookError, lookForChat, startLook } from "@/lib/video/look";
 import { loadProject } from "@/lib/video/service";
 import type { Transcript } from "@/lib/video/types";
@@ -16,7 +17,7 @@ import type { Transcript } from "@/lib/video/types";
  * que la persona ejecuta con un botón. La charla queda guardada por video (compos_chats con comp_id "video").
  */
 type Fail = { ok: false; error: string };
-const CHAT_ID = "video";
+const CHAT_ID = VIDEO_CHAT_ID;
 export type VideoChatItem = VideoChatOutput["items"][number];
 /** looking: la referencia que la IA está mirando (el cliente pregunta cada pocos segundos hasta que responde). */
 export type VideoChatThread = { messages: { role: "user" | "assistant" | "applied"; text: string; at: string; items?: VideoChatItem[] }[]; looking?: string };
@@ -91,7 +92,7 @@ async function prepare(d: Omit<ChatInput, "text">) {
 }
 
 /** Un turno de la IA sobre la charla guardada; devuelve el mensaje de respuesta (sin guardarlo). */
-async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId: string, reference: { source: string; text: string } | null, lastText: string): Promise<ChatMessage | Fail> {
+async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId: string, reference: { source: string; text: string } | null, lastText: string): Promise<{ message: ChatMessage; go: boolean } | Fail> {
   const prep = await prepare(d);
   if (!prep) return { ok: false, error: "Este video todavía no tiene transcripción." };
   const { max, ids, sel, sentencesText } = prep;
@@ -120,11 +121,12 @@ async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId:
         const f = d.sentences[Math.floor(d.sentences.length / 3)] ?? d.sentences[0];
         const wantsSubs = /subt[ií]tul/i.test(lastText);
         return {
+          go: /^(dale|hazlo|ed[ií]talo|cr[eé]ala)/i.test(lastText.trim()),
           reply: reference ? `Ya miré la referencia. Lo que más se puede copiar es el ritmo de sus animaciones; lo pondría en «${f?.text.slice(0, 80) ?? ""}».` : wantsSubs ? "Te propongo ponerle los subtítulos con el estilo de tu marca." : `Buena idea. Lo pondría en «${f?.text.slice(0, 80) ?? ""}».`,
           items: wantsSubs
-            ? [{ kind: "subtitulos" as const, scope: "todo" as const, from_word: -1, to_word: -1, title: "Poner subtítulos", prompt: "Subtítulos con el estilo de tu marca.", attachments: [] }]
+            ? [{ kind: "subtitulos" as const, scope: "todo" as const, from_word: -1, to_word: -1, title: "Poner subtítulos", prompt: "Subtítulos con el estilo de tu marca.", attachments: [], layout: null }]
             : f
-              ? [{ kind: "animacion" as const, scope: "momento" as const, from_word: f.from, to_word: f.to, title: reference ? "Como en la referencia" : "Lo que pediste", prompt: `Sobre «${f.text.slice(0, 120)}»: ${lastText}. Fondo blanco y la frase clave entrando palabra por palabra, con un whoosh suave.`, attachments: [] }]
+              ? [{ kind: "animacion" as const, scope: "momento" as const, from_word: f.from, to_word: f.to, title: reference ? "Como en la referencia" : "Lo que pediste", prompt: `Sobre «${f.text.slice(0, 120)}»: ${lastText}. Fondo blanco y la frase clave entrando palabra por palabra, con un whoosh suave.`, attachments: [], layout: null }]
               : [],
         };
       },
@@ -143,7 +145,7 @@ async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId:
       return { ...it, from_word: from, to_word: to, prompt: it.prompt.slice(0, 1500), title: it.title.slice(0, 80) };
     })
     .filter((it): it is VideoChatItem => Boolean(it));
-  return { role: "assistant", text: out.reply.slice(0, 4000), at: new Date().toISOString(), ...(items.length ? { items } : {}) };
+  return { message: { role: "assistant", text: out.reply.slice(0, 4000), at: new Date().toISOString(), ...(items.length ? { items } : {}) }, go: out.go && items.length > 0 };
 }
 
 const failOf = (error: unknown, where: string): Fail => {
@@ -151,7 +153,8 @@ const failOf = (error: unknown, where: string): Fail => {
   return { ok: false, error: error instanceof AiError ? error.userMessage : error instanceof LookError ? error.message : "No pudimos responder. Prueba de nuevo." };
 };
 
-export async function videoChatAction(input: z.input<typeof inputSchema>): Promise<{ ok: true; thread: VideoChatThread } | Fail> {
+/** go: la persona pidió hacerlo ya; el cliente ejecuta las acciones del último mensaje sin esperar el toque. */
+export async function videoChatAction(input: z.input<typeof inputSchema>): Promise<{ ok: true; thread: VideoChatThread; go?: boolean } | Fail> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = inputSchema.safeParse(input);
@@ -174,9 +177,9 @@ export async function videoChatAction(input: z.input<typeof inputSchema>): Promi
     const ref = lookId ? await lookForChat(d.projectId, lookId) : null;
     const reply = await turn(d, messages, user.id, ref?.text ? { source: ref.source, text: ref.text } : null, d.text);
     if ("ok" in reply) return reply;
-    const next = [...messages, reply];
+    const next = [...messages, reply.message];
     await saveChat(d.projectId, CHAT_ID, { messages: next, agreed: null });
-    return { ok: true, thread: view(next) };
+    return { ok: true, thread: view(next), go: reply.go };
   } catch (error) {
     return failOf(error, "turno");
   }
@@ -206,7 +209,7 @@ export async function videoChatLookAction(input: z.input<typeof lookInputSchema>
       const lastUser = [...saved.messages].reverse().find((m) => m.role === "user")?.text ?? "";
       const out = await turn(d, [...saved.messages, { role: "user", text: "[La app terminó de mirar el video de referencia. Cuéntame qué ves y dónde lo pondrías en mi video, según lo que te pedí.]", at: new Date().toISOString() }], user.id, { source: look.source, text: look.text }, lastUser);
       if ("ok" in out) return out;
-      reply = { ...out, lookDone: d.lookId };
+      reply = { ...out.message, lookDone: d.lookId };
     } catch (error) {
       return failOf(error, "referencia");
     }

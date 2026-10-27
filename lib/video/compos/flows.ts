@@ -385,9 +385,34 @@ export const MAX_ACTIVE_REQUESTS = MAX_ACTIVE;
  * cada uno es su propia fila con su reserva del tope de IA y su trabajo VIDEO_COMPOS (lib/video/compos/requests.ts).
  * Si no alcanza el tope, el pedido queda fallido con el aviso (`error`) sin frenar a los demás.
  */
+/** Lo más que viaja de la charla a cada animación (lo último, que es lo que se acordó). */
+export const CONVERSATION_MAX = 24000;
+
+/**
+ * La animación que ya ocupa ese tramo: una normal que se cruza con al menos el 40 % del más corto de los dos, o la pieza
+ * única que lo cubre (con el segundo dentro de la pieza, para cambiar esa escena).
+ */
+function overlapping(ctx: WorkCtx, from: number, to: number): { comp: Composition; at: number | null } | null {
+  const comps = ctx.plan.compositions ?? [];
+  let best: { comp: Composition; share: number } | null = null;
+  for (const c of comps) {
+    if (c.long) continue;
+    const inter = Math.min(c.to_word, to) - Math.max(c.from_word, from) + 1;
+    if (inter <= 0) continue;
+    const share = inter / Math.max(1, Math.min(c.to_word - c.from_word + 1, to - from + 1));
+    if (share >= 0.4 && (!best || share > best.share)) best = { comp: c, share };
+  }
+  if (best) return { comp: best.comp, at: null };
+  const long = comps.find((c) => c.long && c.from_word <= to && c.to_word >= from);
+  if (!long) return null;
+  const piece = outputRange(ctx.timeline, long.from_word, long.to_word);
+  const here = outputRange(ctx.timeline, from, to);
+  return { comp: long, at: piece && here ? Math.max(0, here.start - piece.start) : null };
+}
+
 export async function startStudioRequest(
   projectId: string,
-  input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null; refs?: unknown; look?: { moment: string; detail: string; sheets: { key: string; width: number; height: number }[] } | null },
+  input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null; refs?: unknown; look?: { moment: string; detail: string; sheets: { key: string; width: number; height: number }[] } | null; conversation?: string | null; autoReplace?: boolean },
   userId: string | null,
 ): Promise<{ workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
@@ -406,6 +431,15 @@ export async function startStudioRequest(
     base = parsed.success ? parsed.data : (ctx.plan.compositions ?? []).find((c) => c.id === (input.replace as { id?: string })?.id) ?? null;
     if (!base) throw new ComposRequestError("No encontramos esa animación. Recarga la página.");
   }
+  // Desde el chat: si ya hay una animación en ese tramo, se reemplaza (en una pieza única, la escena de ese momento).
+  let at = input.at ?? null;
+  if (!base && input.autoReplace) {
+    const hit = overlapping(ctx, input.from_word, input.to_word);
+    if (hit) {
+      base = hit.comp;
+      at = hit.at;
+    }
+  }
   // Imágenes de la persona: las nuevas, o las de estilo que ya tenía la animación que se cambia.
   const fresh = cleanRefs(projectId, input.refs);
   const refs = fresh.length ? fresh : cleanRefs(projectId, base?.refs);
@@ -421,6 +455,7 @@ export async function startStudioRequest(
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
       if (refs.length) task.refs = refs;
+      if (input.conversation) task.conversation = input.conversation.slice(-CONVERSATION_MAX);
       // «Mira este video»: el momento de la referencia que se adapta, con sus hojas de cuadros.
       if (input.look && !base) {
         task.source = "copy";
@@ -434,9 +469,10 @@ export async function startStudioRequest(
         task.long = true;
         if (base.scenes?.length) task.scenes = base.scenes;
         if (base.frame) task.frame = base.frame;
-        if (input.at != null && base.scenes?.length) {
-          const i = base.scenes.findIndex((sc) => input.at! >= sc.start && input.at! < sc.end);
-          task.scene = i >= 0 ? i : base.scenes.reduce((best, sc, k) => (Math.abs(sc.start - input.at!) < Math.abs(base.scenes![best]!.start - input.at!) ? k : best), 0);
+        if (at != null && base.scenes?.length) {
+          const t = at;
+          const i = base.scenes.findIndex((sc) => t >= sc.start && t < sc.end);
+          task.scene = i >= 0 ? i : base.scenes.reduce((best, sc, k) => (Math.abs(sc.start - t) < Math.abs(base!.scenes![best]!.start - t) ? k : best), 0);
         }
       }
       return {
@@ -573,7 +609,7 @@ export function cleanWhole(mode: WholeMode, words: Word[], raw: { from_word: num
 }
 
 /** «Animar todo el video», paso 1: Claude lee el video y propone el estilo y un pedido por momento (para revisar). */
-export async function planWholeVideo(projectId: string, input: { mode: WholeMode; notes: string }): Promise<WholePlan> {
+export async function planWholeVideo(projectId: string, input: { mode: WholeMode; notes: string; conversation?: string | null }): Promise<WholePlan> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
@@ -596,7 +632,7 @@ export async function planWholeVideo(projectId: string, input: { mode: WholeMode
       model: "main",
       thinking: { effort: "medium" },
       context: `${WHOLE_RULES}\n\n${ctx.brandCtx}`,
-      task: wholeVideoTask({ mode: input.mode, duration: ctx.timeline.duration, format: ctx.format, sentences: text, map: mapText(ctx.director.map, ctx.words), notes: input.notes.trim().slice(0, 800), count }),
+      task: wholeVideoTask({ mode: input.mode, duration: ctx.timeline.duration, format: ctx.format, sentences: text, map: mapText(ctx.director.map, ctx.words), notes: input.conversation ? `${input.notes.trim().slice(0, 800)}\n\nLA CHARLA COMPLETA CON LA PERSONA (arma las escenas con todo lo que pidió o aceptó ahí, sin dejar nada afuera):\n${input.conversation.slice(-CONVERSATION_MAX)}` : input.notes.trim().slice(0, 800), count }),
       schema: wholeVideoWireSchema,
       maxTokens: 20000,
       timeoutMs: 280_000,
@@ -623,7 +659,7 @@ export async function planWholeVideo(projectId: string, input: { mode: WholeMode
  * armada por las escenas que se revisaron. En «Mitad y mitad» y «Fondo blanco arriba», la franja de la persona es fija
  * (la dibuja el motor con el encuadre elegido; la IA solo anima arriba). Después se cambia por escena.
  */
-export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string; title?: string }[] }, userId: string | null): Promise<{ count: number; workId: string; error: string | null }> {
+export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string; title?: string }[]; conversation?: string | null }, userId: string | null): Promise<{ count: number; workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
@@ -664,6 +700,7 @@ export async function startWholeVideo(projectId: string, plan: { mode: WholeMode
       task.long = true;
       task.scenes = scenes;
       if (frame) task.frame = frame;
+      if (plan.conversation) task.conversation = plan.conversation.slice(-CONVERSATION_MAX);
       return {
         id: newWorkId(),
         mode: "request",

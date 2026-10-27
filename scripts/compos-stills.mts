@@ -3,7 +3,7 @@
  * muestra (public/efectos/demo.jpg con su recorte), dibujada con el mismo motor que el worker (sandbox de Node + motor
  * de efectos + skia-canvas). Valida cada una antes.
  *
- *   node --import tsx scripts/compos-stills.mts <carpeta de salida> [clave…] [--file comp.js] [--format 16:9] [--image foto.jpg]
+ *   node --import tsx scripts/compos-stills.mts <carpeta de salida> [clave…] [--file comp.js [--params params.json]] [--format 16:9] [--image foto.jpg]
  */
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -65,7 +65,7 @@ const sentence = "Te voy a contar el error que más dinero me hizo perder este a
 const parts = sentence.split(" ");
 
 const list = opt("--file")
-  ? [{ key: "archivo", name: "archivo", code: readFileSync(opt("--file")!, "utf8"), params: [], sounds: [], hide_captions: true, tags: [], use: "" }]
+  ? [{ key: "archivo", name: "archivo", code: readFileSync(opt("--file")!, "utf8"), params: opt("--params") ? JSON.parse(readFileSync(opt("--params")!, "utf8")) : [], sounds: [], hide_captions: true, tags: [], use: "" }]
   : COMPOS_SAMPLES.filter((s) => !keys.length || keys.includes(s.key));
 
 const renderer = new FxRenderer({ makeCanvas: (w: number, h: number) => { const c = new Canvas(w, h); return { canvas: c, ctx: c.getContext("2d") as unknown as FxCtx }; }, fonts: WORKER_FONTS });

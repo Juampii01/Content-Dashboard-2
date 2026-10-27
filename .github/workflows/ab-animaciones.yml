@@ -1,0 +1,57 @@
+# Prueba A/B del código de las animaciones (Opus 5.5 contra Sonnet 5.5) con 10 pedidos. Solo mide: no cambia el modelo
+# de la app. Se corre a mano (Actions → «A/B de animaciones» → Run workflow) y gasta IA de verdad (unos USD 5).
+# Necesita el secreto ANTHROPIC_API_KEY en el repo (Settings → Secrets and variables → Actions). El informe queda como
+# artefacto descargable. La base es un Postgres efímero del propio job (no toca producción).
+name: A/B de animaciones
+
+on:
+  workflow_dispatch:
+    inputs:
+      pedidos:
+        description: "Cuántos pedidos (1 a 10)"
+        default: "10"
+
+permissions:
+  contents: read
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: prueba
+          POSTGRES_DB: ab
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:prueba@localhost:5432/ab
+      DATABASE_URL_UNPOOLED: postgres://postgres:prueba@localhost:5432/ab
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: ab-prueba-ab-prueba-ab-prueba-ab-prueba-00
+      TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      CRON_SECRET: ab-prueba-ab-prueba-ab-prueba-ab-prueba-00
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Motor de dibujo y fuentes (lo mismo que el worker)
+        run: |
+          (cd worker/motion && npm ci --omit=dev)
+          sh worker/scripts/fetch_fonts.sh worker/fonts
+      - run: pnpm db:migrate
+      - name: Correr la prueba
+        run: node --conditions=react-server --import tsx scripts/ab-animaciones.mts ab-salida --solo "${{ inputs.pedidos }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ab-animaciones
+          path: ab-salida
+          retention-days: 14

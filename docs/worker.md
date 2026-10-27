@@ -121,7 +121,7 @@ Después, en Vercel: `FLY_API_TOKEN`, `FLY_WORKER_APP=content2-worker-<cliente>`
 
 Comprobar: subir un video corto. En los logs (`fly logs -a …`) aparece `trabajo … (VIDEO_ANALYZE)` y, a los 5 minutos sin trabajos, `me apago`.
 
-La máquina sin puertos públicos: el worker solo hace conexiones salientes (Neon, la app, Blob, Pixabay/Pexels y, para los links, Instagram/TikTok/YouTube, `api.scrapecreators.com` y los CDNs de Instagram y TikTok; Deepgram/Groq solo si se configuran).
+La máquina sin puertos públicos: el worker solo hace conexiones salientes (Neon, la app, Blob, Pixabay/Pexels y, para los links, Instagram/TikTok/YouTube, `api.scrapecreators.com` y los CDNs de Instagram y TikTok; `api.anthropic.com` para las piezas largas; Deepgram/Groq solo si se configuran).
 
 ## Transcripción open source (por defecto)
 
@@ -422,6 +422,17 @@ render: el módulo corre en un sandbox y devuelve una **lista de dibujo** (datos
   adaptación por función al guion nuevo → una animación por momento → informe "copié N de M".
 - **VIDEO_COMPOS** (migración `0028_composiciones.sql`): los pedidos del Estudio ("Pide una animación aquí", "Pídele un
   cambio a esta animación"). El video sigue en revisión; el Estudio consulta el estado y agrega la animación al terminar.
+- **Piezas largas** (`compos-ai`, `worker/video/claude_api.py`): el código de la pieza única de «Animar todo» (hasta
+  180 s) pide hasta 128 mil tokens de salida y tarda más que los 13 minutos de una función de la app. Lo escribe el
+  worker: pide la llamada a `POST /api/worker/projects/<id>/ia` (solo la que el taller espera, con un VIDEO_ANALYZE o
+  VIDEO_COMPOS del proyecto en curso y después de revisar los créditos del mes), recibe la clave de API de Anthropic del
+  cliente (o la del servidor) y el cuerpo armado por la app, la hace por streaming y devuelve el texto y el consumo con
+  el paso `compos-ai-done`; la app lo lee, lo valida y lo registra en `api_usage`. Reintenta solo antes de que empiece
+  a generar (429, 529, 5xx). La clave no se guarda ni se loguea. Nunca la suscripción de Claude. Una animación corta
+  que se corta en la app pasa por el mismo camino una vez (tope 64 mil). Tope, reserva y costo:
+  `lib/video/compos/long-cost.ts`. Pruebas: `pytest tests/test_claude_api.py` y `TEST_DATABASE_URL=… pnpm test:largas`.
+  **Desplegar el worker junto con la app**: un worker viejo no sabe hacer el paso y la pieza larga queda fallida con
+  el aviso.
 
 Probar sin worker: `node --require <stub de server-only> --import tsx --env-file=.env.local scripts/compos-sim.mts
 <proyecto> copiar|pedido|variedad` (con `AI_FAKE=1`) y `scripts/compos-worker-sim.mts` para los pedidos del Estudio.

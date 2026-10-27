@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { aiConfigured, withAiScope } from "@/lib/ai/client";
+import { withAiScope } from "@/lib/ai/client";
 import { isDenied, requireEditor } from "@/lib/auth";
 import { loadProject, suggestTrim, transcribeAgain, VideoError } from "@/lib/video/service";
 import type { BrollOption, Transcript } from "@/lib/video/types";
@@ -46,23 +46,6 @@ export async function transcribeAgainAction(projectId: string): Promise<{ ok: tr
     console.error("[editor] transcribir de nuevo:", error instanceof Error ? error.message : error);
     return { ok: false, error: "No pudimos crear la transcripción. Prueba de nuevo." };
   }
-}
-
-import { editAssistantInput, runEditAssistant, type AssistantItem } from "@/lib/video/edit-assistant";
-const assistantInput = editAssistantInput;
-export type { AssistantItem };
-
-/**
- * Asistente de pedidos: lo que dice la persona → pedidos bien armados para animaciones o gráficos, con su tramo. Un
- * video adjunto se mira antes (cuadros y ficha): mientras tanto responde `waiting` y el cliente vuelve a pedir.
- */
-export async function editAssistantAction(input: z.input<typeof assistantInput>): Promise<{ ok: true; items: AssistantItem[]; note: string; waiting?: string[] } | Fail> {
-  const user = await requireEditor();
-  if (isDenied(user)) return user;
-  const parsed = assistantInput.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos no válidos." };
-  if (!aiConfigured()) return { ok: false, error: "La IA no está configurada en esta instalación." };
-  return runEditAssistant(parsed.data, user.id);
 }
 
 const clipMetaSchema = z.object({ duration: z.number().min(0).max(3600), width: z.number().int().min(16).max(8192), height: z.number().int().min(16).max(8192) });

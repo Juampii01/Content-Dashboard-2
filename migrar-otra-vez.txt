@@ -1,0 +1,3 @@
+Reading config file '/home/runner/work/Content-Dashboard-2/Content-Dashboard-2/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...[2K[1G[✓] migrations applied successfully!

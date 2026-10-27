@@ -1,0 +1,1 @@
+PostgreSQL 18.6 (fd34222) on aarch64-unk

@@ -1,0 +1,5 @@
+
+> content-2@0.1.0 preparar /home/runner/work/Content-Dashboard-2/Content-Dashboard-2
+> tsx --conditions=react-server scripts/preparar.ts
+
+[preparar] Migraciones al día.

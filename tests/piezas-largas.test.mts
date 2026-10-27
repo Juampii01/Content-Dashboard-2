@@ -71,7 +71,7 @@ const { longCodeCost, longCodeReserve, MAX_OUTPUT_TOKENS, workerMaxTokens } = aw
 type Work = import("../lib/video/compos/work").ComposWork;
 
 const db = getDb();
-const PID = "33333333-3333-4333-8333-333333333333";
+const PID = "44444444-4444-4444-8444-444444444444";
 const made: string[] = [];
 let userId = "";
 

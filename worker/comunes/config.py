@@ -45,6 +45,8 @@ class Config:
     test_style_transcript: str | None = None
     # Hosts extra desde donde se puede bajar b-roll (además de Pixabay y Pexels). Solo para pruebas con un simulador.
     broll_extra_hosts: tuple[str, ...] = ()
+    # Solo pruebas locales: base de un ScrapeCreators simulado en localhost (en Fly siempre la API real).
+    scrapecreators_base_url: str | None = None
     capabilities: list[str] = field(default_factory=lambda: ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_STYLE", "CAROUSEL_IMAGES", "YT_THUMBNAILS", "YOUTUBE_TRANSCRIPT", "REEL_COPY", "VIDEO_PHRASE_CLIP", "VIDEO_FX", "CAROUSEL_COPY", "CAROUSEL_ANIMATE", "VIDEO_COMPOS", "AUDIO_SPLIT", "VIDEO_LOOK", "VIDEO_PEAKS"])
 
     def describe(self) -> str:
@@ -73,6 +75,7 @@ def load() -> Config:
         # El proveedor de prueba y los hosts extra son solo para tests locales: nunca en producción.
         test_transcript = test_style_transcript = None
         extra_hosts = ()
+    scrapecreators_base = None if on_fly else (os.environ.get("SCRAPECREATORS_BASE_URL") or None)
     order = tuple(p.strip().lower() for p in (os.environ.get("TRANSCRIBE_ORDER") or "parakeet,whisper,deepgram,groq").split(",") if p.strip())
     return Config(
         database_url=os.environ.get("DATABASE_URL_UNPOOLED") or os.environ["DATABASE_URL"],
@@ -93,4 +96,5 @@ def load() -> Config:
         transcribe_order=order,
         test_style_transcript=test_style_transcript,
         broll_extra_hosts=extra_hosts,
+        scrapecreators_base_url=scrapecreators_base,
     )

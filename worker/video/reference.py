@@ -212,7 +212,7 @@ def fetch(ctx: JobContext, pid: str, source: dict[str, Any], dest: Path) -> Path
         ext = Path(key).suffix.lower() if 1 < len(Path(key).suffix) <= 5 else ".mp4"
         return ctx.app.download(pid, key, dest / f"referencia{ext}", ctx.progress)
     url = str(source.get("url") or "")
-    return download_link(url, dest, name="referencia", max_seconds=MAX_SECONDS, max_bytes=MAX_BYTES, extra_hosts=ctx.config.broll_extra_hosts)
+    return download_link(url, dest, name="referencia", max_seconds=MAX_SECONDS, max_bytes=MAX_BYTES, extra_hosts=ctx.config.broll_extra_hosts, ctx=ctx)
 
 
 def ensure(ctx: JobContext, project: dict[str, Any], start: float, end: float) -> bool:

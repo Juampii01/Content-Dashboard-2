@@ -1201,7 +1201,7 @@ export const videoPlanVersions = pgTable(
 
 // ─── Claves de servicios del cliente ───────────────────────────────────────
 
-export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI", "JAMENDO", "CLAUDE", "ANTHROPIC"]);
+export const serviceProviderEnum = pgEnum("service_provider", ["HEYGEN", "CHATGPT", "OPENAI", "JAMENDO", "CLAUDE", "ANTHROPIC", "SCRAPECREATORS"]);
 
 /** Claves que carga el propio cliente (por ejemplo su API key de HeyGen), cifradas. */
 export const serviceCredentials = pgTable("service_credentials", {

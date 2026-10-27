@@ -121,7 +121,7 @@ Después, en Vercel: `FLY_API_TOKEN`, `FLY_WORKER_APP=content2-worker-<cliente>`
 
 Comprobar: subir un video corto. En los logs (`fly logs -a …`) aparece `trabajo … (VIDEO_ANALYZE)` y, a los 5 minutos sin trabajos, `me apago`.
 
-La máquina sin puertos públicos: el worker solo hace conexiones salientes (Neon, la app, Blob, Pixabay/Pexels y, para "Edita como este" con link, Instagram/TikTok/YouTube; Deepgram/Groq solo si se configuran).
+La máquina sin puertos públicos: el worker solo hace conexiones salientes (Neon, la app, Blob, Pixabay/Pexels y, para los links, Instagram/TikTok/YouTube, `api.scrapecreators.com` y los CDNs de Instagram y TikTok; Deepgram/Groq solo si se configuran).
 
 ## Transcripción open source (por defecto)
 
@@ -135,9 +135,21 @@ La máquina sin puertos públicos: el worker solo hace conexiones salientes (Neo
 - Tamaño de la imagen: unos **2,3–2,6 GB** (ffmpeg y Python ~0,6 GB, librerías ~0,3 GB, Parakeet int8 ~0,67 GB, whisper small ~0,48 GB, Tesseract con español ~0,04 GB). La máquina de 8 GB alcanza con margen.
 - **Pendiente: una corrida real.** En el entorno de desarrollo no había acceso a HuggingFace: el mapeo de la salida de los dos modelos está probado con salidas simuladas (`tests/test_transcribe_local.py`) y el e2e usó el proveedor de prueba. Antes de vender: construir la imagen, transcribir 3 videos reales (uno con muletillas y tomas repetidas) y anotar la velocidad real en esta tabla.
 
+## Descarga de links
+
+Todo lo que baja un link (`download_link` en `worker/video/style_job.py`: estilos, Copiar edición, Mira este video, referencia del director, clips, copias de reels y Sacar la música) sigue este camino:
+
+1. **yt-dlp** (`worker/requirements.txt`, con `yt-dlp-ejs`). Para YouTube usa el `node` de la imagen (copiado del stage de motion) con `js_runtimes = {"node": {"path": …}}`: por defecto yt-dlp solo busca deno y avisa *"No supported JavaScript runtime could be found"*.
+2. **Plan B con ScrapeCreators** (`worker/video/scrapecreators.py`), solo para Instagram y TikTok. Desde las IPs de Fly, Instagram responde a ratos *"Instagram sent an empty media response … use --cookies"* aunque el reel sea público. Si yt-dlp falla, el worker pide a la app la clave de ScrapeCreators del cliente (`POST /api/worker/scrapecreators` con `{jobId}`, solo para un trabajo en curso que baja links; viaja solo en la respuesta y nunca se loguea), llama a `GET /v1/instagram/post` o `GET /v2/tiktok/video` (cabecera `x-api-key`, 1 crédito por link) y baja la URL directa del video.
+   - **SSRF:** la URL que devuelve ScrapeCreators (y cada redirección) solo se sigue si es https, puerto 443, sin usuario en la URL, de un CDN conocido de esa red (`cdninstagram.com`, `fbcdn.net`; `tiktokcdn*.com`, `tiktokv.*`, `tiktok.com`) y resuelve a direcciones públicas. Al CDN no se le manda la clave.
+   - Mismos límites que yt-dlp: tope de bytes por partes (y por `content-length`), duración por la API y luego con ffprobe, y cancelación entre partes. Nunca queda un `.part`.
+   - **Sin clave:** *"Instagram no deja bajar este link desde el servidor. Sube el video o agrega tu clave de ScrapeCreators en Ajustes → Claves de servicios."* (lo mismo con TikTok). YouTube que falla sigue con el error de siempre.
+   - Pruebas: `worker/tests/test_scrapecreators.py` (ScrapeCreators y CDN simulados en localhost). `SCRAPECREATORS_BASE_URL` apunta a un simulador local solo fuera de Fly; en Fly siempre es la API real.
+   - **Pendiente:** una descarga real con una clave de verdad (formato exacto de la respuesta y hosts del CDN que devuelve hoy).
+
 ## Estilos ("Edita como este")
 
-El cliente sube un video de referencia o pega un link (Instagram, TikTok, YouTube; se baja con **yt-dlp**). Si el link no se puede bajar (Instagram suele pedir sesión), el estilo queda con el error *"No pudimos bajar ese link. Descarga el video y súbelo."*. Lo que mide el worker (`worker/video/style.py`), sobre los primeros 3 minutos:
+El cliente sube un video de referencia o pega un link (Instagram, TikTok, YouTube; se baja con **yt-dlp** o, si Instagram o TikTok lo bloquean, con ScrapeCreators: ver [Descarga de links](#descarga-de-links)). Si el link no se puede bajar, el estilo queda con un error que dice qué hacer. Lo que mide el worker (`worker/video/style.py`), sobre los primeros 3 minutos:
 
 - **Cortes**: `scdet` de ffmpeg sobre todos los cuadros → cortes por minuto y duración media de toma.
 - **Zooms y punch-ins**: entre cuadros (5 por segundo, en gris) una similitud con puntos ORB y RANSAC (OpenCV). El texto fijo encima (subtítulos, marcas) no se mueve: si el mejor modelo es la identidad se busca el segundo. Zoom suave = escala sostenida dentro de una toma; punch-in = misma imagen a otra escala a ambos lados de un corte.
@@ -222,7 +234,7 @@ Con ruido no estacionario (tecleo, vecinos, puertas): SNR 13,7 → 31,6 (Suave) 
 
 ## Clips desde un video largo
 
-El cliente sube un podcast, un live o un video de YouTube de 10 a 120 minutos (hasta 2 h 30 min y 8 GB; mínimo 3 min), o pega un link que el worker baja con **yt-dlp** (hasta 1080p y 6 GB; YouTube suele funcionar, Instagram suele pedir sesión). Pantalla: Editor de video → **Clips desde un video largo** (`/editor/clips`).
+El cliente sube un podcast, un live o un video de YouTube de 10 a 120 minutos (hasta 2 h 30 min y 8 GB; mínimo 3 min), o pega un link que el worker baja con **yt-dlp** (hasta 1080p y 6 GB; YouTube suele funcionar; Instagram y TikTok usan ScrapeCreators si los bloquean). Pantalla: Editor de video → **Clips desde un video largo** (`/editor/clips`).
 
 1. **Worker (`worker/video/clips.py`, `LONG_VIDEO_CLIPS`)**: original en `/data/work/largos/<id>` (si vino de un link, se guarda una vez en el almacenamiento privado como `editor/largos/<id>/original.mp4`), audio y transcripción por palabra con los mismos proveedores del Editor.
 2. **Momentos (app, `lib/clips/`)**: `POST /api/worker/clips/<id>/moments`. El código arma candidatos de 30 a 90 s que empiezan y terminan en un límite de frase y los mide (`lib/clips/score.ts`: gancho, duración, ritmo de habla relativo al propio video, pausas, preguntas, cifras y cierre); se eligen los mejores sin que se pisen (hasta 24) y Claude (`clips.momentos`, `lib/ai/prompts/clips.ts`) elige de 5 a 10, puede mover los bordes por palabra y escribe título, texto de gancho, "por qué este momento" y el tipo de gancho. **Puntaje** = 45 % reglas + 55 % criterio de Claude, más entre -5 y +8 puntos según el ranking de tipos de gancho de Métricas (si hay al menos 3 piezas de ese tipo). Es relativo dentro del video: no es una probabilidad de nada. Sin IA, se eligen por reglas y se avisa.

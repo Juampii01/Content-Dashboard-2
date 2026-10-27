@@ -13,6 +13,7 @@ import { HeyGenSection, HeyGenSectionSkeleton } from "@/components/ajustes/heyge
 import { ImageKeysSection, ImageKeysSectionSkeleton } from "@/components/ajustes/image-keys-section";
 import { MusicKeysSection } from "@/components/ajustes/music-keys-section";
 import { AnthropicKeySection } from "@/components/ajustes/anthropic-key-section";
+import { ScrapeCreatorsKeySection } from "@/components/ajustes/scrapecreators-key-section";
 import { ReportSettingsSection, ReportSettingsSkeleton } from "@/components/informes/settings-section";
 import { FEATURES } from "@/lib/features";
 
@@ -48,7 +49,7 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
         </Suspense>
 
         <div id="claves" className="scroll-mt-6">
-          <Section title="Claves de servicios" description="Tu clave de API de Anthropic para toda la IA, la de OpenAI para las imágenes y, si quieres, Jamendo para música de artistas. El consumo se cobra en tus cuentas. Se guardan cifradas y nunca se muestran completas.">
+          <Section title="Claves de servicios" description="Tu clave de API de Anthropic para toda la IA, la de OpenAI para las imágenes y, si quieres, Jamendo para música de artistas y ScrapeCreators para bajar links de Instagram y TikTok. El consumo se cobra en tus cuentas. Se guardan cifradas y nunca se muestran completas.">
             <div className="flex flex-col gap-6">
               <Suspense fallback={<div aria-hidden className="skeleton h-36" />}>
                 <AnthropicKeySection />
@@ -69,6 +70,9 @@ export default function AjustesPage({ searchParams }: PageProps<"/ajustes">) {
               </Suspense>
               <Suspense fallback={<div aria-hidden className="skeleton h-36" />}>
                 <MusicKeysSection />
+              </Suspense>
+              <Suspense fallback={<div aria-hidden className="skeleton h-36" />}>
+                <ScrapeCreatorsKeySection />
               </Suspense>
             </div>
           </Section>

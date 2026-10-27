@@ -9,6 +9,7 @@ import {
   boolean,
   customType,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -1105,6 +1106,44 @@ export const aiUsage = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("ai_usage_created_at_idx").on(t.createdAt), index("ai_usage_video_project_idx").on(t.videoProjectId)],
+);
+
+/**
+ * Registro de consumo de IA: una fila por llamada a un proveedor (Anthropic hoy), también las que fallan después de
+ * generar (igual se cobran). Lo escribe solo lib/ai/usage.ts (`recordUsage`). Reemplaza a ai_usage, que queda como
+ * historial (la migración 0040 copió sus filas aquí).
+ * - `step`: el paso del flujo ("video.compos.codigo", "director.revisar"…); la etiqueta en español sale de lib/ai/steps.ts.
+ * - Tokens separados: entrada sin caché, salida (incluye el razonamiento), lectura de caché y escritura de caché.
+ * - `videoDurationSec`: duración del video del Editor al momento de la llamada (para comparar costo por minuto).
+ * - `requestId`: el pedido que la originó (una animación, una corrección del director), para sumar por corrección.
+ * - `status`: "ok", "truncada" (se quedó sin tokens), "error_lectura" (llegó pero no se pudo leer) o "rechazada".
+ */
+export const apiUsage = pgTable(
+  "api_usage",
+  {
+    id: id(),
+    videoId: uuid("video_id").references(() => videoProjects.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    step: text("step").notNull(),
+    provider: text("provider").notNull().default("anthropic"),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    costUsd: doublePrecision("cost_usd").notNull().default(0),
+    videoDurationSec: real("video_duration_sec"),
+    jobId: uuid("job_id").references(() => jobs.id, { onDelete: "set null" }),
+    requestId: text("request_id"),
+    status: text("status").notNull().default("ok"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("api_usage_created_at_idx").on(t.createdAt),
+    index("api_usage_video_idx").on(t.videoId),
+    index("api_usage_user_month_idx").on(t.userId, t.createdAt),
+    index("api_usage_step_idx").on(t.step),
+  ],
 );
 
 // ─── Claves de servicios del cliente ───────────────────────────────────────

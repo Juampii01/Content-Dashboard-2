@@ -1,10 +1,15 @@
 /**
  * Precios de la API de Anthropic (USD por millón de tokens) y cálculo del costo de una llamada.
- * Fuente: platform.claude.com/docs/en/about-claude/pricing (oct-2026). Si cambian, se actualizan aquí y nada más.
+ * Fuente: platform.claude.com/docs/en/about-claude/pricing, consultada el 27-oct-2026 (PRICES_CHECKED). Si cambian, se
+ * actualizan aquí y nada más.
  *
- * Sin nada de servidor: lo usan el cliente de IA (para registrar el costo en ai_usage), el director de edición (para
+ * Sin nada de servidor: lo usan el cliente de IA (para registrar el costo en api_usage), el director de edición (para
  * estimar y respetar el tope por video) y las pruebas.
  */
+
+/** Página oficial de precios y el día en que se revisaron los de abajo (se muestran en la vista de consumo). */
+export const PRICES_SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing";
+export const PRICES_CHECKED = "2026-10-27";
 
 export type ModelPrice = { input: number; output: number; cacheRead: number; cacheWrite1h: number };
 

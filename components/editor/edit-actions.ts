@@ -25,7 +25,7 @@ export async function suggestTrimAction(projectId: string): Promise<{ ok: true; 
   const project = await loadProject(projectId);
   if (!project || !(project.transcript as Transcript | null)?.words?.length) return { ok: false, error: "Este video todavía no tiene transcripción." };
   try {
-    const r = await withAiScope(projectId, () => suggestTrim(project));
+    const r = await withAiScope(projectId, () => suggestTrim(project), { userId: user.id });
     return { ok: true, ...r };
   } catch (error) {
     if (error instanceof VideoError) return { ok: false, error: error.message };

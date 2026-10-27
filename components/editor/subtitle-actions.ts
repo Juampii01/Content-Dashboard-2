@@ -21,6 +21,6 @@ export async function proofreadAction(projectId: string): Promise<{ ok: true; fi
   const words = (project?.transcript as Transcript | null)?.words;
   if (!project || !words?.length) return { ok: false, error: "Este video todavía no tiene transcripción." };
   const brand = await getBrand();
-  const fixes = await withAiScope(projectId, async () => proofreadTranscript({ words, brandCtx: await brandContext(brand), script: await scriptText(project.scriptId) }));
+  const fixes = await withAiScope(projectId, async () => proofreadTranscript({ words, brandCtx: await brandContext(brand), script: await scriptText(project.scriptId) }), { userId: user.id });
   return { ok: true, fixes };
 }

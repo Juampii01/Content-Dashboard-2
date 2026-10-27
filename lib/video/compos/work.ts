@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { brandContext, getBrand } from "@/lib/ai/brand-context";
 import { AiError, generateStructured } from "@/lib/ai/client";
+import { withUsageScope } from "@/lib/ai/usage";
 import {
   composCodeTask,
   composCodeWireSchema,
@@ -399,6 +400,16 @@ export type StepResult = { next: WorkerNext | null; finished: boolean };
  * qué sigue: la segunda mirada del director, cerrar, o nada en un pedido del Estudio).
  */
 export async function advanceWork(projectId: string, body: { step: string; results?: unknown; sheets?: unknown; workId?: string } = { step: "compos" }): Promise<StepResult> {
+  // El consumo de un pedido del Estudio se carga a ese pedido y a quien lo hizo (api_usage.request_id y user_id).
+  let userId: string | null | undefined;
+  if (body.workId) {
+    const [row] = await getDb().select({ createdBy: schema.composRequests.createdBy }).from(schema.composRequests).where(eq(schema.composRequests.id, body.workId)).limit(1);
+    userId = row?.createdBy ?? undefined;
+  }
+  return withUsageScope({ requestId: body.workId ?? undefined, userId }, () => advanceWorkInner(projectId, body));
+}
+
+async function advanceWorkInner(projectId: string, body: { step: string; results?: unknown; sheets?: unknown; workId?: string }): Promise<StepResult> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) return { next: null, finished: true };
   let work: ComposWork | null;

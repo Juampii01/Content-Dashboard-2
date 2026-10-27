@@ -1,9 +1,9 @@
 import "server-only";
-import Anthropic, { APIError } from "@anthropic-ai/sdk";
+import { APIError } from "@anthropic-ai/sdk";
 import type { MessageParam, ToolResultBlockParam } from "@anthropic-ai/sdk/resources/messages";
-import { AiError, MODELS } from "@/lib/ai/client";
+import { AiError, MODELS, anthropicClient } from "@/lib/ai/client";
+import { recordUsage } from "@/lib/ai/usage";
 import type { StrategistCitation, StrategistIdea, StrategistToolCall } from "@/lib/db/schema";
-import { env } from "@/lib/env";
 import { composeFakeAnswer, fakeIdeaCalls, planFakeTools } from "./fake";
 import type { ToolContext, ToolOutput } from "./queries";
 import { parseToolCall, stripUnknownRefs, toolDefinitions, toolStatus, type RefRegistry, type ToolInput, type ToolName } from "./tools";
@@ -33,6 +33,8 @@ export type TurnInput = {
   run: <N extends ToolName>(name: N, input: ToolInput<N>, ctx: ToolContext) => Promise<ToolOutput>;
   emit: (event: StrategistEvent) => void;
   signal?: AbortSignal;
+  /** Quién pregunta (para el registro del consumo). */
+  userId?: string | null;
 };
 
 export type TurnResult = { text: string; ideas: StrategistIdea[]; toolCalls: StrategistToolCall[]; usage: { input: number; output: number }; model: string };
@@ -92,12 +94,9 @@ function toAiError(error: unknown): AiError {
   return new AiError("No pudimos responder. Prueba de nuevo.", error instanceof Error ? error.message : String(error));
 }
 
-let client: Anthropic | null = null;
-
 async function realTurn(input: TurnInput): Promise<TurnResult> {
-  const key = env().ANTHROPIC_API_KEY;
-  if (!key) throw new AiError("Falta configurar la IA en esta instalación (ANTHROPIC_API_KEY). Avísale a soporte.", "sin ANTHROPIC_API_KEY");
-  client ??= new Anthropic({ apiKey: key, maxRetries: 2, timeout: 120_000 });
+  // La misma clave que el resto de la IA: la del cliente (Ajustes) o, si no cargó una, la del servidor.
+  const client = await anthropicClient();
   const model = MODELS.main;
   const tools = toolDefinitions();
   const ctx: ToolContext = { registry: input.registry, ideas: [] };
@@ -128,6 +127,8 @@ async function realTurn(input: TurnInput): Promise<TurnResult> {
       const message = await stream.finalMessage();
       usage.input += (message.usage.input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0) + (message.usage.cache_creation_input_tokens ?? 0);
       usage.output += message.usage.output_tokens ?? 0;
+      // Cada vuelta (pregunta o herramientas) se registra con sus cuatro tipos de tokens y su costo.
+      await recordUsage({ step: "estratega.chat", model, usage: message.usage, userId: input.userId ?? null });
 
       if (message.stop_reason === "tool_use") {
         if (roundText) input.emit({ type: "reset" });

@@ -4,7 +4,7 @@ import { getOptionalUser } from "@/lib/auth";
 import { AiError, aiConfigured } from "@/lib/ai/client";
 import { conversationFor, createToolRunner, DAILY_QUESTION_LIMIT, questionsToday } from "@/lib/dal/strategist";
 import { runStrategistTurn, type StrategistEvent } from "@/lib/strategist/engine";
-import { createConversation, logUsage, saveAssistantMessage, saveUserMessage, systemContext } from "@/lib/strategist/service";
+import { createConversation, saveAssistantMessage, saveUserMessage, systemContext } from "@/lib/strategist/service";
 import { extractCitations, RefRegistry } from "@/lib/strategist/tools";
 
 /**
@@ -59,11 +59,10 @@ export async function POST(request: Request) {
       await saveUserMessage(conversation.id, user.id, question);
 
       try {
-        const result = await runStrategistTurn({ question, history, system, today, registry, run: runner.run, emit, signal: abort.signal });
+        const result = await runStrategistTurn({ question, history, system, today, registry, run: runner.run, emit, signal: abort.signal, userId: user.id });
         // Las ideas también citan ([P3] en el "por qué"): sus fuentes van en la lista.
         const citations = extractCitations([result.text, ...result.ideas.map((i) => `${i.idea} ${i.why ?? ""}`)].join("\n"), registry);
         const saved = await saveAssistantMessage(conversation.id, { content: result.text, citations, ideas: result.ideas, toolCalls: result.toolCalls, model: result.model, usage: result.usage, error: null });
-        await logUsage(result.model, result.usage);
         emit({
           type: "done",
           message: { id: saved.id, role: "assistant", content: result.text, citations, ideas: result.ideas, error: null, createdAt: saved.createdAt.toISOString() },

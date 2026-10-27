@@ -63,7 +63,7 @@ export async function createScript(input: {
   sourceContentItemId: string | null;
   sourceUrl: string | null;
   userId: string | null;
-  /** Nombre del consumo en ai_usage (por defecto "guiones.generar"; el autopiloto usa el suyo). */
+  /** Nombre del consumo en api_usage (por defecto "guiones.generar"; el autopiloto usa el suyo). */
   feature?: string;
 }): Promise<string> {
   const generated = await generateStructured({

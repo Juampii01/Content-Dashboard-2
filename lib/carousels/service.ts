@@ -84,7 +84,7 @@ export async function createCarousel(input: {
   /** Tipos de slide de la referencia, si se quiere respetar su estructura. */
   structure?: string[] | null;
   userId: string | null;
-  /** Nombre del consumo en ai_usage (por defecto "carruseles.ficha"; el autopiloto y "Sacarle todo el jugo" usan el suyo). */
+  /** Nombre del consumo en api_usage (por defecto "carruseles.ficha"; el autopiloto y "Sacarle todo el jugo" usan el suyo). */
   feature?: string;
 }): Promise<string> {
   let topic = input.topic;

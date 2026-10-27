@@ -1,18 +1,17 @@
 import "server-only";
-import { AsyncLocalStorage } from "node:async_hooks";
 import Anthropic, { APIError } from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
-import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { readAnthropicKey } from "./anthropic-key";
 import { costOf, imageTokens, textTokens } from "./pricing";
+import { currentUsageScope, recordUsage, withUsageScope, type UsageStatus } from "./usage";
 
 /**
  * Única puerta a Claude. Todas las funciones de IA pasan por aquí para tener:
  * - salida estructurada validada con Zod (nunca se parsea texto a mano),
  * - el contexto de marca en caché (es lo que más se repite entre llamadas),
- * - registro del consumo en ai_usage,
+ * - registro del consumo en api_usage (lib/ai/usage.ts), también de las llamadas que fallan después de generar,
  * - errores en español para mostrar.
  */
 import { MODELS, type ModelKey } from "./models";
@@ -30,7 +29,7 @@ export class AiError extends Error {
 
 let client: { key: string; sdk: Anthropic } | null = null;
 /** El cliente de Anthropic con la clave del cliente (Ajustes) o, si no cargó una, la del servidor. */
-async function getClient(): Promise<Anthropic> {
+export async function anthropicClient(): Promise<Anthropic> {
   const key = (await readAnthropicKey().catch(() => null)) ?? env().ANTHROPIC_API_KEY;
   if (!key) throw new AiError("Agrega tu clave de API de Anthropic en Ajustes → Claves de servicios para usar la IA.", "sin clave de Anthropic");
   if (!client || client.key !== key) client = { key, sdk: new Anthropic({ apiKey: key, maxRetries: 2, timeout: 120_000 }) };
@@ -39,11 +38,11 @@ async function getClient(): Promise<Anthropic> {
 
 /**
  * Ámbito del consumo: todo lo que se llame a Claude dentro de `withAiScope` se carga a ese video del Editor
- * (ai_usage.video_project_id), también las llamadas internas (gráficos, reintentos) que no saben de proyectos.
+ * (api_usage.video_id), y al usuario y al pedido si se pasan, también las llamadas internas (gráficos, reintentos) que
+ * no saben de proyectos.
  */
-const scope = new AsyncLocalStorage<{ videoProjectId: string | null }>();
-export function withAiScope<T>(videoProjectId: string | null, fn: () => Promise<T>): Promise<T> {
-  return scope.run({ videoProjectId }, fn);
+export function withAiScope<T>(videoProjectId: string | null, fn: () => Promise<T>, extra: { userId?: string | null; requestId?: string | null } = {}): Promise<T> {
+  return withUsageScope({ videoProjectId, ...extra }, fn);
 }
 
 /** Respuesta simulada (AI_FAKE=1) de una función que la arma con los datos reales en lugar de leer la tarea. */
@@ -76,7 +75,7 @@ export async function generateStructured<S extends z.ZodType>(input: {
   userId?: string | null;
   /** Imágenes para modelos con visión (base64, sin el prefijo data:). Van antes de la tarea. Opcional. */
   images?: { mediaType: "image/jpeg" | "image/png" | "image/webp"; data: string }[];
-  /** Trabajo de la cola al que se carga el consumo (ai_usage.job_id). */
+  /** Trabajo de la cola al que se carga el consumo (api_usage.job_id). */
   jobId?: string | null;
   /** Video del Editor al que se carga el consumo (si no, el de `withAiScope`). */
   videoProjectId?: string | null;
@@ -90,7 +89,7 @@ export async function generateStructured<S extends z.ZodType>(input: {
   fake?: FakeFn;
 }): Promise<z.infer<S>> {
   const model = MODELS[input.model ?? "main"];
-  const videoProjectId = input.videoProjectId ?? scope.getStore()?.videoProjectId ?? null;
+  const videoProjectId = input.videoProjectId ?? currentUsageScope().videoProjectId ?? null;
   // Solo para probar la interfaz en desarrollo: nunca en producción.
   if (process.env.AI_FAKE === "1" && process.env.NODE_ENV !== "production") {
     await new Promise((r) => setTimeout(r, 800));
@@ -105,16 +104,13 @@ export async function generateStructured<S extends z.ZodType>(input: {
     if (videoProjectId) {
       const inputTok = textTokens(input.context) + textTokens(input.task) + (input.imageSizes ?? []).reduce((n, i) => n + imageTokens(i.width, i.height), 0);
       const outputTok = textTokens(JSON.stringify(parsed)) * (input.thinking ? 3 : 1);
-      await getDb()
-        .insert(schema.aiUsage)
-        .values({ feature: input.feature, provider: "simulado", model, inputTokens: inputTok, outputTokens: outputTok, jobId: input.jobId ?? null, videoProjectId, costUsd: costOf(model, { input: inputTok, output: outputTok, cacheRead: 0, cacheWrite: 0 }) })
-        .catch(() => undefined);
+      await recordUsage({ step: input.feature, provider: "simulado", model, usage: { input_tokens: inputTok, output_tokens: outputTok }, userId: input.userId, jobId: input.jobId, videoProjectId, costUsd: costOf(model, { input: inputTok, output: outputTok, cacheRead: 0, cacheWrite: 0 }) });
     }
     return parsed;
   }
   // La clave de API del cliente (Ajustes) o, si no cargó una, la del servidor. Nunca la suscripción de Claude: los
   // términos de Anthropic no permiten usar planes Pro o Max desde productos de terceros.
-  const api = await getClient();
+  const api = await anthropicClient();
   const params = {
     model,
     max_tokens: input.maxTokens ?? 4096,
@@ -128,14 +124,16 @@ export async function generateStructured<S extends z.ZodType>(input: {
       },
     ],
     ...(input.thinking ? { thinking: { type: "adaptive" as const } } : {}),
-    output_config: { format: zodOutputFormat(input.schema), ...(input.thinking ? { effort: input.thinking.effort } : {}) },
+    // Solo el JSON Schema, sin el `parse` del SDK: el JSON se lee aquí (readJson) para registrar el consumo aunque no se
+    // pueda leer.
+    output_config: { format: { type: "json_schema" as const, schema: zodOutputFormat(input.schema).schema }, ...(input.thinking ? { effort: input.thinking.effort } : {}) },
   };
-  // Razonamiento o mucha salida: por streaming (sin streaming, el SDK corta a los 2 minutos de este cliente).
+  // Siempre por streaming y leyendo el JSON aquí: así el consumo se registra aunque la respuesta llegue cortada o no se
+  // pueda leer (Anthropic la cobra igual). Sin streaming, el SDK corta a los 2 minutos y no devuelve el consumo si falla
+  // la lectura.
   const long = Boolean(input.thinking) || (input.maxTokens ?? 4096) > 16_000 || (input.timeoutMs ?? 0) > 120_000;
   const call = (p: typeof params | Omit<typeof params, "output_config">) =>
-    long || !("output_config" in p)
-      ? api.messages.stream(p as typeof params, { timeout: input.timeoutMs ?? 600_000 }).finalMessage()
-      : api.messages.parse(p as typeof params, input.timeoutMs ? { timeout: input.timeoutMs } : undefined);
+    api.messages.stream(p as typeof params, { timeout: input.timeoutMs ?? (long ? 600_000 : 120_000) }).finalMessage();
   let message: Awaited<ReturnType<typeof call>>;
   let freeform = false;
   try {
@@ -178,39 +176,42 @@ export async function generateStructured<S extends z.ZodType>(input: {
     throw new AiError("No pudimos generar el resultado. Prueba de nuevo.", error instanceof Error ? error.message : String(error));
   }
 
-  await getDb()
-    .insert(schema.aiUsage)
-    .values({
-      feature: input.feature,
-      provider: "anthropic",
-      model,
-      inputTokens: (message.usage.input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0) + (message.usage.cache_creation_input_tokens ?? 0),
-      outputTokens: message.usage.output_tokens ?? 0,
-      jobId: input.jobId ?? null,
-      videoProjectId,
-      cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
-      cacheWriteTokens: message.usage.cache_creation_input_tokens ?? 0,
-      costUsd: costOf(model, {
-        input: message.usage.input_tokens ?? 0,
-        output: message.usage.output_tokens ?? 0,
-        cacheRead: message.usage.cache_read_input_tokens ?? 0,
-        cacheWrite: message.usage.cache_creation_input_tokens ?? 0,
-      }),
-    })
-    .catch(() => undefined);
+  // Primero se lee el resultado y después se registra el consumo una sola vez, con lo que pasó.
+  let status: UsageStatus = "ok";
+  let result: z.infer<S> | undefined;
+  let failure: AiError | null = null;
+  if (message.stop_reason === "refusal") {
+    status = "rechazada";
+    failure = new AiError("La IA no quiso generar ese contenido. Prueba con otra idea o redáctala distinto.", "refusal");
+  } else if (message.stop_reason === "max_tokens") {
+    status = "truncada";
+    failure = new AiError("El resultado salió demasiado largo. Prueba con un formato más corto.", "truncada: max_tokens");
+  } else {
+    const parsedOutput = (message as { parsed_output?: unknown }).parsed_output;
+    if (parsedOutput != null && !freeform) result = parsedOutput as z.infer<S>;
+    else {
+      const read = readJson(message.content, input.schema);
+      if (read.ok) result = read.value as z.infer<S>;
+      else {
+        status = "error_lectura";
+        failure = new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", read.detail);
+      }
+    }
+  }
+  await recordUsage({ step: input.feature, model, usage: message.usage, status, userId: input.userId, jobId: input.jobId, videoProjectId });
+  if (failure) throw failure;
+  return result as z.infer<S>;
+}
 
-  if (message.stop_reason === "refusal") throw new AiError("La IA no quiso generar ese contenido. Prueba con otra idea o redáctala distinto.", "refusal");
-  if (message.stop_reason === "max_tokens") throw new AiError("El resultado salió demasiado largo. Prueba con un formato más corto.", "truncada: max_tokens");
-  const parsedOutput = (message as { parsed_output?: unknown }).parsed_output;
-  if (parsedOutput != null && !freeform) return parsedOutput as z.infer<S>;
-  // Sin parsed_output (streaming o pedido como texto): se lee el JSON del texto y se valida con el esquema.
-  const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+/** Lee el JSON del texto de la respuesta (streaming o pedido como texto) y lo valida con el esquema. */
+function readJson(content: Anthropic.Messages.ContentBlock[], schema: z.ZodType): { ok: true; value: unknown } | { ok: false; detail: string } {
+  const text = content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", "sin JSON en la respuesta");
+  if (start < 0 || end <= start) return { ok: false, detail: "sin JSON en la respuesta" };
   try {
-    return input.schema.parse(JSON.parse(text.slice(start, end + 1))) as z.infer<S>;
+    return { ok: true, value: schema.parse(JSON.parse(text.slice(start, end + 1))) };
   } catch (error) {
-    throw new AiError("La IA devolvió un resultado incompleto. Prueba de nuevo.", `JSON inválido: ${error instanceof Error ? error.message.slice(0, 300) : String(error)}`);
+    return { ok: false, detail: `JSON inválido: ${error instanceof Error ? error.message.slice(0, 300) : String(error)}` };
   }
 }

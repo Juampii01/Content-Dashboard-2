@@ -46,15 +46,6 @@ export async function saveAssistantMessage(
   return row!;
 }
 
-/** Registra el consumo del turno en ai_usage (una fila por pregunta, sumando las vueltas de herramientas). */
-export async function logUsage(model: string, usage: { input: number; output: number }): Promise<void> {
-  if (usage.input === 0 && usage.output === 0) return;
-  await getDb()
-    .insert(schema.aiUsage)
-    .values({ feature: "estratega.chat", provider: "anthropic", model, inputTokens: usage.input, outputTokens: usage.output })
-    .catch(() => undefined);
-}
-
 /** Marca una idea como agregada al calendario (para no duplicarla y mostrar el enlace). */
 export async function markIdeaScheduled(messageId: string, ideaId: string, entryId: string): Promise<void> {
   await getDb().execute(sql`

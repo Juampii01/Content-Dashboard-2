@@ -11,7 +11,7 @@ import { CAPTION_PRESET_KEYS } from "@/lib/video/types";
 /**
  * Prompts del director de edición (lib/video/director), versión 1.
  *
- * Features (ai_usage): "video.director.mapa" (Claude mira las hojas de contacto y entiende el video),
+ * Pasos (api_usage.step): "video.director.mapa" (Claude mira las hojas de contacto y entiende el video),
  * "video.director.plan" (decide toda la edición junta), "video.director.revisar" (corrige con lo que encontró la
  * segunda mirada o con lo que pide la persona en "Edítalo así"), "video.director.critica" (segunda mirada con visión
  * sobre cuadros del plan armado) y "video.director.final" (revisión con visión del MP4 final).

@@ -21,7 +21,7 @@ import { allowedDays, cronWeekDue, estimateWeekTokens, manualWeekFor, piecesWith
 /**
  * Autopiloto semanal: cada lunes deja listo un paquete para aprobar con el plan de la semana (el plan semanal con
  * IA del Calendario), los guiones escritos y los borradores de carrusel. Nada entra al calendario hasta que la
- * persona aprueba cada pieza. Consumo: todo se registra en ai_usage como "autopiloto.*" y tiene un tope semanal.
+ * persona aprueba cada pieza. Consumo: todo se registra en api_usage como "autopiloto.*" y tiene un tope semanal.
  */
 export class AutopilotError extends Error {}
 
@@ -46,8 +46,8 @@ export async function saveAutopilotSettings(input: AutopilotSettings, userId: st
 /** Tokens del autopiloto registrados en los últimos 7 días. */
 export async function autopilotTokensLast7Days(): Promise<number> {
   const rows = await getDb().execute<{ n: number }>(sql`
-    select coalesce(sum(input_tokens + output_tokens), 0)::int as n from ai_usage
-    where feature like 'autopiloto.%' and created_at > now() - interval '7 days'
+    select coalesce(sum(input_tokens + cache_read_tokens + cache_write_tokens + output_tokens), 0)::int as n from api_usage
+    where step like 'autopiloto.%' and created_at > now() - interval '7 days'
   `);
   return Number(rows.rows[0]?.n ?? 0);
 }
@@ -152,7 +152,7 @@ async function finishPack(weekStart: string, userId: string | null, startedAt: D
   const all = await db.select({ genStatus: schema.weeklyPackItems.genStatus }).from(schema.weeklyPackItems).where(eq(schema.weeklyPackItems.weekStart, weekStart));
   const ready = all.filter((i) => i.genStatus === "ready").length;
   const used = await db.execute<{ n: number }>(sql`
-    select coalesce(sum(input_tokens + output_tokens), 0)::int as n from ai_usage where feature like 'autopiloto.%' and created_at >= ${startedAt.toISOString()}::timestamptz
+    select coalesce(sum(input_tokens + cache_read_tokens + cache_write_tokens + output_tokens), 0)::int as n from api_usage where step like 'autopiloto.%' and created_at >= ${startedAt.toISOString()}::timestamptz
   `);
   await db
     .update(schema.weeklyPacks)

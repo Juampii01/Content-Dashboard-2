@@ -70,7 +70,7 @@ import { BUDGET, effectiveBrief, readBrief, readDirector, type Brief, type Criti
  *   "Edítalo así" y los arreglos de la revisión final empiezan en `edit`.
  *   Después del render, `final` revisa cuadros del MP4.
  *
- * Todo el consumo se carga al video (ai_usage.video_project_id) y respeta el tope por video (lib/video/director/cost.ts).
+ * Todo el consumo se carga al video (api_usage.video_id) y respeta el tope por video (lib/video/director/cost.ts).
  */
 
 export type DirectorNext =
@@ -178,9 +178,9 @@ async function saveDirector(projectId: string, next: DirectorState, extra: Parti
 /** Gasto de IA del video (todas las etapas). */
 export async function spentUsd(projectId: string): Promise<number> {
   const [row] = await getDb()
-    .select({ total: sql<number>`coalesce(sum(${schema.aiUsage.costUsd}), 0)` })
-    .from(schema.aiUsage)
-    .where(eq(schema.aiUsage.videoProjectId, projectId));
+    .select({ total: sql<number>`coalesce(sum(${schema.apiUsage.costUsd}), 0)` })
+    .from(schema.apiUsage)
+    .where(eq(schema.apiUsage.videoId, projectId));
   return Number(row?.total ?? 0);
 }
 
@@ -188,10 +188,10 @@ export type CostSummary = { totalUsd: number; capUsd: number; simulated: boolean
 
 export async function costSummary(projectId: string, capUsd: number): Promise<CostSummary> {
   const rows = await getDb()
-    .select({ feature: schema.aiUsage.feature, provider: schema.aiUsage.provider, usd: sql<number>`sum(${schema.aiUsage.costUsd})`, calls: sql<number>`count(*)` })
-    .from(schema.aiUsage)
-    .where(eq(schema.aiUsage.videoProjectId, projectId))
-    .groupBy(schema.aiUsage.feature, schema.aiUsage.provider);
+    .select({ feature: schema.apiUsage.step, provider: schema.apiUsage.provider, usd: sql<number>`sum(${schema.apiUsage.costUsd})`, calls: sql<number>`count(*)` })
+    .from(schema.apiUsage)
+    .where(eq(schema.apiUsage.videoId, projectId))
+    .groupBy(schema.apiUsage.step, schema.apiUsage.provider);
   const by = new Map<string, { usd: number; calls: number }>();
   for (const r of rows) {
     const label = STAGE_LABEL[r.feature] ?? "Otros";
@@ -261,6 +261,9 @@ async function styleFor(project: Project): Promise<{ plan: PlanStyle; text: stri
 // ─── Pasos ────────────────────────────────────────────────────────────────
 
 export async function directorStep(projectId: string, body: DirectorBody): Promise<{ next: DirectorNext; status: string }> {
+  // Una corrección en curso: su consumo se carga a ese pedido (api_usage.request_id), para sumar cuánto costó cada una.
+  const [row] = await getDb().select({ director: schema.videoProjects.director }).from(schema.videoProjects).where(eq(schema.videoProjects.id, projectId)).limit(1);
+  const pendingId = row ? (readDirector(row.director).pending?.id ?? null) : null;
   return withAiScope(projectId, async () => {
     switch (body.step) {
       case "start":
@@ -302,7 +305,7 @@ export async function directorStep(projectId: string, body: DirectorBody): Promi
         return afterCompos(projectId);
       }
     }
-  });
+  }, { requestId: pendingId });
 }
 
 async function start(projectId: string): Promise<{ next: DirectorNext; status: string }> {

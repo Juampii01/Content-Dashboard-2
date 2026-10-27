@@ -6,7 +6,7 @@ name: Fase 0 · credenciales de suscripción
 on:
   push:
     branches: [fase0-datos]
-    paths: [".github/diag/limpieza_suscripciones.py", ".github/diag/modo.txt", ".github/workflows/fase0-datos.yml"]
+    paths: [".github/diag/limpieza_suscripciones.py", ".github/diag/estado.py", ".github/diag/modo.txt", ".github/workflows/fase0-datos.yml"]
 
 permissions:
   contents: write
@@ -30,7 +30,8 @@ jobs:
       - name: Correr
         run: |
           modo=$(tr -dc 'a-z' < ../.github/diag/modo.txt)
-          b64=$(base64 -w0 ../.github/diag/limpieza_suscripciones.py)
+          if [ "$modo" = "estado" ]; then f=estado.py; else f=limpieza_suscripciones.py; fi
+          b64=$(base64 -w0 ../.github/diag/$f)
           flyctl ssh console --config fly.toml -C "sh -c 'echo $b64 | base64 -d > /tmp/limpieza.py && cd /app && MODO=$modo python /tmp/limpieza.py; rm -f /tmp/limpieza.py'" 2>&1 | grep -v "^Connecting" > /tmp/salida.json || true
           wc -c /tmp/salida.json
         env:

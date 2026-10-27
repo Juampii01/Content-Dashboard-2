@@ -16,7 +16,7 @@ import { loadEffect } from "@/lib/video/compos/library-service";
  * Solo se firman archivos del dueño que se indica (uno y solo uno):
  * - projectId: `editor/<id>/…` o (solo lectura) el original guardado en el proyecto.
  * - styleId: `editor/estilos/<id>/…` (la referencia subida, solo lectura, y la miniatura).
- * - clipId: `editor/biblioteca/<id>/…` (el clip, solo lectura, y su miniatura).
+ * - clipId: `editor/biblioteca/<id>/…` (el clip, solo lectura, su miniatura y sus hojas de cuadros).
  * - longVideoId: `editor/largos/<id>/…` (el video largo: se lee, y si vino de un link el worker lo guarda una vez;
  *   las vistas previas y pósters de sus clips).
  * - trackId: `editor/musica/<id>/…` (la pista de música, solo lectura; mientras se separa la de un reel, el archivo
@@ -73,7 +73,8 @@ export async function POST(request: NextRequest) {
     const clip = await loadClip(clipId);
     if (!clip) return NextResponse.json({ error: "Ese clip ya no existe." }, { status: 404 });
     if (!key.startsWith(`editor/biblioteca/${clipId}/`)) return denied();
-    if (op === "put" && key !== `editor/biblioteca/${clipId}/miniatura.jpg`) return denied();
+    // Se escriben solo la miniatura y las hojas de cuadros de la ficha.
+    if (op === "put" && key !== `editor/biblioteca/${clipId}/miniatura.jpg` && !new RegExp(`^editor/biblioteca/${clipId}/hoja-[0-9]{2}\\.jpg$`).test(key)) return denied();
   } else if (trackId) {
     const track = await loadTrack(trackId);
     // Separando la música de un reel (AUDIO_SPLIT): se lee el archivo subido y se escribe la pista, una sola vez.

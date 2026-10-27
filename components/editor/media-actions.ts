@@ -1,12 +1,14 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
-import { isDenied, requireEditor } from "@/lib/auth";
-import { signBrollOptions, type SignedOption } from "@/lib/dal/editor-media";
+import { getCurrentUser, isDenied, requireEditor } from "@/lib/auth";
+import { clipMedia, signBrollOptions, type SignedOption } from "@/lib/dal/editor-media";
 import { fileDriver } from "@/lib/storage";
 import { BrollError, libraryOptions, searchOptions } from "@/lib/video/broll";
-import { completeClipUpload, createClipUpload, deleteClip, LibraryError, retryClip, updateClip } from "@/lib/video/library";
+import { completeClipUpload, createClipUpload, deleteClip, generateFicha, LibraryError, retryClip, retryFicha, searchLibrary, updateClip, updateFicha } from "@/lib/video/library";
+import { fichaSchema, type Ficha } from "@/lib/video/library-ficha";
 import { completeTrackUpload, createTrackUpload, deleteTrack, MusicError, renameTrack } from "@/lib/video/music";
 import { completeSplitUpload, createSplitFromLink, createSplitUpload, retrySplit } from "@/lib/video/music-split";
 import { completeStyleUpload, createStyleFromLink, createStyleUpload, deleteStyle, renameStyle, retryStyle, StyleError } from "@/lib/video/styles";
@@ -126,7 +128,9 @@ export async function completeClipUploadAction(id: string): Promise<ActionResult
   if (isDenied(user)) return user;
   if (!idSchema.safeParse(id).success) return { ok: false, error: "Clip no válido." };
   try {
-    await completeClipUpload(id, user.id);
+    const done = await completeClipUpload(id, user.id);
+    // Una imagen ya está lista: Claude escribe su ficha después de responder (un video, cuando el worker termina).
+    if (done.ficha) after(() => generateFicha(id));
     refresh();
     return { ok: true };
   } catch (error) {
@@ -164,6 +168,55 @@ export async function retryClipAction(id: string): Promise<ActionResult> {
   await retryClip(id, user.id);
   refresh();
   return { ok: true };
+}
+
+/** Vuelve a escribir la ficha de una pieza (falló, o es de antes de las fichas). */
+export async function retryFichaAction(id: string): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Archivo no válido." };
+  try {
+    const r = await retryFicha(id, user.id);
+    if (r.ficha) after(() => generateFicha(id));
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/** Guarda la ficha corregida por la persona. */
+export async function updateFichaAction(id: string, ficha: Ficha): Promise<ActionResult<{ ficha: Ficha }>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Archivo no válido." };
+  const parsed = fichaSchema.safeParse(ficha);
+  if (!parsed.success) return { ok: false, error: "Revisa la ficha: hay un campo demasiado largo o un tramo sin descripción." };
+  try {
+    const saved = await updateFicha(id, parsed.data);
+    refresh();
+    return { ok: true, data: { ficha: saved } };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/** Búsqueda por texto en la biblioteca (nombre, etiquetas y ficha): los ids que coinciden, lo mejor primero. */
+export async function searchLibraryAction(query: string): Promise<ActionResult<{ ids: string[] }>> {
+  // Solo lectura: también para usuarios de solo lectura.
+  await getCurrentUser();
+  const parsed = z.string().trim().max(120).safeParse(query);
+  if (!parsed.success) return { ok: false, error: "Búsqueda no válida." };
+  return { ok: true, data: { ids: await searchLibrary(parsed.data) } };
+}
+
+/** El archivo y las hojas de cuadros de una pieza, firmados (al abrir su ficha). */
+export async function clipMediaAction(id: string): Promise<ActionResult<{ mediaUrl: string | null; sheetUrls: string[] }>> {
+  // Solo lectura: también para usuarios de solo lectura.
+  await getCurrentUser();
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Archivo no válido." };
+  const media = await clipMedia(id);
+  return media ? { ok: true, data: media } : { ok: false, error: "Ese archivo todavía no está listo." };
 }
 
 // ─── B-roll en la revisión ────────────────────────────────────────────────

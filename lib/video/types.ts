@@ -198,6 +198,13 @@ export type BrollOption = {
   key?: string | null;
   thumbKey?: string | null;
   title?: string | null;
+  /** Biblioteca: "image" para una imagen (b-roll fijo); sin el campo, video. */
+  kind?: "video" | "image";
+  /**
+   * Biblioteca: el tramo del clip que mejor muestra lo que se busca (de su ficha). Al elegirlo, el b-roll se ve desde
+   * su inicio (`edit.clip_start`).
+   */
+  moment?: { start: number; end: number; what: string } | null;
   /**
    * Gráfico: una escena v2 del motor de motion graphics (lib/video/motion) o, en planes guardados antes, un spec v1
    * (plantilla, textos, colores de marca y modo). Los dos se dibujan con el motor.

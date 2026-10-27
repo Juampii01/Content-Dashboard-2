@@ -7,7 +7,8 @@ import { EDIT_ASSISTANT_RULES, editAssistantSchema, editAssistantTask, type Edit
 import { isDenied, requireEditor } from "@/lib/auth";
 import { loadProject, suggestTrim, transcribeAgain, VideoError } from "@/lib/video/service";
 import type { BrollOption, Transcript } from "@/lib/video/types";
-import { loadClip } from "@/lib/video/library";
+import { loadClip, pieceOf } from "@/lib/video/library";
+import { pieceOption } from "@/lib/video/library-ficha";
 import { signBrollOptions, type SignedOption } from "@/lib/dal/editor-media";
 
 /**
@@ -159,16 +160,20 @@ export async function clipOptionAction(clipId: string, meta: z.input<typeof clip
   if (!z.uuid().safeParse(clipId).success || !m.success) return { ok: false, error: "Clip no válido." };
   const clip = await loadClip(clipId);
   if (!clip || clip.status === "UPLOADING" || clip.status === "FAILED") return { ok: false, error: clip?.status === "FAILED" ? "No pudimos preparar ese clip. Súbelo de nuevo." : "El clip todavía no terminó de subir." };
-  const option: BrollOption = {
-    source: "library",
-    id: clip.id,
-    duration: clip.duration ?? m.data.duration,
-    width: clip.width ?? m.data.width,
-    height: clip.height ?? m.data.height,
-    key: clip.fileKey,
-    thumbKey: clip.thumbKey,
-    title: clip.title,
-  };
+  // Lista: con su tipo (una imagen es b-roll fijo). Recién subido: con lo que midió el navegador.
+  const option: BrollOption =
+    clip.status === "READY"
+      ? pieceOption(pieceOf(clip))
+      : {
+          source: "library",
+          id: clip.id,
+          duration: clip.duration ?? m.data.duration,
+          width: clip.width ?? m.data.width,
+          height: clip.height ?? m.data.height,
+          key: clip.fileKey,
+          thumbKey: clip.thumbKey,
+          title: clip.title,
+        };
   const [signed] = await signBrollOptions([option]);
   return signed ? { ok: true, option: signed } : { ok: false, error: "No pudimos preparar el clip." };
 }

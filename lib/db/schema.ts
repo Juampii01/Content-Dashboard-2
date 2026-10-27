@@ -23,6 +23,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { MonthlyReportData } from "@/lib/reports/types";
+import type { Ficha, FichaSheet, FichaStatus, LibraryKind } from "@/lib/video/library-ficha";
 import type { ReelCopyAnalysis } from "@/lib/scripts/reel-copy";
 import type { RetentionDrop, RetentionExplanation, RetentionPoint, ThumbnailConcept, TitleBasis, TitleGroup, TranscriptSegment, TranscriptSource } from "@/lib/youtube/types";
 
@@ -969,11 +970,25 @@ export const brollClips = pgTable(
     width: integer("width"),
     height: integer("height"),
     errorMessage: text("error_message"),
+    /** "video" (clip de b-roll) o "image" (foto o imagen fija: b-roll fijo, dentro de animaciones o referencia). */
+    kind: text("kind").$type<LibraryKind>().notNull().default("video"),
+    /** Lo que Claude vio al subirla (lib/video/library-ficha.ts). La persona la puede editar. */
+    ficha: jsonb("ficha").$type<Ficha>(),
+    /** "none" (subida antes de las fichas), "pending", "ready" o "failed". La pieza se usa igual sin ficha. */
+    fichaStatus: text("ficha_status").$type<FichaStatus>().notNull().default("none"),
+    fichaError: text("ficha_error"),
+    /** Hojas de cuadros con su segundo (las arma el worker): Claude las mira para la ficha y cuando se usa como referencia. */
+    fichaSheets: jsonb("ficha_sheets").$type<FichaSheet[]>(),
+    /** Nombre, etiquetas y ficha en minúsculas y sin tildes (búsqueda por texto con índice de Postgres). */
+    searchText: text("search_text").notNull().default(""),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("broll_clips_updated_at_idx").on(t.updatedAt)],
+  (t) => [
+    index("broll_clips_updated_at_idx").on(t.updatedAt),
+    index("broll_clips_search_idx").using("gin", sql`to_tsvector('spanish', ${t.searchText})`),
+  ],
 );
 
 /**

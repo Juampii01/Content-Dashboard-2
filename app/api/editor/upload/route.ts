@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/blob/client";
 import { getOptionalUser } from "@/lib/auth";
-import { AUDIO_TYPES, fileDriver, VIDEO_TYPES } from "@/lib/storage";
+import { AUDIO_TYPES, fileDriver, IMAGE_TYPES, VIDEO_TYPES } from "@/lib/storage";
 import { uploadDelegation } from "@/lib/storage/files";
 import { loadLongVideo } from "@/lib/clips/service";
 import { loadClip } from "@/lib/video/library";
@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
         // "separar:<id>": video o audio del que se saca la música (Biblioteca → Música → Sacar la música de un reel).
         const split = kind === "separar";
         let project = false;
+        // Biblioteca: videos o imágenes (según lo que se reservó).
+        let library = false;
         if (kind === "estilo" && ref) {
           const style = await loadStyle(ref);
           if (style?.status === "UPLOADING" && style.sourceKey === pathname) size = style.sourceBytes ?? 0;
@@ -49,6 +51,7 @@ export async function POST(request: NextRequest) {
         } else if (kind === "clip" && ref) {
           const clip = await loadClip(ref);
           if (clip?.status === "UPLOADING" && clip.fileKey === pathname) size = clip.fileBytes ?? 0;
+          library = true;
         } else if (kind === "referencia" && ref) {
           // Video de referencia de "Edítalo así": solo a la ruta que reservó el Estudio.
           const project = await loadProject(ref);
@@ -68,9 +71,9 @@ export async function POST(request: NextRequest) {
         }
         if (size == null) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
         return {
-          token: await uploadDelegation(pathname, split || project ? "media" : audio ? "audio" : "video"),
+          token: await uploadDelegation(pathname, split || project ? "media" : audio ? "audio" : library ? "library" : "video"),
           urlOptions: {
-            allowedContentTypes: Object.keys(split || project ? SPLIT_TYPES : audio ? AUDIO_TYPES : VIDEO_TYPES),
+            allowedContentTypes: Object.keys(split || project ? SPLIT_TYPES : audio ? AUDIO_TYPES : library ? { ...VIDEO_TYPES, ...IMAGE_TYPES } : VIDEO_TYPES),
             maximumSizeInBytes: size || undefined,
             allowOverwrite: true,
             addRandomSuffix: false,

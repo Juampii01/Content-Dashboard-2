@@ -6,6 +6,7 @@ import { fileDriver, readUrl } from "@/lib/storage";
 import { brollSourcesReady } from "@/lib/video/broll";
 import { stylePresetSchema, styleMetricsSchema, type StyleMetrics, type StylePreset } from "@/lib/video/style";
 import type { BrollItem, BrollOption } from "@/lib/video/types";
+import { readFicha, type Ficha, type FichaStatus, type LibraryKind } from "@/lib/video/library-ficha";
 
 /**
  * Datos de "Edita como este" (estilos) y de la biblioteca de b-roll. Cada función empieza con getCurrentUser().
@@ -91,8 +92,12 @@ export async function readyStyles(): Promise<{ id: string; name: string; thumbUr
 
 export type ClipView = {
   id: string;
+  kind: LibraryKind;
   title: string;
   tags: string[];
+  ficha: Ficha | null;
+  fichaStatus: FichaStatus;
+  fichaError: string | null;
   status: ClipStatus;
   thumbUrl: string | null;
   duration: number | null;
@@ -111,8 +116,12 @@ export async function listClips(): Promise<ClipView[]> {
   return Promise.all(
     rows.map(async (r) => ({
       id: r.id,
+      kind: r.kind === "image" ? ("image" as const) : ("video" as const),
       title: r.title,
       tags: r.tags,
+      ficha: readFicha(r.ficha, r.duration),
+      fichaStatus: r.fichaStatus,
+      fichaError: r.fichaError,
       status: r.status,
       thumbUrl: await sign(r.thumbKey),
       duration: r.duration,
@@ -124,6 +133,16 @@ export async function listClips(): Promise<ClipView[]> {
       updatedAt: r.updatedAt,
     })),
   );
+}
+
+/** Lo que se muestra al abrir la ficha de una pieza: el archivo y las hojas de cuadros, firmados. */
+export async function clipMedia(id: string): Promise<{ mediaUrl: string | null; sheetUrls: string[] } | null> {
+  await getCurrentUser();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const [r] = await getDb().select().from(schema.brollClips).where(eq(schema.brollClips.id, id)).limit(1);
+  if (!r || r.status !== "READY") return null;
+  const sheets = await Promise.all((r.fichaSheets ?? []).map((s) => sign(s.key)));
+  return { mediaUrl: await sign(r.fileKey), sheetUrls: sheets.filter((u): u is string => Boolean(u)) };
 }
 
 export async function brollAvailability(): Promise<{ stock: boolean; libraryClips: number }> {
@@ -141,7 +160,10 @@ export async function signBrollOptions(options: BrollOption[]): Promise<SignedOp
   return Promise.all(
     options.map(async (o) =>
       o.source === "library"
-        ? { ...o, thumbUrl: await sign(own(o.thumbKey)), previewUrl: await sign(own(o.key)) }
+        ? o.kind === "image"
+          ? // Una imagen se ve entera (b-roll fijo): no hay video que reproducir.
+            { ...o, thumbUrl: await sign(own(o.key)), previewUrl: null }
+          : { ...o, thumbUrl: await sign(own(o.thumbKey)), previewUrl: await sign(own(o.key)) }
         : { ...o, thumbUrl: o.thumb ?? null, previewUrl: o.preview ?? null },
     ),
   );

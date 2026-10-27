@@ -34,6 +34,8 @@ export const VIDEO_TYPES: Record<string, string> = {
   "video/x-m4v": "m4v",
 };
 export const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm", ".mkv", ".m4v"];
+/** Imágenes de la biblioteca (b-roll fijo, dentro de animaciones o como referencia), con su extensión. */
+export const IMAGE_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 /** Pistas de música (Biblioteca → Música), con su extensión. */
 export const AUDIO_TYPES: Record<string, string> = {
   "audio/mpeg": "mp3",
@@ -171,11 +173,11 @@ async function signedToken(pathname: string, operations: ("get" | "head" | "put"
 }
 
 /** Delegación para que el navegador suba el original directo a Blob (la usa /api/editor/upload). */
-export async function uploadDelegation(pathname: string, kind: "video" | "audio" | "media" = "video"): Promise<IssuedSignedToken> {
+export async function uploadDelegation(pathname: string, kind: "video" | "audio" | "media" | "library" = "video"): Promise<IssuedSignedToken> {
   return issueSignedToken({
     pathname: assertKey(pathname),
     operations: ["put"],
-    allowedContentTypes: Object.keys(kind === "audio" ? AUDIO_TYPES : kind === "media" ? { ...VIDEO_TYPES, ...AUDIO_TYPES } : VIDEO_TYPES),
+    allowedContentTypes: Object.keys(kind === "audio" ? AUDIO_TYPES : kind === "media" ? { ...VIDEO_TYPES, ...AUDIO_TYPES } : kind === "library" ? { ...VIDEO_TYPES, ...IMAGE_TYPES } : VIDEO_TYPES),
     maximumSizeInBytes: MAX_VIDEO_BYTES,
     validUntil: Date.now() + 6 * 3600_000,
     token: blobToken(),

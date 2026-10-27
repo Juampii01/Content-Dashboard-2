@@ -11,9 +11,13 @@ import { CAPTION_PRESETS } from "@/lib/video/captions";
 import type { RefImage } from "@/lib/video/compos/schema";
 import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
-import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
+import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatClipAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
+import { mentionLibraryAction } from "../library-mention-actions";
 import { editAction } from "../director-actions";
 import { AttachButton, AttachList, refsOf, useAttachments, type Attachment } from "./attachments";
+import { clipOptionAction } from "../edit-actions";
+import { MentionMenu, useLibraryMention } from "./library-mention";
+import type { SignedOption } from "../broll-panel";
 import type { StudioApi } from "./types";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -41,7 +45,10 @@ export function VideoChat({ api }: { api: StudioApi }) {
     return files.list;
   };
   const list = useRef<HTMLOListElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const mention = useLibraryMention({ text, setText, field, onPick: (item) => files.addLibrary(item) });
   const looking = thread.looking;
+  const watching = thread.watching;
 
   useEffect(() => {
     let alive = true;
@@ -53,7 +60,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
 
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
-  }, [thread.messages.length, pending, looking]);
+  }, [thread.messages.length, pending, looking, watching]);
 
   /** Lo que ya tiene el video, para que la IA no proponga encima sin saberlo. */
   function stateText(): string {
@@ -68,8 +75,12 @@ export function VideoChat({ api }: { api: StudioApi }) {
   function context() {
     const sel = api.selection?.kind === "range" ? { from: api.selection.from, to: api.selection.to } : null;
     const ready = files.list.filter((a) => a.status === "ready");
-    const attachments = ready.map((a) => ({ ref: a.ref, kind: a.kind, name: a.name, duration: a.duration ?? null }));
-    const images = ready.flatMap((a) => (a.kind === "image" && a.image ? [{ ...a.image, use: "style" as const }] : []));
+    // Un video subido aquí también queda en tu biblioteca: el servidor le muestra a Claude sus cuadros y su ficha.
+    const attachments = ready.map((a) => {
+      const libraryId = a.libraryId ?? (a.kind === "video" ? a.clip?.id : undefined);
+      return { ref: a.ref, kind: a.kind, name: a.name, duration: a.duration ?? null, ...(libraryId ? { libraryId } : {}) };
+    });
+    const images = ready.flatMap((a) => (a.kind === "image" && a.image ? [{ ...a.image, use: "style" as const }] : [])).slice(0, 4);
     const list = sentences(timeline.words as unknown as Word[]).map((f) => ({ from: f.from, to: f.to, start: f.start, end: f.end, text: f.text.slice(0, 600) }));
     return { projectId, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, playhead: api.time, selection: sel, state: stateText(), attachments, images };
   }
@@ -101,6 +112,30 @@ export function VideoChat({ api }: { api: StudioApi }) {
       clearInterval(id);
     };
   }, [looking]);
+
+  // Mientras la app mira un video adjunto, se pregunta cada pocos segundos hasta que la IA contesta.
+  useEffect(() => {
+    if (!watching) return;
+    let alive = true;
+    let busy = false;
+    const tick = async () => {
+      if (busy) return;
+      busy = true;
+      const r = await videoChatClipAction({ ...contextRef.current(), waitId: watching }).catch(() => null);
+      busy = false;
+      if (!alive || !r) return;
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      if (!r.waiting) setThread(r.thread);
+    };
+    const id = setInterval(() => void tick(), POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [watching]);
 
   function send(msg = text) {
     const t = msg.trim();
@@ -155,9 +190,17 @@ export function VideoChat({ api }: { api: StudioApi }) {
       if (!r.ok) return toast.error(r.error);
       toast.success(r.removed ? `Se cortaron ${r.removed} palabras y se acortaron los silencios.` : "Solo se acortaron los silencios.");
     } else if (it.kind === "video") {
-      const clip = filesFor(Number(key.split("-")[0])).find((a) => a.ref === it.attachments.find((x) => x.use === "broll")?.ref)?.clip;
+      let clip: SignedOption | undefined = filesFor(Number(key.split("-")[0])).find((a) => a.ref === it.attachments.find((x) => x.use === "broll")?.ref)?.clip;
+      if (!clip && it.clipId) {
+        // Un clip de tu biblioteca que eligió la IA por lo que se ve.
+        const r = await clipOptionAction(it.clipId, { duration: 0, width: 1080, height: 1920 });
+        if (!r.ok) return toast.error(r.error);
+        clip = r.option;
+      }
       if (!clip) return toast.error("Ese video ya no está en los adjuntos. Vuelve a adjuntarlo.");
-      api.tools.clipAt(range, clip);
+      const start = it.clipStart ?? it.clip_start;
+      // Desde el segundo del clip que muestra lo que se dice (el estudio lo aplica al ponerlo).
+      api.tools.clipAt(range, start != null && clip.kind !== "image" ? { ...clip, moment: { start, end: Math.min(clip.duration || start + 8, start + 8), what: it.title } } : clip);
     } else if (it.scope === "todo" && it.kind === "animacion") {
       // Directo, sin pantalla de plan: la animación recibe la charla entera.
       if (!(await api.tools.wholeFromChat(it.prompt, it.layout ?? "full"))) return;
@@ -165,7 +208,14 @@ export function VideoChat({ api }: { api: StudioApi }) {
     else if (it.kind === "grafico") api.tools.graphicAt(range, it.prompt);
     else {
       const pick = it.attachments.filter((x) => x.use !== "broll").map((x) => ({ ref: x.ref, use: x.use as RefImage["use"] }));
-      api.tools.animationAt(range, it.prompt, pick.length ? refsOf(filesFor(Number(key.split("-")[0])), pick) : undefined, { fromChat: true });
+      const refs = pick.length ? refsOf(filesFor(Number(key.split("-")[0])), pick) : [];
+      // Las hojas de cuadros de los videos de referencia de la charla van como referencia de estilo.
+      for (const clipId of it.styleClips ?? []) {
+        if (refs.length >= 4) break;
+        const r = await mentionLibraryAction(projectId, clipId);
+        if (r.ok && r.attachment.kind === "video") for (const sheet of r.attachment.refs) refs.push({ ...sheet, use: "style", note: `Cuadros del video «${r.attachment.name}» que mandaste de referencia` });
+      }
+      api.tools.animationAt(range, it.prompt, refs.length ? refs.slice(0, 4) : undefined, { fromChat: true });
     }
     setDone((d) => new Set(d).add(key));
     void videoChatDoneAction(projectId, `${KIND_LABEL[it.kind]}: ${it.title} (${timeOf(it)})`);
@@ -198,7 +248,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
             <li key={i} className={cn("flex flex-col gap-2", m.role === "user" ? "items-end" : "items-start")}>
               <span className={cn("max-w-[94%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "bg-white text-paper" : "border border-white/10 bg-card text-text")}>
                 {m.text}
-                {m.images ? <span className="mt-1 block text-[11px] opacity-75">Con {m.images === 1 ? "1 imagen" : `${m.images} imágenes`}</span> : null}
+                {m.images || m.videos ? <span className="mt-1 block text-[11px] opacity-75">Con {[m.images ? (m.images === 1 ? "1 imagen" : `${m.images} imágenes`) : "", m.videos ? (m.videos === 1 ? "1 video" : `${m.videos} videos`) : ""].filter(Boolean).join(" y ")}</span> : null}
               </span>
               {m.items?.map((it, k) => {
                 const key = `${i}-${k}`;
@@ -239,6 +289,11 @@ export function VideoChat({ api }: { api: StudioApi }) {
             </li>
           ),
         )}
+        {watching && !pending && (
+          <li className="self-start rounded-2xl border border-accent/30 bg-accent/[0.04] px-3 py-2 text-sm text-muted">
+            <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Estoy mirando tu video…
+          </li>
+        )}
         {looking && !pending && (
           <li className="self-start rounded-2xl border border-accent/30 bg-accent/[0.04] px-3 py-2 text-sm text-muted">
             <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Mirando el video de referencia…
@@ -256,21 +311,31 @@ export function VideoChat({ api }: { api: StudioApi }) {
           <label htmlFor="video-chat-msg" className="sr-only">
             Tu mensaje para la IA
           </label>
+          <div className="relative">
+          <MentionMenu api={mention} id="video-chat-mention" />
           <Textarea
             id="video-chat-msg"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            ref={field}
+            onChange={(e) => {
+              setText(e.target.value);
+              mention.sync(e.target.value, e.target.selectionStart);
+            }}
+            onBlur={() => setTimeout(mention.close, 150)}
             maxLength={2000}
             className="!min-h-16 text-sm"
-            placeholder="Escríbele a la IA… (Enter para enviar, Shift+Enter para otra línea)"
+            placeholder="Escríbele a la IA… Usa @ para nombrar algo de tu biblioteca (Enter para enviar)"
             disabled={pending}
+            aria-controls={mention.open ? "video-chat-mention" : undefined}
             onKeyDown={(e) => {
+              if (mention.onKeyDown(e)) return;
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 send();
               }
             }}
           />
+          </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Button size="sm" onClick={() => send()} disabled={pending || files.uploading || text.trim().length < 2} icon={<Send className="h-3.5 w-3.5" aria-hidden />}>
               {files.uploading ? "Subiendo…" : "Enviar"}

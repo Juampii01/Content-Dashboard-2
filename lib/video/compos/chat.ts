@@ -8,7 +8,12 @@ import type { RefImage } from "./schema";
  * los mensajes (hasta 120), lo acordado que falta mandar y una marca «applied» cada vez que se mandó un cambio, así la
  * IA sabe qué se pidió y qué ya se hizo aunque se recargue el Estudio.
  */
-export type ChatMessage = { role: "user" | "assistant" | "applied"; text: string; at: string; refs?: RefImage[]; items?: unknown[]; look?: string; lookDone?: string };
+/**
+ * clips: los videos que la persona adjuntó en ese mensaje (quedan en la biblioteca; Claude ve sus hojas de cuadros).
+ * clipWait / clipDone: la app está mirando esos videos (un id por espera) y ya contestó cuando terminaron.
+ */
+export type ChatClip = { ref: string; id: string; name: string };
+export type ChatMessage = { role: "user" | "assistant" | "applied"; text: string; at: string; refs?: RefImage[]; items?: unknown[]; look?: string; lookDone?: string; clips?: ChatClip[]; clipWait?: { id: string; clips: string[] }; clipDone?: string };
 export type ChatThread = { messages: ChatMessage[]; agreed: { instruction: string; scope: "scene" | "all" } | null };
 
 const MAX_MESSAGES = 120;

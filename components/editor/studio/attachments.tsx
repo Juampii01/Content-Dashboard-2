@@ -7,6 +7,7 @@ import type { RefImage } from "@/lib/video/compos/schema";
 import { uploadRefImageAction } from "../compos-actions";
 import { clipOptionAction } from "../edit-actions";
 import { completeClipUploadAction, createClipUploadAction } from "../media-actions";
+import { mentionLibraryAction, type LibraryPick } from "../library-mention-actions";
 import { putFile } from "../upload-manager";
 import { VIDEO_ACCEPT } from "../constants";
 import type { SignedOption } from "../broll-panel";
@@ -32,6 +33,9 @@ export type Attachment = {
   /** Video: la alternativa de b-roll lista para poner en un tramo. */
   clip?: SignedOption;
   duration?: number;
+  /** De tu biblioteca (nombrada con @): su id, y en un video sus hojas de cuadros (para usarlo como referencia). */
+  libraryId?: string;
+  sheets?: Omit<RefImage, "use" | "note">[];
 };
 
 const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif";
@@ -184,11 +188,52 @@ export function useAttachments(projectId: string, opts: { video: boolean }) {
     [projectId, opts.video, patch],
   );
 
+  /** Algo de tu biblioteca, nombrado con @: queda como adjunto (A1, A2…) con su ficha, sus cuadros y listo para b-roll. */
+  const addLibrary = useCallback(
+    (pick: LibraryPick): string | null => {
+      const cur = current.current;
+      const existing = cur.find((a) => a.libraryId === pick.id);
+      if (existing) return existing.ref;
+      if (cur.length >= MAX_IMAGES + MAX_VIDEOS) return null;
+      const used = new Set(cur.map((a) => a.ref));
+      let n = 1;
+      while (used.has(`A${n}`)) n++;
+      const a: Attachment = {
+        id: `at${Date.now().toString(36)}${seq++}`,
+        ref: `A${n}`,
+        kind: pick.kind,
+        name: pick.title.slice(0, 80),
+        status: "uploading",
+        progress: 0,
+        localUrl: pick.thumbUrl ?? undefined,
+        libraryId: pick.id,
+        ...(pick.kind === "image" ? { use: "style" as const } : {}),
+      };
+      current.current = [...cur, a];
+      setList(current.current);
+      void mentionLibraryAction(projectId, pick.id)
+        .then((r) => {
+          if (!r.ok) return patch(a.id, { status: "error", error: r.error });
+          const att = r.attachment;
+          patch(a.id, {
+            status: "ready",
+            progress: 100,
+            clip: att.clip,
+            duration: att.duration ?? undefined,
+            ...(att.kind === "image" ? { image: att.refs[0] } : { sheets: att.refs }),
+          });
+        })
+        .catch(() => patch(a.id, { status: "error", error: "No pudimos preparar esa pieza. Prueba de nuevo." }));
+      return a.ref;
+    },
+    [projectId, patch],
+  );
+
   const remove = useCallback((id: string) => setList((cur) => cur.filter((a) => a.id !== id)), []);
   const setUse = useCallback((id: string, use: RefImage["use"]) => patch(id, { use }), [patch]);
   const clear = useCallback(() => setList([]), []);
   const uploading = list.some((a) => a.status === "uploading");
-  return { list, add, remove, setUse, clear, uploading };
+  return { list, add, addLibrary, remove, setUse, clear, uploading };
 }
 
 export type AttachmentsApi = ReturnType<typeof useAttachments>;
@@ -197,9 +242,16 @@ export type AttachmentsApi = ReturnType<typeof useAttachments>;
 export function refsOf(list: Attachment[], pick?: { ref: string; use: RefImage["use"] }[]): RefImage[] {
   const out: RefImage[] = [];
   for (const a of list) {
-    if (a.kind !== "image" || a.status !== "ready" || !a.image) continue;
+    if (a.status !== "ready") continue;
     const chosen = pick ? pick.find((p) => p.ref === a.ref) : null;
     if (pick && !chosen) continue;
+    // Un video de tu biblioteca como referencia: sus hojas de cuadros, solo de estilo (no se ponen dentro).
+    if (a.kind === "video") {
+      if (!a.sheets?.length || (!pick && a.use !== "style")) continue;
+      for (const sheet of a.sheets) out.push({ ...sheet, use: "style", note: `Cuadros del clip «${a.name}» de tu biblioteca` });
+      continue;
+    }
+    if (!a.image) continue;
     out.push({
       ...a.image,
       use: chosen?.use ?? a.use ?? "style",
@@ -247,7 +299,7 @@ export function AttachList({ api, showUse = true }: { api: AttachmentsApi; showU
       {api.list.map((a) => (
         <li key={a.id} className={cn("flex items-center gap-2 rounded-xl border px-2 py-1.5", a.status === "error" ? "border-danger/40 bg-danger/[0.05]" : "border-white/10 bg-card")}>
           <span className="relative grid h-10 w-10 flex-none place-items-center overflow-hidden rounded-lg bg-white/5">
-            {a.kind === "image" && a.localUrl ? (
+            {(a.kind === "image" || a.libraryId) && a.localUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={a.localUrl} alt="" className="h-full w-full object-cover" />
             ) : a.kind === "video" && a.localUrl ? (
@@ -269,6 +321,8 @@ export function AttachList({ api, showUse = true }: { api: AttachmentsApi; showU
                 </span>
               ) : a.status === "error" ? (
                 a.error
+              ) : a.libraryId ? (
+                `De tu biblioteca${a.kind === "video" && a.duration ? ` · video de ${a.duration.toFixed(1)} s` : " · imagen"}`
               ) : a.kind === "video" ? (
                 `Video${a.duration ? ` de ${a.duration.toFixed(1)} s` : ""} · queda en tu biblioteca de b-roll`
               ) : (

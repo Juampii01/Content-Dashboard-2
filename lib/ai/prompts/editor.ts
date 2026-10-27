@@ -230,6 +230,16 @@ export const brollAiSchema = z.object({
 });
 export type BrollAiOutput = z.infer<typeof brollAiSchema>;
 
+/**
+ * La biblioteca del creador para elegir b-roll por lo que se ve (la comparten el plan de b-roll y el director).
+ */
+export function libraryBlock(library: string): string {
+  if (!library.trim()) return "TU BIBLIOTECA: el creador todavía no tiene clips propios.";
+  return `TU BIBLIOTECA (clips e imágenes propios del creador, con lo que se ve y sus tramos en segundos del clip)
+${library}
+Cómo usarla: los clips propios valen más que el stock. Si lo que se dice en un tramo encaja con lo que se ve en una pieza (por su descripción, sus momentos o sus usos), pon en ese b-roll library con su código y clip_start con el segundo del clip donde empieza el momento que lo muestra. Elige el momento que muestra lo que se dice, no el arranque del clip por costumbre. Una imagen es b-roll fijo (clip_start null). No uses la misma pieza dos veces seguidas si hay otra que encaje. Si nada encaja, library null y usa stock o un gráfico.`;
+}
+
 export function brollTask(input: {
   words: Word[];
   count: number;
@@ -238,7 +248,8 @@ export function brollTask(input: {
   /** Rangos donde no puede ir b-roll (gancho, llamado a la acción). */
   forbidden: { from: number; to: number; label: string }[];
   format: string;
-  libraryTags: string[];
+  /** La biblioteca del creador: una línea por pieza con su código, lo que se ve y sus tramos (vacío si no tiene). */
+  library: string;
   /** Duración de los gráficos (null: sin gráficos, solo stock y biblioteca). */
   graphics?: { minSeconds: number; maxSeconds: number } | null;
   /** Si hay videos de stock o clips propios para elegir. */
@@ -258,7 +269,8 @@ DATOS
 ${graphics ? `- GRÁFICOS: ${s(graphics.minSeconds)}–${s(graphics.maxSeconds)} s por tramo` : "- GRÁFICOS: no disponibles (usa solo stock)"}
 ${input.stock === false ? "- STOCK: no hay videos de stock ni clips propios; usa gráficos siempre que puedas." : ""}
 ${input.forbidden.map((f) => `- PROHIBIDO [${f.from}–${f.to}]: ${f.label}`).join("\n")}
-- Clips propios del creador (etiquetas): ${input.libraryTags.length ? input.libraryTags.slice(0, 60).join(", ") : "(no tiene)"}
+
+${libraryBlock(input.library)}
 
 FRASES (id, rango de palabras, duración y tiempos)
 ${frases}

@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { formatDuration, formatNumber } from "@/lib/format";
 import { isDefaultEdit, resolveEdit, type BrollEdit } from "@/lib/video/broll-edit";
+import { withLibraryStart } from "@/lib/video/library-ficha";
 import { captionLook, isCaptionStyle } from "@/lib/video/caption-styles";
 import { captionBlocks, dropWords, hideDuring, USER_CAPTION_HIDE, userHiddenWords } from "@/lib/video/captions";
 import { protectedZones } from "@/lib/video/director/protect";
@@ -547,8 +548,9 @@ export function Studio(props: StudioProps) {
     delete (plain as Partial<SignedOption>).thumbUrl;
     delete (plain as Partial<SignedOption>).previewUrl;
     setSigned((prev) => ({ ...prev, [optionKey(option)]: option }));
-    const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: (option.title ?? "clip").slice(0, 100), keywords: [], why: "Tu video, donde lo pediste.", choice: plain, options: [plain] };
     const r = outputRange(timeline, range.from, range.to);
+    // Un clip de la biblioteca con su momento se ve desde ese segundo.
+    const item: BrollItem = withLibraryStart({ id: newBrollId(), from_word: range.from, to_word: range.to, query_en: (option.title ?? "clip").slice(0, 100), keywords: [], why: "Tu video, donde lo pediste.", choice: plain, options: [plain] }, r ? r.end - r.start : 0);
     const top = r ? layerOnTop(r.start, r.end) : { layer: undefined, under: [] };
     if (top.layer != null) item.layer = top.layer;
     update((st) => ({ ...st, broll: [...st.broll, item].sort((a, b) => a.from_word - b.from_word) }));
@@ -666,7 +668,9 @@ export function Studio(props: StudioProps) {
         if (b.id !== id) return b;
         // Un gráfico editado reemplaza al anterior en las alternativas (queda uno solo por tramo).
         if (plain.source === "graphic") return { ...b, choice: plain, options: [plain, ...b.options.filter((o) => o.source !== "graphic")].slice(0, 12) };
-        return { ...b, choice: plain, options: b.options.some((o) => optionKey(o) === optionKey(plain)) ? b.options : [plain, ...b.options].slice(0, 12) };
+        // Un clip de la biblioteca con su momento (de la ficha) se ve desde ese segundo.
+        const r = outputRange(timeline, b.from_word, b.to_word);
+        return withLibraryStart({ ...b, choice: plain, options: b.options.some((o) => optionKey(o) === optionKey(plain)) ? b.options : [plain, ...b.options].slice(0, 12) }, r ? r.end - r.start : 0);
       }),
     }));
     setSelection({ kind: "broll", id });

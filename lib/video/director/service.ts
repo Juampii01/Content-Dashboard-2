@@ -23,7 +23,8 @@ import { MOTION_RULES } from "@/lib/ai/prompts/motion";
 import { getDb, schema } from "@/lib/db";
 import { enqueueJob } from "@/lib/jobs";
 import { deleteKeys, fileInfo, readBytes, VIDEO_EXTENSIONS, VIDEO_TYPES } from "@/lib/storage";
-import { brollSourcesReady, libraryTags, searchOptions } from "../broll";
+import { brollSourcesReady, libraryForPrompt, preferLibrary, resolveLibraryPick, searchOptions } from "../broll";
+import { withLibraryStart } from "../library-ficha";
 import { detectCandidates } from "../candidates";
 import { brandGraphicLook, GRAPHIC_MAX_SECONDS } from "../graphics";
 import { motionRetry } from "../motion-ai";
@@ -489,8 +490,8 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     graphics: baseLimits.graphics && !overrides.noGraphics,
     stock: baseLimits.stock && !overrides.noBroll,
   };
-  const tags = limits.count ? await libraryTags() : [];
-  const stockReady = (brollSourcesReady().stock || tags.length > 0) && !overrides.noBroll;
+  const library = limits.count ? await libraryForPrompt() : { text: "", codes: new Map() };
+  const stockReady = (brollSourcesReady().stock || library.codes.size > 0) && !overrides.noBroll;
   const look = brandGraphicLook(ctx.brand);
   const keep = [...mustKeepRanges(brief.mustKeep, words)];
   // La CTA siempre queda; en anuncios y ventas también la oferta y lo que se muestra (producto, pantalla).
@@ -579,7 +580,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
           ...keep.map((k) => `- NO CORTAR [${k.from}–${k.to}]`),
           ...protect.map((p) => `- TIENE QUE QUEDAR (se puede limpiar una toma repetida adentro) [${p.from}–${p.to}]: ${p.label}`),
         ].join("\n"),
-        broll: { ...limits, stock: stockReady, libraryTags: tags },
+        broll: { ...limits, stock: stockReady, library: library.text },
         style: style?.text ?? null,
         lessons: (await retentionLessons()) || "(ver TIPOS DE GANCHO y LO QUE YA FUNCIONÓ en la marca)",
         effects: fxTaskText(fx),
@@ -670,6 +671,9 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
     if (!graphic) warning ??= found.warning;
     item.options = graphic ? [graphic, ...found.options] : found.options;
     item.choice = graphic ?? found.options[0] ?? null;
+    // La pieza de la biblioteca que eligió el director mirando su ficha va primero, desde el segundo que muestra eso.
+    const own = p.library ? resolveLibraryPick(library, p.library.code, p.library.clipStart, [...item.keywords, ...item.query_en.split(" ")], span) : null;
+    Object.assign(item, own ? preferLibrary(item, own, span) : withLibraryStart(item, span));
   }
   // Un b-roll sin nada que mostrar no sirve.
   plan = { ...plan, broll: plan.broll.filter((b) => b.choice) };

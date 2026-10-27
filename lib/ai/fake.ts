@@ -240,7 +240,7 @@ export function fakeResponse(feature: string, task = ""): unknown {
     // Los gráficos viajan en el formato de cable de lib/ai/prompts/motion.ts (capas con spec en JSON).
     case "video.broll.motion": {
       const plan = fakeBrollMotionPlan(task);
-      return { broll: plan.broll.map((b) => ({ ...b, graphic: b.graphic ? toWire(b.graphic) : null })) };
+      return { broll: plan.broll.map((b) => ({ ...b, graphic: b.graphic ? toWire(b.graphic) : null, library: null, clip_start: null })) };
     }
     case "video.motion.pedido":
       return toWireRequest(fakeMotionRequest(task));

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sceneWireSchema } from "@/lib/ai/prompts/motion";
+import { libraryBlock } from "@/lib/ai/prompts/editor";
 import { FX_KINDS } from "@/lib/video/fx/catalog";
 import { FX_DIRECTOR_RULES } from "@/lib/video/fx/director";
 import { TRANSITION_KINDS } from "@/lib/video/fx/transitions";
@@ -109,7 +110,7 @@ Cada decisión va como un elemento de "actions": {"type", "from_word", "to_word"
 - move: data {"after_word": id o -1, "why"}
 - emphasis: una palabra (from_word = to_word = su id), data {}
 - zoom: data {"strength": "suave" | "marcado", "why"}
-- broll: data {"kind": "stock" | "graphic", "query_en", "keywords": [...], "graphic": escena o null, "why"}. La escena va como en las reglas de motion graphics ({"title", "mode", "position", "layers": [{"kind", "component", "spec"}]}); en las capas, spec puede ir como objeto.
+- broll: data {"kind": "stock" | "graphic", "query_en", "keywords": [...], "graphic": escena o null, "library": código de TU BIBLIOTECA (C1, C2…) o null, "clip_start": segundo del clip desde el que se ve o null, "why"}. La escena va como en las reglas de motion graphics ({"title", "mode", "position", "layers": [{"kind", "component", "spec"}]}); en las capas, spec puede ir como objeto.
 - caption_hide: data {"why"}
 - effect: data {"kind": nombre del efecto, "text", "items": [...], "why"}
 - transition: from_word = to_word = la primera palabra del tramo que entra después de un corte o, sin corte, la palabra donde cambia la idea (se dibuja sobre el plano en ese instante), data {"kind": nombre de la transición, "why"}
@@ -179,6 +180,9 @@ export const directorWireSchema = z.object({
       query_en: z.string().describe("2 a 5 palabras en inglés para el banco de videos."),
       keywords: z.array(z.string()).describe("2 a 4 palabras en español para la biblioteca."),
       graphic: sceneWireSchema.nullable().describe("La escena si kind es graphic; null si es stock."),
+      /** Una pieza de la biblioteca (código C#) y el segundo del clip desde el que se ve. */
+      library: z.string().nullable().optional(),
+      clip_start: z.number().nullable().optional(),
       why: z.string(),
     }),
   ),
@@ -397,7 +401,7 @@ export type DirectorTaskInput = {
   candidates: string;
   transcript: string;
   forbidden: string;
-  broll: { count: number; minSeconds: number; maxSeconds: number; graphics: boolean; stock: boolean; libraryTags: string[] };
+  broll: { count: number; minSeconds: number; maxSeconds: number; graphics: boolean; stock: boolean; library: string };
   style: string | null;
   lessons: string;
   /** Efectos permitidos en este video (Mi marca) y cuántos. */
@@ -421,7 +425,7 @@ export function directorTask(input: DirectorTaskInput): string {
 DATOS
 - Duración del original: ${input.duration.toFixed(1)} s · formato: ${input.format}
 - B-ROLL: hasta ${b.count} tramos de ${b.minSeconds.toFixed(1)} a ${b.maxSeconds.toFixed(1)} s${b.graphics ? " (gráficos de 1,5 a 6 s)" : " (sin gráficos: solo stock)"}${b.stock ? "" : ". No hay videos de stock ni clips propios: usa gráficos."}
-- Clips propios del creador (etiquetas): ${b.libraryTags.length ? b.libraryTags.slice(0, 60).join(", ") : "(no tiene)"}
+${libraryBlock(b.library)}
 ${input.forbidden}
 - ${input.effects}
 - ${input.rhythm}

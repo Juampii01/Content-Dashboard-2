@@ -125,7 +125,7 @@ describe("respuesta de la IA", () => {
 
   test("la tarea avisa la duración de los gráficos (o que no hay)", () => {
     const words: Word[] = "Hoy te cuento algo. Duplicamos las ventas en un mes. Comenta YA.".split(" ").map((text, id) => ({ id, text, start: id * 0.4, end: id * 0.4 + 0.35 }));
-    const common = { words, count: 2, minSeconds: 1.5, maxSeconds: 4, forbidden: [], format: "9:16", libraryTags: [] };
+    const common = { words, count: 2, minSeconds: 1.5, maxSeconds: 4, forbidden: [], format: "9:16", library: "" };
     assert.match(brollTask({ ...common, graphics: { minSeconds: 1.5, maxSeconds: 5 } }), /GRÁFICOS: 1\.5–5\.0 s/);
     assert.match(brollTask({ ...common, graphics: null }), /GRÁFICOS: no disponibles/);
     assert.match(brollTask({ ...common, graphics: { minSeconds: 1.5, maxSeconds: 5 }, stock: false }), /STOCK: no hay/);

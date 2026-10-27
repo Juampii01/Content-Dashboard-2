@@ -57,7 +57,8 @@ export type DirectorInput = {
   density?: Density;
 };
 
-export type PendingGraphic = { item: BrollItem; scene: MotionSceneAi | null; spoken: string };
+/** `library`: la pieza de la biblioteca que eligió el director (código C# y segundo del clip), si eligió una. */
+export type PendingGraphic = { item: BrollItem; scene: MotionSceneAi | null; spoken: string; library?: { code: string; clipStart: number | null } | null };
 
 export type Assembled = {
   plan: EditPlan;
@@ -202,7 +203,7 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
       .filter((f) => f.from <= to && from <= f.to)
       .map((f) => f.text)
       .join(" ");
-    pending.push({ item, scene: wantsGraphic ? sceneFromWire(b.graphic) : null, spoken });
+    pending.push({ item, scene: wantsGraphic ? sceneFromWire(b.graphic) : null, spoken, library: !wantsGraphic && b.library ? { code: b.library, clipStart: b.clip_start ?? null } : null });
   }
   broll.sort((a, b) => a.from_word - b.from_word);
 

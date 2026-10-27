@@ -477,12 +477,14 @@ export const brollMotionWireSchema = z.object({
         query_en: z.string().describe("Consulta en inglés para bancos de videos de stock, 2 a 5 palabras."),
         keywords: z.array(z.string()).describe("2 a 4 palabras clave en español para la biblioteca."),
         graphic: sceneWireSchema.nullable().describe("La escena si kind es graphic; null si es stock."),
+        library: z.string().nullable().describe("Si kind es stock y encaja algo de TU BIBLIOTECA: su código (C1, C2…); si no, null."),
+        clip_start: z.number().nullable().describe("Con library: segundo del clip desde el que se ve (el inicio del momento que muestra lo que se dice); si no, null."),
         why: z.string().describe("Por qué ahí, en una frase."),
       }),
     )
     .describe("Tramos de b-roll en orden, sin superponerse."),
 });
-export type BrollMotionAiOutput = { broll: { from_word: number; to_word: number; kind: "stock" | "graphic"; query_en: string; keywords: string[]; graphic: MotionSceneAi | null; why: string }[] };
+export type BrollMotionAiOutput = { broll: { from_word: number; to_word: number; kind: "stock" | "graphic"; query_en: string; keywords: string[]; graphic: MotionSceneAi | null; library?: string | null; clip_start?: number | null; why: string }[] };
 
 export function brollMotionFromWire(w: z.infer<typeof brollMotionWireSchema>): BrollMotionAiOutput {
   return { broll: w.broll.map((b) => ({ ...b, graphic: b.kind === "graphic" ? sceneFromWire(b.graphic) : null })) };

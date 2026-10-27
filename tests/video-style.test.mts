@@ -179,7 +179,7 @@ describe("pausas, zooms y b-roll sobre el timeline", () => {
   });
 
   test("la tarea de b-roll lleva cantidad, duración, prohibidos y frases", () => {
-    const task = brollTask({ words, count: 2, minSeconds: 1.5, maxSeconds: 3, forbidden: [{ from: 0, to: 3, label: "gancho" }], format: "9:16", libraryTags: ["teléfono"] });
+    const task = brollTask({ words, count: 2, minSeconds: 1.5, maxSeconds: 3, forbidden: [{ from: 0, to: 3, label: "gancho" }], format: "9:16", library: "C1 «Recepción» (video 8.0 s, vertical): recepcionista atendiendo el teléfono" });
     assert.match(task, /CANTIDAD: 2/);
     assert.match(task, /DURACIÓN: 1\.5–3\.0 s/);
     assert.match(task, /PROHIBIDO \[0–3\]: gancho/);

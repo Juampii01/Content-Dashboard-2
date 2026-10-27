@@ -1,5 +1,4 @@
 import "server-only";
-import { desc, eq } from "drizzle-orm";
 import { AiError, generateStructured } from "@/lib/ai/client";
 import { brollTask, sentences } from "@/lib/ai/prompts/editor";
 import { BROLL_MOTION_RULES, brollMotionFromWire, brollMotionWireSchema, MOTION_RULES, type BrollMotionAiOutput } from "@/lib/ai/prompts/motion";
@@ -7,9 +6,10 @@ import { GRAPHIC_MAX_SECONDS, GRAPHIC_MIN_SECONDS, type GraphicLook } from "./gr
 import { resolveScenes, type MotionJob } from "./motion-build";
 import { motionRetry } from "./motion-ai";
 import { brollGraphicOption } from "./motion-graphics";
-import { getDb, schema } from "@/lib/db";
 import { env } from "@/lib/env";
-import { libraryOption, libraryScore, mapPexelsVideo, mapPixabayVideo, type LibraryClip, type PexelsVideo, type PixabayVideo } from "./broll-options";
+import { mapPexelsVideo, mapPixabayVideo, type PexelsVideo, type PixabayVideo } from "./broll-options";
+import { readyPieces, type LibraryPiece } from "./library";
+import { clipStartFor, libraryCatalog, matchLibrary, momentAt, pieceOption, withLibraryStart } from "./library-ficha";
 import type { StylePreset } from "./style";
 import { removedIds } from "./timeline";
 import type { BrollItem, BrollOption, EditPlan, VideoFormat, Word } from "./types";
@@ -101,38 +101,63 @@ export const pixabaySource: BrollSource = {
 
 const stockSources = [pixabaySource, pexelsSource];
 
-async function readyClips(): Promise<LibraryClip[]> {
-  const rows = await getDb()
-    .select()
-    .from(schema.brollClips)
-    .where(eq(schema.brollClips.status, "READY"))
-    .orderBy(desc(schema.brollClips.updatedAt))
-    .limit(500);
-  return rows.map((r) => ({ id: r.id, title: r.title, tags: r.tags, fileKey: r.fileKey, thumbKey: r.thumbKey, duration: r.duration ?? 0, width: r.width ?? 0, height: r.height ?? 0 }));
-}
-
+/**
+ * La biblioteca del cliente: elige por su ficha (lo que se ve, sus momentos, sus usos y etiquetas en español e inglés),
+ * con el tramo del clip que mejor lo muestra. Las imágenes cuentan como b-roll fijo.
+ */
 export const librarySource: BrollSource = {
   kind: "library",
   available: () => true,
   async search(query, limit) {
-    const clips = await readyClips();
-    return clips
-      .map((c) => ({ c, score: libraryScore(c, [...query.keywords, ...query.queryEn.split(" ")]) }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
+    const pieces = await readyPieces();
+    return pieces
+      .map((p) => ({ p, m: matchLibrary(p, [...query.keywords, ...query.queryEn.split(" ")]) }))
+      .filter((x) => x.m.score > 0)
+      .sort((a, b) => b.m.score - a.m.score)
       .slice(0, limit)
-      .map((x) => libraryOption(x.c));
+      .map((x) => pieceOption(x.p, x.m.moment));
   },
 };
 
 /** Toda la biblioteca (para elegir a mano en la revisión). */
 export async function libraryOptions(): Promise<BrollOption[]> {
-  return (await readyClips()).map(libraryOption);
+  return (await readyPieces()).map((p) => pieceOption(p));
 }
 
-export async function libraryTags(): Promise<string[]> {
-  const clips = await readyClips();
-  return [...new Set(clips.flatMap((c) => [...c.tags, ...c.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3)]))].slice(0, 80);
+/** Lo que Claude sabe de la biblioteca: una línea por pieza con su código (C1, C2…), su ficha y sus tramos. */
+export type LibraryPrompt = { text: string; codes: Map<string, LibraryPiece> };
+
+export async function libraryForPrompt(maxChars = 5000): Promise<LibraryPrompt> {
+  const pieces = await readyPieces();
+  const { text, codes } = libraryCatalog(pieces, { maxChars });
+  return { text, codes: new Map([...codes].map(([code, e]) => [code, e as LibraryPiece])) };
+}
+
+/**
+ * Lo que eligió Claude de la biblioteca (`library` = código C#, `clip_start` = segundo del clip) como alternativa de
+ * b-roll con su tramo. Si no da el segundo, el momento que mejor encaja con las palabras clave. null si el código no
+ * existe.
+ */
+export function resolveLibraryPick(lib: LibraryPrompt, code: string | null | undefined, clipStart: number | null | undefined, keywords: string[], span: number): BrollOption | null {
+  const piece = code ? lib.codes.get(code.trim().toUpperCase()) : undefined;
+  if (!piece) return null;
+  if (piece.kind === "image") return pieceOption(piece);
+  let moment = clipStart != null && Number.isFinite(clipStart) ? momentAt(piece, clipStart) : null;
+  if (!moment) moment = matchLibrary(piece, keywords).moment;
+  if (!moment && clipStart != null && Number.isFinite(clipStart)) {
+    const start = clipStartFor(piece, { start: Math.max(0, clipStart), end: Math.max(0, clipStart) + span }, span);
+    moment = { start, end: Math.min(piece.duration, start + span), what: piece.ficha?.description.slice(0, 120) || piece.title };
+  }
+  return pieceOption(piece, moment);
+}
+
+/** Pone la pieza elegida primera entre las alternativas, con el segundo del clip desde el que se ve. */
+export function preferLibrary(item: BrollItem, own: BrollOption | null, span: number): BrollItem {
+  if (!own) return item;
+  const rest = item.options.filter((o) => !(o.source === "library" && o.id === own.id));
+  const graphic = item.choice?.source === "graphic" ? item.choice : null;
+  if (graphic) return { ...item, options: [graphic, own, ...rest.filter((o) => o !== graphic)] };
+  return withLibraryStart({ ...item, choice: own, options: [own, ...rest] }, span);
 }
 
 /** Hasta 6 alternativas: primero los clips propios que coinciden, después el stock (Pixabay y Pexels, mezclados). */
@@ -213,8 +238,8 @@ export async function planBroll(input: {
   const phrases = sentences(kept);
   const last = phrases.at(-1);
   if (last) forbidden.push({ from: last.from, to: last.to, label: "llamado a la acción" });
-  const tags = await libraryTags();
-  const stockReady = brollSourcesReady().stock || tags.length > 0;
+  const library = await libraryForPrompt();
+  const stockReady = brollSourcesReady().stock || library.codes.size > 0;
 
   // Reglas del plan + reglas de motion graphics + marca (todo estable: va en la caché de Claude, también en el reintento).
   const context = `${BROLL_MOTION_RULES}\n\n${MOTION_RULES}\n\n${input.context}`;
@@ -232,7 +257,7 @@ export async function planBroll(input: {
         maxSeconds,
         forbidden,
         format,
-        libraryTags: tags,
+        library: library.text,
         graphics: look ? { minSeconds: GRAPHIC_MIN_SECONDS, maxSeconds: GRAPHIC_MAX_SECONDS } : null,
         stock: stockReady,
       }),
@@ -254,6 +279,8 @@ export async function planBroll(input: {
       .join(" ");
   const chosen: BrollItem[] = [];
   const pending: { item: BrollItem; job: MotionJob }[] = [];
+  /** Lo que Claude eligió de la biblioteca para cada tramo (código y segundo del clip). */
+  const picks = new Map<string, { library: string | null; clip_start: number | null }>();
   for (const b of ai.broll) {
     if (chosen.length >= target) break;
     const from = Math.max(0, Math.min(b.from_word, b.to_word));
@@ -279,6 +306,7 @@ export async function planBroll(input: {
       options: [],
     };
     chosen.push(item);
+    if (b.library) picks.set(item.id, { library: b.library, clip_start: b.clip_start ?? null });
     if (wantsGraphic && look) pending.push({ item, job: { ai: b.graphic, spoken: spokenAround(from, to), look, format, duration: span, bannedWords: input.bannedWords ?? [] } });
   }
 
@@ -316,6 +344,10 @@ export async function planBroll(input: {
     if (!graphic) warning ??= w;
     item.options = graphic ? [graphic, ...options] : options;
     item.choice = graphic ?? options[0] ?? null;
+    // Lo que Claude eligió de la biblioteca mirando su ficha va primero, desde el segundo del clip que muestra eso.
+    const pick = picks.get(item.id);
+    const own = pick ? resolveLibraryPick(library, pick.library, pick.clip_start, [...item.keywords, ...item.query_en.split(" ")], span) : null;
+    Object.assign(item, own ? preferLibrary(item, own, span) : withLibraryStart(item, span));
   }
   if (chosen.length && chosen.every((c) => !c.choice)) {
     warning ??= brollSourcesReady().stock

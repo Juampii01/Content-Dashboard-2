@@ -10,7 +10,7 @@ import psycopg
 url = os.environ.get("DATABASE_URL_UNPOOLED") or os.environ["DATABASE_URL"]
 with psycopg.connect(url) as conn:
     projects = conn.execute(
-        "select id, title, created_at, (media->>'duration') from video_projects where created_at > now() - interval '4 days' order by created_at desc limit 8"
+        "select id, title, created_at, (media->>'duration') from video_projects where created_at > now() - interval '4 days' order by created_at desc limit 1"
     ).fetchall()
     print("== costos de IA de los últimos videos")
     for pid, title, created, dur in projects:
@@ -22,10 +22,13 @@ with psycopg.connect(url) as conn:
             print(f"   {f:32} {m:28} USD {c:7.2f}  ({n})")
         print("   -- por hora (tandas)")
         for h, c, n in conn.execute(
-            "select date_trunc('minute', created_at) - (extract(minute from created_at)::int % 15) * interval '1 minute', sum(cost_usd), count(*) from ai_usage where video_project_id = %s group by 1 order by 1",
+            "select date_trunc('minute', created_at) - (extract(minute from created_at)::int %% 15) * interval '1 minute', sum(cost_usd), count(*) from ai_usage where video_project_id = %s group by 1 order by 1",
             (pid,),
         ).fetchall():
             print(f"   {str(h)[:16]}  USD {c:7.2f}  ({n})")
+        print("   -- llamadas en orden")
+        for cr, f, m, c, i, o in conn.execute("select created_at, feature, model, cost_usd, input_tokens, output_tokens from ai_usage where video_project_id = %s order by created_at", (pid,)).fetchall():
+            print(f"   {str(cr)[11:19]} {f:28} {m:18} USD {c:5.2f} in {i} out {o}")
         print("   -- pedidos de animación")
         for st, used, res, cr, up, req in conn.execute(
             "select status, used_usd, reserved_usd, created_at, updated_at, coalesce(work->'tasks'->0->>'request','') from compos_requests where project_id = %s order by created_at",

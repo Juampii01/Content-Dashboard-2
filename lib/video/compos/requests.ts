@@ -3,6 +3,7 @@ import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { enqueueJob } from "@/lib/jobs";
 import type { Composition } from "./schema";
+import { longCodeReserve, longLookCost } from "./long-cost";
 import { loadWorkCtx, STAGE_COST, workView, type ComposWork, type WorkView } from "./work";
 
 /**
@@ -15,7 +16,6 @@ import { loadWorkCtx, STAGE_COST, workView, type ComposWork, type WorkView } fro
  * - el resultado lo entrega el Estudio sobre su estado actual (con deshacer) y lo marca entregado cuando quedó guardado.
  * - «Animar todo el video» crea muchos de una vez: los que no entran en los activos quedan en espera ("waiting", sin
  *   trabajo ni reserva) y pasan a la cola solos a medida que terminan otros (`promoteWaiting`).
- * Con la suscripción de Claude conectada, las animaciones no gastan la API: el tope de USD del video no las limita.
  */
 
 /** Pedidos activos a la vez por video (cada uno con su trabajo; el worker corre hasta 3 en paralelo). */
@@ -25,19 +25,32 @@ export const ACTIVE = ["waiting", "queued", "running"] as const;
 /** Los que ocupan lugar (tienen trabajo en la cola o corriendo). */
 export const RUNNING = ["queued", "running"] as const;
 
-/** Costo estimado de un pedido: plan (si hace falta), escribir con un reintento y las vueltas de revisión. */
-export function requestEstimate(input: { plan: boolean; lookRounds: number }): number {
-  return Math.round(((input.plan ? STAGE_COST.plan + STAGE_COST.vision : 0) + STAGE_COST.code + input.lookRounds * STAGE_COST.look) * 100) / 100;
+/**
+ * Costo estimado de un pedido: plan (si hace falta), escribir con un reintento y las vueltas de revisión. Una pieza
+ * larga (`longSeconds`, «Animar todo») reserva lo peor que puede costar su código (la llamada con todo su tope, en el
+ * worker) y su revisión, que lee y devuelve el código entero (lib/video/compos/long-cost.ts).
+ */
+export function requestEstimate(input: { plan: boolean; lookRounds: number; longSeconds?: number | null }): number {
+  const long = input.longSeconds != null && input.longSeconds > 0 ? input.longSeconds : null;
+  const code = long != null ? longCodeReserve(long) : STAGE_COST.code;
+  const look = long != null ? longLookCost(long) : STAGE_COST.look;
+  return Math.round(((input.plan ? STAGE_COST.plan + STAGE_COST.vision : 0) + code + input.lookRounds * look) * 100) / 100;
+}
+
+/** Duración de la pieza larga de un taller (la más larga si hubiera varias), o null si no tiene. */
+export function longSecondsOf(work: Pick<ComposWork, "tasks">): number | null {
+  const ends = work.tasks.filter((t) => t.long).map((t) => Math.max(1, ...(t.scenes ?? []).map((sc) => sc.end)));
+  return ends.length ? Math.max(...ends) : null;
 }
 
 /**
  * Vueltas de revisión y reserva para un pedido según lo que queda libre del tope (el tope menos lo gastado y menos lo
  * reservado por los otros pedidos en curso). null si no alcanza ni para escribirla.
  */
-export function planReservation(free: number, needsPlan: boolean): { lookRounds: number; reserved: number } | null {
+export function planReservation(free: number, needsPlan: boolean, longSeconds: number | null = null): { lookRounds: number; reserved: number } | null {
   // Una sola pasada de revisión: la segunda casi nunca cambiaba el resultado y duplicaba el costo de una corrección.
   for (const lookRounds of [1, 0]) {
-    const reserved = requestEstimate({ plan: needsPlan, lookRounds });
+    const reserved = requestEstimate({ plan: needsPlan, lookRounds, longSeconds });
     // Con margen: dos vueltas solo si sobra bastante (como antes: más de USD 2 libres).
     if (lookRounds === 2 && free <= 2) continue;
     if (lookRounds === 1 && free <= 1.2) continue;
@@ -57,6 +70,8 @@ export async function enqueueRequest(input: {
   spent: number;
   needsPlan: boolean;
   build: (lookRounds: number) => ComposWork;
+  /** Pieza larga («Animar todo»): su duración en segundos, para reservar lo que cuesta de verdad. */
+  longSeconds?: number | null;
   /** En espera: se crea sin trabajo y entra a la cola cuando haya lugar (`promoteWaiting`). */
   wait?: boolean;
 }): Promise<{ workId: string; error: string | null }> {
@@ -77,7 +92,7 @@ export async function enqueueRequest(input: {
       .where(and(eq(schema.composRequests.projectId, input.projectId), inArray(schema.composRequests.status, [...RUNNING])));
     const held = active.reduce((n, r) => n + Math.max(0, r.reserved - r.used), 0);
     const free = input.cap - input.spent - held;
-    const plan = planReservation(free, input.needsPlan);
+    const plan = planReservation(free, input.needsPlan, input.longSeconds ?? null);
     const work = input.build(plan?.lookRounds ?? 0);
     work.reservedUsd = plan?.reserved ?? 0;
     work.usedUsd = 0;
@@ -99,6 +114,31 @@ export async function enqueueRequest(input: {
     await db.update(schema.composRequests).set({ jobId }).where(eq(schema.composRequests.id, out.workId));
   }
   return out;
+}
+
+/**
+ * Amplía la reserva de un pedido en curso con lo libre del tope del video (el tope menos lo gastado y menos lo
+ * reservado por todos los pedidos en curso), con la fila del video bloqueada como al encolar. Lo usa la escritura en el
+ * worker de una pieza larga o de una animación que se cortó: su costo real puede pasar la reserva estimada. Devuelve la
+ * reserva nueva (igual a la de antes si no había margen).
+ */
+export async function growReservation(input: { projectId: string; workId: string; cap: number; spent: number; extra: number }): Promise<number> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`select id from video_projects where id = ${input.projectId} for update`);
+    const active = await tx
+      .select({ id: schema.composRequests.id, reserved: schema.composRequests.reservedUsd, used: schema.composRequests.usedUsd })
+      .from(schema.composRequests)
+      .where(and(eq(schema.composRequests.projectId, input.projectId), inArray(schema.composRequests.status, [...RUNNING])));
+    const mine = active.find((r) => r.id === input.workId);
+    if (!mine) return 0;
+    const held = active.reduce((n, r) => n + Math.max(0, r.reserved - r.used), 0);
+    const free = input.cap - input.spent - held;
+    const add = Math.round(Math.max(0, Math.min(free, input.extra)) * 1000) / 1000;
+    if (add <= 0) return mine.reserved;
+    const reserved = Math.round((mine.reserved + add) * 1000) / 1000;
+    await tx.update(schema.composRequests).set({ reservedUsd: reserved }).where(eq(schema.composRequests.id, input.workId));
+    return reserved;
+  });
 }
 
 export type RequestView = WorkView & {
@@ -226,7 +266,7 @@ export async function promoteWaiting(projectId: string, info?: { cap: number; sp
         .from(schema.composRequests)
         .where(and(eq(schema.composRequests.projectId, projectId), inArray(schema.composRequests.status, [...RUNNING])));
       const held = active.reduce((n, r) => n + Math.max(0, r.reserved - r.used), 0);
-      if (!planReservation(money.cap - money.spent - held, true)) break;
+      if (!planReservation(money.cap - money.spent - held, true, longSecondsOf(row.work as unknown as ComposWork))) break;
     }
     // Se toma la fila (de "waiting" a "queued") antes de encolar: dos consultas a la vez no la encolan dos veces.
     const [taken] = await db
@@ -244,6 +284,7 @@ export async function promoteWaiting(projectId: string, info?: { cap: number; sp
       cap: money.cap,
       spent: money.spent,
       needsPlan,
+      longSeconds: longSecondsOf(saved),
       build: (lookRounds) => ({ ...saved, lookRounds, startedAt: new Date().toISOString() }),
     });
     moved++;

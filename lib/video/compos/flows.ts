@@ -450,6 +450,8 @@ export async function startStudioRequest(
     spent: ctx.spent,
     needsPlan,
     wait: full,
+    // Un cambio sobre la pieza única la vuelve a escribir entera: reserva lo que cuesta una pieza larga.
+    longSeconds: base?.long ? Math.max(1, ...(base.scenes ?? []).map((sc) => sc.end)) : null,
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
       if (refs.length) task.refs = refs;
@@ -693,6 +695,7 @@ export async function startWholeVideo(projectId: string, plan: { mode: WholeMode
     cap: ctx.cap,
     spent: ctx.spent,
     needsPlan: true,
+    longSeconds: Math.max(1, piece.end - piece.start),
     build: (lookRounds) => {
       const task = newTask({ from_word: from, to_word: to, brief: instruction, source: "user", request: instruction });
       task.long = true;

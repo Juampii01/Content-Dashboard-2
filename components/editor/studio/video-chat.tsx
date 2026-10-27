@@ -11,12 +11,13 @@ import { CAPTION_PRESETS } from "@/lib/video/captions";
 import type { RefImage } from "@/lib/video/compos/schema";
 import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
-import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatDoneAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
+import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
 import { AttachButton, AttachList, refsOf, useAttachments } from "./attachments";
 import type { StudioApi } from "./types";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const IDEAS = ["¿Qué le falta a este video para retener más?", "Ponle subtítulos y anima el gancho", "Dame 3 ideas de animaciones para el principio", "Recorta los silencios"];
+const POLL_MS = 5000;
 const KIND_LABEL: Record<VideoChatItem["kind"], string> = { animacion: "Animación", grafico: "Gráfico", video: "Tu video como b-roll", subtitulos: "Subtítulos", recortar: "Recortar" };
 
 /**
@@ -33,6 +34,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
   const [pending, start] = useTransition();
   const files = useAttachments(projectId, { video: true });
   const list = useRef<HTMLOListElement>(null);
+  const looking = thread.looking;
 
   useEffect(() => {
     let alive = true;
@@ -44,7 +46,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
 
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
-  }, [thread.messages.length, pending]);
+  }, [thread.messages.length, pending, looking]);
 
   /** Lo que ya tiene el video, para que la IA no proponga encima sin saberlo. */
   function stateText(): string {
@@ -55,18 +57,51 @@ export function VideoChat({ api }: { api: StudioApi }) {
     return out.join("\n").slice(0, 5900);
   }
 
+  /** Lo que la IA mira en cada turno: frases, cabezal, tramo elegido, lo que ya tiene y los adjuntos listos. */
+  function context() {
+    const sel = api.selection?.kind === "range" ? { from: api.selection.from, to: api.selection.to } : null;
+    const attachments = files.list.filter((a) => a.status === "ready").map((a) => ({ ref: a.ref, kind: a.kind, name: a.name, duration: a.duration ?? null }));
+    const list = sentences(timeline.words as unknown as Word[]).map((f) => ({ from: f.from, to: f.to, start: f.start, end: f.end, text: f.text.slice(0, 600) }));
+    return { projectId, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, playhead: api.time, selection: sel, state: stateText(), attachments };
+  }
+  const contextRef = useRef(context);
+  useEffect(() => {
+    contextRef.current = context;
+  });
+
+  // Mientras la IA mira un link de referencia, se pregunta cada pocos segundos hasta que contesta.
+  useEffect(() => {
+    if (!looking) return;
+    let alive = true;
+    let busy = false;
+    const tick = async () => {
+      if (busy) return;
+      busy = true;
+      const r = await videoChatLookAction({ ...contextRef.current(), lookId: looking }).catch(() => null);
+      busy = false;
+      if (!alive || !r) return;
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      if (!r.waiting) setThread(r.thread);
+    };
+    const id = setInterval(() => void tick(), POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [looking]);
+
   function send(msg = text) {
     const t = msg.trim();
     if (t.length < 2 || pending || files.uploading) return;
     setText("");
     setError(null);
     const before = thread;
-    setThread({ messages: [...thread.messages, { role: "user", text: t, at: new Date().toISOString() }] });
-    const sel = api.selection?.kind === "range" ? { from: api.selection.from, to: api.selection.to } : null;
-    const attachments = files.list.filter((a) => a.status === "ready").map((a) => ({ ref: a.ref, kind: a.kind, name: a.name, duration: a.duration ?? null }));
+    setThread({ messages: [...thread.messages, { role: "user", text: t, at: new Date().toISOString() }], ...(thread.looking ? { looking: thread.looking } : {}) });
     start(async () => {
-      const list = sentences(timeline.words as unknown as Word[]).map((f) => ({ from: f.from, to: f.to, start: f.start, end: f.end, text: f.text.slice(0, 600) }));
-      const r = await videoChatAction({ projectId, text: t, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, playhead: api.time, selection: sel, state: stateText(), attachments });
+      const r = await videoChatAction({ ...context(), text: t });
       if (!r.ok) {
         setThread(before);
         setText(t);
@@ -111,7 +146,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
       <ol ref={list} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3" aria-label="Conversación con la IA" aria-live="polite">
         {thread.messages.length === 0 && (
           <li className="flex flex-col gap-2">
-            <p className="text-sm text-text">Pregúntame lo que quieras de este video o dime qué cambiar. Miro tu transcripción y lo que ya tiene, y te propongo acciones que haces con un toque.</p>
+            <p className="text-sm text-text">Pregúntame lo que quieras de este video o dime qué cambiar. Miro tu transcripción y lo que ya tiene, y te propongo acciones que haces con un toque. También puedes pegarme un link de Instagram, TikTok o YouTube: lo miro y te digo qué copiaría.</p>
             {canEdit && (
               <div className="flex flex-wrap gap-1.5" aria-label="Ideas">
                 {IDEAS.map((s) => (
@@ -169,6 +204,11 @@ export function VideoChat({ api }: { api: StudioApi }) {
               })}
             </li>
           ),
+        )}
+        {looking && !pending && (
+          <li className="self-start rounded-2xl border border-accent/30 bg-accent/[0.04] px-3 py-2 text-sm text-muted">
+            <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Mirando el video de referencia…
+          </li>
         )}
         {pending && (
           <li className="self-start rounded-2xl border border-white/10 bg-card px-3 py-2 text-sm text-muted">

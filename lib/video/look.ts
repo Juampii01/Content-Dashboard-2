@@ -299,3 +299,21 @@ export async function latestLook(projectId: string): Promise<LookView | null> {
     stage,
   };
 }
+
+/**
+ * Para el chat con la IA: el estado de una referencia y, si está lista, lo que Claude vio (la receta en texto) y de dónde
+ * vino. Un trabajo que falló o quedó colgado se marca como fallido (igual que en latestLook).
+ */
+export async function lookForChat(projectId: string, lookId: string): Promise<{ status: LookStatus; error: string | null; text: string | null; source: string }> {
+  const view = await latestLook(projectId);
+  const look = await row(projectId, lookId);
+  if (!look) return { status: "failed", error: "No encontramos esa referencia.", text: null, source: "" };
+  const source = look.source as ReferenceSource;
+  const status = (view?.id === lookId ? view.status : look.status) as LookStatus;
+  return {
+    status,
+    error: view?.id === lookId ? view.error : look.error,
+    text: status === "ready" && look.recipe ? recipeText(look.recipe as unknown as LookRecipe).slice(0, 20000) : null,
+    source: source.kind === "link" ? source.url : source.name,
+  };
+}

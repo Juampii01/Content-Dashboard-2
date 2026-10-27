@@ -15,6 +15,7 @@ Cómo contestas (campo reply):
 - Si pide un cambio, di en una o dos líneas qué vas a hacer y arma la acción. No digas que ya lo hiciste: la persona lo ejecuta con un botón.
 - Si algo no se puede (cambiar lo que dijo, quitar a otra persona, inventar cifras), dilo y propone la alternativa.
 - No repitas la lista de acciones en el texto: van en items.
+- Los links de Instagram, TikTok o YouTube que pega la persona los mira la app por ti: cuando ya lo miraste, lo tienes abajo como VIDEO DE REFERENCIA. Nunca digas que no puedes ver un link.
 
 Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "subtitulos": poner los subtítulos (sin tramo, from_word y to_word en -1, scope "todo").
@@ -43,7 +44,7 @@ export const videoChatSchema = z.object({
 });
 export type VideoChatOutput = z.infer<typeof videoChatSchema>;
 
-export function videoChatTask(input: { sentences: string; duration: number; format: string; playhead: number | null; selection: string | null; state: string; attachments: string | null; messages: { role: "user" | "assistant"; text: string }[] }): string {
+export function videoChatTask(input: { sentences: string; duration: number; format: string; playhead: number | null; selection: string | null; state: string; attachments: string | null; reference?: { source: string; text: string } | null; messages: { role: "user" | "assistant"; text: string }[] }): string {
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
   return `VIDEO: ${input.duration.toFixed(1)} s (${fmt(input.duration)}), ${input.format}.
 ${input.playhead != null ? `EL CABEZAL ESTÁ EN: ${input.playhead.toFixed(1)} s (${fmt(input.playhead)})\n` : ""}${input.selection ? `TRAMO ELEGIDO EN LA TRANSCRIPCIÓN: ${input.selection}\n` : ""}LO QUE YA TIENE EL VIDEO:
@@ -52,7 +53,7 @@ ${input.state}
 FRASES DEL VIDEO FINAL CON LOS IDS DE SUS PALABRAS ([desde–hasta] segundos: texto):
 ${input.sentences}
 
-${input.attachments ? `ADJUNTOS DE ESTE MENSAJE:\n${input.attachments}\n\n` : ""}CONVERSACIÓN:
+${input.reference ? `VIDEO DE REFERENCIA QUE YA MIRASTE CUADRO A CUADRO (${input.reference.source}), desarmado en momentos de edición (m1, m2… con sus segundos en la referencia):\n${input.reference.text}\nUsa esto cuando la persona hable de la referencia: copias cómo está editado (estilo, movimiento, ritmo, tipografía, colores), nunca su contenido (frases, cifras, nombres, logos). Cuando propongas una animación inspirada en un momento, descríbelo completo en el prompt.\n\n` : ""}${input.attachments ? `ADJUNTOS DE ESTE MENSAJE:\n${input.attachments}\n\n` : ""}CONVERSACIÓN:
 ${input.messages.map((m) => `${m.role === "user" ? "PERSONA" : "TÚ"}: ${m.text}`).join("\n")}
 
 Contesta el último mensaje de la persona.`;

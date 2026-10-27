@@ -15,6 +15,8 @@ import { transitionListSchema } from "@/lib/video/fx/transitions";
 import { musicGenSchema } from "@/lib/video/music-gen/spec";
 import { MUSIC_DB, SFX_LEVELS, soundCueListSchema } from "@/lib/video/sfx";
 import { STUDIO_LEVELS } from "@/lib/video/studio-audio";
+import { mixSchema, musicFadeSchema, VOICE_DB } from "@/lib/video/audio-mix";
+import { markerListSchema } from "@/lib/video/markers";
 import { CAPTION_PRESET_KEYS, type CaptionPresetKey } from "@/lib/video/types";
 import { BUDGET, briefSchema, type Brief } from "@/lib/video/director/types";
 import {
@@ -187,6 +189,11 @@ const reviewSchema = z.object({
       emphasis: z.array(z.number().int().min(0)).max(60),
     })
     .optional(),
+  // Mezcla y marcadores (applyReview los vuelve a limpiar: lib/video/audio-mix.ts y lib/video/markers.ts).
+  voiceDb: z.number().min(VOICE_DB.min).max(VOICE_DB.max).optional(),
+  mix: mixSchema.optional(),
+  musicFade: musicFadeSchema.optional(),
+  markers: markerListSchema.optional(),
   // Lo que mostraba la vista previa al exportar (el servidor no exporta si su timeline no da lo mismo).
   preview: z
     .object({

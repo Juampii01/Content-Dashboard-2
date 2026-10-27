@@ -15088,152 +15088,152 @@
     {
      "name": "pop",
      "at": 0.033,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 3.303,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "riser",
      "at": 4.8,
-     "gain": -13
+     "gain": -9
     },
     {
      "name": "whoosh",
      "at": 6.479,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 9.083,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 11.243,
-     "gain": -10
+     "gain": -7
     },
     {
      "name": "pop",
      "at": 12.557,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 13.745,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 17.002,
-     "gain": -10
+     "gain": -7
     },
     {
      "name": "pop",
      "at": 17.837,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 19.552,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 22.692,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "pop",
      "at": 25.3,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 28.754,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 30.359,
-     "gain": -10
+     "gain": -7
     },
     {
      "name": "whoosh",
      "at": 32.806,
-     "gain": -10
+     "gain": -7
     },
     {
      "name": "pop",
      "at": 36.033,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "pop",
      "at": 37.967,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 41.334,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 43.282,
-     "gain": -10
+     "gain": -7
     },
     {
      "name": "pop",
      "at": 44.786,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 48.854,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 51.239,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "whoosh",
      "at": 51.99,
-     "gain": -10
+     "gain": -7
     },
     {
      "name": "whoosh",
      "at": 54.303,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "pop",
      "at": 55.333,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 56.754,
-     "gain": -18
+     "gain": -14
     },
     {
      "name": "pop",
      "at": 58.967,
-     "gain": -14
+     "gain": -10
     },
     {
      "name": "whoosh",
      "at": 62.477,
-     "gain": -10
+     "gain": -7
     },
     {
      "name": "pop",
      "at": 63.95,
-     "gain": -14
+     "gain": -10
     }
    ],
    "music": {
@@ -15241,7 +15241,16 @@
     "key": "editor/musica/00000000-0000-4000-8000-000000000001/pista.wav",
     "db": -16
    },
-   "studio": "soft"
+   "studio": "soft",
+   "mix": {
+    "voiceDb": 0,
+    "music": true,
+    "sfx": true,
+    "musicFade": {
+     "in": 0.8,
+     "out": 1.5
+    }
+   }
   },
   "phraseFixes": [],
   "outputKey": "prueba/render.mp4",

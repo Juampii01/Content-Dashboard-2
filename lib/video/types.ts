@@ -58,6 +58,8 @@ export type MediaInfo = {
    * original que ya tienen su tira de máscaras en `editor/<id>/fx/<clave>/m-NNNNN.png`.
    */
   fxMasks?: Record<string, FxMaskMedia>;
+  /** Forma de onda de la voz para la línea de tiempo (worker/video/peaks.py, lib/video/peaks.ts). */
+  peaks?: { version: number; key: string; rate: number; count: number };
 };
 
 export type FxMaskMedia = { chunks: number[]; fps: number; tile: [number, number]; at: string };

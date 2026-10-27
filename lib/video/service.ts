@@ -51,6 +51,7 @@ import { FPS, type BrollOption, type CaptionPresetKey, type EditPlan, type Media
  */
 import { VideoError } from "./errors";
 import { snapshotBeforeStudioSave } from "./versions";
+import { renderMix } from "./audio-mix";
 export { VideoError };
 
 export type Project = typeof schema.videoProjects.$inferSelect;
@@ -579,7 +580,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     punches: zooms.filter((z) => z.kind === "punch").map((z) => z.start),
     dense: planDensity(next) === "reels",
     // Los que puso la persona en la pista de Sonido.
-    manual: soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain })),
+    manual: soundCueTimes(timeline, next.audio.cues ?? []).map(({ cue, hitAt }) => ({ name: cue.name, hitAt, gain: cue.gain, trim_in: cue.trim_in, trim_out: cue.trim_out, fade_in: cue.fade_in, fade_out: cue.fade_out })),
     // El de cada transición (en su corte) y los de las animaciones (con techo y sin amontonarse).
     extras: [
       ...transitionSounds(fx.transitions).filter((s) => isSfxName(s.name)).map((s) => ({ name: s.name as SfxName, hitAt: s.hitAt, gain: TRANSITION_SOUND_GAIN })),
@@ -588,6 +589,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     volumeDb: next.audio.sfx_db ?? 0,
     speech: timeline.words.map((w) => ({ start: w.start, end: w.end })),
   });
+  const mix = renderMix(next.audio);
   // Música: una pista generada (la arma el worker con el mismo generador que la vista previa) o una pista lista de la
   // biblioteca (la clave sale de la base, no del navegador).
   const track = !next.audio.music_gen && next.audio.music_asset_id ? await loadTrack(next.audio.music_asset_id) : null;
@@ -597,7 +599,7 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
       ? { trackId: track.id, key: track.fileKey, db: next.audio.music_db, ...(track.attribution ? { attribution: track.attribution } : {}) }
       : null;
   // Créditos: los del b-roll de stock y la atribución que pide la licencia de la música (catálogo CC BY).
-  const credits = [stockCredits, track?.status === "READY" && !next.audio.music_gen && track.attribution ? `Música\n\n${track.attribution}` : ""].filter(Boolean).join("\n\n");
+  const credits = [stockCredits, mix.music && track?.status === "READY" && !next.audio.music_gen && track.attribution ? `Música\n\n${track.attribution}` : ""].filter(Boolean).join("\n\n");
   // Frases corregidas con la voz clonada (lib/video/phrase-fix-service.ts): el worker las aplica sobre el original.
   const phraseFixes = await phraseFixesForRender(projectId);
 
@@ -636,7 +638,8 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     credits,
     creditsKey: credits ? `${keyPrefix(projectId)}render-${stamp}-creditos.txt` : null,
     srt: toSrt(timeline.words),
-    audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx, music, studio: studioLevel(next.audio.studio) },
+    // Mezcla del Estudio (lib/video/audio-mix.ts): lo silenciado no va; la voz con su volumen; la música con sus fundidos.
+    audio: { targetLufs: next.audio.target_lufs, truePeak: -1, sfx: mix.sfx ? sfx : [], music: mix.music ? music : null, studio: studioLevel(next.audio.studio), mix },
     phraseFixes,
     outputKey: `${keyPrefix(projectId)}render-${stamp}.mp4`,
     srtKey: `${keyPrefix(projectId)}render-${stamp}.srt`,

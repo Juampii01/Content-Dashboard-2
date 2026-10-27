@@ -109,11 +109,12 @@ export function fadeGainAt(t: number, start: number, end: number, fadeIn: number
 
 /**
  * Ducking de la música bajo la voz, como el `sidechaincompress` del render: mientras hablas la música baja
- * `MUSIC_DUCK_DB`; entra en 20 ms y vuelve en 450 ms. Las pausas más cortas que la salida no la dejan volver del todo
- * (se unen). En la vista previa se programa con estas ventanas; en el render lo hace ffmpeg con la voz.
+ * `MUSIC_DUCK_DB` (medido en el render con worker/tests: 9,4 dB con la voz a -14 LUFS); entra en unos 60 ms y vuelve
+ * en 450 ms. Las pausas más cortas que la salida no la dejan volver del todo (se unen). En la vista previa se programa
+ * con estas ventanas; en el render lo hace ffmpeg con la voz.
  */
 export const MUSIC_DUCK_DB = -9;
-export const DUCK_ATTACK = 0.02;
+export const DUCK_ATTACK = 0.06;
 export const DUCK_RELEASE = 0.45;
 
 export function duckWindows(speech: { start: number; end: number }[]): { start: number; end: number }[] {
@@ -127,3 +128,37 @@ export function duckWindows(speech: { start: number; end: number }[]): { start: 
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Sonoridad aproximada (dB) a partir del RMS de ventanas cortas: la media de la potencia de las ventanas que suenan
+ * (más de -50 dBFS, como el umbral de un medidor de sonoridad). Con la voz normalizada a -14 LUFS y música de prueba,
+ * el RMS así medido queda a menos de 1 dB de los LUFS: alcanza para que la vista previa mantenga el balance del render.
+ */
+export function loudnessOf(rms: ArrayLike<number>): number | null {
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < rms.length; i++) {
+    const v = rms[i]!;
+    if (v > 0.00316) {
+      sum += v * v;
+      n++;
+    }
+  }
+  return n ? 10 * Math.log10(sum / n) : null;
+}
+
+/**
+ * Balance de la vista previa: ganancias (dB) para que la voz original, la música y los efectos suenen entre sí como en
+ * el render. El render normaliza la voz a `target` LUFS y lleva la música a `target + musicDb`; aquí se mide cada cosa
+ * (`voiceLoudness`, `musicLoudness`) y se compensa. El video no puede subir más de 1: si la voz original está más baja
+ * que el objetivo, en lugar de subirla se bajan los demás lo mismo (`offset`). `meter` es lo que hay que sumar a cada
+ * medidor para mostrar el nivel del render.
+ */
+export function previewBalance(input: { target: number; voiceDb: number; musicDb: number; voiceLoudness: number | null; musicLoudness: number | null }): { voice: number; music: number; others: number; meter: number } {
+  const wantVoice = input.target + input.voiceDb;
+  const gv = input.voiceLoudness != null ? wantVoice - input.voiceLoudness : input.voiceDb;
+  const offset = Math.max(0, gv);
+  // Sin medir la música, una pista masterizada típica (unos -12 LUFS).
+  const gm = input.target + input.musicDb - (input.musicLoudness ?? -12);
+  return { voice: gv - offset, music: gm - offset, others: -offset, meter: offset };
+}

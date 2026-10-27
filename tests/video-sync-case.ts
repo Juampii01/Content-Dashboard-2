@@ -7,6 +7,7 @@
  * `scripts/make-sync-fixture.mts` lo escribe en worker/tests/fixtures/sync-plan.json; tests/video-sync.test.mts
  * revisa que el archivo esté al día y que la vista previa y el render usen el mismo mapeo de tramos.
  */
+import { renderMix } from "../lib/video/audio-mix";
 import { layerKey, stackIndex } from "../lib/video/layers";
 import { brollRenderEdit } from "../lib/video/broll-edit";
 import { captionLook, captionTracks } from "../lib/video/caption-styles";
@@ -176,7 +177,7 @@ export function syncRenderInput(words: Word[] = syncWords(), plan: EditPlan = sy
       ),
       effects: fx.map(({ layer: _layer, ...f }) => (void _layer, { ...f, z: z.get(layerKey("fx", f.spec.id)) ?? 0 })),
       srt: toSrt(timeline.words),
-      audio: { targetLufs: -14, truePeak: -1, sfx, music: { trackId: "00000000-0000-4000-8000-000000000001", key: "editor/musica/00000000-0000-4000-8000-000000000001/pista.wav", db: -16 }, studio: "soft" },
+      audio: { targetLufs: -14, truePeak: -1, sfx, music: { trackId: "00000000-0000-4000-8000-000000000001", key: "editor/musica/00000000-0000-4000-8000-000000000001/pista.wav", db: -16 }, studio: "soft", mix: renderMix(plan.audio) },
       phraseFixes: [],
       outputKey: "prueba/render.mp4",
       srtKey: "prueba/render.srt",

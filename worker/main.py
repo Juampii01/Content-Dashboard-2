@@ -21,6 +21,7 @@ import youtube  # noqa: F401  (YT_THUMBNAILS, YOUTUBE_TRANSCRIPT)
 import video.reel_copy  # noqa: F401  (REEL_COPY)
 import video.separar  # noqa: F401  (AUDIO_SPLIT)
 import video.look  # noqa: F401  (VIDEO_LOOK)
+import video.peaks  # noqa: F401  (VIDEO_PEAKS)
 
 
 def main() -> int:

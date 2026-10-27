@@ -424,6 +424,23 @@ MUSIC_FADE_IN = 0.8
 MUSIC_FADE_OUT = 1.5
 
 
+def _cue_clip(c: dict[str, Any], sfx_dir: Path) -> tuple[float, float | None, float, float]:
+    """Recorte y fundidos de un sonido: (desde, cuánto suena o None = hasta el final, fundido de entrada, de salida).
+    Los mismos números que lib/video/sfx.ts (`fitCueClip`); aquí solo se acotan por las dudas."""
+    def num(key: str) -> float:
+        try:
+            v = float(c.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return v if v == v and v > 0 else 0.0  # sin NaN ni negativos
+
+    start = min(num("from"), 30.0)
+    length = num("length") if c.get("length") is not None else None
+    if length is not None:
+        length = max(0.02, min(length, 30.0))
+    return start, length, min(num("fade_in"), 5.0), min(num("fade_out"), 5.0)
+
+
 def mix_audio(
     voice: Path,
     out: Path,
@@ -433,17 +450,35 @@ def mix_audio(
     music_db: float = -16.0,
     target: float = -14.0,
     sfx_dir: Path = SFX_DIR,
+    voice_db: float | None = 0.0,
+    music_fade: tuple[float, float] = (MUSIC_FADE_IN, MUSIC_FADE_OUT),
 ) -> dict[str, Any]:
-    """Voz (ya normalizada) + efectos + música con ducking. La voz no se toca: los efectos y la música van debajo.
+    """Voz (ya normalizada) + efectos + música con ducking. Los efectos y la música van debajo de la voz.
 
-    `sfx`: [{"name": uno de SFX_NAMES, "at": segundos del inicio del archivo, "gain": dB}].
+    `sfx`: [{"name": uno de SFX_NAMES, "at": segundos del inicio del archivo, "gain": dB}], y opcional el recorte
+    ("from": segundo del archivo donde empieza a sonar, "length": cuánto suena) y los fundidos ("fade_in", "fade_out").
     `music_db`: sonoridad de la música respecto del objetivo de la voz (la pista se mide y se lleva a target + db).
+    `voice_db`: volumen de la voz (Mezcla del Estudio, de -30 a 0 dB); None = silenciada (no suena, pero la música
+    sigue bajando cuando hablas, como en la vista previa). `music_fade`: fundidos de entrada y salida de la música (s).
     El resultado pasa por un limitador a -1 dBFS que la voz sola no activa (los efectos no pueden recortar).
     """
     cues = [c for c in sfx or [] if c.get("name") in SFX_NAMES and 0 <= float(c.get("at", -1)) < duration][:60]
+    vdb = None if voice_db is None else max(-30.0, min(0.0, float(voice_db)))
     inputs: list[str] = ["-i", str(voice)]
-    parts: list[str] = [f"[0:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,apad,atrim=0:{duration:.6f}" + (",asplit=2[voice][key]" if music else "[voice]")]
-    mix = ["[voice]"]
+    head = f"[0:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,apad,atrim=0:{duration:.6f}"
+    # La voz: igual que siempre a 0 dB; con volumen o silenciada, después de separar la señal que maneja el ducking.
+    gain_voice = "" if vdb is None or abs(vdb) < 0.05 else f"volume={vdb:.2f}dB"
+    if music:
+        parts: list[str] = [f"{head},asplit=2[vsrc][key]"]
+        if vdb is None:
+            parts.append("[vsrc]anullsink")
+        else:
+            parts.append(f"[vsrc]{gain_voice or 'anull'}[voice]")
+    elif vdb is None:
+        parts = [f"{head},anullsink"]
+    else:
+        parts = [f"{head}{',' + gain_voice if gain_voice else ''}[voice]"]
+    mix = [] if vdb is None else ["[voice]"]
     names = sorted({c["name"] for c in cues})
     for j, name in enumerate(names):
         mine = [c for c in cues if c["name"] == name]
@@ -452,9 +487,20 @@ def mix_audio(
         labels = [f"[{name}{k}]" for k in range(len(mine))]
         parts.append(f"[{idx}:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono" + (f",asplit={len(mine)}" if len(mine) > 1 else "") + "".join(labels))
         for k, c in enumerate(mine):
-            delay = round(float(c["at"]) * 1000)
+            start, length, fade_in, fade_out = _cue_clip(c, sfx_dir)
+            delay = round((float(c["at"]) + start) * 1000)
             gain = max(-40.0, min(0.0, float(c.get("gain", -16))))
-            parts.append(f"{labels[k]}volume={gain:.1f}dB,adelay={delay}:all=1[{name}d{k}]")
+            chain = []
+            if start > 0 or length is not None:
+                chain.append(f"atrim=start={start:.4f}" + (f":duration={length:.4f}" if length is not None else "") + ",asetpts=PTS-STARTPTS")
+            if fade_in > 0:
+                chain.append(f"afade=t=in:d={fade_in:.4f}")
+            if fade_out > 0:
+                if length is None:
+                    length = max(0.02, sfx_duration(sfx_dir / f"{name}.wav") - start)
+                chain.append(f"afade=t=out:st={max(0.0, length - fade_out):.4f}:d={fade_out:.4f}")
+            chain += [f"volume={gain:.1f}dB", f"adelay={delay}:all=1"]
+            parts.append(f"{labels[k]}{','.join(chain)}[{name}d{k}]")
             mix.append(f"[{name}d{k}]")
     music_info: dict[str, Any] | None = None
     if music:
@@ -468,25 +514,53 @@ def mix_audio(
         gain = max(-40.0, min(20.0, target + music_db - music_i))
         idx = 1 + len(names)
         inputs += ["-stream_loop", "-1", "-i", str(music)]
-        fade_out = max(0.0, duration - MUSIC_FADE_OUT)
+        fin, fout = fit_fades(float(music_fade[0]), float(music_fade[1]), duration)
+        fades = (f",afade=t=in:d={fin:.3f}" if fin > 0 else "") + (f",afade=t=out:st={max(0.0, duration - fout):.3f}:d={fout:.3f}" if fout > 0 else "")
         parts.append(
-            f"[{idx}:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,atrim=0:{duration:.6f},asetpts=PTS-STARTPTS,volume={gain:.2f}dB,"
-            f"afade=t=in:d={MUSIC_FADE_IN},afade=t=out:st={fade_out:.3f}:d={MUSIC_FADE_OUT}[music]"
+            f"[{idx}:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=mono,atrim=0:{duration:.6f},asetpts=PTS-STARTPTS,volume={gain:.2f}dB{fades}[music]"
         )
         parts.append(f"[music][key]{DUCKING}[ducked]")
         mix.append("[ducked]")
-        music_info = {"input_i": music_i, "gain": round(gain, 2), "db": music_db}
-    if len(mix) == 1:
-        parts.append("[voice]anull[mixed]")
+        music_info = {"input_i": music_i, "gain": round(gain, 2), "db": music_db, "fade": [fin, fout]}
+    if not mix:
+        # Todo silenciado: sale silencio del largo del video (el MP4 sigue teniendo audio).
+        inputs += ["-f", "lavfi", "-t", f"{duration:.6f}", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=mono"]
+        parts.append(f"[{1 + len(names) + (1 if music else 0)}:a]anull[mixed]")
+    elif len(mix) == 1:
+        parts.append(f"{mix[0]}anull[mixed]")
     else:
-        parts.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:normalize=0:dropout_transition=0[mixed]")
+        # Con la voz, manda su largo (como siempre); sin ella, lo más largo, con relleno y cortado al largo del video.
+        tail = "duration=first:normalize=0:dropout_transition=0" if vdb is not None else f"duration=longest:normalize=0:dropout_transition=0,apad,atrim=0:{duration:.6f}"
+        parts.append(f"{''.join(mix)}amix=inputs={len(mix)}:{tail}[mixed]")
     # Limitador al techo de la voz (-1 dBFS, el pico que deja loudnorm): la voz sola nunca lo toca, solo actúa si un
     # efecto o la música suman por encima. latency=1: mira 5 ms adelante y lo compensa (la mezcla no se corre).
     parts.append("[mixed]alimiter=limit=0.891:attack=5:release=60:level=disabled:latency=1[a]")
     tmp = _atomic(out)
     ffmpeg.run([*inputs, "-filter_complex", ";".join(parts), "-map", "[a]", "-t", f"{duration:.6f}", "-ac", "1", "-c:a", "pcm_s16le", str(tmp)], what="mezcla de música y efectos")
     os.replace(tmp, out)
-    return {"sfx": len(cues), "music": music_info}
+    info: dict[str, Any] = {"sfx": len(cues), "music": music_info}
+    if vdb is None or abs(vdb) >= 0.05:
+        info["voiceDb"] = vdb
+    return info
+
+
+def fit_fades(fade_in: float, fade_out: float, duration: float) -> tuple[float, float]:
+    """Fundidos de la música: si no entran los dos en el video, se achican en proporción (lib/video/audio-mix.ts)."""
+    fade_in, fade_out = max(0.0, min(10.0, fade_in)), max(0.0, min(10.0, fade_out))
+    total = fade_in + fade_out
+    if duration <= 0:
+        return 0.0, 0.0
+    if total <= duration:
+        return round(fade_in, 2), round(fade_out, 2)
+    k = duration / total
+    return round(fade_in * k, 2), round(fade_out * k, 2)
+
+
+def sfx_duration(path: Path) -> float:
+    import wave
+
+    with wave.open(str(path), "rb") as f:
+        return f.getnframes() / float(f.getframerate())
 
 
 # ─── 4. Video final ────────────────────────────────────────────────────────

@@ -1039,6 +1039,7 @@ export const jobTypeEnum = pgEnum("job_type", [
   "AUDIO_SPLIT", // "Sacar la música de un reel": bajar el reel (o el archivo subido) y separar la voz del resto (input.trackId)
   "VIDEO_COMPOS", // animaciones del Estudio: Claude escribe una composición (con imágenes generadas y revisión con cuadros) (input.projectId, input.requestId)
   "VIDEO_LOOK", // «Mira este video»: bajar y medir una referencia para conversar sobre su edición (input.projectId, input.lookId)
+  "VIDEO_PEAKS", // forma de onda de la voz para la línea de tiempo del Estudio, de los videos de antes (input.projectId)
 ]);
 export const jobStatusEnum = pgEnum("job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"]);
 

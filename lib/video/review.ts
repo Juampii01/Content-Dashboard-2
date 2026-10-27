@@ -13,6 +13,8 @@ import { musicGenSchema } from "./music-gen/spec";
 import { brollItemSchema, rangesFromIds, withDerived } from "./plan";
 import { cleanSoundCues, MUSIC_DB, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
+import { cleanMix, MUSIC_FADE, musicFade, VOICE_DB, voiceDb } from "./audio-mix";
+import { cleanMarkers } from "./markers";
 import { buildTimeline, TIMING, type Timeline } from "./timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, PlanMove, Transcript, VideoFormat, ZoomMoment } from "./types";
 
@@ -72,6 +74,12 @@ export type Review = {
   captionPlace?: { transform?: unknown; lines?: unknown };
   /** Tramos sin subtítulos tal como quedaron en la revisión (quitados por la persona o por el director). */
   captionHide?: { from_word: number; to_word: number; why: string }[];
+  /** Mezcla del Estudio (lib/video/audio-mix.ts): volumen de la voz, pistas silenciadas o en solo y fundidos de la música. */
+  voiceDb?: number;
+  mix?: unknown;
+  musicFade?: unknown;
+  /** Marcadores con nota (lib/video/markers.ts). */
+  markers?: unknown[];
   /**
    * Lo que mostraba la vista previa al exportar: los tramos del original en orden ([cuadro de inicio, cuadro de fin]) y
    * el gancho (rango de palabras). El render se arma en el servidor con el plan guardado; si no da exactamente esto, no
@@ -175,6 +183,27 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
     const { cues: _c, ...audio } = next.audio;
     void _c;
     next.audio = cues.length ? { ...audio, cues } : audio;
+  }
+  if (review.voiceDb !== undefined || review.mix !== undefined || review.musicFade !== undefined) {
+    // Mezcla: solo se guarda lo que cambia algo (sin campos, como los planes de antes).
+    const { voice_db: _v, mix: _m, music_fade: _f, ...audio } = next.audio;
+    void _v;
+    void _m;
+    void _f;
+    const vdb = review.voiceDb !== undefined ? voiceDb(review.voiceDb) : plan.audio.voice_db;
+    const mix = review.mix !== undefined ? cleanMix(review.mix) : (plan.audio.mix ?? null);
+    const fade = review.musicFade !== undefined ? musicFade(review.musicFade) : plan.audio.music_fade;
+    next.audio = {
+      ...audio,
+      ...(vdb != null && vdb !== VOICE_DB.default ? { voice_db: vdb } : {}),
+      ...(mix ? { mix } : {}),
+      ...(fade && (fade.in !== MUSIC_FADE.in || fade.out !== MUSIC_FADE.out) ? { music_fade: fade } : {}),
+    };
+  }
+  if (review.markers) {
+    const markers = cleanMarkers(review.markers, words.length);
+    if (markers.length) next.markers = markers;
+    else delete next.markers;
   }
   if (review.musicGen !== undefined) {
     const gen = review.musicGen === null ? null : musicGenSchema.safeParse(review.musicGen);

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { AudioLines, Bot, BringToFront, SendToBack, Check, ChevronDown, Clapperboard, Headphones, Mic, Palette, PenLine, RefreshCcw, RotateCcw, Scissors, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Wand2, WandSparkles, X, ZoomIn } from "lucide-react";
+import { VideoChat } from "./video-chat";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { AudioLines, Bot, MessageSquareText, Settings2, BringToFront, SendToBack, Check, ChevronDown, Clapperboard, Headphones, Mic, Palette, PenLine, RefreshCcw, RotateCcw, Scissors, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Wand2, WandSparkles, X, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
@@ -32,11 +33,58 @@ import type { StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
 /** Panel derecho del Estudio: lo elegido con todos sus controles, o los ajustes del video si no hay nada elegido. */
+const RIGHT_TAB_KEY = "studio.rightTab";
+const rightTabListeners = new Set<() => void>();
+let memTab: "chat" | "ajustes" | null = null;
+function readRightTab(): "chat" | "ajustes" {
+  if (memTab) return memTab;
+  try {
+    return localStorage.getItem(RIGHT_TAB_KEY) === "ajustes" ? "ajustes" : "chat";
+  } catch {
+    return "chat";
+  }
+}
+function subscribeRightTab(cb: () => void) {
+  rightTabListeners.add(cb);
+  return () => rightTabListeners.delete(cb);
+}
+
 export function StudioInspector({ api }: { api: StudioApi }) {
   const sel = api.selection;
+  // Sin nada elegido: el chat con la IA (por defecto) o los ajustes de todo el video. Se recuerda la última.
+  const tab = useSyncExternalStore(subscribeRightTab, readRightTab, () => "chat" as const);
+  const choose = (t: "chat" | "ajustes") => {
+    try {
+      localStorage.setItem(RIGHT_TAB_KEY, t);
+    } catch {
+      // Sin almacenamiento local queda solo en memoria.
+    }
+    memTab = t;
+    rightTabListeners.forEach((l) => l());
+  };
+  if (sel) {
+    return (
+      <div className="flex min-h-full flex-col" data-testid="studio-inspector">
+        <SelectionInspector api={api} sel={sel} />
+      </div>
+    );
+  }
   return (
-    <div className="flex min-h-full flex-col" data-testid="studio-inspector">
-      {!sel ? <GlobalInspector api={api} /> : <SelectionInspector api={api} sel={sel} />}
+    <div className={cn("flex flex-col", tab === "chat" ? "h-full" : "min-h-full")} data-testid="studio-inspector">
+      <div className="sticky top-0 z-20 border-b border-white/10 bg-card/95 px-3 py-2 backdrop-blur">
+        <SegmentedControl
+          label="Panel derecho"
+          size="sm"
+          className="w-full"
+          value={tab}
+          onValueChange={choose}
+          options={[
+            { value: "chat", label: "Chat con la IA", icon: <MessageSquareText className="h-3.5 w-3.5" aria-hidden /> },
+            { value: "ajustes", label: "Ajustes del video", icon: <Settings2 className="h-3.5 w-3.5" aria-hidden /> },
+          ]}
+        />
+      </div>
+      {tab === "chat" ? <VideoChat api={api} /> : <GlobalInspector api={api} />}
     </div>
   );
 }

@@ -54,6 +54,8 @@ import { aiItems, AiPanel, LibraryPanel } from "./studio-panels";
 import { EditPanel } from "./edit-panel";
 import { SubtitlesPanel } from "./subtitles-panel";
 import { SUBS_AFTER_KEY, SubtitleBar } from "./subtitle-bar";
+import type { RefImage } from "@/lib/video/compos/schema";
+import { suggestTrimAction } from "../edit-actions";
 import { StudioTimeline, type DropPreview, type LibraryDrop, type StudioSelection, type TimelineBlock, type TrackKey } from "./studio-timeline";
 import { USER_TAG, type StudioApi, type StudioProps } from "./types";
 import { studioPacing, studioTimelineInput, toReview, useStudioState, withCut, withPause, type StudioState } from "./use-studio-state";
@@ -1696,8 +1698,49 @@ export function Studio(props: StudioProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Las herramientas de la pestaña Edición, también para el chat con la IA.
+  function animationAt(range: WordSpan, prompt?: string, refs?: RefImage[]) {
+    if (prompt) {
+      void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null, ...(refs?.length ? { refs } : {}) });
+      return;
+    }
+    setSelection({ kind: "range", from: range.from, to: range.to });
+    const w = timeline.words.find((x) => x.id >= range.from);
+    if (w) seek(w.start);
+    setTimeout(() => {
+      const box = document.getElementById("ask-animation");
+      box?.scrollIntoView({ block: "center", behavior: "smooth" });
+      box?.focus({ preventScroll: true });
+    }, 120);
+  }
+  function applyTrim(ids: number[]) {
+    update((st) => ({ ...st, removed: [...new Set([...st.removed, ...ids])].sort((a, b) => a - b), pauses: { keep: [], all: false } }));
+    setSelection(null);
+  }
+  function openWholeVideo(notes?: string) {
+    setWholeNotes((notes ?? "").slice(0, 800));
+    setWholeOpen(true);
+  }
+  const tools: StudioApi["tools"] = {
+    animationAt: (range, prompt, refs) => animationAt(range, prompt, refs),
+    graphicAt: (range, prompt) => addBroll(range, true, prompt),
+    clipAt: (range, option) => addClipBroll(range, option),
+    wholeVideo: openWholeVideo,
+    subtitle: () => {
+      const preset = props.captionDefault && props.captionDefault !== "ninguno" ? props.captionDefault : "caja";
+      update((st) => (st.preset === "ninguno" ? { ...st, preset } : st));
+    },
+    trim: async () => {
+      const r = await suggestTrimAction(projectId);
+      if (!r.ok) return r;
+      applyTrim(r.removed);
+      return { ok: true, removed: r.removed.length };
+    },
+  };
+
   const api: StudioApi = {
     props,
+    tools,
     state: s,
     update,
     removedSet,
@@ -2060,30 +2103,11 @@ export function Studio(props: StudioProps) {
                         api={api}
                         dirty={dirty}
                         onRestoreAll={restoreAll}
-                        onTrim={(ids) => {
-                          update((st) => ({ ...st, removed: [...new Set([...st.removed, ...ids])].sort((a, b) => a - b), pauses: { keep: [], all: false } }));
-                          setSelection(null);
-                        }}
+                        onTrim={applyTrim}
                         onTrimPauses={() => update((st) => ({ ...st, pauses: { keep: [], all: false } }))}
-                        onWholeVideo={(notes) => {
-                          setWholeNotes((notes ?? "").slice(0, 800));
-                          setWholeOpen(true);
-                        }}
+                        onWholeVideo={openWholeVideo}
                         onClipAt={addClipBroll}
-                        onAnimationAt={(range, prompt, refs) => {
-                          if (prompt) {
-                            void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null, ...(refs?.length ? { refs } : {}) });
-                            return;
-                          }
-                          setSelection({ kind: "range", from: range.from, to: range.to });
-                          const w = timeline.words.find((x) => x.id >= range.from);
-                          if (w) seek(w.start);
-                          setTimeout(() => {
-                            const box = document.getElementById("ask-animation");
-                            box?.scrollIntoView({ block: "center", behavior: "smooth" });
-                            box?.focus({ preventScroll: true });
-                          }, 120);
-                        }}
+                        onAnimationAt={animationAt}
                         onGraphicAt={(range, prompt) => addBroll(range, true, prompt)}
                         rangeHere={() => {
                           if (selection?.kind === "range") return { range: { from: selection.from, to: selection.to }, from: "seleccion" };

@@ -1,3 +1,4 @@
+import type { RefImage } from "@/lib/video/compos/schema";
 import type { ReactNode } from "react";
 import type { DirectorView } from "@/lib/dal/video";
 import type { FxContext } from "@/lib/dal/video-fx";
@@ -130,6 +131,16 @@ export type StudioApi = {
   signedOf: (o: BrollItem["choice"]) => SignedOption | null;
   /** Controles de posición y animación de lo elegido (los del lienzo), o null si no se puede mover. */
   transformControls: (selection: StudioSelection) => ReactNode;
+  /** Lo que ejecutan el chat con la IA y los asistentes: las mismas herramientas de la pestaña Edición. */
+  tools: {
+    animationAt: (range: WordSpan, prompt: string, refs?: RefImage[]) => void;
+    graphicAt: (range: WordSpan, prompt: string) => void;
+    clipAt: (range: WordSpan, option: SignedOption) => void;
+    wholeVideo: (notes?: string) => void;
+    subtitle: () => void;
+    /** Recortar todo el video (silencios, tomas repetidas, arranques en falso). Devuelve cuántas palabras cortó. */
+    trim: () => Promise<{ ok: true; removed: number } | { ok: false; error: string }>;
+  };
   actions: {
     seek: (t: number, play?: boolean) => void;
     listenFrom: (wordId: number) => void;

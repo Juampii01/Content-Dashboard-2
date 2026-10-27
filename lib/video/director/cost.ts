@@ -84,7 +84,8 @@ export function planBudget(input: CostInput & { capUsd: number; spentUsd: number
   const plan: BudgetPlan = {
     map: { model: "deep", effort: "medium", sheets: "all" },
     director: { model: "deep", effort: "xhigh" },
-    critic: { model: "deep", effort: "medium", rounds: 2 },
+    // La segunda mirada revisa cuadros contra el plan: Sonnet con razonamiento medio (la mitad que Opus).
+    critic: { model: "main", effort: "medium", rounds: 2 },
     final: { model: "deep", effort: "low" },
     degraded: [],
     estimate: { map: 0, director: 0, round: 0, final: 0, total: 0 },
@@ -104,7 +105,7 @@ export function planBudget(input: CostInput & { capUsd: number; spentUsd: number
     ["Una sola vuelta de segunda mirada (en lugar de dos).", () => plan.critic && (plan.critic.rounds = 1)],
     ["El mapa del video mira la mitad de los cuadros.", () => (plan.map.sheets = "half")],
     ["La dirección razona un poco menos.", () => (plan.director = { model: "deep", effort: "high" })],
-    ["La segunda mirada la hace un modelo más económico.", () => plan.critic && (plan.critic = { model: "main", effort: null, rounds: plan.critic.rounds })],
+    ["La segunda mirada razona menos.", () => plan.critic && (plan.critic = { model: "main", effort: null, rounds: plan.critic.rounds })],
     ["El mapa del video lo arma un modelo más económico.", () => (plan.map = { model: "main", effort: null, sheets: plan.map.sheets })],
     ["Sin revisión final con IA (solo las verificaciones automáticas).", () => (plan.final = null)],
     ["Sin segunda mirada con IA (solo verificaciones y arreglos automáticos).", () => (plan.critic = null)],

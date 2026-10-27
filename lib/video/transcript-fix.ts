@@ -38,7 +38,8 @@ export async function proofreadTranscript(input: { words: Word[]; brandCtx: stri
   try {
     const out = await generateStructured({
       feature: "video.transcripcion.corregir",
-      model: "main",
+      // Tarea mecánica (palabras mal oídas contra el guion): Haiku alcanza y cuesta ~20 veces menos que Sonnet.
+      model: "fast",
       context: `${TRANSCRIPT_FIX_RULES}\n\n${input.brandCtx}`,
       task: transcriptFixTask({ words, script: input.script }),
       schema: transcriptFixSchema,

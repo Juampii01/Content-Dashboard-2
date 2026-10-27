@@ -282,7 +282,8 @@ async function proposeCuts(project: Project, words: Word[], duration: number) {
   try {
     ai = await generateStructured({
       feature: "video.plan",
-      model: "main",
+      // Cortes y silencios con reglas de seguridad (nunca más del 20 %, sin tocar el orden): tarea mecánica, Haiku.
+      model: "fast",
       context: `${EDITOR_RULES}\n\n${context}`,
       task: planTask({
         words,

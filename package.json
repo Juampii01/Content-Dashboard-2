@@ -32,6 +32,7 @@
     "preparar": "tsx --conditions=react-server scripts/preparar.ts",
     "vercel-build": "pnpm preparar && next build",
     "demo": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/demo.ts",
+    "test:scrapecreators": "node --conditions=react-server --import tsx --test tests/scrapecreators-key.test.mts",
     "test:consumo": "node --conditions=react-server --import tsx --test tests/api-usage.test.mts",
     "test:creditos": "node --conditions=react-server --import tsx --test tests/ai-credits.test.mts",
     "test:biblioteca": "node --require ./tests/support/sin-server-only.cjs --import tsx --test tests/biblioteca.test.mts",

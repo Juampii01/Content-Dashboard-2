@@ -11,4 +11,6 @@ onnxruntime==1.31.0
 faster-whisper==1.2.1
 # Estilos desde un video de referencia: cortes, zooms y caras (YuNet) con OpenCV; bajar links con yt-dlp.
 opencv-python-headless==5.0.0.93
-yt-dlp==2026.8.19
+yt-dlp==2026.10.26
+# Retos de JavaScript de YouTube: yt-dlp los resuelve con estos scripts y el node de la imagen (js_runtimes en style_job.py).
+yt-dlp-ejs==0.8.0

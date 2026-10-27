@@ -13,7 +13,9 @@ import type { RefImage } from "@/lib/video/compos/schema";
 import { VIDEO_CHAT_ID } from "@/lib/video/chat-conversation";
 import { LookError, lookForChat, startLook } from "@/lib/video/look";
 import { loadProject } from "@/lib/video/service";
-import type { Transcript } from "@/lib/video/types";
+import type { EditPlan, MediaInfo, Transcript } from "@/lib/video/types";
+import { markersForPrompt } from "@/lib/video/markers";
+import { buildTimeline } from "@/lib/video/timeline";
 
 /**
  * Chat con la IA del Estudio (panel derecho sin nada elegido): conversa sobre el video y propone acciones con su tramo,
@@ -93,7 +95,10 @@ async function prepare(d: Omit<ChatInput, "text">) {
     .filter((f) => f.from <= max)
     .map((f) => `[${f.from}–${Math.min(f.to, max)}] ${f.start.toFixed(1)}–${f.end.toFixed(1)} s: ${f.text}`)
     .join("\n");
-  return { max, ids, sel, sentencesText };
+  // Marcadores del plan guardado (la persona dice «en el marcador 2…»).
+  const plan = project.plan as EditPlan | null;
+  const markers = plan?.markers?.length ? markersForPrompt(buildTimeline(words, plan, (project.media as MediaInfo | null)?.duration || (project.transcript as Transcript).duration), plan.markers) : "";
+  return { max, ids, sel, sentencesText, markers };
 }
 
 /** Un turno de la IA sobre la charla guardada; devuelve el mensaje de respuesta (sin guardarlo). */
@@ -137,6 +142,7 @@ async function turn(d: Omit<ChatInput, "text">, messages: ChatMessage[], userId:
           : null,
         reference,
         messages: history,
+        markers: prep.markers || null,
       }),
       schema: videoChatSchema,
       ...(pics?.images.length ? { images: pics.images, imageSizes: pics.sizes } : {}),

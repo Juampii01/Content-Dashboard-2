@@ -412,6 +412,8 @@ export type DirectorTaskInput = {
   request?: string;
   /** Una referencia de edición (medidas y qué pasa en cada momento; sus hojas van en las imágenes). */
   reference?: string;
+  /** Marcadores con nota que puso la persona en la línea de tiempo (lib/video/markers.ts). */
+  markers?: string;
 };
 
 export function directorTask(input: DirectorTaskInput): string {
@@ -425,7 +427,7 @@ DATOS
 ${input.forbidden}
 - ${input.effects}
 - ${input.rhythm}
-${input.locks ? `\n${input.locks}\n` : ""}${input.request ? `\n${input.request}\n` : ""}${input.reference ? `\n${input.reference}\n` : ""}
+${input.locks ? `\n${input.locks}\n` : ""}${input.request ? `\n${input.request}\n` : ""}${input.reference ? `\n${input.reference}\n` : ""}${input.markers ? `\nMARCADORES DE LA PERSONA (puntos con nota en la línea de tiempo; si el pedido nombra uno, por ejemplo «el marcador 2», es ese lugar: usa su tramo de palabras)\n${input.markers}\n` : ""}
 BRIEF
 ${input.brief}
 

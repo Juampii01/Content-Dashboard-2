@@ -277,6 +277,8 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
     ...(moves.length ? { moves } : {}),
     // El orden de las partes que eligió la persona a mano se respeta siempre.
     ...(prev?.sequence?.length ? { sequence: prev.sequence.map((r) => ({ ...r })) } : {}),
+    // Los marcadores con nota son de la persona: el director los lee y nunca los cambia.
+    ...(prev?.markers?.length ? { markers: prev.markers.map((m) => ({ ...m })) } : {}),
     ...(zooms.length ? { zoom_moments: zooms } : {}),
     ...(fx.items.length ? { effects: fx.items } : {}),
     ...(style ? { zooms_enabled: style.zoom, style_id: style.id } : {}),

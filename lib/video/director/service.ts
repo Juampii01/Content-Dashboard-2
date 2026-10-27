@@ -33,6 +33,7 @@ import { planSchemaFor, type PlanStyle } from "../plan";
 import { alignScript } from "../script-align";
 import { proofreadTranscript } from "../transcript-fix";
 import { snapshotPlan } from "../versions";
+import { markersForPrompt } from "../markers";
 import { cleanPlan, legacyPlan, loadProject, renderInputFor, scriptText, VideoError, withEditorDefaults, type Project } from "../service";
 import type { StyleMetrics } from "../style";
 import { stylePreset } from "../styles";
@@ -587,6 +588,7 @@ async function direct(projectId: string, mode: "revise" | "edit" | null): Promis
         locks: locksText(locks),
         request: requestText(parsed, { limits: limitsText, focus: pending?.focus }),
         reference: reference && wantsReference ? referenceText(reference) : "",
+        markers: markersText(base ?? (ctx.project.plan as EditPlan | null), words, duration),
         revise:
           mode && base
             ? {
@@ -1195,4 +1197,10 @@ export function editEstimate(project: Pick<Project, "director" | "transcript" | 
   const plan = planEdit({ ...input, remaining });
   const withRef = planEdit({ ...input, refSheets: 2, remaining });
   return { usd: plan.estimate.first + plan.estimate.critic, max: plan.estimate.total, withReference: withRef.estimate.first + withRef.estimate.critic, model: plan.director.model === "deep" ? "Opus" : "Sonnet", rounds: 1 + plan.extraRounds, degraded: plan.degraded };
+}
+
+/** Los marcadores con nota del plan, para que el director sepa dónde es «el marcador 2». Vacío si no hay. */
+function markersText(plan: EditPlan | null, words: Word[], duration: number): string {
+  if (!plan?.markers?.length) return "";
+  return markersForPrompt(buildTimeline(words, plan, duration), plan.markers, (ids) => ids.map((id) => plan.corrections[String(id)] ?? words[id]?.text ?? "").join(" "));
 }

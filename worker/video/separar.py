@@ -165,7 +165,7 @@ def split_audio(ctx: JobContext) -> dict[str, Any]:
     try:
         ctx.stage("Bajando el video", 0.0, 0.15)
         if data.get("sourceKind") == "link":
-            src = style_job.download_link(str(data.get("url") or ""), workdir, name="video", max_seconds=MAX_SECONDS)
+            src = style_job.download_link(str(data.get("url") or ""), workdir, name="video", max_seconds=MAX_SECONDS, ctx=ctx)
         else:
             key = str(data.get("sourceKey") or source_key or "")
             if not key:

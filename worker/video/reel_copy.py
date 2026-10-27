@@ -76,7 +76,7 @@ def copy_reel(ctx: JobContext) -> dict[str, Any]:
     try:
         ctx.stage("Bajando el video", 0.0, 0.15)
         if data.get("sourceKind") == "link":
-            src = style_job.download_link(str(data.get("url") or ""), workdir, name="original")
+            src = style_job.download_link(str(data.get("url") or ""), workdir, name="original", ctx=ctx)
         else:
             key = str(data.get("sourceKey") or "")
             if not key.startswith(f"editor/estilos/{style_id}/"):

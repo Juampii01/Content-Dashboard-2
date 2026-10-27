@@ -63,6 +63,12 @@ class AppClient:
             payload["contentType"] = content_type
         return self._post("/api/worker/storage", payload, timeout=60)
 
+    def scrapecreators_key(self, job_id: str) -> str | None:
+        """La clave de ScrapeCreators del cliente, solo para el trabajo en curso (o None si no cargó una). No se guarda ni se loguea."""
+        res = self._post("/api/worker/scrapecreators", {"jobId": job_id}, timeout=30)
+        key = res.get("apiKey")
+        return key if isinstance(key, str) and key else None
+
     def notify(self) -> None:
         """Avisa a la app que terminó un trabajo (arma los avisos y correos). Nunca tira error."""
         try:

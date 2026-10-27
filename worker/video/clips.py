@@ -83,7 +83,7 @@ def ensure_source(ctx: JobContext, long_video_id: str, kind: str, key: str, url:
             return ctx.app.download(None, key, workdir / f"original{ext}", on_progress, owner=owner)
         except JobError:
             pass
-        raw = style_job.download_link(str(url or ""), workdir, name="descarga", max_seconds=MAX_SECONDS, max_bytes=MAX_LINK_BYTES)
+        raw = style_job.download_link(str(url or ""), workdir, name="descarga", max_seconds=MAX_SECONDS, max_bytes=MAX_LINK_BYTES, ctx=ctx)
         dest = workdir / "original.mp4"
         if raw.suffix.lower() == ".mp4":
             raw.rename(dest)

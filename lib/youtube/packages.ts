@@ -279,9 +279,10 @@ export async function activeJob(packageId: string) {
 /** Encola los fondos de los conceptos elegidos (y el recorte de sus fotos, si falta). Devuelve el id del trabajo. */
 export async function startBackgrounds(input: { packageId: string; conceptIds: string[]; provider: ImageProviderId | null; userId: string }): Promise<string> {
   const status = await providersStatus();
-  const providerId = input.provider && status[input.provider === "chatgpt" ? "chatgpt" : "openai"].configured ? input.provider : status.preferred;
+  // Solo la API key de OpenAI: sin ella, las miniaturas quedan desactivadas (nunca la sesión de ChatGPT).
+  const providerId = input.provider && status.openai.configured ? input.provider : status.preferred;
   if (!providerId) throw new PackageError("Agrega tu clave de API de OpenAI en Ajustes → Claves de servicios para generar los fondos.");
-  if (!(await IMAGE_PROVIDERS[providerId].workerCredentials())) throw new PackageError("Vuelve a conectar tu ChatGPT en Ajustes → Claves de servicios.");
+  if (!(await IMAGE_PROVIDERS[providerId].workerCredentials())) throw new PackageError("Agrega tu clave de API de OpenAI en Ajustes → Claves de servicios para generar los fondos.");
   if (await activeJob(input.packageId)) throw new PackageError("Ya se están generando fondos para este video. Espera a que terminen.");
   const row = await loadPackage(input.packageId);
   const wanted = row.concepts.filter((c) => input.conceptIds.includes(c.id)).slice(0, 3);
@@ -300,7 +301,7 @@ export async function startBackgrounds(input: { packageId: string; conceptIds: s
   }
   const jobId = await enqueueJob({
     type: "YT_THUMBNAILS",
-    input: { packageId: input.packageId, provider: providerId === "chatgpt" ? "chatgpt" : "openai", concepts: items, photos },
+    input: { packageId: input.packageId, provider: "openai", concepts: items, photos },
     createdBy: input.userId,
     // Un solo intento: reintentar volvería a gastar imágenes del plan del cliente en los fondos que ya salieron.
     maxAttempts: 1,

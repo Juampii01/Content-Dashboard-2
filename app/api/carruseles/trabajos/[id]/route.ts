@@ -4,11 +4,10 @@ import { getOptionalUser } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 
 /**
- * GET /api/carruseles/trabajos/<id> — estado de un trabajo de Carruseles (plantilla, copia, imágenes, video de un slide
- * o conexión de ChatGPT),
- * para que la pantalla muestre el progreso real y se pueda salir y volver. Solo con sesión.
+ * GET /api/carruseles/trabajos/<id> — estado de un trabajo de Carruseles (plantilla, copia, imágenes o video de un
+ * slide), para que la pantalla muestre el progreso real y se pueda salir y volver. Solo con sesión.
  */
-const TYPES = new Set(["CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CODEX_LOGIN", "CLAUDE_LOGIN", "CAROUSEL_COPY", "CAROUSEL_ANIMATE"]);
+const TYPES = new Set(["CAROUSEL_STYLE", "CAROUSEL_IMAGES", "CAROUSEL_COPY", "CAROUSEL_ANIMATE"]);
 
 export async function GET(_request: NextRequest, { params }: RouteContext<"/api/carruseles/trabajos/[id]">) {
   const user = await getOptionalUser();
@@ -20,11 +19,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext<"/api/
   const output = (job.output ?? {}) as Record<string, unknown>;
   // Solo lo que la pantalla necesita (nunca credenciales).
   const safe =
-    job.type === "CODEX_LOGIN"
-      ? { url: output.url ?? null, code: output.code ?? null, label: output.label ?? null }
-      : job.type === "CLAUDE_LOGIN"
-        ? { url: output.url ?? null, waiting: output.waiting ?? null, label: output.label ?? null }
-        : job.type === "CAROUSEL_IMAGES"
+    job.type === "CAROUSEL_IMAGES"
         ? { slides: Array.isArray(output.slides) ? output.slides : [], provider: (job.input as { provider?: string }).provider ?? null }
         : job.type === "CAROUSEL_COPY"
           ? { copyId: (job.input as { copyId?: string }).copyId ?? null, carouselId: output.carouselId ?? null }

@@ -7,13 +7,11 @@ OpenAI) viajan solo en memoria: nunca se escriben en el log.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from carruseles.app import CarouselApp
 from comunes.appclient import AppClient
-from comunes.errors import JobError
 
 
 class YoutubeApp(CarouselApp):
@@ -29,13 +27,6 @@ class YoutubeApp(CarouselApp):
 
     def credentials(self) -> dict[str, Any]:
         return self._post("credenciales", {})
-
-    def save_chatgpt_auth(self, auth_json: str) -> dict[str, Any]:
-        try:
-            json.loads(auth_json)
-        except json.JSONDecodeError as exc:
-            raise JobError("ChatGPT devolvió una sesión que no pudimos leer. Vuelve a conectar tu ChatGPT.", retry=False, detail="auth.json inválido") from exc
-        return self._post("chatgpt", {"authJson": auth_json})
 
     def background(self, concept_id: str, key: str | None, provider: str | None, error: str | None = None) -> dict[str, Any]:
         """Fondo listo (o fallido) de un concepto de miniatura."""

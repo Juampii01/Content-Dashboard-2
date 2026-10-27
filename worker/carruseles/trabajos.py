@@ -5,12 +5,10 @@ CAROUSEL_STYLE  — copia el estilo de un carrusel de referencia: baja las imág
                   app, que arma la plantilla con Claude. Las imágenes se borran al terminar: no se guardan en ningún lado.
 CAROUSEL_COPY   — "Copiar un carrusel": baja los slides (link con gallery-dl o subidos), los mide si se copia el diseño
                   y le pasa a la app las imágenes reducidas, que escribe tu versión con Claude. Las imágenes se borran.
-CAROUSEL_IMAGES — imágenes sin texto para los slides, con la cuenta de ChatGPT del cliente (Codex CLI) o con su API
-                  key de OpenAI. La primera imagen del carrusel sirve de referencia de estilo para las siguientes. Si
+CAROUSEL_IMAGES — imágenes sin texto para los slides, con la API key de OpenAI del cliente. La primera imagen del carrusel sirve de referencia de estilo para las siguientes. Si
                   en el slide sale el personaje, sus fotos de Mi marca van primero como referencia de la cara. Una
                   corrección edita la imagen actual del slide (y vuelve a adjuntar las fotos del personaje).
 CAROUSEL_ANIMATE — video corto (MP4) de un slide ya dibujado, con un movimiento sutil (ver animar.py).
-CODEX_LOGIN     — conecta la cuenta de ChatGPT del cliente con el login por código de dispositivo de Codex.
 """
 
 from __future__ import annotations
@@ -22,12 +20,11 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-from psycopg.types.json import Jsonb
 
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
-from . import animar, codex, descarga, medidas, openai_api
+from . import animar, descarga, medidas, openai_api
 from .app import CarouselApp
 
 log = logging.getLogger("worker.carruseles")
@@ -51,13 +48,6 @@ def _workdir(ctx: JobContext) -> Path:
 def _final(ctx: JobContext, exc: JobError) -> bool:
     return not exc.retry or int(ctx.job["attempts"]) >= int(ctx.job["max_attempts"])
 
-
-def _set_output(ctx: JobContext, output: dict[str, Any]) -> None:
-    """Escribe una salida parcial mientras el trabajo corre (el código de ChatGPT, por ejemplo)."""
-    ctx.conn.execute(
-        "UPDATE jobs SET output = %s WHERE id = %s AND locked_by = %s AND status = 'RUNNING'",
-        (Jsonb(output), ctx.job["id"], ctx.config.worker_id),
-    )
 
 
 # ─── CAROUSEL_STYLE ───────────────────────────────────────────────────────
@@ -220,11 +210,6 @@ def carousel_copy(ctx: JobContext) -> dict[str, Any]:
 
 # ─── CAROUSEL_IMAGES ──────────────────────────────────────────────────────
 
-CODEX_WRAPPER = """{prompt}
-
-INSTRUCCIÓN TÉCNICA: no leas skills ni archivos y no ejecutes ningún comando. Llama UNA sola vez a la herramienta de generación de imágenes con todo lo anterior (formato vertical 4:5) y termina respondiendo solo 'ok'."""
-
-
 def _check_image(path: Path) -> tuple[str, str]:
     """Comprueba que el archivo es una imagen y devuelve (extensión, content-type). No la recodifica: se conserva tal cual."""
     try:
@@ -258,7 +243,6 @@ def carousel_images(ctx: JobContext) -> dict[str, Any]:
         raise JobError("No hay slides para generar.", retry=False)
     app = CarouselApp(ctx.app, ctx.job["id"])
     work = _workdir(ctx)
-    home: codex.CodexHome | None = None
     done: list[dict[str, Any]] = []
     fetched: dict[str, Path] = {}
 
@@ -273,8 +257,8 @@ def carousel_images(ctx: JobContext) -> dict[str, Any]:
         ctx.stage("Preparando", 0.0, 0.05)
         creds = app.credentials()
         provider = creds.get("provider")
-        if provider == "chatgpt":
-            home = codex.CodexHome.create(work, creds.get("authJson"))
+        if provider != "openai":
+            raise JobError("Agrega tu API key de OpenAI en Ajustes → Claves de servicios para generar imágenes.", retry=False)
         style_refs: list[Path] = []
         style_key = data.get("styleRefKey")
         if style_key:
@@ -292,24 +276,7 @@ def carousel_images(ctx: JobContext) -> dict[str, Any]:
             # Orden de las imágenes (el mismo que describe el prompt): fotos del personaje, imagen a corregir, estilo.
             faces = [fetch(str(k)) for k in (item.get("characterKeys") or [])[:3]]
             refs = [*faces, *([fetch(str(item["editKey"]))] if correcting else []), *([] if correcting else style_refs[:1])]
-            if provider == "chatgpt" and home:
-                image = codex.generate_image(
-                    home,
-                    out_dir,
-                    CODEX_WRAPPER.format(prompt=item["prompt"]),
-                    refs,
-                    model=str(creds.get("model") or "gpt-5.6-terra"),
-                    effort=str(creds.get("effort") or "medium"),
-                    check=ctx.check,
-                )
-                refreshed = home.refreshed()
-                if refreshed:
-                    app.save_chatgpt_auth(refreshed)
-                    home.mark_saved(refreshed)
-            elif provider == "openai":
-                image = openai_api.generate_image(creds, item["prompt"], refs, out_dir / "imagen.png", keep_face=bool(faces))
-            else:
-                raise JobError("Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes para generar imágenes.", retry=False)
+            image = openai_api.generate_image(creds, item["prompt"], refs, out_dir / "imagen.png", keep_face=bool(faces))
             ext, content_type = _check_image(image)
             key = f"carruseles/{carousel_id}/{item['slideId']}-{secrets.token_hex(4)}.{ext}"
             app.upload(key, image, content_type)
@@ -323,17 +290,8 @@ def carousel_images(ctx: JobContext) -> dict[str, Any]:
     except JobError as exc:
         if done:
             exc.user_message = f"{exc.user_message} (Se generaron {len(done)} de {len(items)}.)"
-        if home:
-            refreshed = home.refreshed()
-            if refreshed:
-                try:
-                    app.save_chatgpt_auth(refreshed)
-                except JobError:
-                    log.warning("no se pudo guardar la sesión refrescada de ChatGPT")
         raise
     finally:
-        if home:
-            home.cleanup()
         shutil.rmtree(work, ignore_errors=True)
 
 
@@ -369,28 +327,4 @@ def carousel_animate(ctx: JobContext) -> dict[str, Any]:
         saved = app.slide_video(key)
         return {"slideId": data.get("slideId"), "url": saved.get("url")}
     finally:
-        shutil.rmtree(work, ignore_errors=True)
-
-
-# ─── CODEX_LOGIN ──────────────────────────────────────────────────────────
-
-
-@register("CODEX_LOGIN")
-def codex_login(ctx: JobContext) -> dict[str, Any]:
-    app = CarouselApp(ctx.app, ctx.job["id"])
-    work = _workdir(ctx)
-    home = codex.CodexHome.create(work, None)
-    try:
-        ctx.stage("Pidiendo el código a ChatGPT", 0.0, 0.1)
-
-        def on_code(device: codex.DeviceCode) -> None:
-            _set_output(ctx, {"url": device.url, "code": device.code})
-            ctx.stage("Esperando que entres con tu cuenta", 0.1, 0.9)
-
-        auth = codex.device_login(home, work, on_code, ctx.check)
-        ctx.stage("Guardando la conexión", 0.9, 1.0)
-        saved = app.save_chatgpt_auth(auth)
-        return {"connected": True, "label": saved.get("label")}
-    finally:
-        home.cleanup()
         shutil.rmtree(work, ignore_errors=True)

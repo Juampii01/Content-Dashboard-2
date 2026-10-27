@@ -15,7 +15,7 @@ import { correctionPrompt, imagePrompt, type ImagePromptInput } from "./prompt";
 
 /**
  * Imágenes con IA para los slides: encola el trabajo CAROUSEL_IMAGES (lo hace el worker), recibe cada imagen
- * a medida que sale y lleva la cuenta de las últimas 24 h (los planes de ChatGPT tienen un límite diario).
+ * a medida que sale y lleva la cuenta de las últimas 24 h.
  */
 export class ImageJobError extends Error {}
 
@@ -74,7 +74,7 @@ export async function startImageJob(input: {
   // Siempre la clave de API de OpenAI (la cuenta de ChatGPT ya no se usa).
   const providerId = status.preferred;
   if (!providerId) throw new ImageJobError("Agrega tu clave de API de OpenAI en Ajustes → Claves de servicios para generar imágenes.");
-  if (!(await IMAGE_PROVIDERS[providerId].workerCredentials())) throw new ImageJobError("Vuelve a conectar tu ChatGPT en Ajustes → Claves de servicios.");
+  if (!(await IMAGE_PROVIDERS[providerId].workerCredentials())) throw new ImageJobError("Agrega tu API key de OpenAI en Ajustes → Claves de servicios.");
   if (await activeImageJob(input.carouselId)) throw new ImageJobError("Ya hay imágenes generándose para este carrusel. Espera a que terminen.");
 
   const row = await loadCarousel(input.carouselId);
@@ -184,16 +184,13 @@ export async function attachGeneratedImage(job: { id: string; input: unknown }, 
   return { url, prev: old.prev };
 }
 
-/** Imágenes generadas en las últimas 24 h, por proveedor (para avisar antes de llegar al límite del plan). */
-export async function imagesLast24h(): Promise<{ chatgpt: number; openai: number }> {
+/** Imágenes generadas con la API key de OpenAI en las últimas 24 h (se muestra junto al costo). */
+export async function imagesLast24h(): Promise<{ openai: number }> {
   const rows = await getDb().execute<{ provider: string | null; n: number }>(sql`
     select input->>'provider' as provider, coalesce(sum(jsonb_array_length(coalesce(output->'slides', '[]'::jsonb))), 0)::int as n
     from jobs where type = 'CAROUSEL_IMAGES' and created_at > now() - interval '24 hours'
     group by 1`);
-  const out = { chatgpt: 0, openai: 0 };
-  for (const r of rows.rows) {
-    if (r.provider === "chatgpt") out.chatgpt += Number(r.n);
-    else if (r.provider === "openai-api") out.openai += Number(r.n);
-  }
+  const out = { openai: 0 };
+  for (const r of rows.rows) if (r.provider === "openai-api") out.openai += Number(r.n);
   return out;
 }

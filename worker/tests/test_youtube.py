@@ -124,9 +124,6 @@ class FakeApp:
         self.cutouts.append((photo_key, key, method, error))
         return {"ok": True}
 
-    def save_chatgpt_auth(self, auth_json: str) -> dict[str, Any]:
-        return {}
-
 
 def ctx_for(tmp_path: Path, job_input: dict[str, Any], models: Path) -> SimpleNamespace:
     stages: list[str] = []

@@ -1,11 +1,6 @@
 # Worker de Content 2: Python 3.12 + ffmpeg (con libass y zimg) + fuentes OFL de los subtítulos.
 # Misma imagen para todos los clientes; cada cliente la despliega en su propia app de Fly (ver docs/worker.md).
 
-# Carruseles: Codex CLI (imágenes con la cuenta de ChatGPT del cliente). Se instala con npm en una imagen de Node
-# y se copian solo `node` y el paquete: la imagen final sigue siendo la de Python.
-FROM node:22.20.0-bookworm-slim AS codex
-RUN npm install -g @openai/codex@0.162.1 && npm cache clean --force
-
 # Gráficos animados del editor: skia-canvas (MIT, Canvas 2D sin navegador) para el motor de motion graphics
 # (worker/motion, el mismo código que la vista previa). Se instala en la imagen de Node (mismo Debian bookworm).
 FROM node:22.20.0-bookworm-slim AS motion
@@ -27,10 +22,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg fontconfig curl unzip ca-certificates tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 
-# Carruseles: Node 22 LTS (solo el binario) y Codex CLI desde la etapa de arriba.
-COPY --from=codex /usr/local/bin/node /usr/local/bin/node
-COPY --from=codex /usr/local/lib/node_modules/@openai /usr/local/lib/node_modules/@openai
-RUN ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex && codex --version
+# Node 22 LTS (solo el binario) para el motor de motion graphics (skia-canvas).
+COPY --from=motion /usr/local/bin/node /usr/local/bin/node
+RUN node --version
 
 WORKDIR /app
 COPY requirements.txt .

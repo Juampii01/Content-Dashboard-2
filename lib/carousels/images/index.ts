@@ -3,17 +3,16 @@ import { env } from "@/lib/env";
 import { credentialRow, readSecret, type ImageCredentialKind } from "./credentials";
 
 /**
- * Proveedores de imágenes para los slides. Las imágenes van siempre **sin texto** (el texto lo dibuja la plantilla)
- * y se generan en el worker, nunca en una función de Vercel.
+ * Proveedor de imágenes para los slides, las miniaturas y las animaciones. Las imágenes van siempre **sin texto** (el
+ * texto lo dibuja la plantilla) y se generan en el worker, nunca en una función de Vercel.
  *
- * - `chatgpt` (por defecto): Codex CLI en el worker con la cuenta de ChatGPT del propio cliente.
- * - `openai-api` (respaldo): API de imágenes de OpenAI con la API key del cliente.
+ * - `openai-api`: API de imágenes de OpenAI con la API key del cliente. Es el único: la cuenta de ChatGPT (Codex) no
+ *   se puede usar dentro de un producto de terceros.
  *
- * Cada proveedor sabe qué credencial usa y qué le manda al worker (descifrado, solo en memoria, dentro de un
- * trabajo en curso). Para sumar otro (por ejemplo, otro modelo de imágenes), se agrega aquí y en
- * worker/carruseles/trabajos.py.
+ * El proveedor sabe qué credencial usa y qué le manda al worker (descifrado, solo en memoria, dentro de un trabajo en
+ * curso). Para sumar otro (por ejemplo, otro modelo de imágenes), se agrega aquí y en worker/carruseles/trabajos.py.
  */
-export type ImageProviderId = "chatgpt" | "openai-api";
+export type ImageProviderId = "openai-api";
 
 export interface ImageProvider {
   id: ImageProviderId;
@@ -22,16 +21,6 @@ export interface ImageProvider {
   /** Lo que necesita el worker para generar. */
   workerCredentials(): Promise<Record<string, unknown> | null>;
 }
-
-const chatgpt: ImageProvider = {
-  id: "chatgpt",
-  label: "Tu cuenta de ChatGPT",
-  credential: "CHATGPT",
-  async workerCredentials() {
-    const authJson = await readSecret("CHATGPT");
-    return authJson ? { provider: "chatgpt", authJson, model: env().CODEX_MODEL, effort: "medium" } : null;
-  },
-};
 
 const openaiApi: ImageProvider = {
   id: "openai-api",
@@ -44,25 +33,22 @@ const openaiApi: ImageProvider = {
   },
 };
 
-export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProvider> = { chatgpt, "openai-api": openaiApi };
+export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProvider> = { "openai-api": openaiApi };
 
 export function isImageProviderId(value: unknown): value is ImageProviderId {
-  return value === "chatgpt" || value === "openai-api";
+  return value === "openai-api";
 }
 
 export type ImageProvidersStatus = {
-  chatgpt: { configured: boolean; label: string | null; updatedAt: string | null };
   openai: { configured: boolean; label: string | null; updatedAt: string | null };
-  /** El que se usa si no se elige otro: ChatGPT si está conectado; si no, la API key. */
+  /** El que se usa: la API key de OpenAI si está; si no, ninguno (sin imágenes). */
   preferred: ImageProviderId | null;
 };
 
 export async function providersStatus(): Promise<ImageProvidersStatus> {
-  const [c, o] = await Promise.all([credentialRow("CHATGPT"), credentialRow("OPENAI")]);
+  const o = await credentialRow("OPENAI");
   return {
-    chatgpt: { configured: Boolean(c), label: c?.label ?? null, updatedAt: c?.updatedAt.toISOString() ?? null },
     openai: { configured: Boolean(o), label: o?.label ?? null, updatedAt: o?.updatedAt.toISOString() ?? null },
-    // Solo la clave de API de OpenAI: la cuenta de ChatGPT (Codex) ya no se usa en un producto de terceros.
     preferred: o ? "openai-api" : null,
   };
 }

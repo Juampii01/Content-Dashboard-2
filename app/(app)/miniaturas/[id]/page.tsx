@@ -40,7 +40,7 @@ async function Editor({ params }: { params: PageProps<"/miniaturas/[id]">["param
     selectedTitle: pkg.selectedTitle,
     concepts: pkg.concepts.map((c) => ({ ...c, backgroundUrl: thumbFileUrl(c.backgroundKey) })),
   };
-  const providerLabel = providers.preferred === "chatgpt" ? "tu ChatGPT" : providers.preferred === "openai-api" ? "tu API key de OpenAI" : null;
+  const providerLabel = providers.preferred === "openai-api" ? "tu API key de OpenAI" : null;
   return (
     <>
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

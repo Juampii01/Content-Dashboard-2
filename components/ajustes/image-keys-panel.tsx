@@ -10,13 +10,12 @@ import { Notice } from "@/components/ui/feedback";
 import { toast } from "@/components/ui/toast";
 import type { ImageProvidersStatus } from "@/lib/carousels/images";
 import { formatNumber, formatRelative } from "@/lib/format";
-import { removeChatGptAction, removeOpenAiKeyAction, saveOpenAiKeyAction, type KeyState } from "./image-keys-actions";
+import { removeOpenAiKeyAction, saveOpenAiKeyAction, type KeyState } from "./image-keys-actions";
 
 export type ImageKeysStatus = {
   isOwner: boolean;
   providers: ImageProvidersStatus;
-  last24h: { chatgpt: number; openai: number };
-  loginJobId: string | null;
+  last24h: { openai: number };
   workerOnline: boolean;
   workerAutoStart: boolean;
 };
@@ -162,32 +161,6 @@ export function ImageKeysPanel({ status }: { status: ImageKeysStatus }) {
   return (
     <div className="flex flex-col gap-4">
       <OpenAiCard status={status} />
-      {status.providers.chatgpt.configured && status.isOwner && <LegacyChatGpt />}
     </div>
-  );
-}
-
-function LegacyChatGpt() {
-  const [pending, start] = useTransition();
-  return (
-    <Notice tone="info" title="Tu cuenta de ChatGPT ya no se usa">
-      <p>Las imágenes ahora se generan con tu clave de API de OpenAI. Puedes desconectar la cuenta vieja.</p>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="mt-2"
-        disabled={pending}
-        onClick={() =>
-          start(async () => {
-            const res = await removeChatGptAction();
-            if (!res.ok) toast.error(res.error ?? "No se pudo desconectar.");
-            else toast.success("ChatGPT desconectado.");
-          })
-        }
-        icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
-      >
-        Desconectar ChatGPT
-      </Button>
-    </Notice>
   );
 }

@@ -4,6 +4,8 @@
  * Sin base ni sesión: se prueba sola (tests/system-status.test.mts).
  */
 
+import { FEATURES } from "@/lib/features";
+
 export type Tone = "success" | "warning" | "danger" | "neutral";
 export type PlatformKey = "INSTAGRAM" | "YOUTUBE" | "TIKTOK";
 
@@ -32,7 +34,7 @@ export type FailedJobRow = {
   refTitle: string | null;
   /**
    * Estado actual de eso que procesaba (si ya se reintentó o se arregló, no se muestra). Para lo que no tiene estado
-   * propio (imágenes de carrusel, plantillas, ChatGPT) vale "RECOVERED" cuando un intento posterior salió bien.
+   * propio (imágenes de carrusel, plantillas) vale "RECOVERED" cuando un intento posterior salió bien.
    */
   refStatus: string | null;
 };
@@ -71,7 +73,6 @@ export type ServicesInput = {
   videoStorage: boolean;
   heygen: boolean;
   heygenWebhookError: string | null;
-  chatgpt: boolean;
   openai: boolean;
   platformsConfigured: Record<PlatformKey, boolean>;
 };
@@ -179,8 +180,6 @@ const jobKinds: Record<string, JobKind> = {
   LONG_VIDEO_CLIPS: { what: "Clips de un video largo", href: (id) => `/editor/clips/${id}`, retry: "long", hrefLabel: "Ver video", failedStatus: "FAILED" },
   CAROUSEL_IMAGES: { what: "Imágenes de carrusel", href: (id) => `/carruseles/${id}`, retry: null, hrefLabel: "Abrir y volver a generar" },
   CAROUSEL_STYLE: { what: "Plantilla de carrusel", href: (id) => `/carruseles/plantillas/${id}`, retry: null, hrefLabel: "Ver plantilla", failedStatus: "FAILED" },
-  CODEX_LOGIN: { what: "Conexión con ChatGPT", href: () => `/ajustes#claves`, retry: null, hrefLabel: "Volver a conectar" },
-  CLAUDE_LOGIN: { what: "Conexión con Claude", href: () => `/ajustes#claves`, retry: null, hrefLabel: "Volver a conectar" },
   CAROUSEL_COPY: { what: "Copia de un carrusel", href: (id) => `/carruseles/copiar/${id}`, retry: null, hrefLabel: "Ver y reintentar" },
   CAROUSEL_ANIMATE: { what: "Video de un slide", href: (id) => `/carruseles/${id}`, retry: null, hrefLabel: "Abrir y volver a animar" },
   AUDIO_SPLIT: { what: "Música sacada de un reel", href: () => `/editor/biblioteca#musica`, retry: null, hrefLabel: "Ver y reintentar", failedStatus: "FAILED" },
@@ -204,8 +203,8 @@ export function failureViews(jobs: FailedJobRow[], clones: FailedCloneRow[]): Fa
     // Si lo que procesaba ya no existe o ya no está fallido, no hay nada que resolver.
     if (kind.failedStatus && job.refStatus !== kind.failedStatus) continue;
     // Sin estado propio y sin título: lo que procesaba se borró (por ejemplo, el carrusel), ya no hay qué resolver.
-    if (!kind.failedStatus && job.type !== "CODEX_LOGIN" && job.type !== "CLAUDE_LOGIN" && (!job.refId || !job.refTitle)) continue;
-    // Lo que no tiene estado propio (imágenes, plantillas, ChatGPT): si un intento posterior salió bien, ya está.
+    if (!kind.failedStatus && (!job.refId || !job.refTitle)) continue;
+    // Lo que no tiene estado propio (imágenes, plantillas): si un intento posterior salió bien, ya está.
     if (job.refStatus === "RECOVERED") continue;
     out.push({
       key: `job:${job.id}`,
@@ -293,7 +292,9 @@ export function serviceViews(s: ServicesInput): ServiceView[] {
       : { key: "stock", name: "B-roll de stock", tone: "neutral", status: "Opcional", message: "Sin Pexels ni Pixabay, el b-roll sale solo de tu biblioteca. Funciona igual; con una de las dos hay más tomas para elegir.", href: "/editor/biblioteca" },
   );
 
-  if (!s.heygen) out.push({ key: "heygen", name: "HeyGen (videos con clon)", tone: "neutral", status: "Sin conectar", message: "Guarda tu API key de HeyGen para crear tu clon y generar videos con él.", href: "/ajustes#claves" });
+  if (!FEATURES.clone) {
+    // Videos con clon apagados (lib/features.ts): HeyGen no se muestra.
+  } else if (!s.heygen) out.push({ key: "heygen", name: "HeyGen (videos con clon)", tone: "neutral", status: "Sin conectar", message: "Guarda tu API key de HeyGen para crear tu clon y generar videos con él.", href: "/ajustes#claves" });
   else if (s.heygenWebhookError) out.push({ key: "heygen", name: "HeyGen (videos con clon)", tone: "warning", status: "Conectado, con un detalle", message: `${s.heygenWebhookError} Los videos igual se revisan cada pocos minutos.`, href: "/ajustes#claves" });
   else out.push(ok("heygen", "HeyGen (videos con clon)", "Tu clave está guardada y HeyGen nos avisa cuando termina cada video.", "/ajustes#claves"));
 

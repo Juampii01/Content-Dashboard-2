@@ -20,7 +20,7 @@ from typing import Any
 from PIL import Image, ImageOps, UnidentifiedImageError
 from psycopg.types.json import Jsonb
 
-from carruseles import codex, openai_api
+from carruseles import openai_api
 from comunes.errors import Cancelled, JobError
 from comunes.runner import JobContext, register
 
@@ -31,11 +31,6 @@ log = logging.getLogger("worker.youtube")
 
 WIDTH, HEIGHT = 1280, 720
 GENERIC = "Algo falló al preparar las miniaturas. Prueba de nuevo; si sigue, avísale a soporte."
-
-CODEX_WRAPPER = """{prompt}
-
-INSTRUCCIÓN TÉCNICA: no leas skills ni archivos y no ejecutes ningún comando. Llama UNA sola vez a la herramienta de generación de imágenes con todo lo anterior (formato horizontal 16:9) y termina respondiendo solo 'ok'."""
-
 
 def _workdir(ctx: JobContext) -> Path:
     # Nombre que no es un UUID: la limpieza del Editor (janitor) no la toca; la borra este mismo trabajo.
@@ -123,7 +118,6 @@ def yt_thumbnails(ctx: JobContext) -> dict[str, Any]:
         raise JobError("No hay nada que generar.", retry=False)
     app = YoutubeApp(ctx.app, ctx.job["id"])
     work = _workdir(ctx)
-    home: codex.CodexHome | None = None
     done: list[str] = []
     pending = [str(c["conceptId"]) for c in concepts]
     try:
@@ -135,8 +129,8 @@ def yt_thumbnails(ctx: JobContext) -> dict[str, Any]:
         ctx.stage("Preparando", cut_end, cut_end + 0.03)
         creds = app.credentials()
         provider = creds.get("provider")
-        if provider == "chatgpt":
-            home = codex.CodexHome.create(work, creds.get("authJson"))
+        if provider != "openai":
+            raise JobError("Agrega tu API key de OpenAI en Ajustes → Claves de servicios para generar los fondos.", retry=False)
         total = len(concepts)
         base = cut_end + 0.03
         for n, item in enumerate(concepts):
@@ -144,24 +138,7 @@ def yt_thumbnails(ctx: JobContext) -> dict[str, Any]:
             ctx.stage(f"Generando el fondo {n + 1} de {total}", base + (0.98 - base) * n / total, base + (0.98 - base) * (n + 1) / total)
             out_dir = work / f"fondo-{n + 1}"
             out_dir.mkdir()
-            if provider == "chatgpt" and home:
-                image = codex.generate_image(
-                    home,
-                    out_dir,
-                    CODEX_WRAPPER.format(prompt=item["prompt"]),
-                    [],
-                    model=str(creds.get("model") or "gpt-5.6-terra"),
-                    effort=str(creds.get("effort") or "medium"),
-                    check=ctx.check,
-                )
-                refreshed = home.refreshed()
-                if refreshed:
-                    app.save_chatgpt_auth(refreshed)
-                    home.mark_saved(refreshed)
-            elif provider == "openai":
-                image = openai_api.generate_image(creds, item["prompt"], [], out_dir / "imagen.png")
-            else:
-                raise JobError("Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes para generar los fondos.", retry=False)
+            image = openai_api.generate_image(creds, item["prompt"], [], out_dir / "imagen.png")
             jpg = to_thumbnail_jpeg(image, out_dir / "fondo.jpg")
             key = f"miniaturas/{package_id}/{item['conceptId']}-{secrets.token_hex(4)}.jpg"
             app.upload(key, jpg, "image/jpeg")
@@ -179,13 +156,6 @@ def yt_thumbnails(ctx: JobContext) -> dict[str, Any]:
                 log.warning("no se pudo marcar el fondo fallido")
         if done:
             exc.user_message = f"{exc.user_message} (Se generaron {len(done)} de {len(concepts)} fondos.)"
-        if home:
-            refreshed = home.refreshed()
-            if refreshed:
-                try:
-                    app.save_chatgpt_auth(refreshed)
-                except JobError:
-                    log.warning("no se pudo guardar la sesión refrescada de ChatGPT")
         raise
     except Cancelled:
         raise
@@ -198,8 +168,6 @@ def yt_thumbnails(ctx: JobContext) -> dict[str, Any]:
                 pass
         raise JobError(GENERIC, retry=False, detail=exc.__class__.__name__) from exc
     finally:
-        if home:
-            home.cleanup()
         shutil.rmtree(work, ignore_errors=True)
 
 

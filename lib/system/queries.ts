@@ -12,7 +12,7 @@ import type { ConnectionRow, FailStreak, FailedCloneRow, FailedJobRow, ServicesI
  */
 
 /** Trabajos que procesa el worker (los de la app, como la sincronización, se ven en las conexiones). */
-export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "CODEX_LOGIN", "REEL_COPY", "CAROUSEL_COPY", "CAROUSEL_ANIMATE", "CLAUDE_LOGIN", "AUDIO_SPLIT"] as const;
+export const WORKER_JOB_TYPES = ["VIDEO_ANALYZE", "VIDEO_EDIT", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "CAROUSEL_IMAGES", "CAROUSEL_STYLE", "REEL_COPY", "CAROUSEL_COPY", "CAROUSEL_ANIMATE", "AUDIO_SPLIT"] as const;
 const workerTypes = sql.raw(WORKER_JOB_TYPES.map((t) => `'${t}'`).join(", "));
 
 export async function readWorker(): Promise<WorkerInput> {
@@ -58,12 +58,6 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
           select 1 from jobs later where later.type = 'CAROUSEL_IMAGES' and later.status = 'SUCCEEDED'
             and later.input->>'carouselId' = f.ref_id and later.created_at > f.finished_at
         ) then 'RECOVERED'
-        when f.type = 'CLAUDE_LOGIN' and exists(
-          select 1 from service_credentials sc where sc.provider = 'CLAUDE' and sc.updated_at > f.finished_at
-        ) then 'RECOVERED'
-        when f.type = 'CODEX_LOGIN' and exists(
-          select 1 from service_credentials sc where sc.provider = 'CHATGPT' and sc.updated_at > f.finished_at
-        ) then 'RECOVERED'
         else null
       end as ref_status
     from failed f
@@ -84,7 +78,6 @@ export async function readFailedJobs(days = 7): Promise<FailedJobRow[]> {
     finishedAt: new Date(r.finished_at),
     refId: r.ref_id,
     refTitle: r.ref_title,
-    // CODEX_LOGIN no apunta a nada: si no se recuperó, sigue pendiente.
     refStatus: r.ref_status,
   }));
 }
@@ -163,7 +156,6 @@ export async function readServices(): Promise<ServicesInput> {
     videoStorage: Boolean(e.VIDEO_BLOB_READ_WRITE_TOKEN),
     heygen: has("HEYGEN"),
     heygenWebhookError: creds.rows.find((r) => r.provider === "HEYGEN")?.webhook_error ?? null,
-    chatgpt: has("CHATGPT"),
     openai: has("OPENAI"),
     platformsConfigured: { INSTAGRAM: platformConfigured("INSTAGRAM"), YOUTUBE: platformConfigured("YOUTUBE"), TIKTOK: platformConfigured("TIKTOK") },
   };

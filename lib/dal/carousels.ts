@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { getBrand } from "@/lib/ai/brand-context";
 import { getDb, schema } from "@/lib/db";
@@ -177,7 +177,7 @@ export async function getCarouselTemplate(id: string): Promise<TemplateView | nu
 
 export type CarouselImageState = {
   providers: ImageProvidersStatus;
-  last24h: { chatgpt: number; openai: number };
+  last24h: { openai: number };
   activeJobId: string | null;
   /** Video de un slide en curso (se puede salir y volver). */
   animation: { jobId: string; slideId: string } | null;
@@ -215,17 +215,11 @@ export async function getCarouselImageState(carouselId: string): Promise<Carouse
   };
 }
 
-/** Estado de la conexión de ChatGPT y de la API key de OpenAI, para Ajustes. */
+/** Estado de la API key de OpenAI, para Ajustes. */
 export async function getImageKeysStatus() {
   const me = await getCurrentUser();
   const [providers, last24h, worker] = await Promise.all([providersStatus(), imagesLast24h(), workerStatus()]);
-  const [login] = await getDb()
-    .select({ id: schema.jobs.id })
-    .from(schema.jobs)
-    .where(and(eq(schema.jobs.type, "CODEX_LOGIN"), inArray(schema.jobs.status, ["QUEUED", "RUNNING"])))
-    .orderBy(desc(schema.jobs.createdAt))
-    .limit(1);
-  return { isOwner: me.role === "OWNER", providers, last24h, loginJobId: login?.id ?? null, workerOnline: worker.online, workerAutoStart: worker.autoStart };
+  return { isOwner: me.role === "OWNER", providers, last24h, workerOnline: worker.online, workerAutoStart: worker.autoStart };
 }
 
 // ─── Copiar un carrusel ───────────────────────────────────────────────────

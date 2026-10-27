@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from PIL import Image, ImageDraw
 
-from carruseles import animar, codex, descarga, openai_api, trabajos
+from carruseles import animar, descarga, openai_api, trabajos
 from comunes.errors import JobError
 
 FAKES = Path(__file__).resolve().parent / "fakes"
@@ -71,9 +71,6 @@ class FakeApp:
         self.slides.append({"slideId": slide_id, "key": key, "provider": provider})
         return {"url": f"/api/carruseles/archivos/{key}", "prev": None}
 
-    def save_chatgpt_auth(self, auth: str) -> dict[str, Any]:
-        return {"label": "x"}
-
     def copy(self, measurements: Any, images: list[Path], post_text: str | None) -> dict[str, Any]:
         self.copied = {"measurements": measurements, "images": [Image.open(p).size for p in images], "post": post_text}
         return {"ok": True, "carouselId": "c-1"}
@@ -99,29 +96,34 @@ def ctx_for(tmp: Path, job_type: str, data: dict[str, Any]) -> SimpleNamespace:
 
 
 @pytest.fixture
-def fake_codex(tmp_path: Path, monkeypatch) -> Path:
-    exe = wrapper(tmp_path, "codex", FAKES / "fake_codex.py")
-    monkeypatch.setenv("CODEX_BIN", str(exe))
-    calls = tmp_path / "calls.jsonl"
-    monkeypatch.setenv("FAKE_CODEX_CALLS", str(calls))
-    monkeypatch.setenv("FAKE_CODEX_DELAY", "0")
+def fake_images(monkeypatch) -> list[dict[str, Any]]:
+    """Reemplaza la API de OpenAI: guarda cuántas referencias recibió cada imagen y deja un PNG."""
+    calls: list[dict[str, Any]] = []
+
+    def gen(creds, prompt, refs, dest, keep_face=False):
+        calls.append({"refs": len(refs), "prompt": prompt, "keep_face": keep_face})
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (1088, 1360), (20, 30, 40)).save(dest)
+        return dest
+
+    monkeypatch.setattr(openai_api, "generate_image", gen)
     return calls
 
 
-AUTH = json.dumps({"tokens": {"access_token": "a", "refresh_token": "r", "id_token": "x.e30.y"}})
+CREDS = {"provider": "openai", "apiKey": "sk-test"}
 
 
 # ─── Tu cara en las imágenes ──────────────────────────────────────────────
 
 
-def test_imagenes_con_personaje_mandan_las_fotos_primero(tmp_path: Path, fake_codex: Path, monkeypatch):
+def test_imagenes_con_personaje_mandan_las_fotos_primero(tmp_path: Path, fake_images: list, monkeypatch):
     """Con personaje: fotos (en el orden que eligió la app) + referencia de estilo. Las fotos se bajan una vez."""
     (tmp_path / "work").mkdir()
     files = {
         "marca/fotos/aaaaaaaaaaaaaaaa.jpg": slide(tmp_path / "f1.jpg", (200, 150, 120), (900, 1200)),
         "marca/fotos/bbbbbbbbbbbbbbbb.png": slide(tmp_path / "f2.jpg", (180, 140, 110), (800, 800)),
     }
-    app = FakeApp(files, {"provider": "chatgpt", "authJson": AUTH, "model": "gpt-5.6-terra", "effort": "medium"})
+    app = FakeApp(files, CREDS)
     monkeypatch.setattr(trabajos, "CarouselApp", lambda *_a, **_k: app)
     data = {
         "carouselId": "0d0d0d0d-0000-0000-0000-000000000000",
@@ -134,20 +136,20 @@ def test_imagenes_con_personaje_mandan_las_fotos_primero(tmp_path: Path, fake_co
     }
     out = trabajos.carousel_images(ctx_for(tmp_path, "CAROUSEL_IMAGES", data))
     assert out["generated"] == 3
-    calls = [json.loads(line) for line in fake_codex.read_text().splitlines()]
+    calls = fake_images
     # 1: dos fotos, sin estilo todavía. 2: solo la referencia de estilo (la primera imagen). 3: una foto + estilo.
     assert [c["refs"] for c in calls] == [2, 1, 2]
     assert all(k.startswith("carruseles/0d0d0d0d-0000-0000-0000-000000000000/s") for k in app.uploaded)
 
 
-def test_corregir_edita_la_imagen_actual_con_las_fotos(tmp_path: Path, fake_codex: Path, monkeypatch):
+def test_corregir_edita_la_imagen_actual_con_las_fotos(tmp_path: Path, fake_images: list, monkeypatch):
     (tmp_path / "work").mkdir()
     files = {
         "marca/fotos/aaaaaaaaaaaaaaaa.jpg": slide(tmp_path / "f1.jpg", (200, 150, 120)),
         "carruseles/0d0d0d0d-0000-0000-0000-000000000000/s1-abcdef12.png": slide(tmp_path / "actual.jpg"),
         "carruseles/0d0d0d0d-0000-0000-0000-000000000000/s9-abcdef12.png": slide(tmp_path / "estilo.jpg"),
     }
-    app = FakeApp(files, {"provider": "chatgpt", "authJson": AUTH})
+    app = FakeApp(files, CREDS)
     monkeypatch.setattr(trabajos, "CarouselApp", lambda *_a, **_k: app)
     data = {
         "carouselId": "0d0d0d0d-0000-0000-0000-000000000000",
@@ -157,16 +159,16 @@ def test_corregir_edita_la_imagen_actual_con_las_fotos(tmp_path: Path, fake_code
     }
     ctx = ctx_for(tmp_path, "CAROUSEL_IMAGES", data)
     trabajos.carousel_images(ctx)
-    calls = [json.loads(line) for line in fake_codex.read_text().splitlines()]
+    calls = fake_images
     assert calls[0]["refs"] == 2  # foto del personaje + la imagen a corregir
     assert any(s.startswith("Corrigiendo") for s in ctx.stages)
 
 
-def test_foto_danada_da_error_claro(tmp_path: Path, fake_codex: Path, monkeypatch):
+def test_foto_danada_da_error_claro(tmp_path: Path, fake_images: list, monkeypatch):
     (tmp_path / "work").mkdir()
     bad = tmp_path / "rota.jpg"
     bad.write_bytes(b"no es una imagen")
-    app = FakeApp({"marca/fotos/aaaaaaaaaaaaaaaa.jpg": bad}, {"provider": "chatgpt", "authJson": AUTH})
+    app = FakeApp({"marca/fotos/aaaaaaaaaaaaaaaa.jpg": bad}, CREDS)
     monkeypatch.setattr(trabajos, "CarouselApp", lambda *_a, **_k: app)
     data = {"carouselId": "0d0d0d0d-0000-0000-0000-000000000000", "items": [{"slideId": "s1", "prompt": "x", "characterKeys": ["marca/fotos/aaaaaaaaaaaaaaaa.jpg"]}]}
     with pytest.raises(JobError) as err:
@@ -326,10 +328,3 @@ def test_trabajo_animar_sube_el_video_del_slide(tmp_path: Path, monkeypatch):
     out = trabajos.carousel_animate(ctx_for(tmp_path, "CAROUSEL_ANIMATE", data))
     assert app.video and app.video.startswith("carruseles/0d0d0d0d-0000-0000-0000-000000000000/anim/s1-") and app.video.endswith(".mp4")
     assert out["url"].endswith(".mp4") and app.uploaded[app.video][:12].find(b"ftyp") != -1
-
-
-def test_codex_recibe_todas_las_referencias(tmp_path: Path, fake_codex: Path):
-    home = codex.CodexHome.create(tmp_path, AUTH)
-    refs = [slide(tmp_path / f"r{i}.jpg") for i in range(3)]
-    codex.generate_image(home, tmp_path, "x", refs, model="m", effort="low", check=lambda: None)
-    assert json.loads(fake_codex.read_text().splitlines()[-1])["refs"] == 3

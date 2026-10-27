@@ -57,7 +57,7 @@ App (Vercel) ── INSERT en jobs ──▶ Postgres (Neon) ◀── toma trab
 
 `WORKER_TEST_TRANSCRIPT` y `WORKER_TEST_STYLE_TRANSCRIPT` (transcripciones falsas desde un archivo, para el video y para la referencia de un estilo) y `BROLL_EXTRA_HOSTS` (hosts extra para bajar b-roll, para el simulador de Pexels) son solo para pruebas locales y se ignoran en Fly.
 
-**Carruseles** (trabajos `CAROUSEL_STYLE`, `CAROUSEL_IMAGES`, `CODEX_LOGIN`): no necesitan variables nuevas en el worker. La sesión de ChatGPT o la API key de OpenAI del cliente las manda la app, descifradas, solo dentro de un trabajo en curso (`/api/worker/carruseles/credenciales`). La imagen trae `tesseract-ocr` (+ español), Node 22 y `@openai/codex` 0.162.1, Pillow y `gallery-dl`. Opcionales, solo para pruebas: `CODEX_BIN` y `GALLERY_DL_BIN` (rutas a los simulados de `worker/tests/fakes/`).
+**Carruseles** (trabajos `CAROUSEL_STYLE`, `CAROUSEL_IMAGES`): no necesitan variables nuevas en el worker. La API key de OpenAI del cliente la manda la app, descifrada, solo dentro de un trabajo en curso (`/api/worker/carruseles/credenciales`). La imagen trae `tesseract-ocr` (+ español), Node 22 (para el motor de motion graphics), Pillow y `gallery-dl`. Opcional, solo para pruebas: `GALLERY_DL_BIN` (ruta al simulado de `worker/tests/fakes/`). El worker no expone ningún puerto a internet.
 
 ### App (Vercel)
 
@@ -70,7 +70,6 @@ App (Vercel) ── INSERT en jobs ──▶ Postgres (Neon) ◀── toma trab
 | `FLY_WORKER_MACHINE_ID` | Opcional. Si no está, la app busca una máquina detenida de esa app. |
 | `OPENAI_API_BASE` | Opcional (`https://api.openai.com/v1`). Solo para probar con un simulador. |
 | `OPENAI_IMAGE_MODEL` | Opcional (`gpt-image-2.5-flare`). Modelo de imágenes cuando el cliente usa su API key de OpenAI. |
-| `CODEX_MODEL` | Opcional (`gpt-5.6-terra`). Modelo con el que Codex llama a su herramienta de imágenes con la cuenta de ChatGPT del cliente. |
 | `PIXABAY_API_KEY` | Opcional. B-roll de stock de [Pixabay](https://pixabay.com/api/docs/) (clave gratuita al instante, uso comercial sin atribución obligatoria). |
 | `PEXELS_API_KEY` | Opcional. B-roll de stock de [Pexels](https://www.pexels.com/api/) (clave gratuita, uso comercial). Sin ninguna de las dos, el b-roll sale solo de la biblioteca del cliente. |
 | `PEXELS_API_BASE` | Solo pruebas: dirección del simulador (`tests/mocks/pexels-mock.mjs`). Por defecto, la API oficial. |
@@ -400,7 +399,7 @@ render: el módulo corre en un sandbox y devuelve una **lista de dibujo** (datos
   (`default-src 'none'; script-src 'unsafe-eval'`): sin red ni nada de afuera.
 - **Si una animación falla en el render** (error, bucle, memoria), `fx.py` la descarta y el video sale sin ella; el
   aviso queda en `output_meta.warnings`.
-- **Imágenes generadas** (`compos-images`): con la cuenta de ChatGPT del cliente (Codex) o su API key de OpenAI, las
+- **Imágenes generadas** (`compos-images`): con la API key de OpenAI del cliente, las
   mismas piezas que los carruseles; credencial por `POST /api/worker/projects/<id>/imagenes` mientras corre un
   VIDEO_ANALYZE o VIDEO_COMPOS del proyecto. Se guardan en `editor/<id>/compos/` (biblioteca del proyecto).
 - **Revisión con cuadros** (`compos-stills`): el worker arma el video con los cortes y dibuja cada animación en 5
@@ -426,7 +425,7 @@ Con menos tope se hacen menos animaciones o sin vuelta de revisión (nunca se pa
   costo estimado del tope de IA del video con la fila del video bloqueada (`SELECT … FOR UPDATE`); si no alcanza,
   ese pedido queda fallido con el aviso y los demás siguen.
 - El worker toma un pedido y, mientras tanto, los otros en cola del mismo video: hasta `COMPOS_PARALLEL` (3) en hilos.
-  Los pasos de IA van en paralelo; las imágenes (una cuenta de ChatGPT) y los cuadros de revisión, de a uno. Un pedido
+  Los pasos de IA van en paralelo; las imágenes y los cuadros de revisión, de a uno. Un pedido
   que falla deja su aviso en su fila y no marca el video como fallido.
 - Cada paso escribe solo su fila: nadie pisa a nadie. El resultado no va al plan: el Estudio lo agrega sobre lo que la
   persona tenga en ese momento (con deshacer), en la siguiente capa libre, y lo marca entregado después del primer

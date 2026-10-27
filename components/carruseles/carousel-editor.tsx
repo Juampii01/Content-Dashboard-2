@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import type { CaptionVariant } from "@/lib/db/schema";
 import { variantsText } from "@/lib/carousels/captions";
-import { CHATGPT_DAILY_IMAGES, quotaTone } from "@/lib/carousels/quota";
 import { slideHash } from "@/lib/carousels/slide-hash";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
@@ -165,8 +164,8 @@ export function CarouselEditor({
   const [imageJobId, setImageJobId] = useState<string | null>(imageState.activeJobId);
   const [imageJobSlides, setImageJobSlides] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [provider, setProvider] = useState<string | null>(imageState.providers.preferred);
-  const [made24h, setMade24h] = useState(imageState.last24h.chatgpt + imageState.last24h.openai);
+  const provider = imageState.providers.preferred;
+  const [made24h, setMade24h] = useState(imageState.last24h.openai);
   const merged = useRef(new Set<string>());
 
   const hashtags = useMemo(() => hashtagText.split(/[\s,]+/).map(normalizeHashtag).filter(Boolean), [hashtagText]);
@@ -515,10 +514,8 @@ export function CarouselEditor({
   }
 
   const disabled = !canEdit || busy !== null;
-  // Imágenes de las últimas 24 h del proveedor elegido (las de esta sesión se suman al que se está usando).
-  const madeHere = made24h - imageState.last24h.chatgpt - imageState.last24h.openai;
-  const used24h = (provider === "openai-api" ? imageState.last24h.openai : imageState.last24h.chatgpt) + madeHere;
-  const quota = provider === "chatgpt" ? quotaTone(used24h) : "ok";
+  // Imágenes de las últimas 24 h con la API key de OpenAI (las de esta sesión ya se suman).
+  const used24h = made24h;
   const slideWarningCount = warnings.filter((w) => w.slideId).length;
   const withImages = withImageSlot.filter((s) => s.imageUrl).length;
   const videos = slides.filter((s) => s.videoUrl).length;
@@ -606,13 +603,9 @@ export function CarouselEditor({
         <div className="flex flex-col gap-2 border-t border-white/8 pt-3 xl:flex-row xl:items-center xl:justify-between">
           <CarouselRoute steps={routeSteps} onGo={goTo} />
           {imageState.providers.preferred && withImageSlot.length > 0 && (
-            <span
-              className={cn("pill flex-none self-start xl:self-auto", quota === "over" ? "!border-danger/50 !text-danger" : quota === "near" ? "!border-warning/50 !text-warning" : "")}
-              title={provider === "chatgpt" ? `Los planes de ChatGPT cortan en torno a las ${CHATGPT_DAILY_IMAGES} imágenes por día (medido, no publicado).` : "Con tu API key, el límite es el saldo de tu cuenta de OpenAI."}
-            >
+            <span className="pill flex-none self-start xl:self-auto" title="Con tu API key, el límite es el saldo de tu cuenta de OpenAI.">
               <Images className="h-3.5 w-3.5" aria-hidden />
               Imágenes en 24 h: <strong className="font-mono text-white">{formatNumber(used24h)}</strong>
-              {provider === "chatgpt" ? <span className="text-muted">de ~{CHATGPT_DAILY_IMAGES}</span> : null}
             </span>
           )}
         </div>
@@ -1201,22 +1194,9 @@ export function CarouselEditor({
               Hasta 10 por vez.
             </p>
           )}
-          {imageState.providers.chatgpt.configured && imageState.providers.openai.configured && (
-            <Field label="Generar con" htmlFor="img-provider">
-              <Select id="img-provider" value={provider ?? ""} onChange={(e) => setProvider(e.target.value)}>
-                <option value="chatgpt">Tu ChatGPT</option>
-                <option value="openai-api">Tu API key de OpenAI</option>
-              </Select>
-            </Field>
-          )}
           {slides.some((s) => s.character) && photos.length > 0 && <p className="text-xs text-muted">En los slides con tu personaje se mandan tus fotos de Mi marca como referencia de la cara.</p>}
-          <p className={cn("text-xs", provider === "chatgpt" && used24h + Math.min(10, needImages.length || withImageSlot.length) > CHATGPT_DAILY_IMAGES ? "text-warning" : "text-muted")}>
-            Llevas {formatNumber(used24h)} imágenes en las últimas 24 h{provider === "chatgpt" ? " con tu ChatGPT" : provider === "openai-api" ? " con tu API key" : ""}.{" "}
-            {provider === "chatgpt"
-              ? used24h + Math.min(10, needImages.length || withImageSlot.length) > CHATGPT_DAILY_IMAGES
-                ? `Con estas pasarías las ~${CHATGPT_DAILY_IMAGES} que suele permitir un plan de ChatGPT por día: puede cortar a mitad.`
-                : `Los planes de ChatGPT cortan en torno a las ${CHATGPT_DAILY_IMAGES} por día.`
-              : "Con tu API key, el límite es el saldo de tu cuenta de OpenAI."}
+          <p className="text-xs text-muted">
+            Llevas {formatNumber(used24h)} imágenes en las últimas 24 h con tu API key. El límite es el saldo de tu cuenta de OpenAI.
           </p>
         </div>
       </Dialog>

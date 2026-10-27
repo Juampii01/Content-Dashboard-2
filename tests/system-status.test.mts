@@ -28,7 +28,6 @@ const services: ServicesInput = {
   videoStorage: true,
   heygen: true,
   heygenWebhookError: null,
-  chatgpt: true,
   openai: false,
   platformsConfigured: { INSTAGRAM: true, YOUTUBE: true, TIKTOK: true },
 };

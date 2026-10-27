@@ -1,7 +1,7 @@
 import { getImageKeysStatus } from "@/lib/dal/carousels";
 import { ImageKeysPanel } from "./image-keys-panel";
 
-/** Ajustes → Claves de servicios: ChatGPT (imágenes con la cuenta del cliente) y API key de OpenAI (respaldo). */
+/** Ajustes → Claves de servicios: la API key de OpenAI del cliente (imágenes). */
 export async function ImageKeysSection() {
   const status = await getImageKeysStatus();
   return <ImageKeysPanel status={status} />;

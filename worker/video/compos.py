@@ -32,11 +32,6 @@ log = logging.getLogger("worker.compos")
 
 ASPECTS = {"vertical": ("formato vertical 9:16", "1024x1536"), "horizontal": ("formato horizontal 16:9", "1536x1024"), "square": ("formato cuadrado 1:1", "1024x1024")}
 
-WRAPPER = """{prompt}
-
-INSTRUCCIÓN TÉCNICA: no leas skills ni archivos y no ejecutes ningún comando. Llama UNA sola vez a la herramienta de generación de imágenes con todo lo anterior ({aspect}, sin ningún texto ni letra en la imagen) y termina respondiendo solo 'ok'."""
-
-
 def _credentials(ctx: JobContext, pid: str) -> dict[str, Any]:
     return ctx.app._post(f"/api/worker/projects/{pid}/imagenes", {"op": "credentials"}, timeout=60)  # noqa: SLF001
 
@@ -45,41 +40,30 @@ def generate_images(ctx: JobContext, pid: str, items: list[dict[str, Any]], work
     """Genera las imágenes pedidas. Devuelve una fila por pedido: con su clave y tamaño, o con el error."""
     from PIL import Image  # noqa: PLC0415
 
-    from carruseles import codex, openai_api  # noqa: PLC0415
+    from carruseles import openai_api  # noqa: PLC0415
 
     out: list[dict[str, Any]] = []
     try:
         creds = _credentials(ctx, pid)
     except JobError as e:
         return [{"taskId": i.get("taskId"), "imageId": i.get("imageId"), "error": e.user_message} for i in items]
-    provider = creds.get("provider")
-    home = None
+    if creds.get("provider") != "openai":
+        return [{"taskId": i.get("taskId"), "imageId": i.get("imageId"), "error": "Agrega tu API key de OpenAI en Ajustes → Claves de servicios para generar imágenes."} for i in items]
     work = workdir / "compos-img"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
     try:
-        if provider == "chatgpt":
-            home = codex.CodexHome.create(work, creds.get("authJson"))
         for n, item in enumerate(items[:8]):
             ctx.check()
             image_id = str(item.get("imageId") or "")
             if not image_id.replace("g", "", 1).isalnum():
                 continue
-            aspect_text, size = ASPECTS.get(str(item.get("aspect")), ASPECTS["vertical"])
+            _, size = ASPECTS.get(str(item.get("aspect")), ASPECTS["vertical"])
             prompt = str(item.get("prompt") or "")[:1500]
             dest = work / f"img-{n + 1}"
             dest.mkdir()
             try:
-                if provider == "chatgpt" and home:
-                    image = codex.generate_image(home, dest, WRAPPER.format(prompt=prompt, aspect=aspect_text), [], model=str(creds.get("model") or "gpt-5.6-terra"), effort=str(creds.get("effort") or "medium"), check=ctx.check)
-                    refreshed = home.refreshed()
-                    if refreshed:
-                        ctx.app._post(f"/api/worker/projects/{pid}/imagenes", {"op": "chatgpt", "authJson": refreshed}, timeout=60)  # noqa: SLF001
-                        home.mark_saved(refreshed)
-                elif provider == "openai":
-                    image = openai_api.generate_image({**creds, "size": size}, prompt, [], dest / "imagen.png")
-                else:
-                    raise JobError("Conecta tu ChatGPT o agrega una API key de OpenAI en Ajustes para generar imágenes.", retry=False)
+                image = openai_api.generate_image({**creds, "size": size}, prompt, [], dest / "imagen.png")
                 with Image.open(image) as im:
                     im.verify()
                 with Image.open(image) as im:
@@ -98,8 +82,6 @@ def generate_images(ctx: JobContext, pid: str, items: list[dict[str, Any]], work
                 log.warning("imagen %s sin generar", image_id, exc_info=True)
                 out.append({"taskId": item.get("taskId"), "imageId": image_id, "error": f"No se pudo generar ({e.__class__.__name__})."})
     finally:
-        if home:
-            home.cleanup()
         shutil.rmtree(work, ignore_errors=True)
     return out
 

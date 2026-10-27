@@ -8,7 +8,6 @@ las descifra la app y viajan solo en memoria: nunca se escriben en el log.
 from __future__ import annotations
 
 import base64
-import json
 import os
 import urllib.error
 import urllib.request
@@ -97,14 +96,6 @@ class CarouselApp:
 
     def credentials(self) -> dict[str, Any]:
         return self._post("credenciales", {})
-
-    def save_chatgpt_auth(self, auth_json: str) -> dict[str, Any]:
-        """Guarda (cifrado, en la app) el auth.json de Codex: al conectar o si Codex refrescó los tokens."""
-        try:
-            json.loads(auth_json)
-        except json.JSONDecodeError as exc:
-            raise JobError("ChatGPT devolvió una sesión que no pudimos leer. Vuelve a conectar tu ChatGPT.", retry=False, detail="auth.json inválido") from exc
-        return self._post("chatgpt", {"authJson": auth_json})
 
     def slide_image(self, slide_id: str, key: str, provider: str) -> dict[str, Any]:
         return self._post("imagen", {"slideId": slide_id, "key": key, "provider": provider})

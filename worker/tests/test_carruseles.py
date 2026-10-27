@@ -7,7 +7,6 @@ Las pruebas de medidas necesitan Tesseract instalado (se saltan si no está). No
 from __future__ import annotations
 
 import json
-import os
 import stat
 import sys
 from pathlib import Path
@@ -16,7 +15,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from carruseles import codex, descarga, medidas, openai_api
+from carruseles import descarga, medidas, openai_api
 from comunes.errors import JobError
 
 FAKES = Path(__file__).resolve().parent / "fakes"
@@ -193,105 +192,6 @@ def test_descarga_que_pide_sesion_da_error_claro(tmp_path: Path, monkeypatch):
     assert err.value.retry is False
 
 
-# ─── Codex simulado ───────────────────────────────────────────────────────
-
-
-@pytest.fixture()
-def fake_codex(tmp_path: Path, monkeypatch):
-    exe = wrapper(tmp_path, "codex", FAKES / "fake_codex.py")
-    monkeypatch.setenv("CODEX_BIN", str(exe))
-    monkeypatch.setenv("FAKE_CODEX_DELAY", "0")
-    monkeypatch.setenv("FAKE_CODEX_LOGIN_WAIT", "0.3")
-    calls = tmp_path / "calls.jsonl"
-    monkeypatch.setenv("FAKE_CODEX_CALLS", str(calls))
-    return calls
-
-
-AUTH = json.dumps({"tokens": {"access_token": "acc-1", "refresh_token": "ref-1", "id_token": "x.y.z"}})
-
-
-def test_codex_genera_imagen_con_referencia(tmp_path: Path, fake_codex: Path):
-    home = codex.CodexHome.create(tmp_path / "w", AUTH)
-    assert oct(home.auth_path.stat().st_mode & 0o777) == "0o600"
-    ref = tmp_path / "ref.png"
-    Image.new("RGB", (100, 125), "red").save(ref)
-    out = tmp_path / "w" / "img"
-    out.mkdir()
-    image = codex.generate_image(home, out, "Escena sin texto", [ref], model="gpt-5.6-terra", effort="medium", check=lambda: None)
-    assert image.exists() and Image.open(image).size == (1024, 1536)
-    call = json.loads(fake_codex.read_text().splitlines()[-1])
-    assert call["refs"] == 1 and "Escena sin texto" in call["prompt"]
-    assert home.refreshed() is None
-    home.cleanup()
-    assert not home.path.exists()
-
-
-@pytest.mark.parametrize(
-    ("mode", "message"),
-    [("limit", codex.MSG_LIMIT), ("expired", codex.MSG_EXPIRED)],
-)
-def test_codex_errores_en_espanol(tmp_path: Path, fake_codex: Path, monkeypatch, mode: str, message: str):
-    monkeypatch.setenv("FAKE_CODEX_MODE", mode)
-    home = codex.CodexHome.create(tmp_path / "w", AUTH)
-    with pytest.raises(JobError) as err:
-        codex.generate_image(home, tmp_path / "w", "x", [], model="m", effort="medium", check=lambda: None)
-    assert err.value.user_message == message and err.value.retry is False
-
-
-def test_codex_sin_sesion_pide_reconectar(tmp_path: Path, fake_codex: Path):
-    home = codex.CodexHome.create(tmp_path / "w", None)
-    with pytest.raises(JobError) as err:
-        codex.generate_image(home, tmp_path / "w", "x", [], model="m", effort="medium", check=lambda: None)
-    assert err.value.user_message == codex.MSG_EXPIRED
-
-
-def test_codex_refresca_tokens(tmp_path: Path, fake_codex: Path, monkeypatch):
-    monkeypatch.setenv("FAKE_CODEX_MODE", "refresh")
-    home = codex.CodexHome.create(tmp_path / "w", AUTH)
-    codex.generate_image(home, tmp_path / "w", "x", [], model="m", effort="medium", check=lambda: None)
-    new = home.refreshed()
-    assert new and "acc-refrescado" in new
-    home.mark_saved(new)
-    assert home.refreshed() is None
-
-
-def test_codex_no_instalado(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("CODEX_BIN", str(tmp_path / "no-existe"))
-    home = codex.CodexHome.create(tmp_path / "w", AUTH)
-    with pytest.raises(JobError) as err:
-        codex.generate_image(home, tmp_path / "w", "x", [], model="m", effort="medium", check=lambda: None)
-    assert err.value.user_message == codex.MSG_MISSING
-
-
-def test_login_por_codigo(tmp_path: Path, fake_codex: Path):
-    home = codex.CodexHome.create(tmp_path / "w", None)
-    seen: list[codex.DeviceCode] = []
-    auth = codex.device_login(home, tmp_path / "w", seen.append, check=lambda: None)
-    assert seen and seen[0].url == "https://auth.openai.com/codex/device" and seen[0].code == "FAKE-12345"
-    assert json.loads(auth)["tokens"]["refresh_token"].startswith("ref-")
-
-
-def test_login_que_vence(tmp_path: Path, fake_codex: Path, monkeypatch):
-    monkeypatch.setenv("FAKE_CODEX_MODE", "login_fail")
-    home = codex.CodexHome.create(tmp_path / "w", None)
-    with pytest.raises(JobError) as err:
-        codex.device_login(home, tmp_path / "w", lambda _c: None, check=lambda: None)
-    assert "venció" in err.value.user_message
-
-
-def test_lee_el_mensaje_real_de_codex():
-    # Formato de codex-rs/login/src/device_code_auth.rs (v0.162.1), con sus colores ANSI.
-    text = (
-        "\nWelcome to Codex [v\x1b[90m0.162.1\x1b[0m]\n\x1b[90mOpenAI's command-line coding agent\x1b[0m\n\n"
-        "Follow these steps to sign in with ChatGPT using device code authorization:\n\n"
-        "1. Open this link in your browser and sign in to your account\n   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m\n\n"
-        "2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\n   \x1b[94mQ7WX-9KD2P\x1b[0m\n"
-    )
-    found = codex.parse_device_prompt(text)
-    assert found == codex.DeviceCode("https://auth.openai.com/codex/device", "Q7WX-9KD2P")
-    assert codex.parse_device_prompt("Welcome to Codex") is None
-
-
 # ─── API de OpenAI simulada ───────────────────────────────────────────────
 
 
@@ -321,13 +221,3 @@ def test_openai_errores(tmp_path: Path, openai_server, key: str, fragment: str, 
     with pytest.raises(JobError) as err:
         openai_api.generate_image({"apiKey": key, "baseUrl": url}, "x", [], tmp_path / "a.png")
     assert fragment in err.value.user_message and err.value.retry is retry
-
-
-def test_no_se_loguea_la_sesion(tmp_path: Path, fake_codex: Path, caplog):
-    secret = json.dumps({"tokens": {"access_token": "SECRETO-NO-LOGUEAR", "refresh_token": "r"}})
-    home = codex.CodexHome.create(tmp_path / "w", secret)
-    with caplog.at_level("DEBUG"):
-        codex.generate_image(home, tmp_path / "w", "x", [], model="m", effort="medium", check=lambda: None)
-    assert "SECRETO-NO-LOGUEAR" not in caplog.text
-    assert "SECRETO" not in json.dumps(home.env())
-    os.environ.pop("FAKE_CODEX_MODE", None)

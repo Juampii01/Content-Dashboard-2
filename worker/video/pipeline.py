@@ -182,6 +182,22 @@ def fx_image_hosts(app_url: str) -> tuple[str, ...]:
     return tuple(h for h in (host, "public.blob.vercel-storage.com") if h)
 
 
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def image_clip(image: Path, out: Path, duration: float) -> Path:
+    """Un clip quieto de `duration` segundos a 30 fps con la imagen (para usarla como b-roll como cualquier clip)."""
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    tmp = out.with_name(out.stem + ".part.mp4")
+    ffmpeg.run(
+        ["-loop", "1", "-framerate", "30", "-i", str(image), "-t", f"{max(0.5, duration) + 0.2:.3f}", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-an", str(tmp)],
+        what="imagen de la biblioteca",
+    )
+    tmp.replace(out)
+    return out
+
+
 # Bancos de videos de stock y los hosts desde donde se bajan sus archivos.
 STOCK_HOSTS = {"pexels": ("pexels.com",), "pixabay": ("pixabay.com",)}
 
@@ -217,6 +233,9 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
             raw = cache / f"lib-{clip_id}{Path(key).suffix or '.mp4'}"
             if not raw.exists():
                 ctx.app.download(None, key, raw, owner={"clipId": clip_id})
+            if raw.suffix.lower() in IMAGE_SUFFIXES:
+                # Una imagen de la biblioteca: b-roll fijo (se arma un clip quieto del largo del tramo).
+                raw = image_clip(raw, cache / f"lib-{clip_id}-{end - start:.3f}.mp4", end - start)
         else:
             raise JobError("Un b-roll tiene un origen desconocido. Cámbialo en la revisión.", retry=False)
         edit = item.get("edit") or None

@@ -57,7 +57,7 @@ class AppClient:
             raise JobError("No pudimos comunicarnos con la app. Vamos a reintentarlo.", detail=f"{path}: {exc}") from exc
 
     def transfer(self, project_id: str | None, key: str, op: str, content_type: str | None = None, owner: dict[str, str] | None = None) -> dict[str, Any]:
-        """`owner` cambia el dueño del archivo: {"styleId": …} (estilos), {"clipId": …} (biblioteca de b-roll) o {"longVideoId": …} (clips)."""
+        """`owner` cambia el dueño del archivo: {"styleId": …} (estilos), {"clipId": …} (biblioteca de b-roll e imágenes) o {"longVideoId": …} (clips)."""
         payload: dict[str, Any] = {**(owner or {"projectId": project_id}), "key": key, "op": op}
         if content_type:
             payload["contentType"] = content_type
@@ -126,6 +126,10 @@ class AppClient:
     def look_result(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """«Mira este video»: entrega lo medido de la referencia (o el aviso); la app sigue con Claude en segundo plano."""
         return self._post(f"/api/worker/projects/{project_id}/mirar", payload, timeout=120)
+
+    def library_ficha(self, clip_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Biblioteca: entrega las hojas de cuadros de un clip; la app escribe la ficha con Claude en segundo plano."""
+        return self._post(f"/api/worker/biblioteca/{clip_id}/ficha", payload, timeout=60)
 
     def music_result(self, track_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """"Sacar la música de un reel": la pista sin voz ya está subida; la app la deja lista y borra el archivo subido."""

@@ -25,6 +25,8 @@ const referenceSheet = z.object({
   height: z.number().int().min(1).max(4000),
   frames: z.array(z.number().int().min(1).max(500)).max(140),
 });
+const tokens = z.number().int().min(0).max(10_000_000).nullable().optional();
+const usageSchema = z.object({ input_tokens: tokens, output_tokens: tokens, cache_read_input_tokens: tokens, cache_creation_input_tokens: tokens });
 const bodySchema = z.discriminatedUnion("step", [
   z.object({ step: z.literal("start") }),
   z.object({ step: z.literal("understand") }),
@@ -58,6 +60,31 @@ const bodySchema = z.discriminatedUnion("step", [
       .max(20),
     workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional(),
   }),
+  // Una llamada larga a Claude que hizo el worker (lib/video/compos/work.ts, applyRemote): el texto, el consumo y el
+  // motivo de fin, o el error. "compos-ai" solo lo manda un worker viejo que no sabe hacerla.
+  z.object({
+    step: z.literal("compos-ai-done"),
+    remote: z.object({
+      taskId: z.string().max(40),
+      call: z.string().regex(/^k[0-9a-z]{4,30}$/),
+      result: z
+        .object({
+          stop_reason: z.string().max(40).nullable(),
+          // Hasta 128 mil tokens de salida: el JSON con el código cabe holgado en 1,5 millones de caracteres.
+          text: z.string().max(1_500_000),
+          usage: usageSchema,
+          model: z.string().max(60).optional(),
+        })
+        .nullable()
+        .optional(),
+      error: z
+        .object({ source: z.enum(["app", "api", "network"]).optional(), status: z.number().int().nullable().optional(), message: z.string().max(600).optional(), usage: usageSchema.nullable().optional() })
+        .nullable()
+        .optional(),
+    }),
+    workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional(),
+  }),
+  z.object({ step: z.literal("compos-ai"), workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional() }),
   z.object({ step: z.literal("compos-look"), sheets: z.array(sheet.extend({ taskId: z.string().max(40), times: z.array(z.number().min(0).max(60)).max(12).optional() })).max(30), workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional() }),
 ]);
 

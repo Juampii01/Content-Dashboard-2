@@ -1,8 +1,9 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
+import type { z } from "zod";
 import { brandContext, getBrand } from "@/lib/ai/brand-context";
-import { AiError, generateStructured } from "@/lib/ai/client";
-import { withUsageScope } from "@/lib/ai/usage";
+import { AiError, aiFake, generateStructured, isGrammarError, MODELS, settleStructured, usageCost, type StructuredInput } from "@/lib/ai/client";
+import { recordUsage, withUsageScope, type TokenUsage } from "@/lib/ai/usage";
 import {
   composCodeTask,
   composCodeWireSchema,
@@ -27,9 +28,10 @@ import type { EditPlan, MediaInfo, Transcript, VideoFormat, Word } from "../type
 import { readDirector, type DirectorState } from "../director/types";
 import { clampBudget } from "../director/cost";
 import { composLimitsFor } from "./contract";
+import { affordableTokens, APP_MAX_TOKENS, longCodeCost, longCodeTokens, longLookCost, MAX_OUTPUT_TOKENS, callCost, workerMaxTokens } from "./long-cost";
 import { compileComposition, composSegments, defaultFrame, newComposId, type ComposImage, type Composition, type RefImage } from "./schema";
 import { codeHash, validateComposition } from "./validate";
-import { promoteWaiting } from "./requests";
+import { growReservation, promoteWaiting } from "./requests";
 
 /**
  * Cola de cada pedido de imagen: si es una foto, que no se note la IA (sin posar, sin brillo de plástico, con grano).
@@ -113,6 +115,20 @@ export type ComposTask = {
   frame?: Composition["frame"];
   /** Cambio pedido en una sola escena de la pieza (índice en `scenes`). */
   scene?: number;
+  /**
+   * El código (y la revisión) se escribe en el worker, sin el límite de 13 minutos de la función: siempre en una pieza
+   * larga; en una corta, después de que se cortó una vez en la app (lib/video/compos/long-cost.ts).
+   */
+  remote?: boolean;
+  /** Cuántas veces salió cortada la escritura del código (nunca se reintenta igual). */
+  truncations?: number;
+  /** Tope de salida mínimo de la próxima llamada en el worker (después de que una se cortó con `lastMax`). */
+  minTokens?: number;
+  lastMax?: number;
+  /** El esquema no entra en la salida estructurada: el JSON se pide como texto. */
+  freeform?: boolean;
+  /** La llamada que está haciendo el worker: etapa, tope de salida (lo que alcanza a pagar) y lo esperado. */
+  remoteCall?: { id: string; stage: "code" | "looking"; maxTokens: number; expected: number } | null;
 };
 
 export type ComposWork = {
@@ -140,7 +156,18 @@ export type ComposWork = {
 export type WorkerNext =
   | { step: "compos"; label?: string }
   | { step: "compos-images"; items: { taskId: string; imageId: string; prompt: string; aspect: string }[]; label: string }
-  | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string };
+  | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string }
+  // Una llamada larga a Claude que hace el worker con la clave de API del cliente (la pide en /api/worker/projects/<id>/ia).
+  | { step: "compos-ai"; taskId: string; call: string; label: string };
+
+/** Lo que devuelve el worker después de la llamada larga: la respuesta (texto, consumo y motivo de fin) o el error. */
+export type RemoteDone = {
+  taskId: string;
+  call: string;
+  result?: { stop_reason: string | null; text: string; usage: TokenUsage; model?: string } | null;
+  /** `source`: "app" (la app no dio la llamada: créditos, sin clave; el mensaje ya es para la persona), "api" o "network". */
+  error?: { source?: "app" | "api" | "network"; status?: number | null; message?: string; usage?: TokenUsage | null } | null;
+};
 
 export const readWork = (d: DirectorState): ComposWork | null => ((d as DirectorState & { compos?: ComposWork | null }).compos ?? null);
 
@@ -385,6 +412,16 @@ function remaining(ctx: WorkCtx, work?: ComposWork): number {
   return Math.min(video + (work.reservedUsd - (work.usedUsd ?? 0)), work.reservedUsd - (work.usedUsd ?? 0));
 }
 
+/** Lo que se espera que cueste escribir el código de una tarea (una pieza larga crece con su duración). */
+export function codeCostOf(task: Pick<ComposTask, "long">, seconds: number): number {
+  return task.long ? longCodeCost(seconds) : STAGE_COST.code;
+}
+
+/** Lo que se espera que cueste una vuelta de revisión con cuadros. */
+export function lookCostOf(task: Pick<ComposTask, "long">, seconds: number): number {
+  return task.long ? longLookCost(seconds) : STAGE_COST.look;
+}
+
 /** Suma al pedido lo que cuesta una etapa (estimado, para su reserva). */
 function charge(work: ComposWork, usd: number): void {
   work.usedUsd = Math.round(((work.usedUsd ?? 0) + usd) * 1000) / 1000;
@@ -399,7 +436,9 @@ export type StepResult = { next: WorkerNext | null; finished: boolean };
  * tiene que hacer el worker a continuación o `finished` cuando todas las animaciones terminaron (el que llama decide
  * qué sigue: la segunda mirada del director, cerrar, o nada en un pedido del Estudio).
  */
-export async function advanceWork(projectId: string, body: { step: string; results?: unknown; sheets?: unknown; workId?: string } = { step: "compos" }): Promise<StepResult> {
+type AdvanceBody = { step: string; results?: unknown; sheets?: unknown; workId?: string; remote?: RemoteDone };
+
+export async function advanceWork(projectId: string, body: AdvanceBody = { step: "compos" }): Promise<StepResult> {
   // El consumo de un pedido del Estudio se carga a ese pedido y a quien lo hizo (api_usage.request_id y user_id).
   let userId: string | null | undefined;
   if (body.workId) {
@@ -409,19 +448,27 @@ export async function advanceWork(projectId: string, body: { step: string; resul
   return withUsageScope({ requestId: body.workId ?? undefined, userId }, () => advanceWorkInner(projectId, body));
 }
 
-async function advanceWorkInner(projectId: string, body: { step: string; results?: unknown; sheets?: unknown; workId?: string }): Promise<StepResult> {
+/** El taller que se avanza: el de un pedido del Estudio (su fila) o el del director. null si ya no corre. */
+async function loadTarget(projectId: string, workId: string | undefined): Promise<{ ctx: WorkCtx; work: ComposWork } | null> {
   const ctx = await loadWorkCtx(projectId);
-  if (!ctx) return { next: null, finished: true };
+  if (!ctx) return null;
   let work: ComposWork | null;
-  if (body.workId) {
+  if (workId) {
     // Un pedido del Estudio: su fila. Cancelado, terminado o de otro video: no se avanza.
-    const [row] = await getDb().select().from(schema.composRequests).where(and(eq(schema.composRequests.id, body.workId), eq(schema.composRequests.projectId, projectId))).limit(1);
-    if (!row || (row.status !== "queued" && row.status !== "running")) return { next: null, finished: true };
+    const [row] = await getDb().select().from(schema.composRequests).where(and(eq(schema.composRequests.id, workId), eq(schema.composRequests.projectId, projectId))).limit(1);
+    if (!row || (row.status !== "queued" && row.status !== "running")) return null;
     ctx.requestId = row.id;
     work = row.work as unknown as ComposWork;
     work.reservedUsd ??= row.reservedUsd;
   } else work = readWork(ctx.director);
-  if (!work || work.done) return { next: null, finished: true };
+  if (!work || work.done) return null;
+  return { ctx, work };
+}
+
+async function advanceWorkInner(projectId: string, body: AdvanceBody): Promise<StepResult> {
+  const target = await loadTarget(projectId, body.workId);
+  if (!target) return { next: null, finished: true };
+  const { ctx, work } = target;
 
   // Lo que devuelve el worker.
   if (body.step === "compos-images-done") applyImages(work, body.results);
@@ -438,8 +485,28 @@ async function advanceWorkInner(projectId: string, body: { step: string; results
   }
   for (const t of pendingImages) if (!t.images.some((i) => i.status === "pending")) t.status = t.images.some((i) => i.status === "ready") ? "vision" : "code";
 
-  // 2) Una tarea que necesita IA: una llamada por paso, siempre por la API de Anthropic.
+  // 2) Lo que devolvió el worker de una llamada larga (o un worker viejo que no sabe hacerla).
+  if (body.step === "compos-ai-done" && body.remote) {
+    const label = await applyRemote(ctx, work, body.remote);
+    await saveTarget(ctx, work);
+    return { next: { step: "compos", label }, finished: false };
+  }
+  if (body.step === "compos-ai") {
+    for (const t of work.tasks.filter((x) => x.remoteCall)) {
+      t.remoteCall = null;
+      t.status = "failed";
+      t.error = "No pudimos escribir esta animación: el servicio que procesa los videos está desactualizado. Avísale a soporte.";
+    }
+  }
+
+  // 3) Una tarea que necesita IA: una llamada por paso, siempre por la API de Anthropic. El código de una pieza larga
+  // (y su revisión) lo pide el worker, que no tiene el límite de 13 minutos de la función.
   const task = work.tasks.find((t) => t.status === "plan" || t.status === "vision" || t.status === "code" || t.status === "looking");
+  if (task && (task.status === "code" || task.status === "looking") && usesWorker(task)) {
+    const next = await routeRemote(ctx, work, task);
+    await saveTarget(ctx, work);
+    return { next: next ?? { step: "compos", label: `Animación ${work.tasks.indexOf(task) + 1} de ${work.tasks.length}` }, finished: false };
+  }
   if (task) {
     const label = await stepTask(ctx, work, task);
     await saveTarget(ctx, work);
@@ -533,7 +600,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
     switch (task.status) {
       case "plan": {
         // Sin tope para escribir, todavía se puede reusar un efecto guardado (solo cuesta el plan).
-        const codeCost = STAGE_COST.code;
+        const codeCost = codeCostOf(task, duration);
         const onlyReuse = remaining(ctx, work) < codeCost + STAGE_COST.plan;
         if (remaining(ctx, work) < STAGE_COST.plan) {
           task.status = "failed";
@@ -625,7 +692,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
       }
       case "vision": {
         const ready = task.images.filter((i) => i.status === "ready");
-        const codeCost = STAGE_COST.code;
+        const codeCost = codeCostOf(task, duration);
         if (ready.length && remaining(ctx, work) >= STAGE_COST.vision + codeCost) {
           const wire = await generateStructured({
             feature: "video.compos.imagenes",
@@ -653,92 +720,298 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
         return `Mirando las imágenes de la animación ${of}`;
       }
       case "code": {
-        const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
-        const readyImages = task.images.filter((i) => i.status === "ready");
-        const wire = await generateStructured({
-          feature: "video.compos.codigo",
-          model: "deep",
-          // Razonamiento medio (alto se comía el tope y el tiempo de la función con los pedidos grandes); al reintentar, bajo.
-          thinking: { effort: "low" },
-          context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
-          task: composCodeTask(codeTaskInput(ctx, work, task, s, refSheets.length)),
-          images: refSheets.length || styleRefs(task).length ? await imagesOf([...refSheets, ...styleRefs(task)]) : undefined,
-          imageSizes: [...refSheets, ...styleRefs(task)].map((r) => ({ width: r.width, height: r.height })),
-          schema: composCodeWireSchema,
-          // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
-          // salían cortadas a la mitad ("Unterminated string").
-          // Con más, los pedidos grandes pasaban los 13 minutos de la función y el worker perdía la conexión.
-          maxTokens: 32000,
-          timeoutMs: task.long ? 780_000 : 540_000,
-          videoProjectId: ctx.projectId,
-          fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0 }),
-        });
+        const wire = await generateStructured(await codeCall(ctx, work, task, s));
         charge(work, STAGE_COST.code / 1.6);
         task.attempts++;
         return await acceptCode(ctx, work, task, wire);
       }
       case "looking": {
-        if (!task.result || !task.sheet || remaining(ctx, work) < STAGE_COST.look * 0.6) {
+        if (!task.result || !task.sheet || remaining(ctx, work) < lookCostOf(task, duration) * 0.6) {
           task.status = "done";
           return `Revisando la animación ${of}`;
         }
-        const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
-        const wire = await generateStructured({
-          feature: "video.compos.mirar",
-          // Revisar cuadros y corregir detalles no necesita Opus (cuesta la mitad); el código sigue con Opus.
-          model: "main",
-          thinking: { effort: "medium" },
-          context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
-          task: composLookTask({ brief: `${brief}${styleRefsText(task)}`, momentDetail: task.momentDetail ?? null, code: task.result.code, times: task.sheet.times, refFrames: refSheets.length, round: task.round + 1 }),
-          images: await imagesOf([task.sheet, ...refSheets, ...styleRefs(task)]),
-          imageSizes: [task.sheet, ...refSheets, ...styleRefs(task)].map((r) => ({ width: r.width, height: r.height })),
-          schema: composLookWireSchema,
-          // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
-          // salían cortadas a la mitad ("Unterminated string").
-          maxTokens: 48000,
-          timeoutMs: 700_000,
-          videoProjectId: ctx.projectId,
-          fake: () => fakeLook(task.round),
-        });
+        const wire = await generateStructured(await lookCall(ctx, work, task));
         charge(work, STAGE_COST.look);
-        task.round++;
-        task.score = Math.round(Math.max(0, Math.min(100, wire.score)));
-        task.note = [task.note, wire.note].filter(Boolean).join(" ").slice(0, 300);
-        task.sheet = null;
-        // El arreglo de la revisión se aplica si pasa la validación; solo se vuelve a mirar si quedan vueltas.
-        if (!wire.ok && wire.fixed.trim()) {
-          const fixedItem = { ...task.result, code: wire.fixed };
-          const spec = envFor(ctx, fixedItem);
-          const check = spec ? await validateComposition(fixedItem.code, spec.compos!.env) : null;
-          if (check?.ok) {
-            task.result = { ...fixedItem, checked: check.hash };
-            if (task.round < work.lookRounds && remaining(ctx, work) >= STAGE_COST.look) {
-              task.status = "look";
-              return `Puliendo la animación ${of} (vuelta ${task.round + 1})`;
-            }
-          }
-        }
-        task.status = "done";
-        return `Revisando la animación ${of}`;
+        return await applyLook(ctx, work, task, wire, duration);
       }
     }
   } catch (error) {
-    console.error("[compos]", task.status, error instanceof AiError ? error.detail : error instanceof Error ? (error.stack ?? error.message).split("\n").slice(0, 4).join(" · ") : error);
-    task.attempts++;
-    if (error instanceof AiError && error.detail.startsWith("truncada") && task.status === "code") {
-      task.lastError = "Tu respuesta anterior salió cortada porque era demasiado larga. Escribe un código más compacto (menos de 12.000 caracteres): sin comentarios, con funciones auxiliares reutilizables en vez de repetir bloques. Mantén lo esencial del pedido.";
-    }
-    if (task.attempts >= 3 || task.status === "plan") {
-      // Sin plan: se escribe directo; sin mirar: queda como está.
-      if (task.status === "plan") task.status = "code";
-      else if (task.status === "looking" || task.status === "vision") task.status = task.status === "vision" ? "code" : "done";
-      else {
-        task.status = "failed";
-        task.error = error instanceof AiError ? error.userMessage : "La IA no respondió.";
+    return onAiFailure(work, task, error);
+  }
+  return `Animación ${of}`;
+}
+
+/**
+ * Una llamada que falló. Lo que se cobró se carga al pedido. Una respuesta cortada nunca se repite igual: el código de
+ * una animación corta pasa al worker con un tope alto (una sola vez); si ya estaba ahí, la animación queda sin hacer con
+ * el motivo; una revisión cortada deja el código ya validado.
+ */
+function onAiFailure(work: ComposWork, task: ComposTask, error: unknown, lastMax?: number): string {
+  const of = `${work.tasks.indexOf(task) + 1} de ${work.tasks.length}`;
+  console.error("[compos]", task.status, error instanceof AiError ? error.detail : error instanceof Error ? (error.stack ?? error.message).split("\n").slice(0, 4).join(" · ") : error);
+  if (error instanceof AiError && error.costUsd) charge(work, error.costUsd);
+  if (error instanceof AiError && error.detail.startsWith("truncada")) {
+    if (task.status === "code") {
+      task.truncations = (task.truncations ?? 0) + 1;
+      // Un solo reintento, y solo con más espacio: de la app al worker, o en el worker hasta el máximo del modelo.
+      if (task.truncations === 1 && !task.remote && !task.long) {
+        task.remote = true;
+        return `Programando la animación ${of} con más espacio`;
       }
+      if (task.truncations === 1 && lastMax != null && lastMax < MAX_OUTPUT_TOKENS) {
+        task.minTokens = MAX_OUTPUT_TOKENS;
+        task.lastMax = lastMax;
+        return `Programando la animación ${of} con más espacio`;
+      }
+      task.attempts++;
+      task.status = "failed";
+      task.error = "La animación salió más larga de lo que la IA puede escribir de una vez. Pide algo más simple o un tramo más corto.";
+      return `Animación ${of}`;
+    }
+    if (task.status === "looking") {
+      task.sheet = null;
+      task.status = "done";
+      return `Revisando la animación ${of}`;
+    }
+  }
+  task.attempts++;
+  if (task.attempts >= 3 || task.status === "plan") {
+    // Sin plan: se escribe directo; sin mirar: queda como está.
+    if (task.status === "plan") task.status = "code";
+    else if (task.status === "looking" || task.status === "vision") task.status = task.status === "vision" ? "code" : "done";
+    else {
+      task.status = "failed";
+      task.error = error instanceof AiError ? error.userMessage : "La IA no respondió.";
     }
   }
   return `Animación ${of}`;
+}
+
+/** El pedido de código de una tarea (en la app o en el worker). `images: false` no lee las imágenes (para leer la respuesta). */
+async function codeCall(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { start: number; end: number }, opts: { images?: boolean; maxTokens?: number } = {}): Promise<StructuredInput<typeof composCodeWireSchema>> {
+  const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
+  const readyImages = task.images.filter((i) => i.status === "ready");
+  const brief = withConversation(task.brief, task.conversation);
+  const pics = [...refSheets, ...styleRefs(task)];
+  return {
+    feature: "video.compos.codigo",
+    model: "deep",
+    // Razonamiento bajo (alto se comía el tope y el tiempo de la función con los pedidos grandes).
+    thinking: { effort: "low" },
+    context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
+    task: composCodeTask(codeTaskInput(ctx, work, task, s, refSheets.length)),
+    images: pics.length && opts.images !== false ? await imagesOf(pics) : undefined,
+    imageSizes: pics.map((r) => ({ width: r.width, height: r.height })),
+    schema: composCodeWireSchema,
+    // En la app, 32 mil: el razonamiento y el código comparten el tope, y con más los pedidos grandes pasaban los
+    // 13 minutos de la función. En el worker, lo que pide la pieza (long-cost.ts).
+    maxTokens: opts.maxTokens ?? APP_MAX_TOKENS,
+    timeoutMs: task.long ? 780_000 : 540_000,
+    videoProjectId: ctx.projectId,
+    fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0 }),
+  };
+}
+
+/** El pedido de revisión con cuadros de una tarea (en la app o en el worker). */
+async function lookCall(ctx: WorkCtx, work: ComposWork, task: ComposTask, opts: { images?: boolean; maxTokens?: number } = {}): Promise<StructuredInput<typeof composLookWireSchema>> {
+  const refSheets = work.mode === "copy" ? refSheetsFor(ctx, task.refFrames) : (task.refSheets ?? []);
+  const brief = withConversation(task.brief, task.conversation);
+  const pics = [task.sheet!, ...refSheets, ...styleRefs(task)];
+  return {
+    feature: "video.compos.mirar",
+    // Revisar cuadros y corregir detalles no necesita Opus (cuesta la mitad); el código sigue con Opus.
+    model: "main",
+    thinking: { effort: "medium" },
+    context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
+    task: composLookTask({ brief: `${brief}${styleRefsText(task)}`, momentDetail: task.momentDetail ?? null, code: task.result!.code, times: task.sheet!.times, refFrames: refSheets.length, round: task.round + 1 }),
+    images: opts.images !== false ? await imagesOf(pics) : undefined,
+    imageSizes: pics.map((r) => ({ width: r.width, height: r.height })),
+    schema: composLookWireSchema,
+    // Con razonamiento alto, el pensamiento y el código comparten el tope: con 24 mil, las animaciones grandes
+    // salían cortadas a la mitad ("Unterminated string").
+    maxTokens: opts.maxTokens ?? 48_000,
+    timeoutMs: 700_000,
+    videoProjectId: ctx.projectId,
+    fake: () => fakeLook(task.round),
+  };
+}
+
+/** Aplica la revisión: puntaje, nota y, si corrigió y la corrección pasa la validación, el código nuevo. */
+async function applyLook(ctx: WorkCtx, work: ComposWork, task: ComposTask, wire: z.infer<typeof composLookWireSchema>, duration: number): Promise<string> {
+  const of = `${work.tasks.indexOf(task) + 1} de ${work.tasks.length}`;
+  task.round++;
+  task.score = Math.round(Math.max(0, Math.min(100, wire.score)));
+  task.note = [task.note, wire.note].filter(Boolean).join(" ").slice(0, 300);
+  task.sheet = null;
+  // El arreglo de la revisión se aplica si pasa la validación; solo se vuelve a mirar si quedan vueltas.
+  if (!wire.ok && wire.fixed.trim() && task.result) {
+    const fixedItem = { ...task.result, code: wire.fixed };
+    const spec = envFor(ctx, fixedItem);
+    const check = spec ? await validateComposition(fixedItem.code, spec.compos!.env) : null;
+    if (check?.ok) {
+      task.result = { ...fixedItem, checked: check.hash };
+      if (task.round < work.lookRounds && remaining(ctx, work) >= lookCostOf(task, duration)) {
+        task.status = "look";
+        return `Puliendo la animación ${of} (vuelta ${task.round + 1})`;
+      }
+    }
+  }
+  task.status = "done";
+  return `Revisando la animación ${of}`;
+}
+
+// ─── Llamadas largas en el worker ────────────────────────────────────────
+
+/** ¿El código (o la revisión) de esta tarea se pide en el worker? Nunca con respuestas simuladas. */
+function usesWorker(task: ComposTask): boolean {
+  if (aiFake()) return false;
+  if (task.status === "code") return Boolean(task.long || task.remote);
+  return task.status === "looking" && Boolean(task.long);
+}
+
+let callSeq = 0;
+const newCallId = () => `k${Date.now().toString(36)}${(callSeq++).toString(36)}`;
+
+/**
+ * Prepara la llamada que hará el worker: el tope de salida es lo que pide la pieza, pero nunca más de lo que se puede
+ * pagar con lo que queda del tope del video (o de la reserva del pedido). Si no alcanza ni para lo esperado, la
+ * animación queda sin hacer con el motivo (sin gastar nada). Devuelve el paso para el worker o null.
+ */
+async function routeRemote(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promise<WorkerNext | null> {
+  const n = work.tasks.indexOf(task) + 1;
+  const of = `${n} de ${work.tasks.length}`;
+  const s = span(ctx, task);
+  if (!s) {
+    task.status = "failed";
+    task.error = "Ese tramo ya no está en el video (se cortó).";
+    return null;
+  }
+  const seconds = s.end - s.start;
+  const stage = task.status === "looking" ? "looking" : "code";
+  let left = remaining(ctx, work);
+  if (stage === "looking" && (!task.result || !task.sheet || left < lookCostOf(task, seconds) * 0.6)) {
+    task.status = "done";
+    return null;
+  }
+  const model = stage === "code" ? MODELS.deep : MODELS.main;
+  const expected = stage === "code" ? (task.long ? longCodeTokens(seconds) : APP_MAX_TOKENS) : Math.round(longCodeTokens(seconds) * 0.8);
+  const wanted = stage === "code" ? Math.min(MAX_OUTPUT_TOKENS, Math.max(workerMaxTokens(task.long ? seconds : null), task.minTokens ?? 0)) : workerMaxTokens(seconds);
+  const inputTokens = Math.round(6_000 + 60 * seconds);
+  let affordable = affordableTokens(model, left, inputTokens);
+  // Un pedido del Estudio con una reserva que no alcanza (su costo real pasó lo estimado): se amplía con lo libre del
+  // tope del video, sin tocar lo reservado por los otros pedidos.
+  if (affordable < wanted && ctx.requestId && work.reservedUsd != null) {
+    work.reservedUsd = await growReservation({ projectId: ctx.projectId, workId: ctx.requestId, cap: ctx.cap, spent: ctx.spent, extra: callCost(model, inputTokens, wanted) - left + 0.01 });
+    left = remaining(ctx, work);
+    affordable = affordableTokens(model, left, inputTokens);
+  }
+  // Un reintento después de un corte tiene que tener más espacio que la llamada que se cortó (nunca se repite igual).
+  const retryRoom = stage === "code" && task.lastMax != null ? Math.min(wanted, affordable) > task.lastMax : true;
+  if (affordable < expected || !retryRoom) {
+    if (stage === "looking") {
+      task.status = "done";
+      return null;
+    }
+    task.status = "failed";
+    task.error = `No alcanza el tope de IA de este video para escribir esta animación (cuesta cerca de USD ${codeCostOf(task, seconds).toFixed(2)} y quedan ${Math.max(0, left).toFixed(2)}). Súbelo en el brief del director.`;
+    return null;
+  }
+  task.remoteCall = { id: newCallId(), stage, maxTokens: Math.min(wanted, affordable), expected };
+  const minutes = Math.max(2, Math.round(expected / 3_000));
+  return {
+    step: "compos-ai",
+    taskId: task.id,
+    call: task.remoteCall.id,
+    label: stage === "code" ? `Programando la animación ${of}${task.long ? ` (pieza larga: unos ${minutes} minutos)` : ""}` : `Revisando la animación ${of}`,
+  };
+}
+
+export class RemoteCallError extends Error {}
+
+/**
+ * Lo que pide el worker para hacer la llamada: el cuerpo de la API de Mensajes (el mismo que armaría la app, con las
+ * imágenes) y lo que se espera de salida (para mostrar el progreso). Revisa antes los créditos del mes.
+ */
+export async function remoteCallBody(projectId: string, input: { workId?: string; taskId: string; call: string }): Promise<{ body: Record<string, unknown>; expected: number; timeoutS: number }> {
+  const target = await loadTarget(projectId, input.workId);
+  const task = target?.work.tasks.find((t) => t.id === input.taskId);
+  if (!target || !task?.remoteCall || task.remoteCall.id !== input.call) throw new RemoteCallError("Esta animación ya no está esperando a la IA.");
+  const { ctx, work } = target;
+  const s = span(ctx, task);
+  if (!s) throw new RemoteCallError("Ese tramo ya no está en el video (se cortó).");
+  const call = task.remoteCall;
+  const { checkCredit } = await import("@/lib/ai/credits");
+  const userId = ctx.requestId ? ((await getDb().select({ by: schema.composRequests.createdBy }).from(schema.composRequests).where(eq(schema.composRequests.id, ctx.requestId)).limit(1))[0]?.by ?? null) : null;
+  await checkCredit({ userId, videoProjectId: ctx.projectId });
+  const { messagesBody } = await import("@/lib/ai/client");
+  // Con el máximo de salida, una llamada de Opus puede tardar más de media hora: el worker espera hasta una hora.
+  const body = call.stage === "code" ? messagesBody(await codeCall(ctx, work, task, s, { maxTokens: call.maxTokens }), task.freeform) : messagesBody(await lookCall(ctx, work, task, { maxTokens: call.maxTokens }), task.freeform);
+  return { body: body as unknown as Record<string, unknown>, expected: call.expected, timeoutS: 3600 };
+}
+
+/** Lo que devolvió el worker: se registra el consumo por el mismo camino de siempre y se aplica como si fuera de aquí. */
+async function applyRemote(ctx: WorkCtx, work: ComposWork, done: RemoteDone): Promise<string> {
+  const task = work.tasks.find((t) => t.id === done.taskId);
+  if (!task?.remoteCall || task.remoteCall.id !== done.call) return "Animación";
+  const of = `${work.tasks.indexOf(task) + 1} de ${work.tasks.length}`;
+  const call = task.remoteCall;
+  task.remoteCall = null;
+  const s = span(ctx, task);
+  if (!s) {
+    task.status = "failed";
+    task.error = "Ese tramo ya no está en el video (se cortó).";
+    return `Animación ${of}`;
+  }
+  const seconds = s.end - s.start;
+  const model = call.stage === "code" ? MODELS.deep : MODELS.main;
+  if (!done.result) {
+    const err = done.error ?? {};
+    const status = Number(err.status ?? 0);
+    // Se cortó a la mitad (red, reinicio): lo que alcanzó a generar igual se cobra.
+    if (err.usage && (err.usage.output_tokens ?? 0) > 0) {
+      await recordUsage({ step: call.stage === "code" ? "video.compos.codigo" : "video.compos.mirar", model, usage: err.usage, status: "error_lectura", videoProjectId: ctx.projectId });
+      charge(work, usageCost(model, err.usage));
+    }
+    if (err.source === "app") {
+      // La app no dio la llamada (créditos del mes, sin clave): no se gastó nada y no tiene sentido reintentar.
+      task.status = "failed";
+      task.error = (err.message || "No pudimos llamar a la IA.").slice(0, 300);
+      return `Animación ${of}`;
+    }
+    if (isGrammarError(status, err.message ?? "")) {
+      // El esquema no entra en la salida estructurada (no se cobra): se pide como texto.
+      task.freeform = true;
+      return `Programando la animación ${of}`;
+    }
+    const error =
+      status === 401 || status === 403
+        ? new AiError("La clave de API de Anthropic no es válida. Revísala en Ajustes → Claves de servicios.", `${status} ${err.message ?? ""}`)
+        : status === 429 || status === 529 || status >= 500
+          ? new AiError("La IA está saturada en este momento. Prueba de nuevo en un minuto.", `${status} ${err.message ?? ""}`)
+          : new AiError("No pudimos generar el resultado. Prueba de nuevo.", `worker: ${status || ""} ${err.message ?? ""}`.trim());
+    if (status === 401 || status === 403) {
+      task.status = "failed";
+      task.error = error.userMessage;
+      return `Animación ${of}`;
+    }
+    return onAiFailure(work, task, error);
+  }
+  const usage = done.result.usage ?? {};
+  const message = { stop_reason: done.result.stop_reason, content: [{ type: "text", text: done.result.text }], usage };
+  try {
+    if (call.stage === "code") {
+      const wire = await settleStructured(await codeCall(ctx, work, task, s, { images: false, maxTokens: call.maxTokens }), message, { freeform: task.freeform });
+      // El costo real (no el estimado): así el tope del video refleja lo que cuesta una pieza larga.
+      charge(work, usageCost(model, usage));
+      task.attempts++;
+      return await acceptCode(ctx, work, task, wire);
+    }
+    const wire = await settleStructured(await lookCall(ctx, work, task, { images: false, maxTokens: call.maxTokens }), message, { freeform: task.freeform });
+    charge(work, usageCost(model, usage));
+    return await applyLook(ctx, work, task, wire, seconds);
+  } catch (error) {
+    return onAiFailure(work, task, error, call.maxTokens);
+  }
 }
 
 /** Lo que necesita el pedido de código. */
@@ -786,7 +1059,8 @@ async function acceptCode(ctx: WorkCtx, work: ComposWork, task: ComposTask, wire
   // Los textos editables con los valores por defecto del módulo si Claude no los listó.
   const params = item.params.length ? item.params : Object.entries(check.defaults).map(([key, value]) => ({ key, label: key, value }));
   task.result = { ...item, params, checked: check.hash };
-  task.status = work.lookRounds > task.round && remaining(ctx, work) >= STAGE_COST.look ? "look" : "done";
+  const s = span(ctx, task);
+  task.status = work.lookRounds > task.round && remaining(ctx, work) >= lookCostOf(task, s ? s.end - s.start : 0) ? "look" : "done";
   return `Programando la animación ${of}`;
 }
 

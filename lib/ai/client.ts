@@ -21,10 +21,20 @@ export { MODELS, type ModelKey };
 import { AiError } from "./errors";
 export { AiError, AiCreditError } from "./errors";
 
+/** La clave de API de Anthropic con la que se llama: la del cliente (Ajustes) o, si no cargó una, la del servidor. */
+export async function anthropicApiKey(): Promise<string | null> {
+  return (await readAnthropicKey().catch(() => null)) ?? env().ANTHROPIC_API_KEY ?? null;
+}
+
+/** La dirección de la API (ANTHROPIC_BASE_URL solo cambia en las pruebas, con un simulador). */
+export function anthropicBaseUrl(): string {
+  return (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
+}
+
 let client: { key: string; sdk: Anthropic } | null = null;
 /** El cliente de Anthropic con la clave del cliente (Ajustes) o, si no cargó una, la del servidor. */
 export async function anthropicClient(): Promise<Anthropic> {
-  const key = (await readAnthropicKey().catch(() => null)) ?? env().ANTHROPIC_API_KEY;
+  const key = await anthropicApiKey();
   if (!key) throw new AiError("Agrega tu clave de API de Anthropic en Ajustes → Claves de servicios para usar la IA.", "sin clave de Anthropic");
   if (!client || client.key !== key) client = { key, sdk: new Anthropic({ apiKey: key, maxRetries: 2, timeout: 120_000 }) };
   return client.sdk;

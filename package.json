@@ -42,6 +42,7 @@
     "test:director": "node --import tsx --test tests/director.test.mts tests/rhythm.test.mts tests/director-pedidos.test.mts",
     "test:compos": "node --import tsx --test tests/compos.test.mts",
     "test:pedidos": "node --require ./tests/support/sin-server-only.cjs --import tsx --test tests/compos-pedidos.test.mts",
+    "test:largas": "node --require ./tests/support/sin-server-only.cjs --import tsx --test tests/piezas-largas.test.mts",
     "test:mis-efectos": "node --conditions=react-server --import tsx --test tests/mis-efectos.test.mts",
     "compos:fonts": "node scripts/compos-fonts.mjs"
   },

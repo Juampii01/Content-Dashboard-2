@@ -50,7 +50,7 @@ jobs:
           docker run --rm --network host -v /tmp:/tmp postgres:18 pg_dump "$PROD" --no-owner --no-privileges -Fc -f /tmp/prod.dump 2> /tmp/out/dump-errores.txt || true
           ls -la /tmp/prod.dump >> /tmp/out/dump-errores.txt 2>&1 || true
           docker run --rm --network host -v /tmp:/tmp postgres:18 pg_restore --no-owner --no-privileges -d "$COPIA" /tmp/prod.dump 2> /tmp/out/restore-avisos.txt || true
-          rm -f /tmp/prod.dump
+          sudo rm -f /tmp/prod.dump
           docker run -i --rm --network host postgres:18 psql "$COPIA" -At -f - < .github/diag/conteos.sql > /tmp/out/copia-antes.txt
       - run: pnpm install --frozen-lockfile
       - name: Migrar la copia (mismo script que Vercel)

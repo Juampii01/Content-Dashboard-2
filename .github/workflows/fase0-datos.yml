@@ -1,0 +1,47 @@
+# Fase 0: respaldo y borrado de las credenciales de suscripción en producción. Corre el script dentro de la máquina
+# del worker (sin redesplegar nada) y guarda la salida, sin secretos, en la rama fase0-salida.
+# Solo se dispara con un push a la rama fase0-datos. El modo sale de .github/diag/modo.txt (respaldo | borrar).
+name: Fase 0 · credenciales de suscripción
+
+on:
+  push:
+    branches: [fase0-datos]
+    paths: [".github/diag/limpieza_suscripciones.py", ".github/diag/modo.txt", ".github/workflows/fase0-datos.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  limpieza:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Encender la máquina
+        run: |
+          for id in $(flyctl machines list --config fly.toml --json | jq -r '.[].id'); do flyctl machines start "$id" --config fly.toml || true; done
+          sleep 20
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Correr
+        run: |
+          modo=$(tr -dc 'a-z' < ../.github/diag/modo.txt)
+          b64=$(base64 -w0 ../.github/diag/limpieza_suscripciones.py)
+          flyctl ssh console --config fly.toml -C "sh -c 'echo $b64 | base64 -d > /tmp/limpieza.py && cd /app && MODO=$modo python /tmp/limpieza.py; rm -f /tmp/limpieza.py'" 2>&1 | grep -v "^Connecting" > /tmp/salida.json || true
+          wc -c /tmp/salida.json
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Guardar la salida
+        if: always()
+        working-directory: .
+        run: |
+          git config user.name "diag" && git config user.email "diag@users.noreply.github.com"
+          git checkout --orphan fase0-salida
+          git rm -rq --cached . && git clean -fdq -e .git
+          cp /tmp/salida.json salida.json 2>/dev/null || true
+          git add salida.json 2>/dev/null || true
+          git commit -qm "Fase 0: salida" && git push -qf origin fase0-salida

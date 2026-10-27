@@ -10,3 +10,5 @@ print(json.dumps({"en_curso": r, "t": time.time()}, default=str))
 # 22:34:46
 
 # 22:37:36
+
+# 22:40:27

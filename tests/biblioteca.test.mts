@@ -422,6 +422,35 @@ describe("biblioteca en la base", { skip: !url && "TEST_DATABASE_URL no está de
     }
   });
 
+  test("una pieza de antes de las fichas («none») se analiza: el video vuelve al worker por sus hojas, la charla espera y no se pide dos veces", async () => {
+    const { clipStates } = await import("../lib/video/chat-turn");
+    const { id } = await upload("reel-viejo.mp4", "video/mp4", Buffer.from("reel de antes de las fichas"));
+    await db.getDb().execute(sql`update broll_clips set status = 'READY', duration = 20, width = 1080, height = 1920, ficha_status = 'none', ficha_sheets = null where id = ${id}`);
+    try {
+      assert.ok((await mod.missingFichaIds()).includes(id), "aparece en «Analizar»");
+      // Antes quedaba «failed: No pudimos sacar los cuadros» y la charla nunca lo miraba.
+      assert.equal((await clipStates([id]))[0]!.state, "waiting");
+      assert.deepEqual(await mod.analyzeMissing([id], userId), { now: [], queued: [id] });
+      const row = (await mod.loadClip(id))!;
+      assert.equal(row.fichaStatus, "pending");
+      const jobs = (await db.getDb().execute<{ input: { clipId: string; fichaOnly?: boolean } }>(sql`select input from jobs where type = 'VIDEO_CLIP' and input->>'clipId' = ${id}`)).rows;
+      assert.equal(jobs.length, 1);
+      assert.equal(jobs[0]!.input.fichaOnly, true, "solo saca las hojas: el clip ya estaba listo");
+      assert.deepEqual(await mod.analyzeMissing([id], userId), { now: [], queued: [] }, "ya pedida: no se encola otra vez");
+      assert.ok(!(await mod.missingFichaIds()).includes(id));
+      // Una imagen sin ficha se escribe enseguida (quien llama corre generateFicha).
+      const sharp = (await import("sharp")).default;
+      const img = await upload("logo-viejo.png", "image/png", await sharp({ create: { width: 400, height: 400, channels: 3, background: "#2457f5" } }).png().toBuffer());
+      await mod.completeClipUpload(img.id, userId);
+      await db.getDb().execute(sql`update broll_clips set ficha_status = 'none' where id = ${img.id}`);
+      assert.deepEqual(await mod.analyzeMissing([img.id], userId), { now: [img.id], queued: [] });
+      await mod.generateFicha(img.id);
+      assert.equal((await mod.loadClip(img.id))!.fichaStatus, "ready");
+    } finally {
+      await db.getDb().execute(sql`delete from jobs where type = 'VIDEO_CLIP' and input->>'clipId' = ${id}`);
+    }
+  });
+
   test("la ficha editada a mano queda lista y se puede buscar por lo nuevo", async () => {
     const recep = (await db.getDb().execute<{ id: string }>(sql`select id from broll_clips where file_name = 'clip-recepcion.mp4'`)).rows[0]!.id;
     const f = await mod.updateFicha(recep, { ...clinica.ficha!, description: "Mostrador con una orquídea", moments: [{ start: 0, end: 6, what: "Orquídea sobre el mostrador" }] });

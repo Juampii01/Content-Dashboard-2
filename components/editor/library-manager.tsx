@@ -15,7 +15,7 @@ import { FichaDialog } from "./library-ficha-dialog";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { VIDEO_ACCEPT } from "./constants";
-import { completeClipUploadAction, createClipUploadAction, deleteClipAction, retryClipAction, retryFichaAction, searchLibraryAction, updateClipAction } from "./media-actions";
+import { analyzeMissingAction, completeClipUploadAction, createClipUploadAction, deleteClipAction, retryClipAction, retryFichaAction, searchLibraryAction, updateClipAction } from "./media-actions";
 import { putFile } from "./upload-manager";
 import { useAutoRefresh } from "./use-auto-refresh";
 
@@ -74,6 +74,18 @@ export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit:
     return byKind.filter((c) => rank.has(c.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
   }, [clips, kinds, found]);
   const counts = { video: clips.filter((c) => c.kind === "video").length, image: clips.filter((c) => c.kind === "image").length };
+  // Las piezas de antes de que hubiera fichas: la IA no sabe qué se ve en ellas hasta analizarlas.
+  const missing = clips.filter((c) => c.status === "READY" && c.fichaStatus === "none").length;
+  const [analyzing, startAnalyze] = useTransition();
+
+  function analyzeAll() {
+    startAnalyze(async () => {
+      const r = await analyzeMissingAction();
+      if (!r.ok) toast.error(r.error);
+      else toast.success(r.data?.count ? `Analizando ${r.data.count === 1 ? "1 pieza" : `${r.data.count} piezas`}. Tarda 1 o 2 minutos por video.` : "No quedan piezas sin ficha.");
+      router.refresh();
+    });
+  }
 
   async function uploadOne(file: File, tempId: string) {
     const created = await createClipUploadAction({ fileName: file.name, fileType: file.type, fileSize: file.size });
@@ -150,6 +162,16 @@ export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit:
               ))}
             </ul>
           )}
+        </div>
+      )}
+      {canEdit && missing > 0 && (
+        <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
+          <p className="text-sm text-text">
+            <span className="font-semibold text-white">{missing === 1 ? "1 pieza sin ficha" : `${missing} piezas sin ficha`}.</span> La IA todavía no sabe qué se ve en {missing === 1 ? "ella" : "ellas"}: analízalas para que el chat, el b-roll y el director las usen bien.
+          </p>
+          <Button size="sm" disabled={analyzing} icon={analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />} onClick={analyzeAll}>
+            {missing === 1 ? "Analizar" : `Analizar ${Math.min(missing, 30)}`}
+          </Button>
         </div>
       )}
       {clips.length > 0 && (
@@ -417,7 +439,7 @@ function FichaLine({ clip, canEdit, busy, onOpen, onRetry }: { clip: ClipItem; c
       <p className={cn("text-xs", st === "failed" ? "text-danger" : "text-muted")}>{st === "failed" ? (clip.fichaError ?? "No pudimos escribir la ficha.") : "Todavía sin ficha: la IA no sabe qué se ve."}</p>
       {canEdit && (
         <Button size="sm" variant="ghost" disabled={busy} icon={st === "failed" ? <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />} onClick={onRetry}>
-          {st === "failed" ? "Reintentar" : "Crear ficha"}
+          {st === "failed" ? "Reintentar" : "Analizar"}
         </Button>
       )}
     </div>

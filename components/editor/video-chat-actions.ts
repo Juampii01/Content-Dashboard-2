@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { z } from "zod";
 import { AiError, aiConfigured } from "@/lib/ai/client";
 import { isDenied, requireEditor } from "@/lib/auth";
@@ -11,6 +12,22 @@ import { LookError, lookForChat, startLook } from "@/lib/video/look";
 import type { VideoChatItem } from "@/lib/video/chat-library";
 import { chatInputSchema, chatTurn as turn, CLIP_WAIT_MAX_MS, clipStates, pendingClipWait } from "@/lib/video/chat-turn";
 import type { ChatClip } from "@/lib/video/compos/chat";
+import { analyzeMissing, generateFicha } from "@/lib/video/library";
+
+/**
+ * Las piezas de la biblioteca nombradas con @ o adjuntas que no tienen ficha (las de antes de que hubiera fichas) se
+ * mandan a analizar, y la charla espera como con un video nuevo. Nunca frena el turno.
+ */
+async function analyzeAttached(ids: string[], userId: string): Promise<void> {
+  const r = await analyzeMissing(ids, userId).catch((error) => {
+    console.error("[chat del video] no se pudo pedir la ficha:", error instanceof Error ? error.message : error);
+    return { now: [] as string[], queued: [] as string[] };
+  });
+  if (r.now.length)
+    after(async () => {
+      for (const id of r.now) await generateFicha(id);
+    });
+}
 
 /**
  * Chat con la IA del Estudio (panel derecho sin nada elegido): conversa sobre el video y propone acciones con su tramo,
@@ -88,6 +105,7 @@ export async function videoChatAction(input: z.input<typeof inputSchema>): Promi
   const clips: ChatClip[] = d.attachments.filter((a) => a.kind === "video" && a.libraryId).map((a) => ({ ref: a.ref, id: a.libraryId!, name: a.name }));
   const messages: ChatMessage[] = [...saved.messages, { role: "user", text: d.text, at: now, ...(refs.length ? { refs } : {}), ...(clips.length ? { clips } : {}) }];
   try {
+    await analyzeAttached(d.attachments.flatMap((a) => (a.libraryId ? [a.libraryId] : [])), user.id);
     // Si la app todavía está mirando un video adjunto (cuadros y ficha), se contesta cuando termine.
     const waiting = (await clipStates(clips.map((c) => c.id))).filter((c) => c.state === "waiting");
     if (waiting.length) {
@@ -168,6 +186,7 @@ export async function videoChatClipAction(input: z.input<typeof clipInputSchema>
   const saved = await loadChat(d.projectId, CHAT_ID);
   const wait = pendingClipWait(saved.messages);
   if (!wait || wait.id !== parsed.data.waitId) return { ok: true, thread: view(saved.messages), waiting: false };
+  await analyzeAttached(wait.clips, user.id);
   const states = await clipStates(wait.clips);
   const late = Date.now() - new Date(wait.at).getTime() > CLIP_WAIT_MAX_MS;
   if (states.some((c) => c.state === "waiting") && !late) return { ok: true, thread: view(saved.messages), waiting: true };

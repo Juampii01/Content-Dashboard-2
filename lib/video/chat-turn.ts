@@ -86,7 +86,8 @@ export async function clipStates(ids: string[]): Promise<ClipState[]> {
     const r = rows.find((x) => x.id === id);
     if (!r) return { id, title: "video", state: "failed" as const, error: "Ese video ya no está en tu biblioteca." };
     if (r.status === "FAILED") return { id, title: r.title, state: "failed" as const, error: r.errorMessage ?? "No pudimos preparar el video." };
-    if (r.status !== "READY" || r.fichaStatus === "pending" || r.fichaStatus === "thinking") return { id, title: r.title, state: "waiting" as const, error: null };
+    // "none": una pieza de antes de que hubiera fichas; la charla la manda a analizar (video-chat-actions.ts).
+    if (r.status !== "READY" || r.fichaStatus === "pending" || r.fichaStatus === "thinking" || r.fichaStatus === "none") return { id, title: r.title, state: "waiting" as const, error: null };
     if (r.kind === "video" && !r.fichaSheets?.length) return { id, title: r.title, state: "failed" as const, error: r.fichaError ?? "No pudimos sacar los cuadros del video." };
     return { id, title: r.title, state: "ready" as const, error: null };
   });

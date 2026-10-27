@@ -7,7 +7,7 @@ import { getCurrentUser, isDenied, requireEditor } from "@/lib/auth";
 import { clipMedia, signBrollOptions, type SignedOption } from "@/lib/dal/editor-media";
 import { fileDriver } from "@/lib/storage";
 import { BrollError, libraryOptions, searchOptions } from "@/lib/video/broll";
-import { completeClipUpload, createClipUpload, deleteClip, generateFicha, LibraryError, retryClip, retryFicha, searchLibrary, updateClip, updateFicha } from "@/lib/video/library";
+import { analyzeMissing, completeClipUpload, createClipUpload, deleteClip, generateFicha, LibraryError, missingFichaIds, retryClip, retryFicha, searchLibrary, updateClip, updateFicha } from "@/lib/video/library";
 import { fichaSchema, type Ficha } from "@/lib/video/library-ficha";
 import { completeTrackUpload, createTrackUpload, deleteTrack, MusicError, renameTrack } from "@/lib/video/music";
 import { completeSplitUpload, createSplitFromLink, createSplitUpload, retrySplit } from "@/lib/video/music-split";
@@ -180,6 +180,28 @@ export async function retryFichaAction(id: string): Promise<ActionResult> {
     if (r.ficha) after(() => generateFicha(id));
     refresh();
     return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/**
+ * «Analizar»: escribe la ficha de las piezas que no tienen (las de antes de que hubiera fichas). Sin ids, todas las que
+ * faltan (hasta 30 por vez). Los videos van al worker a sacar sus hojas; las imágenes se escriben enseguida.
+ */
+export async function analyzeMissingAction(ids?: string[]): Promise<ActionResult<{ count: number }>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = z.array(idSchema).max(30).optional().safeParse(ids);
+  if (!parsed.success) return { ok: false, error: "Archivos no válidos." };
+  try {
+    const targets = parsed.data?.length ? parsed.data : await missingFichaIds();
+    const r = await analyzeMissing(targets, user.id);
+    if (r.now.length) after(async () => {
+      for (const id of r.now) await generateFicha(id);
+    });
+    refresh();
+    return { ok: true, data: { count: r.now.length + r.queued.length } };
   } catch (error) {
     return fail(error);
   }

@@ -207,6 +207,43 @@ export async function retryFicha(id: string, userId: string): Promise<{ ficha: b
   return { ficha: true };
 }
 
+/**
+ * Analiza las piezas que todavía no tienen ficha (las de antes de que hubiera fichas quedaron en "none" y nunca se
+ * miraban): un video vuelve al worker para sacar las hojas (VIDEO_CLIP con fichaOnly) y después Claude escribe la ficha;
+ * una imagen o un video que ya tenía hojas se escribe enseguida. Las que ya tienen ficha, la están escribiendo o no están
+ * listas no se tocan. Devuelve las que hay que escribir ahora (quien llama corre `generateFicha` después de responder).
+ */
+export async function analyzeMissing(ids: string[], userId: string): Promise<{ now: string[]; queued: string[] }> {
+  const unique = [...new Set(ids)].slice(0, 30);
+  if (!unique.length) return { now: [], queued: [] };
+  const rows = await getDb()
+    .select({ id: schema.brollClips.id })
+    .from(schema.brollClips)
+    .where(and(inArray(schema.brollClips.id, unique), eq(schema.brollClips.status, "READY"), eq(schema.brollClips.fichaStatus, "none")));
+  const now: string[] = [];
+  const queued: string[] = [];
+  for (const { id } of rows) {
+    const r = await retryFicha(id, userId).catch((error) => {
+      console.error("[biblioteca] no se pudo pedir la ficha:", error instanceof Error ? error.message : error);
+      return null;
+    });
+    if (r?.ficha) now.push(id);
+    else if (r) queued.push(id);
+  }
+  return { now, queued };
+}
+
+/** Las piezas listas sin ficha (para «Analizar» en la Biblioteca), las más nuevas primero. */
+export async function missingFichaIds(limit = 30): Promise<string[]> {
+  const rows = await getDb()
+    .select({ id: schema.brollClips.id })
+    .from(schema.brollClips)
+    .where(and(eq(schema.brollClips.status, "READY"), eq(schema.brollClips.fichaStatus, "none")))
+    .orderBy(desc(schema.brollClips.updatedAt))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
 /** Lo que entrega el worker: las hojas de cuadros del clip (o el aviso de que no se pudieron armar). */
 export async function saveClipSheets(id: string, payload: { ok: boolean; error?: string; sheets?: unknown[] }): Promise<boolean> {
   const clip = await loadClip(id);

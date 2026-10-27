@@ -10,7 +10,7 @@
 # No hace commit ni push: eso lo hace el workflow «Sincronizar repo instalable» (o tú, a mano).
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel)"
+ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 DEST="${1:?Uso: scripts/armar-instalable.sh <carpeta del repo instalable>}"
 SHA="$(git -C "$ROOT" rev-parse --short HEAD)"
 mkdir -p "$DEST"

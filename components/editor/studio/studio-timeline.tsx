@@ -9,7 +9,10 @@ import { cn } from "@/lib/utils";
 import { ViewportWave } from "./waveform";
 
 /** Pistas. `audio` es la de los efectos de sonido (A3); `voice` y `music`, la voz (A1) y la música (A2). */
-export type TrackKey = "video" | "captions" | "broll" | "fx" | "anim" | "zoom" | "voice" | "music" | "audio";
+export type TrackKey = "video" | "captions" | "broll" | "fx" | "anim" | "zoom" | "voice" | "music" | "audio" | "layers";
+
+/** Pistas de lo que se superpone al video: en la vista por capas van todas juntas, una pista por capa (V2, V3…). */
+const VISUAL: TrackKey[] = ["broll", "fx", "anim"];
 
 /** Lo que está elegido en el Estudio (se abre en el inspector). */
 export type StudioSelection =
@@ -147,6 +150,9 @@ const TRACKS: TrackDef[] = [
   { key: "audio", label: "Efectos de sonido", code: "A3", icon: <AudioLines className="h-3.5 w-3.5" aria-hidden />, lane: 30, extra: 12, lanes: true },
 ];
 
+/** Vista por capas: lo que se superpone al video (gráficos, b-roll, efectos, transiciones y animaciones) en pistas V2, V3…, de abajo hacia arriba en el orden en que se dibuja. */
+const LAYERS_TRACK: TrackDef = { key: "layers", label: "Capas", icon: null, lane: 32, extra: 0, lanes: true };
+
 /** Altura de las pistas: compacta, normal o grande (se elige en la barra de la línea de tiempo). */
 export type TrackSize = "s" | "m" | "l";
 export const TRACK_SIZE_SCALE: Record<TrackSize, number> = { s: 0.78, m: 1, l: 1.4 };
@@ -177,7 +183,7 @@ export function StudioTimeline({
   playing,
   zoom,
   onZoom,
-  blocks,
+  blocks: blocks0,
   cuts,
   sfx,
   hiddenCaptions,
@@ -206,6 +212,7 @@ export function StudioTimeline({
   trackSize = "m",
   markers = [],
   onFade,
+  layerView = false,
 }: {
   duration: number;
   time: number;
@@ -261,9 +268,15 @@ export function StudioTimeline({
   markers?: TimelineMarker[];
   /** Fundido de un bloque de audio estirado con su manija (segundos). */
   onFade?: (block: TimelineBlock, which: "in" | "out", seconds: number) => void;
+  /** Vista por capas: b-roll, efectos y animaciones juntos, una pista por capa (V2, V3…) como en un editor de video. */
+  layerView?: boolean;
 }) {
   const scale = TRACK_SIZE_SCALE[trackSize];
-  const tracks = useMemo(() => TRACKS.map((t) => ({ ...t, lane: Math.round(t.lane * scale) })), [scale]);
+  const tracks = useMemo(() => {
+    const list = layerView ? [...TRACKS.filter((t) => t.key === "video" || t.key === "captions"), LAYERS_TRACK, ...TRACKS.filter((t) => t.key !== "video" && t.key !== "captions" && !VISUAL.includes(t.key))] : TRACKS;
+    return list.map((t) => ({ ...t, lane: Math.round(t.lane * scale) }));
+  }, [scale, layerView]);
+  const blocks = useMemo(() => (layerView ? blocks0.map((b) => (VISUAL.includes(b.track) ? { ...b, track: "layers" as const } : b)) : blocks0), [blocks0, layerView]);
   const scroller = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
@@ -326,7 +339,7 @@ export function StudioTimeline({
     onMarquee?.(keys);
   }
   const byTrack = useMemo(() => {
-    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], voice: [], music: [], audio: [] };
+    const map: Record<TrackKey, TimelineBlock[]> = { video: [], captions: [], broll: [], fx: [], anim: [], zoom: [], voice: [], music: [], audio: [], layers: [] };
     for (const b of blocks) map[b.track].push(b);
     return map;
   }, [blocks]);
@@ -452,7 +465,11 @@ export function StudioTimeline({
     const at = span ?? raw;
     const over = own.filter((o) => o.track !== "audio" && at.start < o.end - 0.02 && o.start < at.end - 0.02).sort((a, b) => (b.z ?? 0) - (a.z ?? 0));
     // Lugar entre los que se superponen: los que están en un carril de arriba del de destino quedan encima.
-    const order = over.filter((o) => (lanes.lanes.get(o.key) ?? 0) < lane).length;
+    // Bajando hasta el carril de otro, va debajo de ese; subiendo, encima.
+    const order = over.filter((o) => {
+      const l = lanes.lanes.get(o.key) ?? 0;
+      return l < lane || (l === lane && lane > myLane);
+    }).length;
     const crossOver = cross.filter((o) => at.start < o.end - 0.02 && o.start < at.end - 0.02).map((o) => o.label);
     const note = !span
       ? "No se puede poner ahí."
@@ -662,8 +679,20 @@ export function StudioTimeline({
                 title={notes?.[track.key] ?? track.label}
                 data-head={track.key}
               >
-                {track.code ? <span className="flex-none rounded bg-white/[0.06] px-1 font-mono text-[9px] leading-[14px] text-muted">{track.code}</span> : <span className="flex-none text-accent-hi">{track.icon}</span>}
-                <span className="min-w-0 flex-1 truncate">{track.label}</span>
+                {track.key === "layers" ? (
+                  // Una etiqueta por capa: arriba la más alta (lo que se dibuja encima), abajo V2 (justo sobre el video).
+                  Array.from({ length: lanes }, (_, k) => (
+                    <span key={k} className="absolute left-2 flex items-center gap-1.5" style={{ top: k * track.lane, height: track.lane }}>
+                      <span className="rounded bg-white/[0.06] px-1 font-mono text-[9px] leading-[14px] text-muted">V{lanes - k + 1}</span>
+                      {k === 0 && <span className="truncate">{lanes > 1 ? "Encima" : "Capas"}</span>}
+                    </span>
+                  ))
+                ) : (
+                  <>
+                    {track.code ? <span className="flex-none rounded bg-white/[0.06] px-1 font-mono text-[9px] leading-[14px] text-muted">{track.code}</span> : <span className="flex-none text-accent-hi">{track.icon}</span>}
+                    <span className="min-w-0 flex-1 truncate">{track.label}</span>
+                  </>
+                )}
                 {heads[track.key]}
               </div>
               <div
@@ -876,7 +905,7 @@ export function StudioTimeline({
                   />
                 )}
 
-                {track.key === "fx" &&
+                {(track.key === "fx" || track.key === "layers") &&
                   canEdit &&
                   transitionSlots.map((c) => (
                     <button
@@ -906,7 +935,7 @@ export function StudioTimeline({
                     {notes[track.key]}
                   </span>
                 )}
-                {dropGhost && dropGhost.track === track.key && (
+                {dropGhost && (layerView && VISUAL.includes(dropGhost.track) ? "layers" : dropGhost.track) === track.key && (
                   // Sombra de lo que se va a soltar: su largo real (ajustado a palabras), arriba (va encima de lo que haya).
                   <div
                     aria-hidden
@@ -917,7 +946,7 @@ export function StudioTimeline({
                   >
                   </div>
                 )}
-                {dropGhost && dropGhost.track === track.key && (
+                {dropGhost && (layerView && VISUAL.includes(dropGhost.track) ? "layers" : dropGhost.track) === track.key && (
                   // Su nombre y cuánto dura, siempre a la vista (aunque el bloque sea angosto).
                   <span
                     data-testid="drop-ghost-label"

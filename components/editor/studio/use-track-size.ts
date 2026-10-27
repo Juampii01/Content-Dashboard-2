@@ -32,3 +32,30 @@ export function useTrackSize(): [TrackSize, (v: TrackSize) => void] {
   }, []);
   return [size, set];
 }
+
+/** Vista de la línea de tiempo: por tipo (gráficos, efectos, animaciones) o por capas (V2, V3…). Se recuerda. */
+const VIEW_KEY = "studio.timelineView";
+const readView = (): "tipo" | "capas" => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "capas" ? "capas" : "tipo";
+  } catch {
+    return "tipo";
+  }
+};
+const subscribeView = (cb: () => void) => {
+  window.addEventListener(VIEW_KEY, cb);
+  return () => window.removeEventListener(VIEW_KEY, cb);
+};
+
+export function useTimelineView(): ["tipo" | "capas", (v: "tipo" | "capas") => void] {
+  const view = useSyncExternalStore(subscribeView, readView, () => "tipo" as const);
+  const set = useCallback((v: "tipo" | "capas") => {
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* no se recuerda */
+    }
+    window.dispatchEvent(new Event(VIEW_KEY));
+  }, []);
+  return [view, set];
+}

@@ -33,7 +33,7 @@ import { musicGenLabel } from "@/lib/video/music-gen/catalog";
 import { useGeneratedMusic } from "../sound/use-sound";
 import { useMusicBuffer, peaksOfBuffer, useStudioMix } from "./use-studio-mix";
 import { useVoicePeaks } from "./use-voice-peaks";
-import { useTrackSize } from "./use-track-size";
+import { useTimelineView, useTrackSize } from "./use-track-size";
 import { MiniWave, useSfxPeaks } from "./waveform";
 import { TrackToggles } from "./mixer";
 import { audible, fadeGainAt, fitMusicFade, MUSIC_FADE } from "@/lib/video/audio-mix";
@@ -121,6 +121,7 @@ export function Studio(props: StudioProps) {
   const [leftOpen, setLeftOpen] = useState(true);
   // Anchos de los paneles (se arrastra su borde; se recuerdan en este navegador).
   const { width: leftW, handle: leftHandle } = usePanelWidth("studio.toolsW", TOOLS_W, "left");
+  const [timelineView, setTimelineView] = useTimelineView();
   // Alto de la línea de tiempo (se arrastra su borde de arriba): con las pistas de audio, más alta que antes.
   const { width: timelineH, handle: timelineHandle } = usePanelWidth("studio.timelineH", { min: 200, max: 640, default: 380 }, "bottom");
   // Pantalla completa de la vista previa: solo el video (Esc o F para salir).
@@ -1149,7 +1150,8 @@ export function Studio(props: StudioProps) {
    * (enteros desde 0) de todo lo visual, o null si no se superpone con nada de su pista.
    */
   function laneOrder(key: string, kind: LayerKind, start: number, end: number, lane: number | null): Map<string, number> | null {
-    const kinds: LayerKind[] = kind === "broll" ? ["broll"] : kind === "compos" ? ["compos"] : ["fx", "transition"];
+    // En la vista por capas todo lo que se superpone comparte pistas (V2, V3…): el carril se cuenta entre todos.
+    const kinds: LayerKind[] = timelineView === "capas" ? ["broll", "fx", "compos", "transition"] : kind === "broll" ? ["broll"] : kind === "compos" ? ["compos"] : ["fx", "transition"];
     const me = visualStack.find((v) => v.key === key) ?? { key, kind, layer: 0, start, end, label: "" };
     const others = visualStack.filter((v) => v.key !== key && kinds.includes(v.kind) && v.start < end - 0.01 && start < v.end - 0.01).sort((a, b) => (stackOrder.get(b.key) ?? 0) - (stackOrder.get(a.key) ?? 0));
     if (!others.length) return null;
@@ -2095,6 +2097,21 @@ export function Studio(props: StudioProps) {
       )}
       <p className="ml-2 hidden min-w-0 flex-1 truncate text-[11px] text-placeholder lg:block">{canEdit ? "Pon el cabezal y toca Dividir (C) para cortar el video; elige la parte que sobra y bórrala con Supr." : "Solo lectura: tu usuario no puede editar."}</p>
       <div className="ml-auto flex items-center gap-1">
+        <div role="radiogroup" aria-label="Vista de la línea de tiempo" className="mr-1 hidden items-center rounded-lg border border-white/10 p-0.5 text-[11px] font-semibold md:flex">
+          {(["tipo", "capas"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={timelineView === v}
+              onClick={() => setTimelineView(v)}
+              title={v === "tipo" ? "Una pista por tipo: gráficos y b-roll, efectos, animaciones" : "Una pista por capa (V2, V3…): arriba lo que se ve encima"}
+              className={cn("h-6 rounded-md px-2 text-muted outline-none hover:text-white focus-visible:ring-2 focus-visible:ring-accent-hi", timelineView === v && "bg-white text-paper hover:text-paper")}
+            >
+              {v === "tipo" ? "Por tipo" : "Capas"}
+            </button>
+          ))}
+        </div>
         <div role="radiogroup" aria-label="Alto de las pistas" className="mr-1 hidden items-center rounded-lg border border-white/10 p-0.5 md:flex">
           {(["s", "m", "l"] as const).map((v) => (
             <button
@@ -2519,6 +2536,7 @@ export function Studio(props: StudioProps) {
                 trackSize={trackSize}
                 markers={placedMarkers.map((m) => ({ id: m.marker.id, number: m.number, at: m.at, note: m.marker.note }))}
                 onFade={fadeBlock}
+                layerView={timelineView === "capas"}
                 hiddenCaptions={captionGaps}
                 captionHides={canEdit ? captionHides : []}
                 onShowCaptions={(index) => update((st) => ({ ...st, captionHide: st.captionHide.filter((_, i) => i !== index) }))}
@@ -2527,7 +2545,7 @@ export function Studio(props: StudioProps) {
                 obstacles={obstacles}
                 snap={snap}
                 canEdit={canEdit}
-                notes={{ zoom: styleZooms ? "Automáticos del estilo" : "Sin zooms", fx: "Arrastra un efecto o una transición desde la Biblioteca", broll: "Elige un tramo en la pista de video para poner b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Arrastra sonidos desde la Biblioteca" : undefined, voice: proxyUrl ? "Preparando la forma de onda de tu voz…" : undefined, music: musicLabel ? "Leyendo la música…" : "Elige música en la Biblioteca o en Audio y música" }}
+                notes={{ layers: "Arrastra gráficos, efectos o animaciones desde la Biblioteca: van encima del video", zoom: styleZooms ? "Automáticos del estilo" : "Sin zooms", fx: "Arrastra un efecto o una transición desde la Biblioteca", broll: "Elige un tramo en la pista de video para poner b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Arrastra sonidos desde la Biblioteca" : undefined, voice: proxyUrl ? "Preparando la forma de onda de tu voz…" : undefined, music: musicLabel ? "Leyendo la música…" : "Elige música en la Biblioteca o en Audio y música" }}
                 onSeek={(t) => seek(t, Boolean(videoEl() && !videoEl()!.paused))}
                 onSelect={(sel) => (setMulti([]), select(sel))}
                 multi={multi}

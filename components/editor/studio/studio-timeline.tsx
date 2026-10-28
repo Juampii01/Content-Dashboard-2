@@ -120,7 +120,9 @@ export type LibraryDrop =
   /** Un efecto de Mis efectos (animación guardada): va a la pista Animaciones con su duración típica. */
   | { type: "mine"; id: string; name: string; duration: number }
   /** Un clip o una imagen de tu biblioteca: va a la pista B-roll con su largo (las imágenes, 3 s). */
-  | { type: "clip"; option: SignedOption };
+  | { type: "clip"; option: SignedOption }
+  /** Un texto a mano con su estilo (lib/video/text-presets.ts): va a la pista B-roll, 2,5 s ajustado a palabras. */
+  | { type: "text"; preset: string };
 export const LIBRARY_MIME = "application/x-content2-studio";
 
 /** Lo que se está arrastrando desde la Biblioteca (para dibujar su sombra mientras se arrastra: el navegador no deja leer los datos antes de soltar). */

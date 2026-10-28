@@ -25,6 +25,7 @@ import type { BrollOption, VideoFormat } from "./types";
 
 export const TEXT_PRESET_KEYS = ["title", "titleBox", "subtitle", "pill", "number", "quote", "marker", "strike", "cta", "lowerThird", "typewriter", "neon"] as const;
 export type TextPresetKey = (typeof TEXT_PRESET_KEYS)[number];
+export const isTextPreset = (v: unknown): v is TextPresetKey => typeof v === "string" && (TEXT_PRESET_KEYS as readonly string[]).includes(v);
 
 /** Qué cambia el color que elige la persona: el texto, el destacado (marcador, etiqueta, botón) o la caja. */
 type ColorRole = "text" | "accent" | "box";

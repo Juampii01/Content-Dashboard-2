@@ -8,7 +8,7 @@ import { clearChat, loadChat, saveChat, type ChatMessage, type ChatThread } from
 import { isDenied, requireEditor } from "@/lib/auth";
 import { ComposRequestError, planWholeVideo, startStudioRequest, startWholeVideo, type WholePlan } from "@/lib/video/compos/flows";
 import { composStatus, type ComposStatus } from "@/lib/video/compos/service";
-import { ackRequests, cancelRequest } from "@/lib/video/compos/requests";
+import { ackRequests, activeLongRequest, cancelRequest, LONG_BUSY_MESSAGE } from "@/lib/video/compos/requests";
 import { loadProject } from "@/lib/video/service";
 import { readBytes } from "@/lib/storage";
 import { videoChatConversation } from "@/lib/video/chat-conversation";
@@ -169,6 +169,8 @@ export async function wholeFromChatAction(projectId: string, input: { layout: z.
   const prompt = String(input?.prompt ?? "").trim().slice(0, 1500);
   if (!idSchema.safeParse(projectId).success || !layout.success || prompt.length < 3) return { ok: false, error: "Pedido no válido." };
   try {
+    // Si ya se está creando o rehaciendo la pieza de todo el video, no se lanza otra (cada una cuesta varios dólares).
+    if (await activeLongRequest(projectId)) return { ok: false, error: LONG_BUSY_MESSAGE };
     const conversation = await videoChatConversation(projectId);
     const project = await loadProject(projectId);
     const long = (((project?.plan as { compositions?: { id: string; long?: boolean; from_word: number; to_word: number }[] } | null)?.compositions) ?? []).find((c) => c.long);

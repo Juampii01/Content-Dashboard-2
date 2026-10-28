@@ -34,7 +34,7 @@ import type { DirectorState } from "../director/types";
 import type { EditPlan, Word } from "../types";
 import { compositionSchema, type Composition } from "./schema";
 import { fakeAdapt, fakeKeyMoments, fakeRecipe, fakeRequestPlan } from "./fake";
-import { activeCount, enqueueRequest, MAX_ACTIVE } from "./requests";
+import { activeCount, activeLongRequest, enqueueRequest, LONG_BUSY_MESSAGE, MAX_ACTIVE } from "./requests";
 import { frameFor, loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type WorkCtx } from "./work";
 
 /**
@@ -452,6 +452,8 @@ export async function startStudioRequest(
     wait: full,
     // Un cambio sobre la pieza única la vuelve a escribir entera: reserva lo que cuesta una pieza larga.
     longSeconds: base?.long ? Math.max(1, ...(base.scenes ?? []).map((sc) => sc.end)) : null,
+    // Y como la reescribe entera, no puede correr junto a otra pieza de todo el video (se pagarían las dos).
+    exclusiveLong: Boolean(base?.long),
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
       if (refs.length) task.refs = refs;
@@ -614,6 +616,8 @@ export async function planWholeVideo(projectId: string, input: { mode: WholeMode
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
   if (!aiConfigured()) throw new ComposRequestError("Falta configurar la IA en esta instalación.");
+  // Antes de gastar en el plan: si ya se está creando una pieza de todo el video, no se arma otra.
+  if (await activeLongRequest(projectId)) throw new ComposRequestError(LONG_BUSY_MESSAGE);
   const words = keptWords(ctx);
   if (words.length < 4) throw new ComposRequestError("El video tiene muy poco texto para armar animaciones.");
   const count = wholeCount(input.mode, ctx.timeline.duration);
@@ -696,6 +700,7 @@ export async function startWholeVideo(projectId: string, plan: { mode: WholeMode
     spent: ctx.spent,
     needsPlan: true,
     longSeconds: Math.max(1, piece.end - piece.start),
+    exclusiveLong: true,
     build: (lookRounds) => {
       const task = newTask({ from_word: from, to_word: to, brief: instruction, source: "user", request: instruction });
       task.long = true;

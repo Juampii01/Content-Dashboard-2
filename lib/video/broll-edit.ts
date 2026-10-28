@@ -81,6 +81,8 @@ export const brollEditSchema = z.object({
   end_delta: z.number().min(-3).max(3).default(0),
   /** Segundo del clip desde el que se ve. */
   clip_start: z.number().min(0).max(600).default(0),
+  /** Velocidad del clip (solo videos): 0,25× es cámara lenta, 2× acelerado. 1 = como se grabó. */
+  speed: z.number().min(0.25).max(4).default(1),
   transition: z.enum(TRANSITIONS).default("fade"),
   /**
    * Solo gráficos: dónde va (corrimiento, tamaño y rotación) y cómo entra y sale, desde el lienzo de la revisión
@@ -554,6 +556,8 @@ export type BrollRenderEdit = {
   fadeOut?: number;
   clipStart: number;
   zoom: { from: number; seconds: number } | null;
+  /** Velocidad del clip (solo videos, distinta de 1). Sin el campo, a velocidad normal. */
+  speed?: number;
   /**
    * Solo imágenes con movimiento o fondo desenfocado: el encaje, el recorrido de la cámara (`motionAt`) y el
    * desenfoque. Sin esto (fotos de planes de antes, videos y gráficos), como siempre.
@@ -617,6 +621,7 @@ export function brollRenderEdit(input: {
     fade: fadeSeconds(edit.transition, duration),
     clipStart: edit.clip_start,
     zoom: edit.transition === "zoom" ? { from: TRANSITION_TIMING.zoomFrom, seconds: TRANSITION_TIMING.zoomSeconds } : null,
+    ...(!input.image && edit.speed !== 1 ? { speed: edit.speed } : {}),
     ...(photo ? { photo: { ...photo, blur: { ...PHOTO_BLUR } } } : {}),
   };
 }
@@ -637,7 +642,26 @@ export function editSummary(edit: BrollEdit, format: VideoFormat): string | null
   if (edit.frame.zoom > 1 || edit.frame.x !== 0 || edit.frame.y !== 0) parts.push("Encuadre");
   if (edit.transition !== "fade") parts.push(TRANSITION_LABELS[edit.transition]);
   if (edit.start_delta !== 0 || edit.end_delta !== 0 || edit.clip_start !== 0) parts.push("Tiempo");
+  if (edit.speed !== 1) parts.push(`${speedLabel(edit.speed)}`);
   if (edit.motion && edit.motion.kind !== "none") parts.push("Con movimiento");
   if (edit.fit === "blur") parts.push(FIT_LABELS.blur);
   return parts.length ? parts.join(" · ") : null;
+}
+
+// ─── Velocidad ────────────────────────────────────────────────────────────
+
+export const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3] as const;
+
+/** «0,5×», «2×». */
+export function speedLabel(speed: number): string {
+  return `${String(Math.round(speed * 100) / 100).replace(".", ",")}×`;
+}
+
+/**
+ * Segundo del clip que se ve a `elapsed` segundos de empezado el tramo, con la velocidad y el punto de inicio (lo mismo
+ * que hace el worker con `setpts`). Si el clip es más corto que lo que hace falta, vuelve a empezar (como el render).
+ */
+export function clipTimeAt(elapsed: number, clipStart: number, speed: number, clipDuration: number | null): number {
+  const raw = Math.max(0, elapsed) * speed + clipStart;
+  return clipDuration && Number.isFinite(clipDuration) && clipDuration > 0 && raw >= clipDuration ? raw % clipDuration : raw;
 }

@@ -175,3 +175,33 @@ def test_graph_without_edit_is_the_old_one() -> None:
     assert "split" not in graph and "lutyuv" not in graph
     cut, _, _ = render.framing_graph(1080, 1920, "9:16", 0, None, Path("."), broll=[{"input": 2, "start": 1.0, "end": 3.0, "edit": {"fade": 0, "opacity": 0.6}}])
     assert "fade=" not in cut and "lutyuv=a='val*0.600'" in cut
+
+
+def test_velocidad_del_clip(tmp_path) -> None:
+    """A 2× el tramo recorre el doble de clip: en un contador de cuadros, el último cuadro muestra el doble."""
+    import subprocess
+
+    import numpy as np
+
+    from video import render
+
+    src = tmp_path / "contador.mp4"
+    # Un video donde el brillo sube con el tiempo (0 → 255 en 8 s): así se mide qué segundo del clip se ve.
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=black:size=320x568:rate=30:duration=8", "-vf", "geq=lum='min(255,T*32)':cb=128:cr=128", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(src)],
+        check=True,
+    )
+
+    def last_luma(edit: dict | None) -> float:
+        out = render.prepare_broll(src, tmp_path / f"o-{(edit or {}).get('speed', 1)}.mp4", 2.0, (320, 568), 0.0, edit)
+        raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-sseof", "-0.1", "-i", str(out), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"], check=True, capture_output=True).stdout
+        return float(np.frombuffer(raw, dtype=np.uint8).mean())
+
+    base = {"layout": "full", "box": {"x": 0, "y": 0, "w": 320, "h": 568}, "frame": {"x": 0, "y": 0, "zoom": 1}}
+    normal = last_luma(base)
+    fast = last_luma({**base, "speed": 2})
+    # El brillo sube parejo con el tiempo del clip: a 2× el último cuadro del tramo muestra casi el doble de segundos.
+    assert normal > 30, f"a 1× ya pasaron ~2 s ({normal})"
+    assert 1.8 < fast / normal < 2.4, f"a 2× se ve el doble de clip ({normal} → {fast})"
+    assert broll_edit.speed_of({"speed": 99}) == 4.0
+    assert broll_edit.speed_of(None) == 1.0

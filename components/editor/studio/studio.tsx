@@ -1,5 +1,6 @@
 "use client";
 
+import { gradeMatrix } from "@/lib/video/grade";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, AudioLines, BarChart3, Bot, Captions, Film, Flag, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
@@ -2496,6 +2497,7 @@ export function Studio(props: StudioProps) {
                   focusY={style?.focusY ?? 0.42}
                   brandAccent={graphicLook.theme.accent}
                   brandGround={graphicLook.theme.bg}
+                  grade={gradeMatrix(s.grade, graphicLook.theme.accent)}
                   effects={previewSpecs}
                   order={previewOrder}
                   fxStrips={fxStrips}

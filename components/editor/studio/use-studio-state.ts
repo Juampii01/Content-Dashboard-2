@@ -1,5 +1,6 @@
 "use client";
 
+import type { Grade } from "@/lib/video/grade";
 import type { SeqRange } from "@/lib/video/sequence";
 import { useCallback, useMemo, useState } from "react";
 import { planDensity, type Density, type RhythmAddition } from "@/lib/video/rhythm";
@@ -74,6 +75,8 @@ export type StudioState = {
   musicFade: MusicFade;
   /** Marcadores con nota (tecla M). */
   markers: Marker[];
+  /** Color del video principal (null = sin cambios de color). */
+  grade: Grade | null;
 };
 
 export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_INTEGER): StudioState {
@@ -116,6 +119,7 @@ export function initialStudioState(plan: EditPlan, wordCount = Number.MAX_SAFE_I
     mix: plan.audio.mix ?? NO_MIX,
     musicFade: musicFade(plan.audio.music_fade),
     markers: plan.markers ?? [],
+    grade: plan.grade ?? null,
   };
 }
 
@@ -188,6 +192,7 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
     mix: s.mix,
     musicFade: s.musicFade,
     markers: s.markers,
+    grade: s.grade,
     ...(s.rhythmTouched ? { rhythm: { density: s.density, added: s.rhythmLog, zoomMoments: s.zoomMoments, longPause: s.pacing?.long_pause ?? 0.5, emphasis: s.emphasis } } : {}),
   };
 }

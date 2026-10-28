@@ -8,6 +8,7 @@ import type { WordSpan } from "@/lib/video/studio";
 import { formatNumber } from "@/lib/format";
 import { editAction } from "../director-actions";
 import { suggestTrimAction } from "../edit-actions";
+import { ColorPanel } from "./color-panel";
 import type { StudioApi } from "./types";
 
 const EDIT_ALL = "Edita todo el video sin cambiar el orden ni traer frases de otra parte: corta los silencios y las tomas malas, pon subtítulos con mi estilo, b-roll, gráficos y animaciones donde sumen, y el sonido.";
@@ -94,6 +95,8 @@ export function EditPanel({
       {parts}
 
       {framing}
+
+      <ColorPanel api={api} accent={props.graphicLook.theme.accent} />
 
       <Tool icon={<Sparkles className="h-4 w-4" aria-hidden />} title="Añadir en este momento" text={hereLabel}>
         <div className="grid grid-cols-2 gap-1.5">

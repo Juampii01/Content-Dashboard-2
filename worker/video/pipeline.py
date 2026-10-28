@@ -410,6 +410,9 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
     overlays += [{"input": 2 + len(broll_items) + i, "start": f["start"], "end": min(f["end"], expected), "edit": FX_EDIT, "z": f.get("z", 0)} for i, f in enumerate(fx_layers)]
     overlays = fx.overlay_order(overlays)
     emoji_base = 2 + len(broll_items) + len(fx_layers)
+    # Color del video principal: la matriz de la app escrita como LUT 3D (igual que el look del b-roll).
+    grade = data.get("grade")
+    grade_lut = broll_edit.write_cube([float(v) for v in grade], out_dir / "grade.cube") if isinstance(grade, list) and len(grade) == 12 else None
     graph, _, _ = render.framing_graph(
         media["width"],
         media["height"],
@@ -421,6 +424,7 @@ def compose(ctx: JobContext, project: dict[str, Any], data: dict[str, Any], *, p
         focus_y=float((data.get("framing") or {}).get("focusY", 0.42)),
         broll=overlays,
         stickers=[{**s, "input": emoji_base + i} for i, s in enumerate(stickers)],
+        grade_lut=grade_lut,
     )
     return {
         "joined": joined,

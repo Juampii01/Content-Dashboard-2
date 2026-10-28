@@ -1,5 +1,6 @@
 "use server";
 
+import { gradeSchema } from "@/lib/video/grade";
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -194,6 +195,8 @@ const reviewSchema = z.object({
   mix: mixSchema.optional(),
   musicFade: musicFadeSchema.optional(),
   markers: markerListSchema.optional(),
+  // Color del video principal (applyReview lo vuelve a limpiar con cleanGrade).
+  grade: gradeSchema.nullable().optional(),
   // Lo que mostraba la vista previa al exportar (el servidor no exporta si su timeline no da lo mismo).
   preview: z
     .object({

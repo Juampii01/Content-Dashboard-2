@@ -4,6 +4,7 @@
  * Validaciones: los ids existen, los cortes no se superponen (se unen), los ganchos duran de 3 a 8 s
  * y no caen sobre lo cortado, y la duración final se compara con el objetivo del formato.
  */
+import { gradeSchema } from "./grade";
 import { z } from "zod";
 import type { PlanAiOutput } from "@/lib/ai/prompts/editor";
 import { sentences } from "@/lib/ai/prompts/editor";
@@ -128,6 +129,8 @@ export const planSchema = z.object({
   }),
   /** Marcadores con nota (lib/video/markers.ts). No cambian el render. */
   markers: markerListSchema.optional(),
+  /** Color del video principal (lib/video/grade.ts). Sin el campo, sin cambios de color. */
+  grade: gradeSchema.optional(),
   framing: z.object({ mode: z.enum(["center", "manual"]), offset_x: z.number().min(-1).max(1) }),
   off_script: z.array(z.number().int().min(0)).max(20000),
   summary: z.string().max(1000),

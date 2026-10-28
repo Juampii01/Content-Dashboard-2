@@ -141,9 +141,30 @@ class Worker:
         if changed_stage and self.current and time.monotonic() - self.last_progress > 0.3:
             with self.side_lock:
                 if self.current and self.pending_progress:
-                    db.progress(self.side, self.current["id"], self.config.worker_id, *self.pending_progress)
+                    try:
+                        db.progress(self.side, self.current["id"], self.config.worker_id, *self.pending_progress)
+                    except psycopg.Error:
+                        # Se corta la conexión lateral: el progreso queda pendiente y el hilo lateral reconecta y lo escribe.
+                        return
                     self.pending_progress = None
                     self.last_progress = time.monotonic()
+
+    def reconnect(self) -> None:
+        """Nueva conexión principal (Neon reinició el cómputo o se cortó la red). Si tampoco se puede, sigue la vieja."""
+        try:
+            self.conn = db.connect(self.config.database_url)
+        except psycopg.Error as exc:
+            log.warning("no se pudo reconectar a la base (%s)", exc.__class__.__name__)
+
+    def with_db(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Cierra un trabajo en la base; si la conexión se cayó, reconecta una vez y reintenta. Así un corte de la base
+        al final de un render no tumba el worker ni hace repetir (y cobrar dos veces) el trabajo entero."""
+        try:
+            return fn(self.conn, *args)
+        except psycopg.OperationalError as exc:
+            log.warning("la base no respondió al cerrar el trabajo (%s); reconecto", exc.__class__.__name__)
+            self.reconnect()
+            return fn(self.conn, *args)
 
     # ─── Bucle principal ───────────────────────────────────────────────────
 
@@ -162,7 +183,7 @@ class Worker:
                 except psycopg.Error as exc:
                     log.warning("no se pudo consultar la cola (%s); reintento en 10 s", exc.__class__.__name__)
                     self.shutdown.wait(10)
-                    self.conn = db.connect(self.config.database_url)
+                    self.reconnect()
                     continue
                 if job:
                     self.process(job)
@@ -214,28 +235,29 @@ class Worker:
             output = handler(ctx)
             with self.side_lock:
                 self.current = None
-            db.succeed(self.conn, job["id"], self.config.worker_id, output)
+            if not self.with_db(db.succeed, job["id"], self.config.worker_id, output):
+                log.info("trabajo %s terminó, pero ya no estaba en curso (cancelado): no se marca como listo", job["id"])
             log.info("trabajo %s listo en %.1f s", job["id"], time.monotonic() - started)
             self.app.notify()
         except Cancelled:
             with self.side_lock:
                 self.current = None
             if self.shutdown.is_set():
-                db.release(self.conn, job, self.config.worker_id)
+                self.with_db(db.release, job, self.config.worker_id)
                 log.info("trabajo %s devuelto a la cola por apagado", job["id"])
             else:
                 log.info("trabajo %s cancelado", job["id"])
         except Shutdown:
             with self.side_lock:
                 self.current = None
-            db.release(self.conn, job, self.config.worker_id)
+            self.with_db(db.release, job, self.config.worker_id)
         except JobError as exc:
             with self.side_lock:
                 self.current = None
             log.error("trabajo %s falló: %s", job["id"], exc.detail or exc.user_message)
-            retried = db.fail(self.conn, job, self.config.worker_id, exc.user_message, exc.retry)
-            log.info("→ %s", "se reintentará" if retried else "falló definitivamente")
-            if not retried:
+            retried = self.with_db(db.fail, job, self.config.worker_id, exc.user_message, exc.retry)
+            log.info("→ %s", "ya no estaba en curso" if retried is None else "se reintentará" if retried else "falló definitivamente")
+            if retried is False:
                 self.final_failure(job, exc.user_message)
                 self.app.notify()
         except Exception as exc:  # noqa: BLE001 — cualquier error inesperado se reintenta
@@ -243,7 +265,7 @@ class Worker:
                 self.current = None
             log.exception("trabajo %s: error inesperado", job["id"])
             message = "Falló el procesamiento del video. Si vuelve a pasar, avísale a soporte."
-            if not db.fail(self.conn, job, self.config.worker_id, message, True):
+            if self.with_db(db.fail, job, self.config.worker_id, message, True) is False:
                 self.final_failure(job, message)
                 self.app.notify()
             del exc

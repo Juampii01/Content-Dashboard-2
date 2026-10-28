@@ -200,10 +200,30 @@ def compos_job(ctx: JobContext) -> dict[str, Any]:
     ctx.stage("Creando animaciones", 0.0, 0.95)
     done: list[str] = []
     failed: list[str] = []
+    running: dict[Future[str | None], tuple[str | None, str]] = {}
+    try:
+        _run_parallel(ctx, project, own, pid, running, done, failed)
+    finally:
+        # Si se cortó todo (apagado, cancelación del pedido principal o un error), los pedidos adoptados que no
+        # terminaron vuelven a la cola enseguida: si no, quedarían "en curso" las 2 horas de su lease.
+        for job_id, _wid in running.values():
+            if job_id:
+                try:
+                    with DBLOCK:
+                        db.release(ctx.conn, {"id": job_id}, ctx.config.worker_id)
+                except Exception:  # noqa: BLE001
+                    log.exception("no se pudo devolver a la cola el trabajo %s", job_id)
+    return {"done": done, "failed": failed}
+
+
+def _run_parallel(ctx: JobContext, project: dict[str, Any], own: str, pid: str, running: dict[Future[str | None], tuple[str | None, str]], done: list[str], failed: list[str]) -> None:
+    from comunes import db  # noqa: PLC0415
+
     with ThreadPoolExecutor(max_workers=PARALLEL, thread_name_prefix="pedido") as pool:
-        running: dict[Future[str | None], tuple[str | None, str]] = {pool.submit(_one, ctx, project, own): (None, own)}
-        while running:
-            # Más pedidos del mismo video en cola: se toman mientras haya lugar.
+        running[pool.submit(_one, ctx, project, own)] = (None, own)
+        while True:
+            # Más pedidos del mismo video en cola: se toman mientras haya lugar (también cuando terminaron todos los
+            # que corrían a la vez: antes el bucle salía ahí y los que seguían en cola esperaban otra vuelta).
             while len(running) < PARALLEL and not ctx_stopped():
                 with DBLOCK:
                     job = db.adopt_compos(ctx.conn, ctx.config.worker_id, pid, ADOPT_LEASE)
@@ -212,6 +232,8 @@ def compos_job(ctx: JobContext) -> dict[str, Any]:
                 wid = str((job.get("input") or {}).get("workId") or "")
                 log.info("pedido %s en paralelo (trabajo %s)", wid, job["id"])
                 running[pool.submit(_one, ctx, project, wid)] = (str(job["id"]), wid)
+            if not running:
+                break
             finished, _ = wait(list(running), timeout=2.0, return_when=FIRST_COMPLETED)
             for fut in finished:
                 job_id, wid = running.pop(fut)
@@ -220,7 +242,6 @@ def compos_job(ctx: JobContext) -> dict[str, Any]:
                 if job_id:
                     with DBLOCK:
                         db.finish_adopted(ctx.conn, job_id, ctx.config.worker_id, error)
-    return {"done": done, "failed": failed}
 
 
 def ctx_stopped() -> bool:

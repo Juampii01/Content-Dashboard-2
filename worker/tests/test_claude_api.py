@@ -239,7 +239,66 @@ def test_cancelar_corta_la_respuesta_y_devuelve_lo_cobrado() -> None:
     assert err["usage"]["input_tokens"] == 9000, "vuelve lo que se cobró hasta el corte"
 
 
+def test_apagado_a_mitad_lleva_lo_cobrado_en_la_excepcion() -> None:
+    """Un deploy (SIGTERM) a mitad de la respuesta: Cancelled lleva el consumo para que el director lo registre."""
+    import time
+
+    from comunes.errors import Cancelled
+    from comunes.ffmpeg import stop_event
+
+    class Slow(BaseHTTPRequestHandler):
+        def log_message(self, *a: Any) -> None:  # noqa: D401
+            pass
+
+        def do_POST(self) -> None:  # noqa: N802
+            self.rfile.read(int(self.headers.get("content-length") or 0))
+            self.send_response(200)
+            self.send_header("content-type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(ev("message_start", {"message": {"id": "m", "model": "claude-opus-5-5", "content": [], "usage": {"input_tokens": 7000, "output_tokens": 1}}}))
+            try:
+                for i in range(40):
+                    self.wfile.write(ev("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "x" * 40}}))
+                    self.wfile.flush()
+                    if i == 3:
+                        stop_event.set()
+                    time.sleep(0.2)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(Cancelled) as err:
+            claude_api.stream_message(f"http://127.0.0.1:{server.server_address[1]}", FAKE_KEY, BODY, sleep=lambda s: None)
+    finally:
+        stop_event.clear()
+        server.shutdown()
+    assert err.value.usage["input_tokens"] == 7000  # type: ignore[attr-defined]
+
+
 def test_sin_cancelar_termina_normal(api: Api) -> None:
     api.script.append((200, sse(CODE, "end_turn"), {}))
     out = claude_api.stream_message(api.url, FAKE_KEY, BODY, sleep=lambda s: None, should_stop=lambda: False)
     assert out["result"]["stop_reason"] == "end_turn"
+
+
+def test_el_director_registra_lo_cobrado_de_una_llamada_cortada() -> None:
+    from video import director
+
+    sent: list[dict[str, Any]] = []
+
+    class App:
+        def director(self, pid: str, body: dict[str, Any]) -> dict[str, Any]:
+            sent.append(body)
+            return {}
+
+    class Ctx:
+        app = App()
+
+    director._report_cut_usage(Ctx(), "p1", {"taskId": "T1", "call": "c1"}, {"workId": "w1"}, {"input_tokens": 10, "output_tokens": 500})
+    director._report_cut_usage(Ctx(), "p1", {"taskId": "T1", "call": "c1"}, {}, None)
+    assert len(sent) == 1
+    body = sent[0]
+    assert body["step"] == "compos-ai-done" and body["workId"] == "w1"
+    assert body["remote"]["error"]["usage"]["output_tokens"] == 500 and body["remote"]["taskId"] == "T1"

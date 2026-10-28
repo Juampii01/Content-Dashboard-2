@@ -133,12 +133,28 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
             # El código de una pieza larga (o de una que se cortó en la app): la llamada a Claude la hace el worker, sin
             # el límite de 13 minutos de la función. Corre en paralelo con otros pedidos (no toma el candado).
             ctx.stage(str(nxt.get("label") or "Programando la animación")[:120], a, b)
-            done = claude_api.run_call(ctx, pid, nxt, extra)
+            try:
+                done = claude_api.run_call(ctx, pid, nxt, extra)
+            except Cancelled as exc:
+                _report_cut_usage(ctx, pid, nxt, extra, getattr(exc, "usage", None))
+                raise
             res = ctx.app.director(pid, {"step": "compos-ai-done", "remote": done, **extra})
         else:
             ctx.stage(str(nxt.get("label") or STEP_LABELS.get(step, "Dirigiendo la edición"))[:120], a, b)
             res = ctx.app.director(pid, {"step": step, **extra})
     raise JobError("El director de edición no terminó. Vamos a reintentarlo.", detail="demasiados pasos")
+
+
+def _report_cut_usage(ctx: Any, pid: str, nxt: dict[str, Any], extra: dict[str, Any], usage: dict[str, int] | None) -> None:
+    """Una llamada larga a Claude cortada por un apagado (deploy) o una cancelación: se le manda a la app lo que alcanzó
+    a generar para que quede en el consumo y en el tope del video. Nunca frena el apagado."""
+    if not usage or not usage.get("output_tokens"):
+        return
+    remote = {"taskId": str(nxt.get("taskId") or ""), "call": str(nxt.get("call") or ""), "error": {"source": "network", "message": "El servicio se reinició a mitad de la respuesta.", "usage": usage}}
+    try:
+        ctx.app.director(pid, {"step": "compos-ai-done", "remote": remote, **extra})
+    except Exception:  # noqa: BLE001
+        log.exception("no se pudo registrar el consumo de una llamada cortada")
 
 
 def _sheets_from_frames(frames_bgr: list[np.ndarray], times: list[float], size: tuple[int, int], out_dir: Path, fonts_dir: Path, prefix: str) -> list[tuple[Path, list[int]]]:

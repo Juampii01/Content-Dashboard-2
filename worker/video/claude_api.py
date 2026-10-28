@@ -186,7 +186,11 @@ def stream_message(
                 sleep(wait)
                 continue
             return {"error": {"source": "api", "status": status, "message": message}}
-        except Cancelled:
+        except Cancelled as exc:
+            # Apagado o cancelación a mitad de la respuesta: lo generado ya se cobró. Va en la excepción para que el
+            # director se lo mande a la app antes de cortar (si no, esos tokens no quedaban en el consumo ni en el tope).
+            if stream.started:
+                exc.usage = stream.usage_out()  # type: ignore[attr-defined]
             raise
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
             if stream.started:

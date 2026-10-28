@@ -102,6 +102,8 @@ def download_link(
         "format": "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
         "merge_output_format": "mp4",
         "noplaylist": True,
+        # Solo los extractores de las tres redes: sin el genérico, una URL rara no termina siguiendo redirecciones a cualquier lado.
+        "allowed_extractors": ["youtube.*", "instagram.*", "tiktok.*"],
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,

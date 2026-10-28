@@ -113,3 +113,25 @@ def test_heartbeat_upsert(conn):
     row = conn.execute("SELECT version FROM worker_heartbeats WHERE worker_id = 'test-hb'").fetchone()
     assert row["version"] == "1.1"
     db.goodbye(conn, "test-hb")
+
+
+def test_canceled_while_running_is_not_revived_nor_marked_done(conn):
+    project = add_project(conn)
+    job_id = add_job(conn, project)
+    job = db.claim(conn, "w", TYPES, 60)
+    # La persona cancela mientras el worker trabaja (la app no borra locked_by).
+    conn.execute("UPDATE jobs SET status = 'CANCELED' WHERE id = %s", (job_id,))
+    assert db.fail(conn, job, "w", "Falló algo.", retry=True) is None
+    assert db.fail(conn, job, "w", "Falló algo.", retry=False) is None
+    assert db.succeed(conn, job_id, "w", {"ok": True}) is False
+    row = conn.execute("SELECT status FROM jobs WHERE id = %s", (job_id,)).fetchone()
+    assert row["status"] == "CANCELED"
+    # El video no queda marcado como fallido por un trabajo que ya no corría.
+    assert conn.execute("SELECT status FROM video_projects WHERE id = %s", (project,)).fetchone()["status"] == "PROCESSING"
+
+
+def test_succeed_while_running(conn):
+    job_id = add_job(conn)
+    db.claim(conn, "w", TYPES, 60)
+    assert db.succeed(conn, job_id, "w", {"ok": True}) is True
+    assert conn.execute("SELECT status FROM jobs WHERE id = %s", (job_id,)).fetchone()["status"] == "SUCCEEDED"

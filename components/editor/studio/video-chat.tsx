@@ -236,6 +236,12 @@ export function VideoChat({ api }: { api: StudioApi }) {
     return a && b ? `${mmss(a.start)}–${mmss(b.end)}` : "";
   }
 
+  /** Los videos que van adentro de la animación: los que guardó la acción (siempre) y los adjuntos aún abiertos. */
+  function insideOf(it: VideoChatItem, key: string): string[] {
+    const ids = [...(it.insideClips ?? []), ...clipIdsOf(filesFor(Number(key.split("-")[0])), it.attachments)];
+    return [...new Set(ids)].slice(0, 2);
+  }
+
   async function run(it: VideoChatItem, key: string) {
     const range = { from: it.from_word, to: it.to_word };
     if (it.kind === "editar") {
@@ -264,7 +270,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
       api.tools.clipAt(range, start != null && clip.kind !== "image" ? { ...clip, moment: { start, end: Math.min(clip.duration || start + 8, start + 8), what: it.title } } : clip);
     } else if (it.scope === "todo" && it.kind === "animacion") {
       // Directo, sin pantalla de plan: la animación recibe la charla entera (y los videos para usar dentro).
-      const clips = clipIdsOf(filesFor(Number(key.split("-")[0])), it.attachments);
+      const clips = insideOf(it, key);
       if (!(await api.tools.wholeFromChat(it.prompt, it.layout ?? "full", clips))) return;
     } else if (it.scope === "todo") api.tools.wholeVideo(it.prompt);
     else if (it.kind === "grafico") api.tools.graphicAt(range, it.prompt);
@@ -277,7 +283,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
         const r = await mentionLibraryAction(projectId, clipId);
         if (r.ok && r.attachment.kind === "video") for (const sheet of r.attachment.refs) refs.push({ ...sheet, use: "style", note: `Cuadros del video «${r.attachment.name}» que mandaste de referencia` });
       }
-      const clips = clipIdsOf(filesFor(Number(key.split("-")[0])), it.attachments);
+      const clips = insideOf(it, key);
       api.tools.animationAt(range, it.prompt, refs.length ? refs.slice(0, 4) : undefined, { fromChat: true, ...(clips.length ? { clips } : {}) });
     }
     setDone((d) => new Set(d).add(key));

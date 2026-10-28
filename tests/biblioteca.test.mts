@@ -22,7 +22,7 @@ Object.assign(process.env, {
 });
 
 const F = await import("../lib/video/library-ficha");
-const { chatItems } = await import("../lib/video/chat-library");
+const { chatItems, withClipReferences } = await import("../lib/video/chat-library");
 
 // Dos clips de prueba con su ficha (como la escribiría Claude mirando los cuadros).
 const oficina: import("../lib/video/library-ficha").LibraryEntry & { fileKey: string; thumbKey: string | null } = {
@@ -209,6 +209,46 @@ describe("chat del video con la biblioteca (validación de acciones)", () => {
     const out = chatItems([{ ...base, kind: "video", from_word: 2, to_word: 6, attachments: [{ ref: "A1", use: "broll" }] }], [{ ref: "A1", kind: "image", libraryId: clinica.id }], 39, ids, library);
     assert.equal(out.length, 1);
     assert.deepEqual(out[0]!.attachments, [{ ref: "A1", use: "broll" }]);
+  });
+});
+
+describe("videos de la charla guardados en la acción (adentro, b-roll, estilo)", () => {
+  const base = { scope: "momento" as const, from_word: 2, to_word: 6, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null };
+  const web = { code: "V1", id: oficina.id, kind: "video" as const, reference: false };
+  const ref = { code: "V2", id: clinica.id, kind: "video" as const, reference: true };
+
+  test("«dale» con V1 adentro: la acción guarda el video aunque el navegador ya no tenga el adjunto", () => {
+    const [it] = withClipReferences([{ ...base, kind: "animacion", attachments: [{ ref: "V1", use: "inside" }] }], [web]);
+    assert.deepEqual(it!.insideClips, [oficina.id]);
+    assert.deepEqual(it!.attachments, [], "el código V1 no viaja al navegador: va por id");
+    assert.equal(it!.styleClips, undefined);
+  });
+
+  test("A1 de este mensaje adentro: también se guarda por id de la biblioteca", () => {
+    const [it] = withClipReferences([{ ...base, kind: "animacion", attachments: [{ ref: "A1", use: "inside" }] }], [{ ...web, code: "A1" }]);
+    assert.deepEqual(it!.insideClips, [oficina.id]);
+  });
+
+  test("un video que va adentro no se manda además como referencia de estilo", () => {
+    const [it] = withClipReferences([{ ...base, kind: "animacion", attachments: [{ ref: "V2", use: "inside" }] }], [ref]);
+    assert.deepEqual(it!.insideClips, [clinica.id]);
+    assert.equal(it!.styleClips, undefined);
+  });
+
+  test("la IA no lo marcó pero el pedido nombra V1, o la persona pidió «mi web en la pantalla»: va adentro", () => {
+    const [a] = withClipReferences([{ ...base, kind: "animacion", prompt: "Una laptop 3D donde se reproduce V1 mientras la cámara entra.", attachments: [] }], [web, ref]);
+    assert.deepEqual(a!.insideClips, [oficina.id]);
+    assert.deepEqual(a!.styleClips, [clinica.id], "la referencia sigue de estilo");
+    const [b] = withClipReferences([{ ...base, kind: "animacion", attachments: [] }], [web, ref], "Dale, que se vea mi web en la pantalla");
+    assert.deepEqual(b!.insideClips, [oficina.id]);
+    const [c] = withClipReferences([{ ...base, kind: "animacion", attachments: [] }], [web, ref], "Dale, hazlo así");
+    assert.equal(c!.insideClips, undefined, "sin pedirlo, no se pone adentro");
+  });
+
+  test("b-roll con el video que mandó: la acción guarda la pieza (sirve aunque se recargue la página)", () => {
+    const [it] = withClipReferences([{ ...base, kind: "video", attachments: [{ ref: "A1", use: "broll" }] }], [{ ...web, code: "A1" }], "Dale, pon este video cuando hablo de mi web");
+    assert.equal(it!.clipId, oficina.id);
+    assert.equal(it!.insideClips, undefined);
   });
 });
 

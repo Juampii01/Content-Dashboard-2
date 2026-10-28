@@ -343,6 +343,7 @@ export function Studio(props: StudioProps) {
         edit: sg.edit,
         width: sg.option.width,
         height: sg.option.height,
+        kind: sg.option.kind,
       })),
     [segments, signedOf],
   );

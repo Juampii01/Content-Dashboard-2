@@ -47,6 +47,8 @@ export type PreviewBroll = {
   /** Tamaño del clip (para el recorte y la forma de la tarjeta). */
   width?: number;
   height?: number;
+  /** "image": una foto de la biblioteca (con su movimiento y su encaje). */
+  kind?: "video" | "image";
 };
 
 /**
@@ -581,7 +583,8 @@ function SyncedBroll({ item, out, playing, format, accent, pxScale }: { item: Pr
       className="pointer-events-none"
       edit={item.edit ?? DEFAULT_EDIT}
       format={format}
-      media={{ previewUrl: item.previewUrl, thumbUrl: item.thumbUrl, width: item.width ?? 0, height: item.height ?? 0 }}
+      media={{ previewUrl: item.previewUrl, thumbUrl: item.thumbUrl, width: item.width ?? 0, height: item.height ?? 0, kind: item.kind }}
+      seed={item.id}
       accent={accent}
       time={Math.max(0, out - item.start)}
       duration={item.end - item.start}

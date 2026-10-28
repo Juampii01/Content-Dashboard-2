@@ -9,18 +9,26 @@ import { formatDuration } from "@/lib/format";
 import {
   CARD_POSITIONS,
   DEFAULT_EDIT,
+  FIT_LABELS,
   LAYOUT_LABELS,
   layoutsFor,
   LOOK_PRESETS,
   lookMatrix,
   matchingPreset,
+  MOTION_KINDS,
+  MOTION_LABELS,
+  motionSchema,
+  PHOTO_DEFAULTS,
   presetLook,
+  resolveMotionKind,
   svgMatrixValues,
   TRANSITION_LABELS,
   TRANSITIONS,
   type BrollEdit,
   type BrollLayout,
   type CardPosition,
+  type MotionKind,
+  type PhotoFit,
 } from "@/lib/video/broll-edit";
 import type { VideoFormat } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
@@ -29,7 +37,10 @@ import { brollAlpha, brollGeometry, clipAspectOf, graphicSideGeometry } from "@/
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
 import { GraphicCanvas } from "./graphic-canvas";
 
-type Group = "ubicacion" | "encuadre" | "look" | "tiempo";
+type Group = "ubicacion" | "movimiento" | "encuadre" | "look" | "tiempo";
+
+/** "Restablecer": lo de siempre; una foto vuelve a lo de las fotos nuevas (movimiento automático, fondo desenfocado). */
+const resetEdit = (isImage: boolean): BrollEdit => (isImage ? { ...DEFAULT_EDIT, ...PHOTO_DEFAULTS } : DEFAULT_EDIT);
 
 /**
  * "Editar b-roll": ubicación, encuadre, look y tiempo de una toma, con vista previa en vivo (arrastrar sobre el clip
@@ -60,6 +71,8 @@ type BrollEditProps = {
   posterFit?: "cover" | "contain";
   posterX?: number;
   title: string;
+  /** Id del b-roll: decide qué hace "Automático" en una foto. */
+  seed?: string;
 };
 
 export function BrollEditPanel(props: BrollEditProps & { open: boolean; onClose: () => void }) {
@@ -73,7 +86,7 @@ export function BrollEditPanel(props: BrollEditProps & { open: boolean; onClose:
       className="max-w-4xl"
       footer={
         <>
-          <Button variant="subtle" icon={<RotateCcw className="h-4 w-4" aria-hidden />} onClick={() => onChange(DEFAULT_EDIT)}>
+          <Button variant="subtle" icon={<RotateCcw className="h-4 w-4" aria-hidden />} onClick={() => onChange(resetEdit(props.media.kind === "image"))}>
             Restablecer
           </Button>
           <Button icon={<Check className="h-4 w-4" aria-hidden />} onClick={onClose}>
@@ -108,14 +121,18 @@ export function BrollEditBody({
   graphic = null,
   posterFit = "cover",
   posterX = 0,
+  seed = "",
   inline = false,
 }: BrollEditProps & { inline?: boolean }) {
   // El cuadro de la vista previa se mide al montarse (en el diálogo, al abrirse).
   const open = true;
+  const isImage = !isGraphic && media.kind === "image";
   const [group, setGroup] = useState<Group>(isGraphic ? "tiempo" : "ubicacion");
   const [replay, setReplay] = useState<number | null>(null);
+  // "Ver el movimiento" reproduce el tramo entero (como se verá); "Ver la entrada", solo el comienzo.
+  const [replayMotion, setReplayMotion] = useState(false);
   // "Ver la entrada": 1,2 s de un clip; un gráfico se ve entero (con su salida).
-  const replayLength = isGraphic ? Math.min(8, span ? span.end - span.start : 3) : 1.2;
+  const replayLength = isGraphic ? Math.min(8, span ? span.end - span.start : 3) : replayMotion ? Math.min(12, span ? span.end - span.start : 3) : 1.2;
   const frame = useRef<HTMLDivElement>(null);
   const [frameH, setFrameH] = useState(0);
   const H = format === "9:16" ? 1920 : 1080;
@@ -145,6 +162,17 @@ export function BrollEditBody({
   }, [replay == null]);
 
   const set = (patch: Partial<BrollEdit>) => onChange({ ...edit, ...patch });
+  const motion = edit.motion ?? motionSchema.parse({});
+  const fit: PhotoFit = edit.fit ?? "cover";
+  const setMotion = (patch: Partial<BrollEdit["motion"] & object>) => onChange({ ...edit, motion: { ...motion, ...patch } });
+  const playMotion = () => {
+    setReplayMotion(true);
+    setReplay(0);
+  };
+  const playEntrance = () => {
+    setReplayMotion(false);
+    setReplay(0);
+  };
   const setLook = (patch: Partial<BrollEdit["look"]>) => onChange({ ...edit, look: { ...edit.look, ...patch } });
   const setFrame = (patch: Partial<BrollEdit["frame"]>) => onChange({ ...edit, frame: { ...edit.frame, ...patch } });
   const person = isGraphic
@@ -159,6 +187,7 @@ export function BrollEditBody({
     ? [{ value: "tiempo", label: "Tiempo" }]
     : [
         { value: "ubicacion", label: "Ubicación" },
+        ...(isImage ? [{ value: "movimiento" as const, label: "Movimiento" }] : []),
         { value: "encuadre", label: "Encuadre" },
         { value: "look", label: "Look" },
         { value: "tiempo", label: "Tiempo" },
@@ -202,9 +231,11 @@ export function BrollEditBody({
                 edit={edit}
                 format={format}
                 media={media}
+                seed={seed}
                 accent={accent}
                 time={replay ?? 99}
-                duration={replay != null ? 99 : 999}
+                // Quieto: el primer cuadro del movimiento (t ≈ 0) y el clip ya entrado.
+                duration={replay != null ? (replayMotion ? replayLength : 99) : 1e6}
                 fades={replay != null}
                 pxScale={frameH / H}
                 loop
@@ -212,7 +243,7 @@ export function BrollEditBody({
               />
             )}
           </div>
-          {!isGraphic && (
+          {!isGraphic && !(isImage && fit === "blur") && (
             <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-muted">
               <Move className="h-3 w-3" aria-hidden /> Arrastra el clip para elegir qué parte se ve.
             </p>
@@ -320,8 +351,51 @@ export function BrollEditBody({
             </div>
           )}
 
+          {group === "movimiento" && isImage && (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-muted">Dale vida a la foto: la cámara se acerca, se aleja o la recorre mientras se ve.</p>
+              <div role="radiogroup" aria-label="Movimiento de la foto" className="grid grid-cols-2 gap-2">
+                {MOTION_KINDS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={motion.kind === k}
+                    onClick={() => {
+                      setMotion({ kind: k });
+                      if (k !== "none") playMotion();
+                    }}
+                    className={cn("rounded-xl border px-3 py-2 text-left text-xs font-semibold text-white transition", motion.kind === k ? "border-accent bg-accent/12" : "border-white/10 hover:border-white/25")}
+                  >
+                    {MOTION_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+              {motion.kind === "auto" && <p className="-mt-2 text-xs text-muted">En esta foto: {MOTION_LABELS[resolveMotionKind("auto", seed) as MotionKind].toLowerCase()}.</p>}
+              {motion.kind !== "none" && (
+                <Slider label="Intensidad" value={motion.amount} min={0.05} max={0.35} step={0.01} onChange={(v) => setMotion({ amount: v })} text={motion.amount < 0.1 ? "Sutil" : motion.amount < 0.22 ? "Media" : "Marcada"} />
+              )}
+              <Row label="Encaje">
+                <SegmentedControl
+                  label="Cómo encaja la foto en su marco"
+                  size="sm"
+                  value={fit}
+                  onValueChange={(v) => set({ fit: v })}
+                  options={(["cover", "blur"] as const).map((f) => ({ value: f, label: FIT_LABELS[f] }))}
+                />
+              </Row>
+              <p className="-mt-2 text-xs text-muted">{fit === "blur" ? "La foto se ve entera, sobre una copia desenfocada de sí misma." : "La foto llena el marco; lo que sobra se recorta."}</p>
+              {motion.kind !== "none" && (
+                <Button size="sm" variant="ghost" className="self-start" icon={<Play className="h-3.5 w-3.5" aria-hidden />} onClick={playMotion}>
+                  Ver el movimiento
+                </Button>
+              )}
+            </div>
+          )}
+
           {group === "encuadre" && (
             <div className="flex flex-col gap-4">
+              {isImage && fit === "blur" && <p className="text-sm text-muted">Con «Fondo desenfocado» la foto se ve entera. Para elegir qué parte se ve, cambia el encaje a «Recortar» en Movimiento.</p>}
               <p className="text-sm text-muted">Si el clip se corta donde no quieres, muévelo o acércalo. También puedes arrastrarlo en la vista previa.</p>
               <Slider label="Horizontal" value={edit.frame.x} min={-1} max={1} step={0.05} onChange={(v) => setFrame({ x: v })} text={edit.frame.x === 0 ? "Centro" : edit.frame.x < 0 ? "Izquierda" : "Derecha"} />
               <Slider label="Vertical" value={edit.frame.y} min={-1} max={1} step={0.05} onChange={(v) => setFrame({ y: v })} text={edit.frame.y === 0 ? "Centro" : edit.frame.y < 0 ? "Arriba" : "Abajo"} />
@@ -405,18 +479,18 @@ export function BrollEditBody({
                   value={isGraphic && edit.transition === "zoom" ? "fade" : edit.transition}
                   onValueChange={(v) => {
                     set({ transition: v });
-                    setReplay(0);
+                    playEntrance();
                   }}
                   options={TRANSITIONS.filter((t) => !isGraphic || t !== "zoom").map((t) => ({ value: t, label: TRANSITION_LABELS[t] }))}
                 />
               </Row>
-              <Button size="sm" variant="ghost" className="self-start" icon={<Play className="h-3.5 w-3.5" aria-hidden />} onClick={() => setReplay(0)}>
+              <Button size="sm" variant="ghost" className="self-start" icon={<Play className="h-3.5 w-3.5" aria-hidden />} onClick={playEntrance}>
                 {isGraphic ? "Ver el gráfico" : "Ver la entrada"}
               </Button>
             </div>
           )}
           {inline && (
-            <Button size="sm" variant="subtle" className="self-start" icon={<RotateCcw className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(DEFAULT_EDIT)}>
+            <Button size="sm" variant="subtle" className="self-start" icon={<RotateCcw className="h-3.5 w-3.5" aria-hidden />} onClick={() => onChange(resetEdit(isImage))}>
               Restablecer este b-roll
             </Button>
           )}

@@ -1,7 +1,25 @@
 "use client";
 
 import { useId, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref } from "react";
-import { brollAlpha, brollGeometry, clipAspectOf, entranceScale, frameCrop, lookMatrix, OUTPUT_SIZE, svgMatrixValues, type BrollEdit, type BrollFrame, type BrollGeometry, type PxBox } from "@/lib/video/broll-edit";
+import {
+  brollAlpha,
+  brollGeometry,
+  clipAspectOf,
+  containSize,
+  entranceScale,
+  frameCrop,
+  lookMatrix,
+  motionAt,
+  motionTransform,
+  OUTPUT_SIZE,
+  PHOTO_BLUR,
+  photoRender,
+  svgMatrixValues,
+  type BrollEdit,
+  type BrollFrame,
+  type BrollGeometry,
+  type PxBox,
+} from "@/lib/video/broll-edit";
 import type { VideoFormat } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 
@@ -9,9 +27,13 @@ import { cn } from "@/lib/utils";
  * Un b-roll de video dibujado con su edición, en HTML y CSS, igual que el render del worker: el marco (pantalla
  * completa, mitad o tarjeta), el recorte del clip (zoom y corrimiento), el look (matriz de color con un filtro SVG en
  * sRGB, el mismo que la LUT 3D del worker), la opacidad con el fundido y el zoom de entrada.
+ *
+ * Una foto puede llevar movimiento (la cámara acerca, aleja o recorre el cuadro base con `motionAt`, igual que la
+ * expresión de ffmpeg del worker) y fondo desenfocado (la foto entera sobre una copia agrandada y desenfocada).
  */
 
-export type BrollMedia = { previewUrl: string | null; thumbUrl: string | null; width: number; height: number };
+/** `kind: "image"`: una foto de la biblioteca (puede llevar movimiento y fondo desenfocado). */
+export type BrollMedia = { previewUrl: string | null; thumbUrl: string | null; width: number; height: number; kind?: "video" | "image" };
 
 const pct = (n: number, total: number) => `${(n / total) * 100}%`;
 
@@ -60,6 +82,7 @@ export function BrollLayer({
   loop = false,
   fades = true,
   onFrameDrag,
+  seed = "",
   className,
 }: {
   edit: BrollEdit;
@@ -78,6 +101,8 @@ export function BrollLayer({
   fades?: boolean;
   /** Arrastrar sobre el clip corre el encuadre (en el editor del b-roll). */
   onFrameDrag?: (frame: BrollFrame) => void;
+  /** Id del b-roll: decide qué hace "Automático" en una foto (lo mismo que en el render). */
+  seed?: string;
   className?: string;
 }) {
   const filterId = `look-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -86,6 +111,11 @@ export function BrollLayer({
   const crop = frameCrop(media.width, media.height, box.w, box.h, edit.frame);
   const alpha = fades ? brollAlpha(edit, time, duration) : edit.look.opacity;
   const zoom = entranceScale(edit.transition, time);
+  // Foto con movimiento o fondo desenfocado: el cuadro base pasa por la cámara en el instante relativo del tramo.
+  const photo = media.kind === "image" ? photoRender(edit, seed) : null;
+  const camera = photo?.motion ? motionTransform(motionAt(photo.motion, duration > 0 ? time / duration : 0)) : null;
+  // En "Fondo desenfocado" la foto se ve entera: el encuadre no se aplica ni se arrastra.
+  const blurFit = photo?.fit === "blur";
   const hasFilter = Boolean(lookMatrix(edit.look, accent));
   const card = geo.card;
   const drag = useRef<{ x: number; y: number; frame: BrollFrame } | null>(null);
@@ -94,7 +124,7 @@ export function BrollLayer({
   const playable = media.previewUrl && failedSrc !== media.previewUrl ? media.previewUrl : null;
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (!onFrameDrag) return;
+    if (!onFrameDrag || blurFit) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { x: e.clientX, y: e.clientY, frame: edit.frame };
   }
@@ -123,7 +153,7 @@ export function BrollLayer({
   };
   return (
     <div
-      className={cn("absolute overflow-hidden", onFrameDrag && "cursor-grab touch-none active:cursor-grabbing", className)}
+      className={cn("absolute overflow-hidden", onFrameDrag && !blurFit && "cursor-grab touch-none active:cursor-grabbing", className)}
       style={{
         ...boxStyle(box, format),
         opacity: alpha,
@@ -137,7 +167,19 @@ export function BrollLayer({
     >
       <LookFilter id={filterId} edit={edit} accent={accent} />
       <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, filter: hasFilter ? `url(#${filterId})` : undefined }}>
-        {playable ? (
+        {photo && media.thumbUrl ? (
+          <div
+            className="absolute inset-0"
+            style={camera ? { transformOrigin: "0 0", transform: `translate(${camera.tx * 100}%, ${camera.ty * 100}%) scale(${camera.scale})`, willChange: "transform" } : undefined}
+          >
+            {blurFit ? (
+              <PhotoWithBlur src={media.thumbUrl} media={media} box={box} pxScale={pxScale} />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={media.thumbUrl} alt="" style={{ ...mediaStyle, objectFit: "cover" }} draggable={false} />
+            )}
+          </div>
+        ) : playable ? (
           <video
             ref={videoRef}
             src={playable}
@@ -160,5 +202,35 @@ export function BrollLayer({
         <div className="pointer-events-none absolute inset-0" style={{ borderRadius: card.radius * pxScale, boxShadow: `inset 0 0 0 ${Math.max(1, card.border * pxScale)}px rgba(255,255,255,${card.borderAlpha})` }} />
       )}
     </div>
+  );
+}
+
+/**
+ * "Fondo desenfocado": la foto entera al centro sobre una copia que cubre el marco, agrandada, desenfocada y
+ * oscurecida (`PHOTO_BLUR`, los mismos números que el gblur y el colorchannelmixer del worker). El desenfoque se mide
+ * en píxeles del video final y se pasa a píxeles de pantalla con `pxScale`.
+ */
+function PhotoWithBlur({ src, media, box, pxScale }: { src: string; media: BrollMedia; box: PxBox; pxScale: number }) {
+  const fg = containSize(media.width, media.height, box.w, box.h);
+  const blurPx = PHOTO_BLUR.sigma * Math.min(box.w, box.h) * pxScale;
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        className="absolute inset-0 h-full w-full max-w-none object-cover"
+        style={{ transform: `scale(${PHOTO_BLUR.overscan})`, filter: `blur(${blurPx}px) brightness(${PHOTO_BLUR.dim})` }}
+        draggable={false}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        className="absolute max-w-none"
+        style={{ left: pct((box.w - fg.w) / 2, box.w), top: pct((box.h - fg.h) / 2, box.h), width: pct(fg.w, box.w), height: pct(fg.h, box.h) }}
+        draggable={false}
+      />
+    </>
   );
 }

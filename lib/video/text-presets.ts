@@ -34,14 +34,14 @@ export const TEXT_PRESETS: Record<TextPresetKey, { label: string; hint: string; 
   titleBox: { label: "Título con fondo", hint: "Sobre una caja que se descubre de lado.", sample: "Paso número uno", role: "box", position: "top" },
   subtitle: { label: "Subtítulo inferior", hint: "Una línea abajo, sobre una franja oscura.", sample: "Lo que nadie te cuenta", role: "text", position: "bottom" },
   pill: { label: "Etiqueta", hint: "Corta, en una píldora con tu color.", sample: "Nuevo", role: "accent", position: "top" },
-  number: { label: "Número gigante", hint: "La cifra cuenta hasta su valor.", sample: "+300%", sub: "más ventas", role: "text", position: "center", subLabel: "Detalle debajo" },
+  number: { label: "Número gigante", hint: "La cifra cuenta hasta su valor.", sample: "+300%", sub: "más ventas", role: "accent", position: "center", subLabel: "Detalle debajo" },
   quote: { label: "Cita", hint: "Una frase entre comillas, palabra por palabra.", sample: "Hecho es mejor que perfecto", sub: "Tu nombre", role: "text", position: "center", subLabel: "Autor", emphasis: true },
   marker: { label: "Resaltado", hint: "Un marcador barre las palabras clave.", sample: "La clave es la constancia", role: "accent", position: "center", emphasis: true },
   strike: { label: "Tachado", hint: "Una línea tacha lo que no va.", sample: "Publicar sin plan", role: "accent", position: "center", emphasis: true },
   cta: { label: "Llamado a la acción", hint: "Un botón que late para que te escriban.", sample: "Escríbeme «GUÍA»", role: "accent", position: "bottom" },
   lowerThird: { label: "Nombre y cargo", hint: "Tu nombre y a qué te dedicas, de lado.", sample: "Ana Gómez", sub: "Coach de ventas", role: "accent", position: "bottom", subLabel: "Cargo" },
   typewriter: { label: "Máquina de escribir", hint: "Las letras aparecen de a una.", sample: "Te lo explico en 30 segundos", role: "text", position: "center" },
-  neon: { label: "Neón", hint: "Brilla con tu color y titila al entrar.", sample: "Abierto", role: "text", position: "center" },
+  neon: { label: "Neón", hint: "Brilla con tu color y titila al entrar.", sample: "Abierto", role: "accent", position: "center" },
 };
 
 export const TEXT_POSITIONS = ["top", "center", "bottom"] as const;
@@ -87,6 +87,8 @@ const INK = "#111111";
 const VIDEO_DARK = "#101114";
 
 const readable = (bg: string) => (contrast(WHITE, bg) >= contrast(INK, bg) ? WHITE : INK);
+/** Tinta sobre el destacado: blanca si se lee (los textos del destacado son grandes y gruesos, piden 3:1). */
+const inkOnAccent = (bg: string) => (contrast(WHITE, bg) >= 3.2 ? WHITE : readable(bg));
 
 /** El color que pidió la persona (o el del estilo) en hex. */
 function pick(color: TextSpec["color"], look: GraphicLook, fallback: string): string {
@@ -110,13 +112,14 @@ function colorsFor(spec: TextSpec, look: GraphicLook): ThemeColors {
   let text = WHITE;
   let accent = look.theme.accent;
   let surface = WHITE;
-  if (spec.preset === "number") text = pick(spec.color, look, brand);
-  else if (spec.preset === "neon") text = pick(spec.color, look, mix(brand, WHITE, 0.25));
+  // La cifra y el neón brillan con el color de la marca (aclarado si sobre el video oscuro no se ve).
+  if (spec.preset === "number") accent = pick(spec.color, look, brand);
+  else if (spec.preset === "neon") accent = pick(spec.color, look, mix(brand, WHITE, 0.25));
   else if (role === "text") text = pick(spec.color, look, WHITE);
   else if (role === "accent") accent = pick(spec.color, look, look.theme.accent);
   else surface = pick(spec.color, look, WHITE);
   if (spec.preset === "subtitle") surface = "#000000";
-  return { bg: VIDEO_DARK, text, accent, accentText: readable(accent), surface, muted: readable(surface) };
+  return { bg: VIDEO_DARK, text, accent, accentText: inkOnAccent(accent), surface, muted: readable(surface) };
 }
 
 // ─── Lugar ────────────────────────────────────────────────────────────────
@@ -173,14 +176,14 @@ function layersFor(spec: TextSpec, vertical: boolean): { layers: Layers; exit: N
     case "subtitle": {
       const b = xw(pos, vertical, 0.84);
       return {
-        layers: [{ type: "text", text, ...b, y, size: 54 * k, minSize: 34, font: "body", weight: 600, leading: 1.2, maxLines: 2, color: "text", box: { fill: "surface@0.62", radius: 14, padX: 28, padY: 14 }, animate: [{ type: "fadeUp", at: 0, dur: 0.45, dist: 22 }] }],
+        layers: [{ type: "text", text, ...b, y, size: 58 * k, minSize: 34, font: "body", weight: 600, leading: 1.2, maxLines: 2, color: "text", box: { fill: "surface@0.62", radius: 14, padX: 28, padY: 14 }, animate: [{ type: "fadeUp", at: 0, dur: 0.45, dist: 22 }] }],
         exit: "fade",
       };
     }
     case "pill": {
       const b = xw(pos, vertical, 0.7);
       return {
-        layers: [{ type: "text", text, ...b, y, size: 44 * k, minSize: 26, font: "display", weight: 800, uppercase: true, tracking: 0.08, maxLines: 1, color: "accentText", box: { fill: "accent", shape: "pill", padX: 36, padY: 14 }, animate: [{ type: "pop", at: 0, dur: 0.55, from: 0.6, bounce: 0.4 }] }],
+        layers: [{ type: "text", text, ...b, y, size: 52 * k, minSize: 28, font: "display", weight: 800, uppercase: true, tracking: 0.08, maxLines: 1, color: "accentText", box: { fill: "accent", shape: "pill", padX: 36, padY: 14 }, animate: [{ type: "pop", at: 0, dur: 0.55, from: 0.6, bounce: 0.4 }] }],
         exit: "fade",
       };
     }
@@ -200,8 +203,8 @@ function layersFor(spec: TextSpec, vertical: boolean): { layers: Layers; exit: N
       if (sub && cy + subGap > bottomLimit) cy = bottomLimit - subGap;
       cy = Math.max(cy, 0.08 + (big * 0.55) / H);
       const main: Layers[number] = counts
-        ? { type: "counter", value: text.trim(), x: b.x, y: cy, size: big, color: "text", affixColor: "text", shadow: "soft", animate: [{ type: "pop", at: 0, dur: 0.6, from: 0.7, bounce: 0.3 }, { type: "countUp", at: 0.05, dur: 1.1 }] }
-        : { type: "text", text, ...b, y: cy, size: big, minSize: 60, font: "display", weight: 900, maxLines: 1, leading: 1, color: "text", shadow: "soft", animate: [{ type: "pop", at: 0, dur: 0.6, from: 0.7, bounce: 0.3 }] };
+        ? { type: "counter", value: text.trim(), x: b.x, y: cy, size: big, color: "accent", affixColor: "accent", shadow: "soft", animate: [{ type: "pop", at: 0, dur: 0.6, from: 0.7, bounce: 0.3 }, { type: "countUp", at: 0.05, dur: 1.1 }] }
+        : { type: "text", text, ...b, y: cy, size: big, minSize: 60, font: "display", weight: 900, maxLines: 1, leading: 1, color: "accent", shadow: "soft", animate: [{ type: "pop", at: 0, dur: 0.6, from: 0.7, bounce: 0.3 }] };
       const layers: Layers = [main];
       if (sub) layers.push({ type: "text", text: sub, ...b, y: cy + subGap, size: 52 * k, minSize: 30, font: "body", weight: 600, maxLines: 1, color: "text", shadow: "soft", animate: [{ type: "fadeUp", at: 0.45, dur: 0.5, dist: 20 }] });
       return { layers, exit: "zoom" };
@@ -249,9 +252,9 @@ function layersFor(spec: TextSpec, vertical: boolean): { layers: Layers; exit: N
       const H = vertical ? 1920 : 1080;
       const x = vertical ? 0.075 : 0.06;
       const w = vertical ? 0.72 : 0.5;
-      const nameSize = 58 * k;
+      const nameSize = 66 * k;
       const nameH = nameSize * 1.12 + 2 * 14;
-      const subSize = 36 * k;
+      const subSize = 40 * k;
       const total = nameH + (sub ? 10 + subSize * 1.2 + 2 * 10 : 0);
       const top = y - total / 2 / H;
       const layers: Layers = [
@@ -284,7 +287,7 @@ function layersFor(spec: TextSpec, vertical: boolean): { layers: Layers; exit: N
             uppercase: true,
             tracking: 0.04,
             maxLines: 2,
-            color: "text",
+            color: "accent",
             shadow: "glow",
             animate: [{ type: "zoomIn", at: 0, dur: 0.5, from: 1.06 }],
             tracks: { opacity: [{ t: 0, v: 0 }, { t: 0.07, v: 1 }, { t: 0.13, v: 0.15 }, { t: 0.2, v: 0.9 }, { t: 0.27, v: 0.3 }, { t: 0.42, v: 1 }] },

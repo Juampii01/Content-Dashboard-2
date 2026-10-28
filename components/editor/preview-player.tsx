@@ -1,9 +1,9 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
-import { brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicAlpha, graphicSideGeometry, type BrollEdit } from "@/lib/video/broll-edit";
+import { brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicAlpha, graphicSideGeometry, svgMatrixValues, type BrollEdit, type ColorMatrix } from "@/lib/video/broll-edit";
 import type { OutputZoom } from "@/lib/video/effects";
 import type { CaptionLook } from "@/lib/video/caption-styles";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
@@ -114,6 +114,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
    * "f:<efecto>" o "t:<transición>" → lugar (0 = abajo). Sin esto, el b-roll abajo y los efectos encima.
    */
   order?: Record<string, number>;
+  /** Color del video principal (lib/video/grade.ts): la misma matriz que el worker escribe como LUT. null = sin cambios. */
+  grade?: ColorMatrix | null;
 }>(function PreviewPlayer(
   {
     src,
@@ -136,6 +138,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     focusY = 0.42,
     brandAccent = "#0070f8",
     brandGround = "#030a22",
+    grade = null,
     effects = [],
     fxStrips = {},
     fxMaskFps = 10,
@@ -147,6 +150,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
 ) {
   const reducedMotion = usePrefersReducedMotion();
   const video = useRef<HTMLVideoElement>(null);
+  const gradeId = `grade-${useId().replace(/:/g, "")}`;
   const frame = useRef<HTMLDivElement>(null);
   const clipIndex = useRef(0);
   const raf = useRef(0);
@@ -425,7 +429,14 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={poster} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
           )}
-          <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: `50% ${focusY * 100}%` }}>
+          {grade && (
+            <svg aria-hidden width="0" height="0" className="absolute">
+              <filter id={gradeId} colorInterpolationFilters="sRGB">
+                <feColorMatrix type="matrix" values={svgMatrixValues(grade)} />
+              </filter>
+            </svg>
+          )}
+          <div className="absolute inset-0" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: `50% ${focusY * 100}%`, filter: grade ? `url(#${gradeId})` : undefined }}>
           <video
             ref={videoRef}
             src={src}

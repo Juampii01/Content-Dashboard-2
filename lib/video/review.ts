@@ -15,6 +15,7 @@ import { cleanSoundCues, MUSIC_DB, sfxLevel, type SfxLevel } from "./sfx";
 import { studioLevel, type StudioLevel } from "./studio-audio";
 import { cleanMix, MUSIC_FADE, musicFade, VOICE_DB, voiceDb } from "./audio-mix";
 import { cleanMarkers } from "./markers";
+import { cleanGrade } from "./grade";
 import { buildTimeline, TIMING, type Timeline } from "./timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, PlanMove, Transcript, VideoFormat, ZoomMoment } from "./types";
 
@@ -78,6 +79,8 @@ export type Review = {
   voiceDb?: number;
   mix?: unknown;
   musicFade?: unknown;
+  /** Color del video principal (null = sin cambios). Sin el campo, se deja lo que ya tenía el plan. */
+  grade?: unknown;
   /** Marcadores con nota (lib/video/markers.ts). */
   markers?: unknown[];
   /**
@@ -199,6 +202,11 @@ export function applyReview(plan: EditPlan, review: Review, words: Transcript["w
       ...(mix ? { mix } : {}),
       ...(fade && (fade.in !== MUSIC_FADE.in || fade.out !== MUSIC_FADE.out) ? { music_fade: fade } : {}),
     };
+  }
+  if (review.grade !== undefined) {
+    const grade = cleanGrade(review.grade);
+    if (grade) next.grade = grade;
+    else delete next.grade;
   }
   if (review.markers) {
     const markers = cleanMarkers(review.markers, words.length);

@@ -672,9 +672,12 @@ def framing_graph(
     focus_y: float = 0.42,
     broll: list[dict[str, Any]] | None = None,
     stickers: list[dict[str, Any]] | None = None,
+    grade_lut: Path | None = None,
 ) -> tuple[str, int, int]:
     """Grafo del video final. `broll`: [{"input": índice de la entrada de ffmpeg, "start", "end", "edit"?}] en segundos del
-    final; `edit` (de la app) trae la ubicación, la persona en pantalla dividida, la opacidad y el fundido."""
+    final; `edit` (de la app) trae la ubicación, la persona en pantalla dividida, la opacidad y el fundido.
+    `grade_lut`: LUT 3D del color del video principal (lib/video/grade.ts); va antes del zoom y del b-roll, así solo
+    cambia a la persona."""
     out_w, out_h = OUTPUT_SIZE[fmt]
     target_ratio = out_w / out_h
     src_ratio = src_w / src_h
@@ -693,6 +696,8 @@ def framing_graph(
         )
     else:
         graph = f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=increase:flags=lanczos,crop={out_w}:{out_h},setsar=1"
+    if grade_lut is not None:
+        graph += f",lut3d=file={grade_lut}:interp=trilinear"
     expr = zoom_expr(zooms or [])
     if expr:
         # Zoom hacia la cara (centro horizontal, `focus_y` vertical). Con d=1 cada cuadro entra y sale una vez.

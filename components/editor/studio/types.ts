@@ -1,4 +1,5 @@
 import type { RefImage } from "@/lib/video/compos/schema";
+import type { TextPresetKey } from "@/lib/video/text-presets";
 import type { ReactNode } from "react";
 import type { DirectorView } from "@/lib/dal/video";
 import type { FxContext } from "@/lib/dal/video-fx";
@@ -148,6 +149,10 @@ export type StudioApi = {
     /** «Animar todo» desde el chat: directo, sin pantalla de plan, con la charla entera. */
     wholeFromChat: (prompt: string, layout: "full" | "face" | "over" | "split" | "top") => Promise<boolean>;
     subtitle: () => void;
+    /** Un texto a mano en el tramo, con su estilo y lo que dice (desde el chat). */
+    textAt: (range: WordSpan, preset: TextPresetKey, text: string) => void;
+    /** Color de todo el video con un filtro de un toque (lib/video/grade.ts). */
+    lookPreset: (id: string) => void;
     /** Recortar todo el video (silencios, tomas repetidas, arranques en falso). Devuelve cuántas palabras cortó. */
     trim: () => Promise<{ ok: true; removed: number } | { ok: false; error: string }>;
   };

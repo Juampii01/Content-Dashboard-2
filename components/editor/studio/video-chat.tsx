@@ -1,5 +1,6 @@
 "use client";
 
+import { GRADE_PRESETS, matchingGradePreset } from "@/lib/video/grade";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Check, Eye, Loader2, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import type { StudioApi } from "./types";
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const IDEAS = ["¿Qué le falta a este video para retener más?", "Ponle subtítulos y anima el gancho", "Dame 3 ideas de animaciones para el principio", "Recorta los silencios"];
 const POLL_MS = 5000;
-const KIND_LABEL: Record<VideoChatItem["kind"], string> = { animacion: "Animación", grafico: "Gráfico", video: "Tu video como b-roll", subtitulos: "Subtítulos", recortar: "Recortar", editar: "Edición del video" };
+const KIND_LABEL: Record<VideoChatItem["kind"], string> = { animacion: "Animación", grafico: "Gráfico", video: "Tu video como b-roll", subtitulos: "Subtítulos", recortar: "Recortar", editar: "Edición del video", texto: "Texto", color: "Color del video" };
 
 /**
  * Chat con la IA (panel derecho sin nada elegido): conversas sobre tu video, la IA contesta mirando la transcripción y lo
@@ -66,8 +67,10 @@ export function VideoChat({ api }: { api: StudioApi }) {
   function stateText(): string {
     const out = [`Subtítulos: ${state.preset === "ninguno" ? "apagados" : (CAPTION_PRESETS[state.preset]?.label ?? state.preset)}`, `Palabras cortadas: ${api.removedSet.size}`];
     for (const s of api.composSegs.slice(0, 40)) out.push(`Animación «${s.item.name}» ${s.start.toFixed(1)}–${s.end.toFixed(1)} s`);
-    for (const s of api.segments.slice(0, 30)) out.push(`${s.option.source === "graphic" ? "Gráfico" : "B-roll"} ${s.start.toFixed(1)}–${s.end.toFixed(1)} s`);
+    for (const s of api.segments.slice(0, 30)) out.push(`${s.option.text ? `Texto «${s.option.text.text.slice(0, 60)}»` : s.option.source === "graphic" ? "Gráfico" : "B-roll"} ${s.start.toFixed(1)}–${s.end.toFixed(1)} s`);
     for (const s of api.fxSegs.slice(0, 30)) out.push(`Efecto «${FX_INFO[s.item.kind]?.label ?? s.item.kind}» ${s.start.toFixed(1)}–${s.end.toFixed(1)} s`);
+    const look = matchingGradePreset(state.grade);
+    out.push(`Color del video: ${state.grade ? (GRADE_PRESETS.find((p) => p.id === look)?.label ?? "ajustado a mano") : "como se grabó"}`);
     return out.join("\n").slice(0, 5900);
   }
 
@@ -185,6 +188,8 @@ export function VideoChat({ api }: { api: StudioApi }) {
       if (!r.ok) return toast.error(r.error);
       toast.success("Editando el video con lo que pediste.", { description: "Tarda unos minutos. Puedes ver el avance en el video." });
     } else if (it.kind === "subtitulos") api.tools.subtitle();
+    else if (it.kind === "color" && it.look) api.tools.lookPreset(it.look);
+    else if (it.kind === "texto") api.tools.textAt(range, it.text_style ?? "title", it.prompt);
     else if (it.kind === "recortar") {
       const r = await api.tools.trim();
       if (!r.ok) return toast.error(r.error);
@@ -278,9 +283,10 @@ export function VideoChat({ api }: { api: StudioApi }) {
                       )}
                     </div>
                     {(it.kind === "animacion" || it.kind === "grafico") && <p className="line-clamp-3 text-[11px] text-muted">{it.prompt}</p>}
+                    {it.kind === "texto" && <p className="line-clamp-2 text-[11px] text-white">«{it.prompt}»</p>}
                     {canEdit && (
                       <Button size="sm" variant={isDone ? "ghost" : "primary"} className="self-start" disabled={isDone} onClick={() => void run(it, key)} icon={isDone ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />}>
-                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : it.kind === "editar" ? "Editar así" : "Hacerlo"}
+                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : it.kind === "editar" ? "Editar así" : it.kind === "texto" ? "Poner el texto" : it.kind === "color" ? "Aplicar el color" : "Hacerlo"}
                       </Button>
                     )}
                   </div>

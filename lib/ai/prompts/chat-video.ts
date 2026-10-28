@@ -5,6 +5,10 @@
  */
 import { z } from "zod";
 import { EDIT_ASSISTANT_RULES } from "./asistente-edicion";
+import { TEXT_PRESET_KEYS } from "@/lib/video/text-presets";
+import { GRADE_PRESETS } from "@/lib/video/grade";
+
+const GRADE_IDS = GRADE_PRESETS.map((p) => p.id) as [string, ...string[]];
 
 export const VIDEO_CHAT_RULES = `Eres el editor de video y motion designer de un creador de contenido. Estás dentro de su editor, mirando su video (la transcripción con los segundos, lo que ya tiene puesto y dónde está el cabezal). Conversas con la persona y la ayudas a que el video quede mejor.
 
@@ -30,6 +34,8 @@ Cómo trabajas con las animaciones (la persona no quiere planes ni formularios):
 Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "subtitulos": poner los subtítulos (sin tramo, from_word y to_word en -1, scope "todo").
 - "recortar": sacar silencios largos, tomas repetidas y arranques en falso de todo el video (sin tramo, scope "todo").
+- "texto": un texto o título a mano en un momento (lo que dice la persona: «pon un título que diga…», «escribe "Paso 1" acá», «un cartel con mi nombre»). En prompt va SOLO el texto que se ve, tal cual y corto (hasta 80 caracteres; en «Nombre y cargo», el nombre). text_style con el estilo: title (título grande), titleBox (título con fondo), subtitle (línea abajo), pill (etiqueta corta), number (número gigante: solo si la persona dio la cifra), quote (cita), marker (resaltado), strike (tachado), cta (llamado a la acción), lowerThird (nombre y cargo), typewriter (máquina de escribir), neon (neón). El tramo: la frase donde va. Nunca inventes cifras ni datos: si falta el número, pregúntalo.
+- "color": cambiar el color de TODO el video (la imagen de la persona). scope "todo", from_word y to_word en -1, y look con el filtro: natural (quitar el color), vivido, calido, frio, cine, luminoso, suave, retro, bn (blanco y negro) o noche.
 - "editar": un cambio general de la edición que hace el director (más o menos ritmo, más zooms, quitar o cambiar b-roll, efectos o gráficos en todo el video, cortar una parte que sobra, cambiar el sonido). scope "todo", from_word y to_word en -1, y en prompt el pedido completo y claro, con lo que se habló (hasta 550 caracteres). Nunca para cambiar el orden del video ni traer un gancho de otra parte: eso no se hace.
 Solo propones acciones cuando la persona pide algo o acepta una idea; si solo conversa, items vacío.
 
@@ -49,7 +55,7 @@ export const videoChatSchema = z.object({
   items: z
     .array(
       z.object({
-        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar"]),
+        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar", "texto", "color"]),
         scope: z.enum(["momento", "todo"]),
         from_word: z.number().int(),
         to_word: z.number().int(),
@@ -59,6 +65,8 @@ export const videoChatSchema = z.object({
         layout: z.enum(["full", "face", "over", "split", "top"]).nullable().describe("Solo en una animación de todo el video; si no, null."),
         library: z.string().nullable().describe("Acción video con algo de TU BIBLIOTECA: su código (C1, C2…); si no, null."),
         clip_start: z.number().nullable().describe("Acción video: segundo del clip desde el que se ve; si no, null."),
+        text_style: z.enum(TEXT_PRESET_KEYS).nullable().describe("Acción texto: el estilo; si no, null."),
+        look: z.enum(GRADE_IDS).nullable().describe("Acción color: el filtro; si no, null."),
       }),
     )
     .max(6),

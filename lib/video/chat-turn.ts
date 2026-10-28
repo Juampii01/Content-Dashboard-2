@@ -260,7 +260,7 @@ function fakeTurn(d: ChatContext, lastText: string, reference: { source: string;
           ? "Te propongo ponerle los subtítulos con el estilo de tu marca."
           : `Buena idea. Lo pondría en «${f?.text.slice(0, 80) ?? ""}».`,
     items: wantsSubs
-      ? [{ kind: "subtitulos", scope: "todo", from_word: -1, to_word: -1, title: "Poner subtítulos", prompt: "Subtítulos con el estilo de tu marca.", attachments: [], layout: null, library: null, clip_start: null }]
+      ? [{ kind: "subtitulos", scope: "todo", from_word: -1, to_word: -1, title: "Poner subtítulos", prompt: "Subtítulos con el estilo de tu marca.", attachments: [], layout: null, library: null, clip_start: null, text_style: null, look: null }]
       : f
         ? [
             {
@@ -274,6 +274,8 @@ function fakeTurn(d: ChatContext, lastText: string, reference: { source: string;
               layout: null,
               library: null,
               clip_start: null,
+              text_style: null,
+              look: null,
             },
           ]
         : [],

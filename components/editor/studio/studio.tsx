@@ -1,6 +1,6 @@
 "use client";
 
-import { gradeMatrix } from "@/lib/video/grade";
+import { cleanGrade, gradeMatrix, presetGrade } from "@/lib/video/grade";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, AudioLines, BarChart3, Bot, Captions, Film, Flag, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
@@ -601,10 +601,11 @@ export function Studio(props: StudioProps) {
   }
 
   /** Un texto a mano en un tramo: el estilo con su texto de muestra, elegido para escribir el tuyo en el panel. */
-  function addText(range: WordSpan, preset: TextPresetKey) {
+  function addText(range: WordSpan, preset: TextPresetKey, text?: string) {
     if (!roomForBroll()) return;
     const p = TEXT_PRESETS[preset];
-    const option = textOption({ preset, text: p.sample, ...(p.sub ? { sub: p.sub } : {}) }, graphicLook, { format: s.format });
+    const own = text?.trim();
+    const option = textOption({ preset, text: own || p.sample, ...(p.sub && !own ? { sub: p.sub } : {}) }, graphicLook, { format: s.format });
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: "", keywords: [], choice: option, options: [option] };
     const r = outputRange(timeline, range.from, range.to);
     const top = r ? layerOnTop(r.start, r.end) : { layer: undefined, under: [] };
@@ -2108,6 +2109,11 @@ export function Studio(props: StudioProps) {
       return true;
     },
     graphicAt: (range, prompt) => addBroll(range, true, prompt),
+    textAt: (range, preset, text) => addText(range, preset, text),
+    lookPreset: (id) => {
+      update((st) => ({ ...st, grade: cleanGrade(presetGrade(id)) }));
+      toast.success(id === "natural" ? "Tu video volvió a su color original." : "Listo: le cambié el color a tu video.", { description: "Ajústalo en Edición → Color y filtros. Ctrl+Z lo deshace." });
+    },
     clipAt: (range, option) => addClipBroll(range, option),
     wholeVideo: openWholeVideo,
     subtitle: () => {

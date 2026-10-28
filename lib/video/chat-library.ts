@@ -30,6 +30,12 @@ export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttach
   return raw
     .map((r): VideoChatItem | null => {
       const it: VideoChatItem = { ...r, attachments: r.attachments.filter((a) => usable(a, r.kind)) };
+      if (it.kind === "color") return it.look ? { ...it, scope: "todo" as const, from_word: -1, to_word: -1, library: null, clip_start: null, text_style: null } : null;
+      if (it.kind === "texto") {
+        const text = it.prompt.replace(/\s+/g, " ").trim().slice(0, 80);
+        if (!text || it.scope === "todo") return null;
+        Object.assign(it, { prompt: text, text_style: it.text_style ?? "title", look: null });
+      }
       if (it.kind === "subtitulos" || it.kind === "recortar" || it.kind === "editar") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1, library: null, clip_start: null };
       if (it.kind === "video" && !it.attachments.some((a) => a.use === "broll")) {
         // Un b-roll de la biblioteca sin adjunto: la pieza que nombró la IA por su código.
@@ -56,7 +62,7 @@ export function fakeLibraryBroll(sentences: { from: number; to: number; text: st
       const m = matchLibrary(piece, f.text.split(/\s+/));
       if (m.score >= 2 && (!best || m.score > best.score)) best = { code, score: m.score, start: m.moment?.start ?? null };
     }
-    if (best && items.length < 6) items.push({ kind: "video", scope: "momento", from_word: f.from, to_word: f.to, title: "B-roll de tu biblioteca", prompt: "Se ve lo que dices.", attachments: [], layout: null, library: best.code, clip_start: best.start });
+    if (best && items.length < 6) items.push({ kind: "video", scope: "momento", from_word: f.from, to_word: f.to, title: "B-roll de tu biblioteca", prompt: "Se ve lo que dices.", attachments: [], layout: null, library: best.code, clip_start: best.start, text_style: null, look: null });
   }
   return { reply: items.length ? `Encontré ${items.length === 1 ? "un momento" : `${items.length} momentos`} donde tus clips muestran lo que dices.` : "No encontré clips de tu biblioteca que muestren lo que dices.", go: false, items };
 }

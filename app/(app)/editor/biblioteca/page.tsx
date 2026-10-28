@@ -11,6 +11,7 @@ import { MusicSplit } from "@/components/editor/music-split";
 import { WorkerNotice } from "@/components/editor/worker-notice";
 import { getCurrentUser } from "@/lib/auth";
 import { brollAvailability, listClips, listTracks } from "@/lib/dal/editor-media";
+import { listFolders } from "@/lib/video/library-folders";
 import { workerStatus } from "@/lib/jobs";
 import { fileDriver } from "@/lib/storage";
 
@@ -20,7 +21,7 @@ export const metadata: Metadata = { title: "Biblioteca" };
 async function LibraryContent() {
   // La sesión primero: así el build (sin variables de entorno) no toca la base.
   const me = await getCurrentUser();
-  const [clips, worker, availability, tracks] = await Promise.all([listClips(), workerStatus(), brollAvailability(), listTracks()]);
+  const [clips, worker, availability, tracks, folders] = await Promise.all([listClips(), workerStatus(), brollAvailability(), listTracks(), listFolders()]);
   const canEdit = me.role !== "VIEWER" && Boolean(fileDriver());
   return (
     <div className="flex flex-col gap-6">
@@ -36,7 +37,7 @@ async function LibraryContent() {
         </Notice>
       )}
       <SectionTitle id="clips" icon={<Clapperboard className="h-4 w-4" aria-hidden />} title="Clips e imágenes" description="Tomas y fotos tuyas. La IA mira cada una y las usa como b-roll o como referencia; nómbralas con @ en el chat del video." />
-      <LibraryManager clips={clips.map((c) => ({ ...c, job: c.job ? { progress: c.job.progress, stage: c.job.stage } : null }))} canEdit={canEdit} />
+      <LibraryManager clips={clips.map((c) => ({ ...c, job: c.job ? { progress: c.job.progress, stage: c.job.stage } : null }))} canEdit={canEdit} folders={folders} />
       {clips.length === 0 && (
         <EmptyState
           icon={<Library className="h-5 w-5" aria-hidden />}

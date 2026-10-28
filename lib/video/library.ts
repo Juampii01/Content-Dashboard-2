@@ -64,7 +64,7 @@ export function kindOf(fileName: string, fileType: string): { kind: LibraryKind;
   return null;
 }
 
-export async function createClipUpload(input: { fileName: string; fileType: string; fileSize: number; userId: string }): Promise<{ id: string; key: string; kind: LibraryKind }> {
+export async function createClipUpload(input: { fileName: string; fileType: string; fileSize: number; userId: string; folderId?: string | null }): Promise<{ id: string; key: string; kind: LibraryKind }> {
   if (!fileDriver()) throw new LibraryError("Falta configurar el almacenamiento de videos en esta instalación. Avísale a soporte.");
   const found = kindOf(input.fileName, input.fileType);
   if (!found) throw new LibraryError("Ese formato no es compatible. Sube videos MP4, MOV, WEBM o MKV, o imágenes JPG, PNG o WebP.");
@@ -85,6 +85,7 @@ export async function createClipUpload(input: { fileName: string; fileType: stri
     fileName: input.fileName.slice(0, 200),
     fileBytes: input.fileSize,
     searchText: searchTextOf({ title, tags, ficha: null }),
+    folderId: input.folderId ?? null,
     createdBy: input.userId,
   });
   return { id, key, kind: found.kind };

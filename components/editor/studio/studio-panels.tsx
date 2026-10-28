@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Bot, Check, Clapperboard, Library, Sparkles, WandSparkles } from "lucide-react";
+import { Bot, Check, Clapperboard, Sparkles, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/feedback";
 import { formatDuration, formatNumber } from "@/lib/format";
@@ -21,6 +20,7 @@ import { FxLibraryGrid, SearchBox, TransitionTile } from "../fx/fx-library";
 import { LibraryMusic } from "./library-music";
 import { LibrarySounds } from "./library-sounds";
 import { MyEffectsSection } from "./library-mine";
+import { LibraryClips } from "./library-clips";
 import { startLibraryDrag, type LibraryDrop, type StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
@@ -274,10 +274,8 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
               Poner b-roll en el cabezal
             </Button>
           )}
-          <p className="text-xs text-muted">Elige entre las sugerencias, tu biblioteca o una búsqueda en Pexels y Pixabay.</p>
-          <Link href="/editor/biblioteca" className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent-hi hover:underline">
-            <Library className="h-3.5 w-3.5" aria-hidden /> Subir clips a tu biblioteca
-          </Link>
+          <p className="text-xs text-muted">«Poner b-roll» te muestra sugerencias, tu biblioteca y una búsqueda en Pexels y Pixabay. O toca o arrastra uno de tus clips:</p>
+          <LibraryClips canEdit={edit} onAdd={onAdd} />
         </div>
       )}
 

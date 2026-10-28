@@ -21,6 +21,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import type { MonthlyReportData } from "@/lib/reports/types";
 import type { Ficha, FichaSheet, FichaStatus, LibraryKind } from "@/lib/video/library-ficha";
@@ -954,6 +955,24 @@ export const longVideoClips = pgTable(
 
 export const brollClipStatusEnum = pgEnum("broll_clip_status", ["UPLOADING", "PROCESSING", "READY", "FAILED"]);
 
+/**
+ * Carpetas de la biblioteca (clips e imágenes): para ordenar lo que se sube, como en una computadora. Pueden ir una
+ * dentro de otra (`parent_id`). Borrar una carpeta no borra lo que tiene: sus piezas y subcarpetas pasan a la carpeta
+ * de arriba (lib/video/library-folders.ts).
+ */
+export const libraryFolders = pgTable(
+  "library_folders",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    parentId: uuid("parent_id").references((): AnyPgColumn => libraryFolders.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("library_folders_parent_idx").on(t.parentId)],
+);
+
 /** Biblioteca de b-roll del cliente: clips propios que sube una vez y el editor reutiliza. */
 export const brollClips = pgTable(
   "broll_clips",
@@ -981,11 +1000,14 @@ export const brollClips = pgTable(
     fichaSheets: jsonb("ficha_sheets").$type<FichaSheet[]>(),
     /** Nombre, etiquetas y ficha en minúsculas y sin tildes (búsqueda por texto con índice de Postgres). */
     searchText: text("search_text").notNull().default(""),
+    /** Carpeta de la biblioteca (null = en la raíz, «Todo»). */
+    folderId: uuid("folder_id").references(() => libraryFolders.id, { onDelete: "set null" }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
+    index("broll_clips_folder_idx").on(t.folderId),
     index("broll_clips_updated_at_idx").on(t.updatedAt),
     index("broll_clips_search_idx").using("gin", sql`to_tsvector('spanish', ${t.searchText})`),
   ],

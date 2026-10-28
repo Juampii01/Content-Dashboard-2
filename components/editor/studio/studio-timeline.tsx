@@ -7,6 +7,7 @@ import { laneLayout } from "@/lib/video/layers";
 import { clampDrag, secondsLabel, timeLabel, type CutMark, type SnappedSpan } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
 import { ViewportWave } from "./waveform";
+import type { SignedOption } from "@/lib/dal/editor-media";
 
 /** Pistas. `audio` es la de los efectos de sonido (A3); `voice` y `music`, la voz (A1) y la música (A2). */
 export type TrackKey = "video" | "captions" | "broll" | "fx" | "anim" | "zoom" | "voice" | "music" | "audio" | "layers";
@@ -117,7 +118,9 @@ export type LibraryDrop =
   | { type: "transition"; kind: string }
   | { type: "sound"; name: string }
   /** Un efecto de Mis efectos (animación guardada): va a la pista Animaciones con su duración típica. */
-  | { type: "mine"; id: string; name: string; duration: number };
+  | { type: "mine"; id: string; name: string; duration: number }
+  /** Un clip o una imagen de tu biblioteca: va a la pista B-roll con su largo (las imágenes, 3 s). */
+  | { type: "clip"; option: SignedOption };
 export const LIBRARY_MIME = "application/x-content2-studio";
 
 /** Lo que se está arrastrando desde la Biblioteca (para dibujar su sombra mientras se arrastra: el navegador no deja leer los datos antes de soltar). */

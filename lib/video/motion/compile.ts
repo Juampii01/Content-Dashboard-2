@@ -6,11 +6,12 @@
 import { applyBehavior } from "./animate";
 import { COMPONENTS } from "./components";
 import { card, col, counter, ellipse, fit, group as groupNode, icon, iconTile, path as pathNode, rect, textNode, type Format, type Kit, type Mode, type Position } from "./kit";
-import { lastKeyTime, retime, walk, type Box, type Node, type Prop } from "./nodes";
+import { lastKeyTime, retime, walk, type Box, type Fill, type Node, type Prop, type Shadow } from "./nodes";
 import { sceneSchema, type ComponentLayer, type Layer, type MotionScene, type MotionSceneInput, type PrimitiveLayer } from "./schema";
 import type { Measurer } from "./text";
 import { smoothThrough } from "./path";
-import { resolveColor, resolveTheme, type MotionFont, type ResolvedTheme } from "./theme";
+import { resolveColor, resolveTheme, splitToken, type MotionFont, type ResolvedTheme } from "./theme";
+import { over } from "./color";
 import type { Place } from "../canvas/transform";
 
 export type CompiledScene = {
@@ -28,7 +29,8 @@ export type CompiledScene = {
   veil: [number, number][];
   /** Dirección del velo: vertical (arriba o abajo) u horizontal (a un lado, en 16:9). */
   veilAxis: "x" | "y";
-  exit: { start: number; dur: number };
+  /** Salida automática: desde cuándo, cuánto dura y cómo (ver `exit` de la escena). */
+  exit: { start: number; dur: number; kind?: "auto" | "fade" | "sink" | "zoom" };
   /** Factor con el que se comprimió la entrada (1 = sin comprimir). */
   timeScale: number;
   drift: boolean;
@@ -164,15 +166,38 @@ function primitive(l: PrimitiveLayer, k: Kit): Node {
     case "text": {
       const w = l.w * W;
       const family = l.font === "display" ? k.families.display : k.families.body;
-      const f = fit(k, l.text, { family, weight: l.weight, tracking: l.tracking ?? (l.font === "display" ? -0.02 : 0), uppercase: l.uppercase }, { max: l.size * u, min: (l.minSize ?? l.size * 0.55) * u, maxW: w, maxLines: l.maxLines, ...(l.h != null ? { maxH: l.h * H } : {}), leading: l.leading });
+      // Con caja, el texto se ajusta al ancho menos el relleno (la caja no se sale de lo pedido).
+      const padX = l.box ? l.box.padX * u : 0;
+      const padY = l.box ? l.box.padY * u : 0;
+      const f = fit(k, l.text, { family, weight: l.weight, tracking: l.tracking ?? (l.font === "display" ? -0.02 : 0), uppercase: l.uppercase }, { max: l.size * u, min: (l.minSize ?? l.size * 0.55) * u, maxW: Math.max(1, w - 2 * padX), maxLines: l.maxLines, ...(l.h != null ? { maxH: Math.max(1, l.h * H - 2 * padY) } : {}), leading: l.leading });
       const b = place(l, w, f.height, W, H);
-      n = textNode(k, f, b.x, b.y, w, {
+      const under = l.box ? solidToken(k.theme, l.box.fill, k.ground) : k.ground;
+      const text = textNode(k, f, b.x + padX, b.y, w - 2 * padX, {
         color: c(l.color),
         align: l.align,
-        on: k.ground,
+        on: under,
         ...(l.emphasis ? { emphasis: { words: l.emphasis.words, style: l.emphasis.style, color: c(l.emphasis.color), ...(l.emphasis.style === "marker" ? { textColor: k.theme.accentText } : {}) } } : {}),
       });
-      break;
+      if (l.shadow) text.shadow = shadowFor(l.shadow, text.color, u);
+      if (!l.box) {
+        n = text;
+        break;
+      }
+      // La caja abraza las líneas ya medidas (alineada como el texto).
+      const tb = text.box;
+      const bx = { x: tb.x - padX, y: tb.y - padY, w: tb.w + 2 * padX, h: tb.h + 2 * padY };
+      const r = l.box.shape === "pill" ? bx.h / 2 : l.box.radius * u;
+      const plate = rect({ ...bx, r, fill: c(l.box.fill), ...(l.box.stroke ? { stroke: { color: c(l.box.stroke), width: l.box.strokeWidth * u } } : {}), label: "la caja del texto" });
+      if (l.shadow) plate.shadow = shadowFor(l.shadow, plate.fill ?? text.color, u);
+      if (l.shadow) delete text.shadow;
+      const g = groupNode([plate, text]);
+      // Los comportamientos de texto (escribir, marcador, tachado, subrayado) van al texto; el resto, a la caja con el texto.
+      const shift = l.cue != null && l.animate.length ? Math.max(0, l.cue - 0.1) - Math.min(...l.animate.map((bh) => bh.at)) : 0;
+      for (const bh of l.animate) applyBehavior(TEXT_BEHAVIORS.has(bh.type) ? text : g, bh, u, bh.at + shift);
+      if (l.tracks) for (const [prop, keys] of Object.entries(l.tracks)) if (keys) g.tracks[prop as Prop] = [...keys].sort((a, bb) => a.t - bb.t);
+      if (l.opacity != null) g.alpha = l.opacity;
+      if (l.rotation) g.tracks.rotation = [{ t: 0, v: l.rotation }, ...(g.tracks.rotation ?? [])];
+      return g;
     }
     case "counter": {
       const size = l.size * u;
@@ -205,8 +230,31 @@ function primitive(l: PrimitiveLayer, k: Kit): Node {
   for (const b of l.animate) applyBehavior(n, b, u, b.at + shift);
   if (l.tracks) for (const [prop, keys] of Object.entries(l.tracks)) if (keys) n.tracks[prop as Prop] = [...keys].sort((a, b) => a.t - b.t);
   if (l.opacity != null) n.alpha = l.opacity;
+  if (l.shadow && !n.shadow) n.shadow = shadowFor(l.shadow, shadowColorOf(n), u);
   if (l.rotation) n.tracks.rotation = [{ t: 0, v: l.rotation }, ...(n.tracks.rotation ?? [])];
   return n;
+}
+
+/** Comportamientos que solo tienen sentido sobre el texto (en una capa de texto con caja). */
+const TEXT_BEHAVIORS = new Set<string>(["typewriter", "highlight", "strike", "underline"]);
+
+/** Color (hex) de un token ya puesto sobre el fondo (para revisar el contraste de lo que va encima). */
+function solidToken(theme: ResolvedTheme, token: string, ground: string): string {
+  const { name, alpha } = splitToken(token);
+  return alpha >= 1 ? theme[name] : over(theme[name], alpha, ground);
+}
+
+function shadowColorOf(n: Node): Fill {
+  if (n.kind === "text" || n.kind === "counter") return n.color;
+  if ((n.kind === "rect" || n.kind === "ellipse" || n.kind === "path") && n.fill) return n.fill;
+  if ((n.kind === "rect" || n.kind === "ellipse" || n.kind === "path") && n.stroke) return n.stroke.color;
+  return "#000000";
+}
+
+/** Sombra suave (negra, separa del video) o brillo del propio color (neón). */
+function shadowFor(kind: "soft" | "glow", color: Fill, u: number): Shadow {
+  if (kind === "soft") return { color: "rgba(0,0,0,0.55)", blur: 26 * u, y: 4 * u };
+  return { color: typeof color === "string" ? color : "rgba(255,255,255,0.8)", blur: 34 * u };
 }
 
 /** Componentes que siguen la voz como un solo bloque (no animan elemento por elemento). */
@@ -238,9 +286,10 @@ function buildComponent(l: ComponentLayer, k: Kit, notes: string[]): Node[] {
 }
 
 /** El kit de diseño para un lienzo (lo usan los componentes, el validador y la galería). */
-export function makeKit(scene: Pick<MotionScene, "mode" | "position" | "theme" | "duration">, opts: CompileOptions): Kit {
+export function makeKit(scene: Pick<MotionScene, "mode" | "position" | "theme" | "duration"> & { colors?: MotionScene["colors"] }, opts: CompileOptions): Kit {
   const { width: W, height: H } = opts;
-  const theme = resolveTheme(scene.theme);
+  // Los colores propios de la escena mandan sobre el tema de la marca.
+  const theme = resolveTheme(scene.colors ? { ...scene.theme, ...scene.colors } : scene.theme);
   const families = { ...DEFAULT_FAMILIES, ...opts.fonts };
   const u = Math.min(W, H) / 1080;
   const vertical = H > W;
@@ -291,9 +340,9 @@ export function compileScene(scene: MotionScene, opts: CompileOptions): Compiled
     unit: k.u,
     region: k.region,
     safe: k.safe,
-    veil: veilStops(k.W, k.H, k.position),
+    veil: scene.veil === "none" ? [] : veilStops(k.W, k.H, k.position),
     veilAxis: k.position === "left" || k.position === "right" ? "x" : "y",
-    exit: { start: scene.duration - exitDur, dur: exitDur },
+    exit: { start: scene.duration - exitDur, dur: exitDur, kind: scene.exit === "none" ? "auto" : scene.exit },
     timeScale,
     drift: true,
     nodes,

@@ -31,6 +31,10 @@ export const themeSchema = z.object({
   backdrop: z.enum(["glow-grid", "glow", "plain"]).default("glow-grid"),
 });
 export type MotionThemeInput = z.input<typeof themeSchema>;
+
+/** Colores sueltos que reemplazan a los del tema (`colors` de la escena). */
+export const themeColorsSchema = z.object({ bg: hex, surface: hex, text: hex, muted: hex, accent: hex, accent2: hex, accentText: hex }).partial();
+export type ThemeColors = z.infer<typeof themeColorsSchema>;
 export type MotionTheme = z.output<typeof themeSchema>;
 
 /** Token de color, con opacidad opcional: "accent", "text@0.6". */

@@ -558,6 +558,8 @@ function drawBackdrop(env: Env, t: number): void {
   const { ctx, scene } = env;
   const { width: W, height: H, theme } = scene;
   if (scene.mode === "overlay") {
+    // Sin velo (textos sueltos sobre el video): nada de fondo.
+    if (!scene.veil.length) return;
     const g = scene.veilAxis === "x" ? ctx.createLinearGradient(0, 0, W, 0) : ctx.createLinearGradient(0, 0, 0, H);
     for (const [pos, a] of scene.veil) g.addColorStop(pos, rgba(theme.bg, a));
     ctx.fillStyle = g;
@@ -614,6 +616,9 @@ function exitFor(scene: CompiledScene, i: number, count: number, t: number): { a
   void i;
   void count;
   const q = EASINGS.easeInCubic(clamp01((t - ex.start) / Math.max(0.05, ex.dur)));
+  if (ex.kind === "fade") return { alpha: 1 - q, dy: 0, scale: 1 };
+  if (ex.kind === "sink") return { alpha: 1 - q, dy: q * 36 * scene.unit, scale: 1 };
+  if (ex.kind === "zoom") return { alpha: 1 - q, dy: 0, scale: 1 + 0.08 * q };
   return { alpha: 1 - q, dy: -q * 30 * scene.unit, scale: 1 - 0.025 * q };
 }
 

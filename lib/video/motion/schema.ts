@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { behaviorSchema } from "./animate";
 import { iconNameSchema } from "./icons";
-import { colorTokenSchema, themeSchema } from "./theme";
+import { colorTokenSchema, themeColorsSchema, themeSchema } from "./theme";
 import { COMPONENTS, type ComponentName } from "./components";
 import { PROPS } from "./nodes";
 import { easeSchema } from "./easing";
@@ -40,6 +40,8 @@ const layerBase = {
    */
   cue_word: z.number().int().min(-1).optional(),
   cue: z.number().min(0).max(30).optional(),
+  /** Sombra: "soft" separa del video (texto sobre la imagen); "glow" brilla con su propio color (neón). */
+  shadow: z.enum(["soft", "glow"]).optional(),
 };
 
 export const rectLayer = z.object({
@@ -124,6 +126,22 @@ export const textLayer = z.object({
   uppercase: z.boolean().default(false),
   tracking: z.number().min(-0.1).max(0.4).optional(),
   emphasis: z.object({ words: z.string().trim().min(1).max(80), style: z.enum(["marker", "underline", "strike", "accent"]).default("marker"), color: colorTokenSchema.default("accent") }).optional(),
+  /**
+   * Caja detrás del texto, medida con el texto ya ajustado (etiquetas, títulos con fondo, llamados a la acción). Los
+   * comportamientos de movimiento animan la caja y el texto juntos; los de texto (escribir, marcador, tachado) solo
+   * el texto.
+   */
+  box: z
+    .object({
+      fill: colorTokenSchema,
+      shape: z.enum(["rect", "pill"]).default("rect"),
+      radius: size.default(18),
+      padX: size.default(32),
+      padY: size.default(18),
+      stroke: colorTokenSchema.optional(),
+      strokeWidth: size.default(3),
+    })
+    .optional(),
 });
 
 export const counterLayer = z.object({
@@ -192,6 +210,7 @@ export type GroupLayer = {
   tracks?: z.infer<typeof tracksSchema>;
   cue_word?: number;
   cue?: number;
+  shadow?: "soft" | "glow";
   children: PrimitiveLayer[];
   clip?: { x: number; y: number; w: number; h: number; radius: number };
 };
@@ -225,8 +244,18 @@ export const sceneSchema = z.object({
    */
   position: z.enum(["top", "bottom", "left", "right"]).default("top"),
   theme: themeSchema,
-  /** Salida automática al final (fundido y subida). "none": cada capa decide. */
-  exit: z.enum(["auto", "none"]).default("auto"),
+  /**
+   * Salida automática al final: "auto" (fundido y subida), "fade" (solo fundido), "sink" (fundido y bajada) o "zoom"
+   * (fundido y se agranda). "none": cada capa decide.
+   */
+  exit: z.enum(["auto", "fade", "sink", "zoom", "none"]).default("auto"),
+  /** Solo en "overlay": "none" quita el velo oscuro de la franja (textos sueltos sobre el video). Sin el campo, con velo. */
+  veil: z.enum(["auto", "none"]).optional(),
+  /**
+   * Colores que mandan sobre los del tema (un color propio que eligió la persona, o blanco sobre el video). Se guardan
+   * aparte del tema porque el tema se vuelve a poner con la marca antes de renderizar.
+   */
+  colors: themeColorsSchema.optional(),
   layers: z.array(layerSchema).min(1).max(40),
   /**
    * Dónde va y cómo entra y sale (lo cambia la persona en la revisión, lib/video/canvas/transform.ts). Sin el campo,

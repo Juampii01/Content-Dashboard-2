@@ -1364,6 +1364,10 @@ export function Studio(props: StudioProps) {
       const start = Math.max(0, t - file.hit);
       return { track: "audio", start, end: Math.min(timeline.duration, start + Math.max(0.12, file.duration)), label: SFX_LIBRARY[item.name].label };
     }
+    if (item.type === "clip") {
+      const span = spanAround(timeline, t, clipSpanSeconds(item.option));
+      return span ? { track: "broll", start: span.start, end: span.end, label: item.option.title ?? "Tu clip" } : null;
+    }
     if (item.type === "mine") {
       const span = mineSpan(item, t);
       const seg = span ? composSegments(timeline, [{ id: "drop", from_word: span.from, to_word: span.to, name: item.name, code: "x", params: [], source: "user" }])[0] : null;
@@ -1371,6 +1375,12 @@ export function Studio(props: StudioProps) {
     }
     return null;
   };
+
+  /** Cuánto ocupa un clip de la biblioteca soltado en la línea de tiempo: su largo (hasta 6 s); una imagen, 3 s. */
+  function clipSpanSeconds(option: SignedOption) {
+    if (option.kind === "image") return 3;
+    return Math.max(1, Math.min(6, option.duration || 3));
+  }
 
   /** Tramo de palabras para un efecto de Mis efectos soltado en `t`: lo más parecido a su duración típica. */
   function mineSpan(item: { duration: number }, t: number) {
@@ -1429,6 +1439,10 @@ export function Studio(props: StudioProps) {
       placeSound(null, item.name, t);
     } else if (item.type === "mine") {
       void addMine(item, t);
+    } else if (item.type === "clip") {
+      const span = spanAround(timeline, t, clipSpanSeconds(item.option));
+      if (!span) return noWords();
+      addClipBroll(span, item.option);
     }
   }
 

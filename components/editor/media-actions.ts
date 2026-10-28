@@ -9,6 +9,8 @@ import { fileDriver } from "@/lib/storage";
 import { BrollError, libraryOptions, searchOptions } from "@/lib/video/broll";
 import { analyzeMissing, completeClipUpload, createClipUpload, deleteClip, generateFicha, LibraryError, missingFichaIds, retryClip, retryFicha, searchLibrary, updateClip, updateFicha } from "@/lib/video/library";
 import { fichaSchema, type Ficha } from "@/lib/video/library-ficha";
+import { createFolder, deleteFolder, listFolders, moveClips, moveFolder, renameFolder, type FolderView } from "@/lib/video/library-folders";
+import { getDb, schema } from "@/lib/db";
 import { completeTrackUpload, createTrackUpload, deleteTrack, MusicError, renameTrack } from "@/lib/video/music";
 import { completeSplitUpload, createSplitFromLink, createSplitUpload, retrySplit } from "@/lib/video/music-split";
 import { completeStyleUpload, createStyleFromLink, createStyleUpload, deleteStyle, renameStyle, retryStyle, StyleError } from "@/lib/video/styles";
@@ -110,10 +112,10 @@ export async function deleteStyleAction(id: string): Promise<ActionResult> {
 
 // ─── Biblioteca de b-roll ─────────────────────────────────────────────────
 
-export async function createClipUploadAction(input: z.input<typeof fileSchema>): Promise<ActionResult<{ id: string; key: string; mode: "blob" | "local" }>> {
+export async function createClipUploadAction(input: z.input<typeof fileSchema> & { folderId?: string | null }): Promise<ActionResult<{ id: string; key: string; mode: "blob" | "local" }>> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
-  const parsed = fileSchema.safeParse(input);
+  const parsed = fileSchema.extend({ folderId: idSchema.nullable().optional() }).safeParse(input);
   if (!parsed.success) return { ok: false, error: "Datos no válidos." };
   try {
     const { id, key } = await createClipUpload({ ...parsed.data, userId: user.id });
@@ -267,6 +269,25 @@ export async function libraryOptionsAction(): Promise<ActionResult<{ options: Si
   return { ok: true, data: { options: await signBrollOptions(await libraryOptions()) } };
 }
 
+/**
+ * La biblioteca dentro del Estudio (pestaña B-roll): los clips e imágenes listos, firmados, con su carpeta, y las
+ * carpetas. Lectura: también para quien solo mira.
+ */
+export async function studioLibraryAction(): Promise<ActionResult<{ options: (SignedOption & { folderId: string | null })[]; folders: FolderView[] }>> {
+  await getCurrentUser();
+  try {
+    const [options, folders, rows] = await Promise.all([
+      libraryOptions().then((o) => signBrollOptions(o)),
+      listFolders(),
+      getDb().select({ id: schema.brollClips.id, folderId: schema.brollClips.folderId }).from(schema.brollClips),
+    ]);
+    const folderOf = new Map(rows.map((r) => [r.id, r.folderId]));
+    return { ok: true, data: { options: options.map((o) => ({ ...o, folderId: folderOf.get(o.id) ?? null })), folders } };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 // ─── Música ───────────────────────────────────────────────────────────────
 
 export async function createTrackUploadAction(input: z.input<typeof fileSchema>): Promise<ActionResult<{ id: string; key: string; mode: "blob" | "local" }>> {
@@ -369,6 +390,77 @@ export async function retrySplitAction(id: string): Promise<ActionResult> {
     await retrySplit(id, user.id);
     refresh();
     return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+// ─── Carpetas de la biblioteca ────────────────────────────────────────────
+
+const folderIdSchema = idSchema.nullable();
+
+export async function createFolderAction(input: { name: string; parentId: string | null }): Promise<ActionResult<FolderView>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = z.object({ name: z.string().max(200), parentId: folderIdSchema }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos no válidos." };
+  try {
+    const folder = await createFolder({ ...parsed.data, userId: user.id });
+    refresh();
+    return { ok: true, data: folder };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function renameFolderAction(id: string, name: string): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success || typeof name !== "string") return { ok: false, error: "Carpeta no válida." };
+  try {
+    await renameFolder(id, name.slice(0, 200));
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function moveFolderAction(id: string, parentId: string | null): Promise<ActionResult> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success || !folderIdSchema.safeParse(parentId).success) return { ok: false, error: "Carpeta no válida." };
+  try {
+    await moveFolder(id, parentId);
+    refresh();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function deleteFolderAction(id: string): Promise<ActionResult<{ moved: number }>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Carpeta no válida." };
+  try {
+    const out = await deleteFolder(id);
+    refresh();
+    return { ok: true, data: out };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function moveClipsAction(ids: string[], folderId: string | null): Promise<ActionResult<{ moved: number }>> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  const parsed = z.object({ ids: z.array(idSchema).min(1).max(200), folderId: folderIdSchema }).safeParse({ ids, folderId });
+  if (!parsed.success) return { ok: false, error: "Datos no válidos." };
+  try {
+    const moved = await moveClips(parsed.data.ids, parsed.data.folderId);
+    refresh();
+    return { ok: true, data: { moved } };
   } catch (error) {
     return fail(error);
   }

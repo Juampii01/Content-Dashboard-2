@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, Film, ImageIcon, Loader2, RefreshCcw, Sparkles, Tag, Trash2, X } from "lucide-react";
+import { CheckSquare, Eye, Film, Folder, FolderInput, ImageIcon, Loader2, RefreshCcw, Sparkles, Square, Tag, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -15,7 +15,8 @@ import { FichaDialog } from "./library-ficha-dialog";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { VIDEO_ACCEPT } from "./constants";
-import { analyzeMissingAction, completeClipUploadAction, createClipUploadAction, deleteClipAction, retryClipAction, retryFichaAction, searchLibraryAction, updateClipAction } from "./media-actions";
+import { analyzeMissingAction, completeClipUploadAction, createClipUploadAction, deleteClipAction, moveClipsAction, retryClipAction, retryFichaAction, searchLibraryAction, updateClipAction } from "./media-actions";
+import { DRAG_CLIPS, FolderBar, MoveDialog, type FolderItem } from "./library-folders";
 import { putFile } from "./upload-manager";
 import { useAutoRefresh } from "./use-auto-refresh";
 
@@ -27,6 +28,7 @@ export type ClipItem = {
   fichaError: string | null;
   title: string;
   tags: string[];
+  folderId: string | null;
   status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
   thumbUrl: string | null;
   duration: number | null;
@@ -46,8 +48,27 @@ type KindFilter = "video" | "image";
  * Biblioteca: subir videos e imágenes (varios a la vez), buscarlos por lo que se ve (nombre, etiquetas y ficha), ver y
  * corregir la ficha que escribió la IA, etiquetarlos y borrarlos.
  */
-export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit: boolean }) {
+export function LibraryManager({ clips, canEdit, folders = [] }: { clips: ClipItem[]; canEdit: boolean; folders?: FolderItem[] }) {
   const router = useRouter();
+  // Carpeta abierta (null = «Todo»: las piezas sin carpeta). La búsqueda mira toda la biblioteca.
+  const [folder, setFolderState] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [moving, setMoving] = useState(false);
+  const [bulk, startBulk] = useTransition();
+  const folderName = useMemo(() => new Map(folders.map((f) => [f.id, f.name])), [folders]);
+  const openFolder = (id: string | null) => {
+    setFolderState(id && folderName.has(id) ? id : null);
+    setSelected(new Set());
+  };
+  // Si la carpeta abierta se borró, se vuelve a «Todo».
+  const current = folder && folderName.has(folder) ? folder : null;
+  const toggle = (id: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const [uploads, setUploads] = useState<Record<string, Uploading>>({});
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<string[] | null>(null);
@@ -69,10 +90,10 @@ export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit:
 
   const visible = useMemo(() => {
     const byKind = clips.filter((c) => !kinds.length || kinds.includes(c.kind));
-    if (!found) return byKind;
+    if (!found) return byKind.filter((c) => (c.folderId ?? null) === current);
     const rank = new Map(found.map((id, i) => [id, i]));
     return byKind.filter((c) => rank.has(c.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
-  }, [clips, kinds, found]);
+  }, [clips, kinds, found, current]);
   const counts = { video: clips.filter((c) => c.kind === "video").length, image: clips.filter((c) => c.kind === "image").length };
   // Las piezas de antes de que hubiera fichas: la IA no sabe qué se ve en ellas hasta analizarlas.
   const missing = clips.filter((c) => c.status === "READY" && c.fichaStatus === "none").length;
@@ -88,7 +109,7 @@ export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit:
   }
 
   async function uploadOne(file: File, tempId: string) {
-    const created = await createClipUploadAction({ fileName: file.name, fileType: file.type, fileSize: file.size });
+    const created = await createClipUploadAction({ fileName: file.name, fileType: file.type, fileSize: file.size, folderId: current });
     if (!created.ok || !created.data) {
       setUploads((u) => ({ ...u, [tempId]: { name: file.name, pct: 0, error: created.ok ? "No pudimos preparar la subida." : created.error } }));
       return;
@@ -189,25 +210,68 @@ export function LibraryManager({ clips, canEdit }: { clips: ClipItem[]; canEdit:
           {searching && <Loader2 className="h-4 w-4 animate-spin text-muted motion-reduce:animate-none" aria-label="Buscando" />}
         </div>
       )}
+      {!found && (folders.length > 0 || canEdit) && <FolderBar folders={folders} current={current} onOpen={openFolder} canEdit={canEdit} rootCount={clips.filter((c) => !c.folderId).length} />}
+      {found && <p className="text-xs text-muted">Buscando en toda la biblioteca, en todas las carpetas.</p>}
+      {canEdit && selected.size > 0 && (
+        <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-card/95 p-2 pl-4 shadow-lg backdrop-blur" role="toolbar" aria-label="Piezas elegidas">
+          <span className="text-sm font-semibold text-white">{selected.size === 1 ? "1 elegida" : `${selected.size} elegidas`}</span>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set(visible.map((c) => c.id)))}>
+            Elegir todas
+          </Button>
+          <Button size="sm" className="ml-auto" disabled={bulk} icon={<FolderInput className="h-3.5 w-3.5" aria-hidden />} onClick={() => setMoving(true)}>
+            Mover a…
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} aria-label="Quitar la selección">
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+        </div>
+      )}
       {clips.length > 0 && visible.length === 0 && (
         <p className="rounded-2xl border border-dashed border-white/15 px-4 py-8 text-center text-sm text-muted">
-          {found ? `Nada en tu biblioteca coincide con «${query}». Prueba con otra palabra.` : "No hay piezas de ese tipo todavía."}
+          {found ? `Nada en tu biblioteca coincide con «${query}». Prueba con otra palabra.` : current ? "Esta carpeta está vacía. Sube piezas aquí o arrastra piezas sobre su nombre." : kinds.length ? "No hay piezas de ese tipo aquí." : "Todas tus piezas están dentro de carpetas."}
         </p>
       )}
       {visible.length > 0 && (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {visible.map((c) => (
-            <li key={c.id}>
-              <ClipCard clip={c} canEdit={canEdit} />
+            <li
+              key={c.id}
+              draggable={canEdit}
+              onDragStart={(e) => {
+                const ids = selected.has(c.id) ? [...selected] : [c.id];
+                e.dataTransfer.setData(DRAG_CLIPS, JSON.stringify(ids));
+                e.dataTransfer.effectAllowed = "move";
+              }}
+            >
+              <ClipCard clip={c} canEdit={canEdit} selected={selected.has(c.id)} onToggle={canEdit ? () => toggle(c.id) : undefined} folderLabel={found && c.folderId ? (folderName.get(c.folderId) ?? null) : null} />
             </li>
           ))}
         </ul>
       )}
+      <MoveDialog
+        open={moving}
+        title={selected.size === 1 ? "Mover la pieza a…" : `Mover ${selected.size} piezas a…`}
+        folders={folders}
+        exclude={new Set()}
+        current={found ? undefined : current}
+        onClose={() => setMoving(false)}
+        busy={bulk}
+        onPick={(target) =>
+          startBulk(async () => {
+            const r = await moveClipsAction([...selected], target);
+            if (!r.ok) return void toast.error(r.error);
+            toast.success(r.data?.moved === 1 ? "Pieza movida." : `${r.data?.moved ?? 0} piezas movidas.`);
+            setMoving(false);
+            setSelected(new Set());
+            router.refresh();
+          })
+        }
+      />
     </div>
   );
 }
 
-function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
+function ClipCard({ clip, canEdit, selected = false, onToggle, folderLabel = null }: { clip: ClipItem; canEdit: boolean; selected?: boolean; onToggle?: () => void; folderLabel?: string | null }) {
   const router = useRouter();
   const [title, setTitle] = useState(clip.title);
   const [tags, setTags] = useState(clip.tags);
@@ -252,8 +316,24 @@ function ClipCard({ clip, canEdit }: { clip: ClipItem; canEdit: boolean }) {
   }
 
   return (
-    <article className="card flex h-full flex-col overflow-hidden">
-      <div className="relative aspect-video w-full overflow-hidden bg-black/50">
+    <article className={cn("card flex h-full flex-col overflow-hidden transition-shadow", selected && "ring-2 ring-accent")}>
+      <div className="group relative aspect-video w-full overflow-hidden bg-black/50">
+        {onToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-pressed={selected}
+            aria-label={selected ? `Quitar ${clip.title} de la selección` : `Elegir ${clip.title}`}
+            className={cn("absolute top-2 right-2 z-10 grid h-7 w-7 place-items-center rounded-md bg-black/60 text-paper transition-opacity focus-visible:opacity-100", selected ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+          >
+            {selected ? <CheckSquare className="h-4 w-4" aria-hidden /> : <Square className="h-4 w-4" aria-hidden />}
+          </button>
+        )}
+        {folderLabel && (
+          <span className="absolute bottom-2 left-2 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] text-paper">
+            <Folder className="h-3 w-3 flex-none" aria-hidden /> {folderLabel}
+          </span>
+        )}
         {clip.thumbUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={clip.thumbUrl} alt="" className={cn("h-full w-full", vertical ? "object-contain" : "object-cover")} loading="lazy" />

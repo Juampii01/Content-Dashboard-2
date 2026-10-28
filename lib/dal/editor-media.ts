@@ -95,6 +95,8 @@ export type ClipView = {
   kind: LibraryKind;
   title: string;
   tags: string[];
+  /** Carpeta de la biblioteca (null = raíz). */
+  folderId: string | null;
   ficha: Ficha | null;
   fichaStatus: FichaStatus;
   fichaError: string | null;
@@ -119,6 +121,7 @@ export async function listClips(): Promise<ClipView[]> {
       kind: r.kind === "image" ? ("image" as const) : ("video" as const),
       title: r.title,
       tags: r.tags,
+      folderId: r.folderId,
       ficha: readFicha(r.ficha, r.duration),
       fichaStatus: r.fichaStatus,
       fichaError: r.fichaError,

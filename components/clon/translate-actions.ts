@@ -16,6 +16,7 @@ import { balanceShortfall, estimateSpeech, estimateTranslation } from "@/lib/hey
 import { loadHeyGen } from "@/lib/heygen/service";
 import { runTranslation } from "@/lib/heygen/translation";
 import { fileDriver, fileInfo } from "@/lib/storage/files";
+import { uploadTicket } from "@/lib/storage/upload-ticket";
 
 /**
  * Acciones de "Traducir con tu clon" (Videos con clon → Traducir).
@@ -55,7 +56,7 @@ const UPLOAD_TYPES: Record<string, string> = { "video/mp4": "mp4", "video/webm":
 const MAX_UPLOAD = 209_715_200; // lo que acepta la subida directa de HeyGen
 
 /** Reserva la ruta donde el navegador sube el video (directo al almacenamiento, sin pasar por la app). */
-export async function prepareTranslationUploadAction(input: { name: string; size: number; type: string }): Promise<ActionResult<{ key: string; mode: "blob" | "local" }>> {
+export async function prepareTranslationUploadAction(input: { name: string; size: number; type: string }): Promise<ActionResult<{ key: string; mode: "blob" | "local"; ticket: string }>> {
   const user = await requireEditor();
   if (isDenied(user)) return { ok: false, error: user.error };
   const parsed = z.object({ name: z.string().max(300), size: z.number().int().min(1), type: z.string().max(100) }).safeParse(input);
@@ -65,7 +66,8 @@ export async function prepareTranslationUploadAction(input: { name: string; size
   if (parsed.data.size > MAX_UPLOAD) return { ok: false, error: `El video pesa ${Math.round(parsed.data.size / 1024 ** 2)} MB y HeyGen acepta hasta 200 MB. Exporta una versión más liviana.` };
   const driver = fileDriver();
   if (!driver) return { ok: false, error: "Esta instalación no tiene almacenamiento de archivos para subir videos." };
-  return { ok: true, data: { key: `clon/subidas/${randomUUID()}/original.${ext}`, mode: driver } };
+  const key = `clon/subidas/${randomUUID()}/original.${ext}`;
+  return { ok: true, data: { key, mode: driver, ticket: uploadTicket(key, user.id) } };
 }
 
 // ─── Traducir el video (HeyGen Video Translation) ─────────────────────────

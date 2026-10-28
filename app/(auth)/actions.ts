@@ -27,11 +27,14 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
   if (!parsed.success) return { error: parsed.error.issues[0]?.message, email };
 
   const ip = await clientIp();
-  const [byEmail, byIp] = await Promise.all([
-    allowAttempt(`login:email:${email}`, 5, 15 * 60),
+  // El límite estricto va por correo y conexión: alguien que conoce tu correo no puede dejarte afuera desde otra red.
+  // El límite solo por correo es mucho más alto (frena un ataque repartido entre muchas conexiones).
+  const [byEmailIp, byEmail, byIp] = await Promise.all([
+    allowAttempt(`login:email-ip:${email}:${ip}`, 5, 15 * 60),
+    allowAttempt(`login:email:${email}`, 50, 15 * 60),
     allowAttempt(`login:ip:${ip}`, 30, 15 * 60),
   ]);
-  if (!byEmail || !byIp) return { error: TOO_MANY, email };
+  if (!byEmailIp || !byEmail || !byIp) return { error: TOO_MANY, email };
 
   try {
     await getAuth().api.signInEmail({ body: parsed.data, headers: await headers() });
@@ -42,7 +45,7 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
     }
     throw error;
   }
-  await resetAttempts(`login:email:${email}`);
+  await Promise.all([resetAttempts(`login:email-ip:${email}:${ip}`), resetAttempts(`login:email:${email}`)]);
   redirect("/inicio");
 }
 
@@ -57,11 +60,12 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
   if (!parsed.success) return { error: "Escribe un correo válido.", email };
 
   const ip = await clientIp();
-  const [byEmail, byIp] = await Promise.all([
-    allowAttempt(`reset:email:${email}`, 3, 60 * 60),
+  const [byEmailIp, byEmail, byIp] = await Promise.all([
+    allowAttempt(`reset:email-ip:${email}:${ip}`, 3, 60 * 60),
+    allowAttempt(`reset:email:${email}`, 20, 60 * 60),
     allowAttempt(`reset:ip:${ip}`, 10, 60 * 60),
   ]);
-  if (!byEmail || !byIp) return { error: TOO_MANY, email };
+  if (!byEmailIp || !byEmail || !byIp) return { error: TOO_MANY, email };
 
   // Siempre responde igual, exista o no el correo.
   await getAuth().api.requestPasswordReset({ body: { email }, headers: await headers() });

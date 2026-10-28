@@ -2,7 +2,7 @@
 
 import { GRADE_PRESETS, matchingGradePreset } from "@/lib/video/grade";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, Eye, Loader2, Send, Sparkles } from "lucide-react";
+import { Check, Eye, ImagePlus, Loader2, Mic, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
@@ -12,6 +12,7 @@ import { CAPTION_PRESETS } from "@/lib/video/captions";
 import type { RefImage } from "@/lib/video/compos/schema";
 import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
+import { mentionSlug } from "@/lib/video/library-ficha";
 import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatClipAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
 import { mentionLibraryAction } from "../library-mention-actions";
 import { editAction } from "../director-actions";
@@ -20,6 +21,8 @@ import { clipOptionAction } from "../edit-actions";
 import { MentionMenu, useLibraryMention } from "./library-mention";
 import type { SignedOption } from "../broll-panel";
 import type { StudioApi } from "./types";
+import { LIBRARY_MIME, type LibraryDrop } from "./studio-timeline";
+import { useDictation } from "./use-dictation";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const IDEAS = ["¿Qué le falta a este video para retener más?", "Ponle subtítulos y anima el gancho", "Dame 3 ideas de animaciones para el principio", "Recorta los silencios"];
@@ -47,6 +50,57 @@ export function VideoChat({ api }: { api: StudioApi }) {
   };
   const list = useRef<HTMLOListElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+  // Dictado: lo que dices se suma a lo que ya estaba escrito (se ve mientras hablas y queda firme al terminar).
+  const dictBase = useRef("");
+  // Al enviar se deja de escuchar y lo que llegue después ya no escribe en el campo (el mensaje se fue).
+  const dictOn = useRef(false);
+  const dictation = useDictation((final, interim) => {
+    if (dictOn.current) setText(`${dictBase.current}${[final, interim].filter(Boolean).join(" ")}`.slice(0, 2000));
+  });
+  function toggleDictation() {
+    if (!dictation.listening) {
+      dictBase.current = text.trim() ? `${text.trim()} ` : "";
+      dictOn.current = true;
+    }
+    dictation.toggle();
+  }
+
+  // Soltar en el chat: archivos de la computadora (se adjuntan) o piezas de la Biblioteca (se nombran con @).
+  const [over, setOver] = useState(false);
+  const canDrop = (e: React.DragEvent) => {
+    const types = Array.from(e.dataTransfer.types);
+    return types.includes("Files") || types.includes(LIBRARY_MIME);
+  };
+  function onDrop(e: React.DragEvent) {
+    if (!canDrop(e)) return;
+    e.preventDefault();
+    setOver(false);
+    if (!canEdit || pending) return;
+    const raw = e.dataTransfer.getData(LIBRARY_MIME);
+    if (raw) {
+      let item: LibraryDrop | null = null;
+      try {
+        item = JSON.parse(raw) as LibraryDrop;
+      } catch {
+        item = null;
+      }
+      if (item?.type !== "clip") return void toast.info("Al chat se pueden soltar clips e imágenes de tu biblioteca, o archivos de tu computadora.");
+      const o = item.option;
+      const slug = mentionSlug(o.title ?? "pieza");
+      const ref = files.addLibrary({ id: o.id, kind: o.kind === "image" ? "image" : "video", title: o.title ?? "Pieza", slug, duration: o.duration ?? null, thumbUrl: o.thumbUrl, hasFicha: true, summary: null });
+      if (!ref) return void toast.info("Ya hay demasiados adjuntos en este mensaje.");
+      setText((t) => (t.includes(`@${slug}`) ? t : `${t.trim() ? `${t.trim()} ` : ""}@${slug} `));
+      field.current?.focus();
+      return;
+    }
+    const dropped = Array.from(e.dataTransfer.files);
+    const usable = dropped.filter((f) => f.type.startsWith("video/") || f.type.startsWith("image/") || /\.(mp4|mov|webm|mkv|m4v)$/i.test(f.name));
+    if (!usable.length) return void toast.info("Suelta un video o una imagen.");
+    files.add(usable);
+    if (usable.length < dropped.length) toast.info("Algunos archivos no son videos ni imágenes y no se adjuntaron.");
+    field.current?.focus();
+  }
+
   const mention = useLibraryMention({ text, setText, field, onPick: (item) => files.addLibrary(item) });
   const looking = thread.looking;
   const watching = thread.watching;
@@ -143,6 +197,8 @@ export function VideoChat({ api }: { api: StudioApi }) {
   function send(msg = text) {
     const t = msg.trim();
     if (t.length < 2 || pending || files.uploading) return;
+    dictOn.current = false;
+    dictation.stop();
     setText("");
     setError(null);
     const before = thread;
@@ -228,7 +284,28 @@ export function VideoChat({ api }: { api: StudioApi }) {
 
   const canEdit = props.canEdit;
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col"
+      onDragOver={(e) => {
+        if (!canEdit || !canDrop(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+      }}
+      onDrop={onDrop}
+    >
+      {over && (
+        <div className="pointer-events-none absolute inset-2 z-20 grid place-items-center rounded-2xl border-2 border-dashed border-accent bg-card/90 text-center">
+          <p className="flex flex-col items-center gap-1.5 text-sm font-semibold text-white">
+            <ImagePlus className="h-6 w-6 text-accent" aria-hidden />
+            Suelta para adjuntarlo al mensaje
+            <span className="text-xs font-normal text-muted">Después dile dónde ponerlo: «pon este video cuando hablo de…»</span>
+          </p>
+        </div>
+      )}
       <ol ref={list} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3" aria-label="Conversación con la IA" aria-live="polite">
         {thread.messages.length === 0 && (
           <li className="flex flex-col gap-2">
@@ -330,7 +407,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
             onBlur={() => setTimeout(mention.close, 150)}
             maxLength={2000}
             className="!min-h-16 text-sm"
-            placeholder="Escríbele a la IA… Usa @ para nombrar algo de tu biblioteca (Enter para enviar)"
+            placeholder={dictation.listening ? "Te escucho… toca el micrófono para terminar" : "Escríbele o dicta con el micrófono. Arrastra aquí videos o imágenes; con @ nombras algo de tu biblioteca"}
             disabled={pending}
             aria-controls={mention.open ? "video-chat-mention" : undefined}
             onKeyDown={(e) => {
@@ -347,6 +424,19 @@ export function VideoChat({ api }: { api: StudioApi }) {
               {files.uploading ? "Subiendo…" : "Enviar"}
             </Button>
             <AttachButton api={files} video disabled={pending} />
+            {dictation.supported && (
+              <Button
+                size="sm"
+                variant={dictation.listening ? "primary" : "ghost"}
+                onClick={toggleDictation}
+                disabled={pending}
+                aria-pressed={dictation.listening}
+                icon={<Mic className={cn("h-3.5 w-3.5", dictation.listening && "animate-pulse motion-reduce:animate-none")} aria-hidden />}
+                title={dictation.listening ? "Terminar de dictar" : "Dictar con el micrófono"}
+              >
+                {dictation.listening ? "Escuchando…" : "Dictar"}
+              </Button>
+            )}
             {thread.messages.length > 0 && (
               <button
                 type="button"
@@ -363,6 +453,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
             )}
           </div>
           {error && <p className="text-xs text-danger">{error}</p>}
+          {dictation.error && <p className="text-xs text-danger">{dictation.error}</p>}
         </div>
       )}
     </div>

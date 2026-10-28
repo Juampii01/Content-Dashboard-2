@@ -10,7 +10,7 @@ import { isDenied, requireEditor } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
 import { fileDriver } from "@/lib/storage";
 import { setAutoExport } from "@/lib/video/auto-export";
-import { brollItemSchema } from "@/lib/video/plan";
+import { brollItemSchema, MAX_BROLL } from "@/lib/video/plan";
 import { fxListSchema } from "@/lib/video/fx/schema";
 import { transitionListSchema } from "@/lib/video/fx/transitions";
 import { musicGenSchema } from "@/lib/video/music-gen/spec";
@@ -157,7 +157,7 @@ const reviewSchema = z.object({
   preset: presetSchema,
   offsetX: z.number().min(-1).max(1),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
-  broll: z.array(brollItemSchema).max(20).optional(),
+  broll: z.array(brollItemSchema).max(MAX_BROLL).optional(),
   zooms: z.boolean().optional(),
   emoji: z.boolean().optional(),
   sfx: z.enum(SFX_LEVELS).optional(),

@@ -74,6 +74,9 @@ export const brollItemSchema = z.object({
   layer: z.number().int().min(0).max(999).optional(),
 });
 
+/** Cuántos b-roll, gráficos y textos a mano puede tener un video (cada texto o gráfico cuenta como uno). */
+export const MAX_BROLL = 60;
+
 export const planSchema = z.object({
   version: z.literal(2),
   format: z.enum(["9:16", "16:9"]),
@@ -96,7 +99,7 @@ export const planSchema = z.object({
   }),
   corrections: z.record(z.string().regex(/^\d+$/), z.string().max(60)),
   overlays: z.array(z.object({ text: z.string().max(120), from_word: z.number().int(), to_word: z.number().int(), position: z.enum(["top", "center"]) })).max(20),
-  broll: z.array(brollItemSchema).max(20),
+  broll: z.array(brollItemSchema).max(MAX_BROLL),
   /** Efectos de la biblioteca (opcional: los planes de antes no los tienen). */
   effects: fxListSchema.optional(),
   transitions: transitionListSchema.optional(),

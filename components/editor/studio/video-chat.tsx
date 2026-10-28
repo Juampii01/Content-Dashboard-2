@@ -16,7 +16,7 @@ import { mentionSlug } from "@/lib/video/library-ficha";
 import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatClipAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
 import { mentionLibraryAction } from "../library-mention-actions";
 import { editAction } from "../director-actions";
-import { AttachButton, AttachList, refsOf, useAttachments, type Attachment } from "./attachments";
+import { AttachButton, AttachList, clipIdsOf, refsOf, useAttachments, type Attachment } from "./attachments";
 import { clipOptionAction } from "../edit-actions";
 import { MentionMenu, useLibraryMention } from "./library-mention";
 import type { SignedOption } from "../broll-panel";
@@ -263,8 +263,9 @@ export function VideoChat({ api }: { api: StudioApi }) {
       // Desde el segundo del clip que muestra lo que se dice (el estudio lo aplica al ponerlo).
       api.tools.clipAt(range, start != null && clip.kind !== "image" ? { ...clip, moment: { start, end: Math.min(clip.duration || start + 8, start + 8), what: it.title } } : clip);
     } else if (it.scope === "todo" && it.kind === "animacion") {
-      // Directo, sin pantalla de plan: la animación recibe la charla entera.
-      if (!(await api.tools.wholeFromChat(it.prompt, it.layout ?? "full"))) return;
+      // Directo, sin pantalla de plan: la animación recibe la charla entera (y los videos para usar dentro).
+      const clips = clipIdsOf(filesFor(Number(key.split("-")[0])), it.attachments);
+      if (!(await api.tools.wholeFromChat(it.prompt, it.layout ?? "full", clips))) return;
     } else if (it.scope === "todo") api.tools.wholeVideo(it.prompt);
     else if (it.kind === "grafico") api.tools.graphicAt(range, it.prompt);
     else {
@@ -276,7 +277,8 @@ export function VideoChat({ api }: { api: StudioApi }) {
         const r = await mentionLibraryAction(projectId, clipId);
         if (r.ok && r.attachment.kind === "video") for (const sheet of r.attachment.refs) refs.push({ ...sheet, use: "style", note: `Cuadros del video «${r.attachment.name}» que mandaste de referencia` });
       }
-      api.tools.animationAt(range, it.prompt, refs.length ? refs.slice(0, 4) : undefined, { fromChat: true });
+      const clips = clipIdsOf(filesFor(Number(key.split("-")[0])), it.attachments);
+      api.tools.animationAt(range, it.prompt, refs.length ? refs.slice(0, 4) : undefined, { fromChat: true, ...(clips.length ? { clips } : {}) });
     }
     setDone((d) => new Set(d).add(key));
     void videoChatDoneAction(projectId, `${KIND_LABEL[it.kind]}: ${it.title} (${timeOf(it)})`);

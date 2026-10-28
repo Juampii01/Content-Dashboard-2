@@ -91,7 +91,45 @@ export function fakeImageLook(count: number) {
   return { images: Array.from({ length: count }, (_, i) => ({ index: i + 1, focus: { x: 0.45, y: 0.33, w: 0.09, h: 0.08 }, label: "La zona pedida", notes: "Simulación: zona centrada arriba.", usable: true })) };
 }
 
-export function fakeCode(input: { brief: string; said: string; base: Composition | null; request: string | null; attempt: number; hasImage: boolean }): ComposCodeWire {
+/** Simulación con un video adentro: una pantalla con marco que muestra el clip 0 desde que aparece (env.clip). */
+const CLIP_SCREEN_CODE = `export default {
+  background: "video",
+  params: { title: "MIRA ESTA WEB" },
+  render(ctx, t, env) {
+    const u = env.u;
+    const c = env.clips[0];
+    const k = env.ease.outBack(env.progress(t, 0, 0.6));
+    const w = env.W * 0.86;
+    const h = Math.min(env.H * 0.42, (w * c.height) / c.width);
+    const x = (env.W - w) / 2;
+    const y = env.H * 0.08;
+    ctx.save();
+    ctx.globalAlpha = env.clamp(k, 0, 1);
+    ctx.translate(env.W / 2, y + h / 2);
+    ctx.scale(0.85 + 0.15 * k, 0.85 + 0.15 * k);
+    ctx.translate(-env.W / 2, -(y + h / 2));
+    ctx.fillStyle = env.brand.accent;
+    ctx.beginPath();
+    ctx.roundRect(x - 14 * u, y - 14 * u, w + 28 * u, h + 28 * u, 28 * u);
+    ctx.fill();
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 18 * u);
+    ctx.clip();
+    ctx.drawImage(env.clip(0, t), x, y, w, h);
+    ctx.restore();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = env.font(900, 64 * u, env.fonts.display);
+    ctx.textAlign = "center";
+    ctx.fillText(env.params.title, env.W / 2, y + h + 90 * u);
+    ctx.restore();
+  },
+};`;
+
+export function fakeCode(input: { brief: string; said: string; base: Composition | null; request: string | null; attempt: number; hasImage: boolean; hasClip?: boolean }): ComposCodeWire {
+  if (input.hasClip && !input.base) {
+    return { name: "Tu video en pantalla", why: `Simulación: tu video dentro de una pantalla para ${input.brief.slice(0, 120)}`, code: CLIP_SCREEN_CODE, params: [{ key: "title", label: "Título", value: "MIRA ESTA WEB" }], sounds: [], hide_captions: false, tags: ["pantalla-con-video"] };
+  }
   if (input.base) {
     // Un cambio pedido: la misma animación con el texto principal cambiado (si el pedido trae uno entre comillas).
     const quoted = /[«"“]([^»"”]{1,60})[»"”]/.exec(input.request ?? "")?.[1];

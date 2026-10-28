@@ -2074,9 +2074,9 @@ export function Studio(props: StudioProps) {
   }, []);
 
   // Las herramientas de la pestaña Edición, también para el chat con la IA.
-  function animationAt(range: WordSpan, prompt?: string, refs?: RefImage[], opts?: { fromChat?: boolean }) {
+  function animationAt(range: WordSpan, prompt?: string, refs?: RefImage[], opts?: { fromChat?: boolean; clips?: string[] }) {
     if (prompt) {
-      void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null, ...(refs?.length ? { refs } : {}), ...(opts?.fromChat ? { fromChat: true } : {}) });
+      void requestAnimation({ from_word: range.from, to_word: range.to, instruction: prompt, replace: null, ...(refs?.length ? { refs } : {}), ...(opts?.clips?.length ? { clips: opts.clips } : {}), ...(opts?.fromChat ? { fromChat: true } : {}) });
       return;
     }
     setSelection({ kind: "range", from: range.from, to: range.to });
@@ -2105,8 +2105,8 @@ export function Studio(props: StudioProps) {
   }
   const tools: StudioApi["tools"] = {
     animationAt: (range, prompt, refs, opts) => animationAt(range, prompt, refs, opts),
-    wholeFromChat: async (prompt, layout) => {
-      const r = await wholeFromChatAction(projectId, { layout, prompt });
+    wholeFromChat: async (prompt, layout, clips) => {
+      const r = await wholeFromChatAction(projectId, { layout, prompt, ...(clips?.length ? { clips } : {}) });
       if (!r.ok || r.error) {
         toast.error(r.ok ? (r.error ?? "") : r.error);
         return false;

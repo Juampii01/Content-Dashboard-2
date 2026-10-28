@@ -19,13 +19,17 @@ export type ChatAttachment = { ref: string; kind: "video" | "image"; libraryId?:
 export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttachment[], max: number, ids: Set<number>, library: LibraryPrompt): VideoChatItem[] {
   const kinds = new Map(attachments.map((a) => [a.ref, a.kind]));
   const fromLibrary = new Set(attachments.filter((a) => a.libraryId).map((a) => a.ref));
-  /** Cómo se puede usar cada adjunto: un video, de b-roll (y si es de la biblioteca, también de referencia de estilo); una imagen, de estilo o dentro, y si es de la biblioteca también de b-roll fijo. */
+  /**
+   * Cómo se puede usar cada adjunto: un video, de b-roll, dentro de una animación (se reproduce en ella) y, si es de la
+   * biblioteca, también de referencia de estilo; una imagen, de estilo o dentro, y si es de la biblioteca también de
+   * b-roll fijo.
+   */
   const usable = (a: { ref: string; use: "broll" | "style" | "inside" }, kind: VideoChatItem["kind"]) => {
     const k = kinds.get(a.ref);
     if (!k) return false;
     if (a.use === "broll") return k === "video" || fromLibrary.has(a.ref);
     if (kind !== "animacion") return false;
-    return k === "image" || (a.use === "style" && fromLibrary.has(a.ref));
+    return k === "image" || a.use === "inside" || (a.use === "style" && fromLibrary.has(a.ref));
   };
   return raw
     .map((r): VideoChatItem | null => {

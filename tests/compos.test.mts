@@ -289,3 +289,45 @@ test("los subtítulos nunca tapan la cara fija de abajo (mitad y mitad / fondo b
   assert.equal(out[1]!.place, undefined, "fuera de la animación queda igual");
   assert.deepEqual(out[2]!.place, { x: 0.1, y: -0.3, scale: 1 }, "si ya está arriba, no se mueve");
 });
+
+test("videos dentro: env.clip(i, t) da el cuadro de ese segundo en su hoja (con vuelta, sin vuelta y recortado)", async () => {
+  // 30 cuadros a 12 por segundo (2,5 s), hojas de 4×4 con cuadros de 640×360: la hoja 0 tiene 0–15, la 1 tiene 16–29.
+  const data: ComposEnvData = { ...env, clips: [{ id: "v1", title: "Web", width: 1280, height: 720, duration: 2.5, fps: 12, frames: 30, cols: 4, rows: 4, frameW: 640, frameH: 360, sheets: ["gs0", "gs1"] }] };
+  const code = ok(`
+    ctx.drawImage(env.clip(0, 0), 0, 0, 100, 50);
+    ctx.drawImage(env.clip(0, 1.5), 0, 0, 100, 50);
+    ctx.drawImage(env.clip(0, 2.5 + 0.1), 0, 0);
+    ctx.drawImage(env.clip(0, 99, { loop: false }), 0, 0, 100, 50);
+    ctx.drawImage(env.clip(0, 0.5), 640, 0, 640, 720, 10, 20, 30, 40);
+  `);
+  const opened = await NodeSandbox.open(code, data);
+  assert.ok(opened.ok, opened.ok ? "" : opened.error);
+  if (!opened.ok) return;
+  try {
+    const r = await opened.sandbox.frame(0);
+    assert.ok(r.ok, r.ok ? "" : r.error);
+    if (!r.ok) return;
+    const imgs = r.frame.o.filter((op) => Array.isArray(op) && op[0] === "img") as unknown[][];
+    assert.equal(imgs.length, 5);
+    assert.deepEqual(imgs[0], ["img", "gs0", 0, 0, 640, 360, 0, 0, 100, 50], "cuadro 0: hoja 0, esquina");
+    // 1,5 s → cuadro 18 → hoja 1, lugar 2 (columna 2, fila 0).
+    assert.deepEqual(imgs[1], ["img", "gs1", 1280, 0, 640, 360, 0, 0, 100, 50]);
+    // Con vuelta: 2,6 s es 0,1 s → cuadro 1; dos números = tamaño propio del clip (1280×720).
+    assert.deepEqual(imgs[2], ["img", "gs0", 640, 0, 640, 360, 0, 0, 1280, 720]);
+    // Sin vuelta: el último cuadro (29 → hoja 1, lugar 13: columna 1, fila 3).
+    assert.deepEqual(imgs[3], ["img", "gs1", 640, 1080, 640, 360, 0, 0, 100, 50]);
+    // 0,5 s → cuadro 6 (columna 2, fila 1); la mitad derecha del clip = la mitad derecha del cuadro en la hoja.
+    assert.deepEqual(imgs[4], ["img", "gs0", 1280 + 320, 360, 320, 360, 10, 20, 30, 40]);
+  } finally {
+    await opened.sandbox.close();
+  }
+  // Un clip que no existe da un error claro (para que la IA lo corrija).
+  const bad = await NodeSandbox.open(ok("ctx.drawImage(env.clip(3, 0), 0, 0);"), data);
+  assert.ok(bad.ok);
+  if (bad.ok) {
+    const r = await bad.sandbox.frame(0);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /env\.clip/);
+    await bad.sandbox.close();
+  }
+});

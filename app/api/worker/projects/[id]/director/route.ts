@@ -60,6 +60,30 @@ const bodySchema = z.discriminatedUnion("step", [
       .max(20),
     workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional(),
   }),
+  // Videos de la biblioteca que van dentro de una animación: sus hojas de cuadros (worker/video/compos.py clip_sheets).
+  z.object({
+    step: z.literal("compos-clips-done"),
+    results: z
+      .array(
+        z.object({
+          ref: z.string().regex(/^v[0-9a-z]{1,20}$/),
+          clipId: z.uuid().optional(),
+          width: z.number().int().min(16).max(8192).optional(),
+          height: z.number().int().min(16).max(8192).optional(),
+          duration: z.number().min(0).max(60).optional(),
+          fps: z.number().min(1).max(30).optional(),
+          frames: z.number().int().min(1).max(2000).optional(),
+          cols: z.number().int().min(1).max(8).optional(),
+          rows: z.number().int().min(1).max(8).optional(),
+          frameW: z.number().int().min(16).max(2048).optional(),
+          frameH: z.number().int().min(16).max(2048).optional(),
+          sheets: z.array(z.object({ key: z.string().regex(/^editor\/[0-9a-f-]{36}\/compos\/clips\/v[0-9a-z]{1,20}-[0-9]{2}\.jpg$/), width: z.number().int().min(16).max(8192), height: z.number().int().min(16).max(8192) })).max(64).optional(),
+          error: z.string().max(400).optional(),
+        }),
+      )
+      .max(4),
+    workId: z.string().regex(/^w[0-9a-z]{1,30}$/).optional(),
+  }),
   // Una llamada larga a Claude que hizo el worker (lib/video/compos/work.ts, applyRemote): el texto, el consumo y el
   // motivo de fin, o el error. "compos-ai" solo lo manda un worker viejo que no sabe hacerla.
   z.object({
@@ -112,6 +136,7 @@ export async function POST(request: NextRequest, { params }: RouteContext<"/api/
   const prefix = body.step === "reference" ? `editor/${id}/referencia/` : `editor/${id}/director/`;
   if ("sheets" in body && body.sheets?.some((s) => !s.key.startsWith(prefix))) return NextResponse.json({ error: "Hoja de otro proyecto.", retry: false }, { status: 400 });
   if (body.step === "compos-images-done" && (body.results as { key?: string }[]).some((r) => r.key && !r.key.startsWith(`editor/${id}/compos/`))) return NextResponse.json({ error: "Imagen de otro proyecto.", retry: false }, { status: 400 });
+  if (body.step === "compos-clips-done" && (body.results as { sheets?: { key: string }[] }[]).some((r) => (r.sheets ?? []).some((s) => !s.key.startsWith(`editor/${id}/compos/clips/`)))) return NextResponse.json({ error: "Hoja de otro proyecto.", retry: false }, { status: 400 });
   if (background) {
     const call = newCallId();
     await openCall(id, call);

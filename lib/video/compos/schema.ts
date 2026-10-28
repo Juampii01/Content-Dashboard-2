@@ -7,7 +7,7 @@ import { SFX_NAMES, type SfxName } from "../sfx-library";
 import { outputRange, type Timeline } from "../timeline";
 import { FPS, type VideoFormat } from "../types";
 import { OUTPUT, type Box, type FxBrand, type FxSpec } from "../fx/compile";
-import { COMPOS_LIMITS, composLimitsFor, type ComposAsset, type ComposEnvData, type ComposRect } from "./contract";
+import { CLIP_SHEET, COMPOS_LIMITS, composLimitsFor, type ComposAsset, type ComposEnvData, type ComposRect } from "./contract";
 
 const sfxName = z.enum(SFX_NAMES as [SfxName, ...SfxName[]]);
 
@@ -23,7 +23,31 @@ export const composImageSchema = z.object({
   focus: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1), label: z.string().max(80).optional() }).optional(),
   /** Lo que Claude vio en la imagen (zonas, colores), para escribir la animación. */
   notes: z.string().max(600).optional(),
+  /** Hoja de cuadros de un video usado dentro (ver `clips`): no es una imagen suelta, no va en env.assets. */
+  sheet: z.boolean().optional(),
 });
+
+/** Video de la biblioteca usado DENTRO de la animación (lib/video/compos/contract.ts, ComposClip). */
+export const composClipSchema = z.object({
+  id: z.string().regex(/^v[0-9a-z]{1,20}$/),
+  /** Pieza de la biblioteca de la que salió (para rehacer las hojas o cambiar la animación). */
+  library_id: z.uuid(),
+  title: z.string().max(120),
+  width: z.number().int().min(16).max(8192),
+  height: z.number().int().min(16).max(8192),
+  duration: z.number().min(0.1).max(CLIP_SHEET.maxSeconds),
+  fps: z.number().min(1).max(30),
+  frames: z.number().int().min(1).max(Math.ceil(CLIP_SHEET.maxSeconds * 30)),
+  cols: z.number().int().min(1).max(8),
+  rows: z.number().int().min(1).max(8),
+  frameW: z.number().int().min(16).max(2048),
+  frameH: z.number().int().min(16).max(2048),
+  /** Ids de las imágenes (`images`) con las hojas, en orden. */
+  sheets: z.array(z.string().regex(/^g[0-9a-z]{1,20}$/)).min(1).max(64),
+  /** Qué se ve en el clip y en qué segundo (la ficha de la biblioteca), para escribir la animación. */
+  notes: z.string().max(1500).optional(),
+});
+export type ComposClipItem = z.infer<typeof composClipSchema>;
 export type ComposImage = z.infer<typeof composImageSchema>;
 
 /**
@@ -71,7 +95,9 @@ export const compositionSchema = z.object({
   match: z.object({ score: z.number().min(0).max(100), note: z.string().max(300) }).optional(),
   /** Familias visuales (para rotar entre videos): "texto-letra-a-letra", "tarjeta-3d"… */
   tags: z.array(z.string().max(40)).max(6).optional(),
-  images: z.array(composImageSchema).max(8).optional(),
+  images: z.array(composImageSchema).max(8 + CLIP_SHEET.maxClips * 32).optional(),
+  /** Videos de la biblioteca que van dentro de la animación (sus cuadros están en `images`, marcados como hoja). */
+  clips: z.array(composClipSchema).max(CLIP_SHEET.maxClips).optional(),
   /** Referencias de estilo que mandó la persona (se vuelven a usar en los cambios de esta animación). */
   refs: z.array(refImageSchema).max(4).optional(),
   /** Pieza única de todo el video («Animar todo»): hasta 3 minutos y armada por escenas. */
@@ -173,7 +199,7 @@ export function composEnv(input: {
     .filter((w) => w.end > start && w.start < end)
     .map((w) => ({ text: w.text, t0: round3(Math.max(0, w.start - start)), t1: round3(Math.min(duration, w.end - start)), strong: w.emphasis }));
   const assets: ComposAsset[] = [
-    ...(item.images ?? []).map((g) => ({ id: g.id, width: g.width, height: g.height, kind: "image" as const, title: g.focus?.label ?? g.prompt.slice(0, 60) })),
+    ...(item.images ?? []).filter((g) => !g.sheet).map((g) => ({ id: g.id, width: g.width, height: g.height, kind: "image" as const, title: g.focus?.label ?? g.prompt.slice(0, 60) })),
     ...(usesAssets(item.code) ? (input.thumbs ?? []).slice(0, 6).map((t, i) => ({ id: `t${i}`, width: 1080, height: 1920, kind: "thumb" as const, title: t.title.slice(0, 60) })) : []),
   ];
   // La franja de subtítulos que ve el código es la que tenía cuando se escribió: las animaciones de antes de
@@ -195,6 +221,7 @@ export function composEnv(input: {
       : captionBand(input.format, bandVisible),
     mask: needsMask(item.code),
     assets,
+    ...(item.clips?.length ? { clips: item.clips.map((c) => ({ id: c.id, title: c.title, width: c.width, height: c.height, duration: c.duration, fps: c.fps, frames: c.frames, cols: c.cols, rows: c.rows, frameW: c.frameW, frameH: c.frameH, sheets: c.sheets })) } : {}),
     ...framePanel(item.frame, W, H, input.face),
   };
 }

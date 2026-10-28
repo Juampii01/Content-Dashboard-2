@@ -171,7 +171,7 @@ describe("ficha (funciones puras)", () => {
 describe("chat del video con la biblioteca (validación de acciones)", () => {
   const library = { text: "", codes: new Map([["C1", oficina], ["C2", clinica]]) } as unknown as import("../lib/video/broll").LibraryPrompt;
   const ids = new Set(Array.from({ length: 40 }, (_, i) => i));
-  const base = { scope: "momento" as const, title: "t", prompt: "p", layout: null, library: null, clip_start: null };
+  const base = { scope: "momento" as const, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null };
 
   test("«pon b-roll de lo que hablo»: un video de la biblioteca por su código, con su segundo dentro del clip", () => {
     const out = chatItems(
@@ -238,7 +238,7 @@ describe("biblioteca en la base", { skip: !url && "TEST_DATABASE_URL no está de
         if (!task.includes("FICHA DE")) {
           // Un turno del chat del video o del asistente de pedidos: se guarda lo que recibió Claude para revisarlo.
           chatRequests.push(msg);
-          const reply = { reply: "En los cuadros veo un personaje redondo naranja que rebota.", go: false, items: [{ kind: "animacion", scope: "momento", from_word: 0, to_word: 3, title: "Personaje que rebota", prompt: "Un personaje redondo naranja rebota sobre la frase clave.", attachments: [], layout: null, library: null, clip_start: null }], note: "" };
+          const reply = { reply: "En los cuadros veo un personaje redondo naranja que rebota.", go: false, items: [{ kind: "animacion", scope: "momento", from_word: 0, to_word: 3, title: "Personaje que rebota", prompt: "Un personaje redondo naranja rebota sobre la frase clave.", attachments: [], layout: null, library: null, clip_start: null, text_style: null, look: null }], note: "" };
           return stream(res, reply);
         }
         const ficha = task.includes("FICHA DE UNA IMAGEN")
@@ -457,5 +457,27 @@ describe("biblioteca en la base", { skip: !url && "TEST_DATABASE_URL no está de
     assert.equal(f.moments.length, 1);
     assert.ok((await mod.searchLibrary("mostradores")).includes(recep));
     await assert.rejects(mod.updateFicha(recep, { description: 1 }));
+  });
+  test("chat: un texto a mano queda con su estilo y solo el texto; un color va a todo el video", () => {
+    const base = { scope: "momento" as const, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null, attachments: [] };
+    const ids = new Set(Array.from({ length: 40 }, (_, i) => i));
+    const library = { text: "", codes: new Map() };
+    const out = chatItems(
+      [
+        { ...base, kind: "texto", from_word: 3, to_word: 6, prompt: "  Paso   1  ", text_style: "titleBox" },
+        { ...base, kind: "texto", from_word: 3, to_word: 6, prompt: "Sin estilo", text_style: null },
+        { ...base, kind: "texto", from_word: 3, to_word: 6, prompt: "   ", text_style: "title" },
+        { ...base, kind: "color", from_word: 3, to_word: 6, look: "cine" },
+        { ...base, kind: "color", from_word: 3, to_word: 6, look: null },
+      ],
+      [],
+      39,
+      ids,
+      library,
+    );
+    assert.equal(out.length, 3, "sin texto o sin filtro, no hay acción");
+    assert.deepEqual([out[0]!.prompt, out[0]!.text_style], ["Paso 1", "titleBox"]);
+    assert.equal(out[1]!.text_style, "title", "sin estilo: título grande");
+    assert.deepEqual([out[2]!.scope, out[2]!.from_word, out[2]!.look], ["todo", -1, "cine"]);
   });
 });

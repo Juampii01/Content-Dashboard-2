@@ -107,6 +107,11 @@ export type ComposTask = {
   reused?: { id: string; name: string; version: number } | null;
   /** Imágenes que mandó la persona: de estilo (Claude las mira) o para usar dentro (lib/video/refs.ts). */
   refs?: RefImage[];
+  /**
+   * Videos de la biblioteca que van DENTRO de la animación (env.clips): antes de escribir el código, el worker saca sus
+   * cuadros en hojas (paso compos-clips); `ready` trae las medidas y las hojas, o `error` si no se pudo.
+   */
+  clips?: TaskClip[];
   /** La charla completa con la IA del Estudio cuando el pedido salió de ahí: va entera a cada etapa (nada se resume). */
   conversation?: string;
   /** Pieza única de todo el video («Animar todo»), con sus escenas y la franja fija de la persona (si hay). */
@@ -153,8 +158,22 @@ export type ComposWork = {
   usedUsd?: number;
 };
 
+/** Un video de la biblioteca para usar dentro de la animación, desde que se pide hasta que tiene sus hojas. */
+export type TaskClip = {
+  ref: string;
+  libraryId: string;
+  key: string;
+  title: string;
+  /** La ficha de la biblioteca (qué se ve y en qué segundo), para escribir la animación. */
+  notes?: string;
+  ready?: { width: number; height: number; duration: number; fps: number; frames: number; cols: number; rows: number; frameW: number; frameH: number; sheets: { key: string; width: number; height: number }[] };
+  error?: string;
+};
+
 export type WorkerNext =
   | { step: "compos"; label?: string }
+  // Videos de la biblioteca que van dentro de una animación: el worker arma sus hojas de cuadros.
+  | { step: "compos-clips"; items: { taskId: string; ref: string; clipId: string; key: string }[]; label: string }
   | { step: "compos-images"; items: { taskId: string; imageId: string; prompt: string; aspect: string }[]; label: string }
   | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string }
   // Una llamada larga a Claude que hace el worker con la clave de API del cliente (la pide en /api/worker/projects/<id>/ia).
@@ -300,6 +319,15 @@ function itemOf(task: ComposTask, code: ComposCodeWire | { code: string; name: s
   const images: ComposImage[] = task.images
     .filter((i) => i.status === "ready" && i.key && i.width && i.height)
     .map((i) => ({ id: i.id, key: i.key!, width: i.width!, height: i.height!, prompt: i.prompt.slice(0, 600), ...(i.focus ? { focus: i.focus } : {}), ...(i.notes ? { notes: i.notes.slice(0, 600) } : {}) }));
+  // Videos para usar dentro: sus hojas van con las imágenes (las ve la vista previa y las baja el worker como cualquier imagen).
+  const own = clipsOf(task);
+  // Un cambio sobre una animación que ya tenía videos adentro los conserva (con sus hojas), salvo que lleguen otros.
+  if (!own.clips.length && task.base?.clips?.length) {
+    const ids = new Set(task.base.clips.flatMap((c) => c.sheets));
+    own.clips = task.base.clips;
+    own.images = (task.base.images ?? []).filter((g) => g.sheet && ids.has(g.id));
+  }
+  images.push(...own.images);
   return {
     id: task.compId,
     from_word: task.from_word,
@@ -316,6 +344,7 @@ function itemOf(task: ComposTask, code: ComposCodeWire | { code: string; name: s
     ...(task.moment ? { moment: task.moment } : {}),
     tags: code.tags.map((t) => t.toLowerCase().replace(/[^a-z0-9ñ-]+/g, "-").slice(0, 40)).filter(Boolean).slice(0, 6),
     ...(images.length ? { images } : {}),
+    ...(own.clips.length ? { clips: own.clips } : {}),
     ...(task.request ? { request: task.request.slice(0, 1500) } : {}),
     ...(styleRefs(task).length ? { refs: styleRefs(task) } : {}),
     ...(task.long ? { long: true } : {}),
@@ -486,6 +515,16 @@ async function advanceWorkInner(projectId: string, body: AdvanceBody): Promise<S
 
   // Lo que devuelve el worker.
   if (body.step === "compos-images-done") applyImages(work, body.results);
+  if (body.step === "compos-clips-done") applyClips(work, body.results);
+
+  // 0) Videos para usar dentro que todavía no tienen sus hojas: primero eso (el código tiene que saber qué hay).
+  const pendingClips = work.tasks
+    .filter((t) => t.status !== "done" && t.status !== "failed")
+    .flatMap((t) => (t.clips ?? []).filter((c) => !c.ready && !c.error).map((c) => ({ taskId: t.id, ref: c.ref, clipId: c.libraryId, key: c.key })));
+  if (pendingClips.length && body.step !== "compos-clips-done") {
+    await saveTarget(ctx, work);
+    return { next: { step: "compos-clips", items: pendingClips.slice(0, 4), label: pendingClips.length === 1 ? "Preparando tu video para la animación" : "Preparando tus videos para la animación" }, finished: false };
+  }
   if (body.step === "compos-look") applySheets(work, body.sheets);
 
   // 1) Imágenes por generar: todas juntas en un pedido al worker.
@@ -552,6 +591,50 @@ function applyImages(work: ComposWork, raw: unknown): void {
   }
   // Las que el worker no devolvió quedan como fallidas (no se vuelven a pedir en un bucle).
   for (const t of work.tasks) for (const i of t.images) if (t.status === "images" && i.status === "pending") Object.assign(i, { status: "failed", error: "El generador no devolvió la imagen." });
+}
+
+/** Las hojas de cuadros de los videos para usar dentro (paso compos-clips del worker). */
+function applyClips(work: ComposWork, raw: unknown): void {
+  const results = Array.isArray(raw) ? (raw as ({ ref?: string; error?: string; sheets?: { key: string; width: number; height: number }[] } & Partial<NonNullable<TaskClip["ready"]>>)[]) : [];
+  for (const t of work.tasks) {
+    for (const c of t.clips ?? []) {
+      if (c.ready || c.error) continue;
+      const r = results.find((x) => x.ref === c.ref);
+      if (r && !r.error && r.sheets?.length && r.width && r.height && r.duration && r.fps && r.frames && r.cols && r.rows && r.frameW && r.frameH) {
+        c.ready = { width: r.width, height: r.height, duration: r.duration, fps: r.fps, frames: r.frames, cols: r.cols, rows: r.rows, frameW: r.frameW, frameH: r.frameH, sheets: r.sheets.slice(0, 64) };
+      } else c.error = String(r?.error ?? "No pudimos preparar ese video.").slice(0, 300);
+    }
+  }
+}
+
+/** Los videos listos de una tarea, como los ve la animación: env.clips en este orden y sus hojas como imágenes. */
+function clipsOf(task: ComposTask): { clips: NonNullable<Composition["clips"]>; images: ComposImage[] } {
+  const clips: NonNullable<Composition["clips"]> = [];
+  const images: ComposImage[] = [];
+  for (const c of task.clips ?? []) {
+    if (!c.ready) continue;
+    const ids = c.ready.sheets.map((_, n) => `g${c.ref}s${n}`);
+    c.ready.sheets.forEach((sh, n) => images.push({ id: ids[n]!, key: sh.key, width: sh.width, height: sh.height, prompt: `Cuadros del video «${c.title}»`.slice(0, 600), sheet: true }));
+    clips.push({ id: c.ref, library_id: c.libraryId, title: c.title.slice(0, 120), width: c.ready.width, height: c.ready.height, duration: c.ready.duration, fps: c.ready.fps, frames: c.ready.frames, cols: c.ready.cols, rows: c.ready.rows, frameW: c.ready.frameW, frameH: c.ready.frameH, sheets: ids, ...(c.notes ? { notes: c.notes.slice(0, 1500) } : {}) });
+  }
+  return { clips, images };
+}
+
+/** Lo que Claude tiene que saber de los videos para usar dentro (plan y código). */
+export function clipsText(task: Pick<ComposTask, "clips" | "base">): string | null {
+  const fresh = (task.clips ?? []).filter((c) => c.ready);
+  // Sin videos nuevos, los que ya tenía la animación que se cambia.
+  const ready = fresh.length ? fresh : (task.base?.clips ?? []).map((c) => ({ title: c.title, notes: c.notes, ready: { width: c.width, height: c.height, duration: c.duration } }));
+  const failed = (task.clips ?? []).filter((c) => c.error);
+  const parts: string[] = [];
+  if (ready.length)
+    parts.push(
+      `VIDEOS DE LA PERSONA PARA USAR DENTRO DE LA ANIMACIÓN (su grabación real: se dibujan con ctx.drawImage(env.clip(i, tiempoDelClip), x, y, ancho, alto); nunca los redibujes ni los imites):\n${ready
+        .map((c, i) => `${i}. env.clips[${i}] «${c.title}»: ${c.ready!.width}×${c.ready!.height}, ${c.ready!.duration.toFixed(1)} s.${c.notes ? ` Qué se ve: ${c.notes.slice(0, 1200)}` : ""}`)
+        .join("\n")}\nPonlos donde la persona lo pidió (dentro de una pantalla, un teléfono, una tarjeta…), con el tamaño suficiente para que se vean bien y respetando su proporción. Si el video es más corto que la escena, elige qué tramo del clip va en cada momento (env.clip(i, t - inicio + desdeQueSegundo)).`,
+    );
+  if (failed.length) parts.push(`No se pudo preparar ${failed.map((c) => `«${c.title}»`).join(", ")}: no lo uses.`);
+  return parts.length ? parts.join("\n") : null;
 }
 
 function applySheets(work: ComposWork, raw: unknown): void {
@@ -634,7 +717,7 @@ async function stepTask(ctx: WorkCtx, work: ComposWork, task: ComposTask): Promi
           model: "main",
           context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
           task: composPlanTask({
-            brief: `${task.long && task.scenes?.length ? `${brief}\nESCENAS: ${task.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(1)}–${sc.end.toFixed(1)} s: ${sc.brief}`).join(" | ")}`.slice(0, 9000) : brief}${inside.length ? `\nIMÁGENES DE LA PERSONA PARA USAR DENTRO DE LA ANIMACIÓN (${inside.length === 1 ? "la primera imagen adjunta" : `las primeras ${inside.length} imágenes adjuntas`}${inside.some((r) => r.note) ? `: ${inside.map((r) => r.note ?? "sin nombre").join(" · ")}` : ""}): ya están disponibles; no las pidas al generador.` : ""}${styleRefsText(task)}`,
+            brief: `${task.long && task.scenes?.length ? `${brief}\nESCENAS: ${task.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(1)}–${sc.end.toFixed(1)} s: ${sc.brief}`).join(" | ")}`.slice(0, 9000) : brief}${clipsText(task) ? `\n${clipsText(task)}` : ""}${inside.length ? `\nIMÁGENES DE LA PERSONA PARA USAR DENTRO DE LA ANIMACIÓN (${inside.length === 1 ? "la primera imagen adjunta" : `las primeras ${inside.length} imágenes adjuntas`}${inside.some((r) => r.note) ? `: ${inside.map((r) => r.note ?? "sin nombre").join(" · ")}` : ""}): ya están disponibles; no las pidas al generador.` : ""}${styleRefsText(task)}`,
             said: said(ctx, task),
             duration,
             format: ctx.format,
@@ -822,7 +905,7 @@ async function codeCall(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { s
     maxTokens: opts.maxTokens ?? APP_MAX_TOKENS,
     timeoutMs: task.long ? 780_000 : 540_000,
     videoProjectId: ctx.projectId,
-    fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0 }),
+    fake: () => fakeCode({ brief, said: said(ctx, task), base: task.base ?? null, request: task.request ?? null, attempt: task.attempts, hasImage: readyImages.length > 0, hasClip: (task.clips ?? []).some((c) => c.ready) }),
   };
 }
 
@@ -1032,7 +1115,7 @@ async function applyRemote(ctx: WorkCtx, work: ComposWork, done: RemoteDone): Pr
 function codeTaskInput(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { start: number; end: number }, refFrames: number): Parameters<typeof composCodeTask>[0] {
   const readyImages = task.images.filter((i) => i.status === "ready");
   return {
-    brief: `${withConversation(task.brief, task.conversation)}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}${styleRefsText(task)}`,
+    brief: `${withConversation(task.brief, task.conversation)}${task.approach ? `\nENFOQUE: ${task.approach}` : ""}${styleRefsText(task)}${clipsText(task) ? `\n${clipsText(task)}` : ""}`,
     said: said(ctx, task),
     words: wordsText(ctx, task, s.start),
     duration: s.end - s.start,

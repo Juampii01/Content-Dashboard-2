@@ -33,9 +33,13 @@ import { mapText } from "../director/context";
 import type { DirectorState } from "../director/types";
 import type { EditPlan, Word } from "../types";
 import { compositionSchema, type Composition } from "./schema";
+import { CLIP_SHEET } from "./contract";
+import { loadClip, pieceOf } from "../library";
+import { fichaText } from "../library-ficha";
+import { z } from "zod";
 import { fakeAdapt, fakeKeyMoments, fakeRecipe, fakeRequestPlan } from "./fake";
 import { activeCount, activeLongRequest, enqueueRequest, LONG_BUSY_MESSAGE, MAX_ACTIVE } from "./requests";
-import { frameFor, loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type WorkCtx } from "./work";
+import { frameFor, loadWorkCtx, newTask, newWorkId, readWork, STAGE_COST, type ComposTask, type ComposWork, type TaskClip, type WorkCtx } from "./work";
 
 /**
  * Los tres caminos que llenan el taller de composiciones:
@@ -408,9 +412,27 @@ function overlapping(ctx: WorkCtx, from: number, to: number): { comp: Compositio
   return { comp: long, at: piece && here ? Math.max(0, here.start - piece.start) : null };
 }
 
+/**
+ * Videos de la biblioteca que van DENTRO de la animación: llegan del navegador solo como ids y aquí se buscan (clave,
+ * nombre y ficha). Solo videos listos; una imagen va por las imágenes adjuntas. Se avisa si alguno no sirve.
+ */
+export async function taskClips(ids: unknown): Promise<TaskClip[]> {
+  const parsed = z.array(z.uuid()).max(CLIP_SHEET.maxClips).safeParse(ids ?? []);
+  if (!parsed.success) throw new ComposRequestError(`Puedes usar hasta ${CLIP_SHEET.maxClips} videos dentro de una animación.`);
+  const out: TaskClip[] = [];
+  for (const id of [...new Set(parsed.data)]) {
+    const row = await loadClip(id);
+    // Recién subido desde el chat puede estar todavía con su ficha en curso: igual sirve (el worker baja el archivo).
+    if (!row || row.kind !== "video" || (row.status !== "READY" && row.status !== "PROCESSING")) throw new ComposRequestError("Uno de los videos no está disponible en tu biblioteca. Vuelve a subirlo.");
+    const piece = pieceOf(row);
+    out.push({ ref: `v${out.length + 1}${Math.random().toString(36).slice(2, 7)}`, libraryId: id, key: row.fileKey, title: row.title.slice(0, 120), notes: fichaText(piece).slice(0, 1500) });
+  }
+  return out;
+}
+
 export async function startStudioRequest(
   projectId: string,
-  input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null; refs?: unknown; look?: { moment: string; detail: string; sheets: { key: string; width: number; height: number }[] } | null; conversation?: string | null; autoReplace?: boolean },
+  input: { from_word: number; to_word: number; instruction: string; replace: unknown | null; at?: number | null; refs?: unknown; clips?: unknown; look?: { moment: string; detail: string; sheets: { key: string; width: number; height: number }[] } | null; conversation?: string | null; autoReplace?: boolean },
   userId: string | null,
 ): Promise<{ workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
@@ -441,8 +463,9 @@ export async function startStudioRequest(
   // Imágenes de la persona: las nuevas, o las de estilo que ya tenía la animación que se cambia.
   const fresh = cleanRefs(projectId, input.refs);
   const refs = fresh.length ? fresh : cleanRefs(projectId, base?.refs);
-  // Un cambio chico no necesita planear imágenes, salvo que las pida o mande imágenes para usar dentro.
-  const needsPlan = !(base && !ANIMATION_RE.test(instruction) && !fresh.some((r) => r.use === "inside"));
+  const clips = await taskClips(input.clips);
+  // Un cambio chico no necesita planear imágenes, salvo que las pida o mande imágenes o videos para usar dentro.
+  const needsPlan = !(base && !ANIMATION_RE.test(instruction) && !fresh.some((r) => r.use === "inside") && !clips.length);
   return enqueueRequest({
     projectId,
     userId,
@@ -457,6 +480,7 @@ export async function startStudioRequest(
     build: (lookRounds) => {
       const task = newTask({ compId: base?.id, from_word: input.from_word, to_word: input.to_word, brief: base ? `Cambiar la animación «${base.name}»: ${instruction}` : instruction, source: "user", request: instruction, base });
       if (refs.length) task.refs = refs;
+      if (clips.length) task.clips = clips;
       if (input.conversation) task.conversation = input.conversation.slice(-CONVERSATION_MAX);
       // «Mira este video»: el momento de la referencia que se adapta, con sus hojas de cuadros.
       if (input.look && !base) {
@@ -663,7 +687,7 @@ export async function planWholeVideo(projectId: string, input: { mode: WholeMode
  * armada por las escenas que se revisaron. En «Mitad y mitad» y «Fondo blanco arriba», la franja de la persona es fija
  * (la dibuja el motor con el encuadre elegido; la IA solo anima arriba). Después se cambia por escena.
  */
-export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string; title?: string }[]; conversation?: string | null }, userId: string | null): Promise<{ count: number; workId: string; error: string | null }> {
+export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string; title?: string }[]; conversation?: string | null; clips?: unknown }, userId: string | null): Promise<{ count: number; workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
@@ -693,6 +717,7 @@ export async function startWholeVideo(projectId: string, plan: { mode: WholeMode
   const outside = plan.mode === "face" ? "Fuera de las escenas no dibujes nada: se ve a la persona hablando (background \"video\")." : "";
   const instruction = `Pieza única de animación para TODO el video, de principio a fin, con las escenas de la lista. ${layout} ${outside} ${style ? `ESTILO COMÚN: ${style}` : ""}`.replace(/\s+/g, " ").trim().slice(0, 1500);
   const frame = plan.mode === "split" || plan.mode === "top" ? frameFor(ctx, plan.mode, { start: piece.start, end: piece.end }) : undefined;
+  const clips = await taskClips(plan.clips);
   const { workId, error } = await enqueueRequest({
     projectId,
     userId,
@@ -706,6 +731,7 @@ export async function startWholeVideo(projectId: string, plan: { mode: WholeMode
       task.long = true;
       task.scenes = scenes;
       if (frame) task.frame = frame;
+      if (clips.length) task.clips = clips;
       if (plan.conversation) task.conversation = plan.conversation.slice(-CONVERSATION_MAX);
       return {
         id: newWorkId(),

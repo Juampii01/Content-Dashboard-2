@@ -120,6 +120,14 @@ def run(ctx: JobContext, project: dict[str, Any], first: str, start: float, end:
             with lock:
                 results = compos.generate_images(ctx, pid, nxt.get("items") or [], ctx.workdir(pid))
             res = ctx.app.director(pid, {"step": "compos-images-done", "results": results, **extra})
+        elif step == "compos-clips":
+            from . import compos  # noqa: PLC0415
+
+            # Videos de la biblioteca que van dentro de una animación: sus cuadros en hojas (env.clip).
+            ctx.stage(str(nxt.get("label") or "Preparando tu video para la animación")[:120], a, b)
+            with lock:
+                results = compos.clip_sheets(ctx, pid, nxt.get("items") or [], ctx.workdir(pid))
+            res = ctx.app.director(pid, {"step": "compos-clips-done", "results": results, **extra})
         elif step == "compos-stills":
             from . import compos  # noqa: PLC0415
 

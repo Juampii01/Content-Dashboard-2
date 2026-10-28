@@ -238,6 +238,18 @@ export function useAttachments(projectId: string, opts: { video: boolean }) {
 
 export type AttachmentsApi = ReturnType<typeof useAttachments>;
 
+/** Los videos que van DENTRO de la animación: los elegidos con uso «inside», por su id en la biblioteca. */
+export function clipIdsOf(list: Attachment[], pick: { ref: string; use: string }[]): string[] {
+  const out: string[] = [];
+  for (const p of pick) {
+    if (p.use !== "inside") continue;
+    const a = list.find((x) => x.ref === p.ref && x.kind === "video" && x.status === "ready");
+    const id = a?.libraryId ?? a?.clip?.id;
+    if (id && /^[0-9a-f-]{36}$/i.test(id) && !out.includes(id)) out.push(id);
+  }
+  return out.slice(0, 2);
+}
+
 /** Las imágenes listas como referencias para un pedido (opcionalmente, solo algunas y con su uso). */
 export function refsOf(list: Attachment[], pick?: { ref: string; use: RefImage["use"] }[]): RefImage[] {
   const out: RefImage[] = [];
@@ -245,8 +257,10 @@ export function refsOf(list: Attachment[], pick?: { ref: string; use: RefImage["
     if (a.status !== "ready") continue;
     const chosen = pick ? pick.find((p) => p.ref === a.ref) : null;
     if (pick && !chosen) continue;
-    // Un video de tu biblioteca como referencia: sus hojas de cuadros, solo de estilo (no se ponen dentro).
+    // Un video de tu biblioteca como referencia: sus hojas de cuadros, solo de estilo. Uno «para usar dentro» no va
+    // aquí: va como video de la animación (clipIdsOf).
     if (a.kind === "video") {
+      if (chosen?.use === "inside") continue;
       if (!a.sheets?.length || (!pick && a.use !== "style")) continue;
       for (const sheet of a.sheets) out.push({ ...sheet, use: "style", note: `Cuadros del clip «${a.name}» de tu biblioteca` });
       continue;

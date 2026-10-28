@@ -81,6 +81,7 @@ export type DirectorNext =
   | { step: "compos-images"; items: { taskId: string; imageId: string; prompt: string; aspect: string }[]; label: string }
   | { step: "compos-stills"; render: Record<string, unknown>; items: Record<string, unknown>[]; label: string }
   | Extract<WorkerNext, { step: "compos-ai" }>
+  | Extract<WorkerNext, { step: "compos-clips" }>
   | { step: "preview"; round: number; render: Record<string, unknown>; frames: KeyFrame[] }
   | null;
 
@@ -100,6 +101,7 @@ export type DirectorBody =
   | { step: "adapt" }
   | { step: "compos"; workId?: string }
   | { step: "compos-images-done"; results: unknown[]; workId?: string }
+  | { step: "compos-clips-done"; results: unknown[]; workId?: string }
   | { step: "compos-look"; sheets: { taskId: string; key: string; width: number; height: number; times?: number[] }[]; workId?: string }
   // Lo que devolvió el worker de una llamada larga (pieza única); "compos-ai" solo lo manda un worker viejo que no sabe hacerla.
   | { step: "compos-ai-done"; remote: RemoteDone; workId?: string }
@@ -316,6 +318,7 @@ export async function directorStep(projectId: string, body: DirectorBody): Promi
       }
       case "compos":
       case "compos-images-done":
+      case "compos-clips-done":
       case "compos-look":
       case "compos-ai-done":
       case "compos-ai": {

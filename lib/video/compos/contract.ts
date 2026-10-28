@@ -52,6 +52,17 @@ export type ComposWord = { text: string; t0: number; t1: number; strong: boolean
 /** Imagen permitida (miniaturas de tus reels, imágenes de b-roll): se dibuja con ctx.drawImage(env.assets[i], …). */
 export type ComposAsset = { id: string; width: number; height: number; kind: "thumb" | "image"; title: string };
 
+/**
+ * Video de la biblioteca que va DENTRO de la animación (por ejemplo, la grabación de una web en la pantalla de un
+ * dibujo). El worker saca sus cuadros a `fps` y los junta en hojas JPEG de `cols`×`rows` cuadros de `frameW`×`frameH`
+ * (worker/video/compos.py `clip_sheets`); cada hoja es una imagen más de la animación (`sheets`: sus ids). El código lo
+ * usa con env.clip(i, t): sale el cuadro de ese segundo, igual en la vista previa y en el render.
+ */
+export type ComposClip = { id: string; title: string; width: number; height: number; duration: number; fps: number; frames: number; cols: number; rows: number; frameW: number; frameH: number; sheets: string[] };
+
+/** Cuadros por segundo y tamaño de los cuadros de un video usado dentro de una animación. */
+export const CLIP_SHEET = { fps: 12, frameW: 640, cols: 4, rows: 4, maxSeconds: 30, maxClips: 2 } as const;
+
 /** Lo que el sandbox recibe para armar `env` (datos planos: viajan como JSON). */
 export type ComposEnvData = {
   width: number;
@@ -73,6 +84,8 @@ export type ComposEnvData = {
    */
   maskReady?: boolean;
   assets: ComposAsset[];
+  /** Videos de la biblioteca para usar dentro (env.clips / env.clip). */
+  clips?: ComposClip[];
   /**
    * Dónde dibuja la animación (todo el cuadro si no viene). Con una franja fija de la persona («Mitad y mitad»,
    * «Fondo blanco arriba»), es la parte de arriba.
@@ -160,6 +173,13 @@ Extras:
 - ctx.drawPerson(dx?, dy?, dw?, dh?) o ctx.drawImage(env.person, …): SOLO la persona recortada (sin fondo). Para ir detrás de la persona: dibuja tu texto y después ctx.drawPerson(). Sin recorte (env.hasMask false) no dibuja nada.
 - ctx.drawImage(env.silhouette("#ffffff", 14), 0, 0): la silueta de la persona engordada (bordes de sticker, contornos, sombras).
 - ctx.drawImage(env.assets[i], dx, dy, dw, dh): imágenes permitidas (miniaturas de sus reels). Mira env.assets.length antes.
+- ctx.drawImage(env.clip(i, tiempo), dx, dy, dw, dh): el cuadro del VIDEO de la persona número i (env.clips[i]) en ese segundo
+  del clip. Es su grabación real (por ejemplo, una web con scroll): úsala tal cual, dentro de una pantalla, un teléfono,
+  una tarjeta o lo que pida la idea; nunca la redibujes. env.clips[i] = { title, width, height, duration }.
+  El tiempo es del clip, no de la animación: para que corra desde que aparece usa env.clip(i, t - inicio). Por defecto da
+  la vuelta al llegar al final; env.clip(i, tiempo, { loop: false }) se queda en el último cuadro. Se recorta con las 8
+  coordenadas (en píxeles del clip: 0…width, 0…height) para mostrar solo una parte, o con clip() para esquinas redondeadas.
+  Encaja proporciones: el video mide width×height; no lo estires.
 - const L = env.layer(): lienzo auxiliar del tamaño del video (misma API). ctx.drawImage(L, …) lo usa (recortes de glitch, máscaras con destination-in, 3D).
 - Fuentes: env.fonts.sans ("Inter", 500–900), env.fonts.display (la de la marca, 500–900), env.fonts.serif ("Instrument Serif", 400 y italic),
   env.fonts.mono ("JetBrains Mono", 500/700), env.fonts.hand ("Caveat", 400/700), env.fonts.cut ("Anton", 400, condensada y gruesa).
@@ -173,7 +193,7 @@ env:
 - env.params: los textos editables (con los valores que eligió la persona).
 - env.freeY(altoDelBloque, "below" | "above") → { y, room, fits, where }: centro vertical de un bloque en el espacio libre más grande (debajo o arriba de la cara, sin pisar los subtítulos). Úsalo para ubicar tarjetas y textos; si fits es false, achica el bloque a room.
 - env.face = { x, y, w, h, cx, cy }; env.safe = { x, y, w, h } (cara con margen); env.captions = { y, h, visible } (franja de subtítulos: si visible, no pongas texto ahí).
-- env.hasMask, env.video, env.person, env.silhouette(color, engorde), env.assets, env.layer()
+- env.hasMask, env.video, env.person, env.silhouette(color, engorde), env.assets, env.clips, env.clip(i, tiempo, opciones?), env.layer()
 
 Utilidades (todas deterministas):
 - env.clamp(v, a, b), env.lerp(a, b, p), env.map(v, a0, a1, b0, b1, clamp?), env.progress(t, inicio, duración) → 0…1

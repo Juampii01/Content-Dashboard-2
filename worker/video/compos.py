@@ -250,4 +250,105 @@ def ctx_stopped() -> bool:
     return stop_event.is_set()
 
 
-__all__ = ["generate_images", "stills", "eyes", "fx_mask"]
+# ─── Videos dentro de una animación (compos-clips) ───────────────────────────
+# Mismos números que CLIP_SHEET en lib/video/compos/contract.ts.
+CLIP_FPS = 12
+CLIP_FRAME_W = 640
+CLIP_COLS = 4
+CLIP_ROWS = 4
+CLIP_MAX_SECONDS = 30.0
+CLIP_MAX_ITEMS = 2
+
+
+def _even(v: float) -> int:
+    return max(2, int(round(v / 2)) * 2)
+
+
+def clip_sheets(ctx: JobContext, pid: str, items: list[dict[str, Any]], workdir: Path) -> list[dict[str, Any]]:
+    """Paso `compos-clips`: un video de la biblioteca que va DENTRO de una animación. Se sacan sus cuadros a CLIP_FPS
+    (como mucho CLIP_MAX_SECONDS) y se juntan en hojas JPEG de CLIP_COLS×CLIP_ROWS cuadros, que la animación usa como
+    imágenes (env.clip en lib/video/compos/runtime). Las hojas van a `editor/<proyecto>/compos/clips/`."""
+    from PIL import Image  # noqa: PLC0415
+
+    from comunes import ffmpeg  # noqa: PLC0415
+    from comunes.ffmpeg import probe  # noqa: PLC0415
+
+    out: list[dict[str, Any]] = []
+    base = workdir / "compos-clips"
+    for item in items[:CLIP_MAX_ITEMS]:
+        ctx.check()
+        ref = str(item.get("ref") or "")
+        clip_id = str(item.get("clipId") or "")
+        key = str(item.get("key") or "")
+        if not ref.isalnum() or not key.startswith(f"editor/biblioteca/{clip_id}/"):
+            out.append({"ref": ref, "error": "Ese video de la biblioteca ya no está disponible."})
+            continue
+        try:
+            raw = base / f"lib-{clip_id}{Path(key).suffix or '.mp4'}"
+            if not raw.exists():
+                ctx.app.download(None, key, raw, owner={"clipId": clip_id})
+            info = probe(raw)
+            video = next((st for st in info.get("streams") or [] if st.get("codec_type") == "video"), None)
+            if not video:
+                raise JobError("Ese archivo no tiene video.", retry=False)
+            width, height = int(video.get("width") or 0), int(video.get("height") or 0)
+            rotation = abs(int(float(((video.get("tags") or {}).get("rotate")) or 0))) % 180
+            if rotation == 90:
+                width, height = height, width
+            duration = min(CLIP_MAX_SECONDS, float((info.get("format") or {}).get("duration") or video.get("duration") or 0))
+            if width < 16 or height < 16 or duration <= 0.05:
+                raise JobError("No pudimos leer ese video.", retry=False)
+            frame_w = _even(min(CLIP_FRAME_W, width))
+            frame_h = _even(height * frame_w / width)
+            frames_dir = base / f"{ref}-cuadros"
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            ffmpeg.run(
+                ["-t", f"{duration:.3f}", "-i", str(raw), "-vf", f"fps={CLIP_FPS},scale={frame_w}:{frame_h}:flags=lanczos,setsar=1", "-an", "-q:v", "3", str(frames_dir / "f-%05d.jpg")],
+                duration=duration,
+                what="cuadros del video",
+            )
+            # Nunca más que el máximo (ffmpeg puede sacar un cuadro de más por redondeo).
+            files = sorted(frames_dir.glob("f-*.jpg"))[: int(CLIP_MAX_SECONDS * CLIP_FPS)]
+            if not files:
+                raise JobError("No pudimos sacar cuadros de ese video.", retry=False)
+            per = CLIP_COLS * CLIP_ROWS
+            sheets: list[dict[str, Any]] = []
+            for n in range(0, len(files), per):
+                ctx.check()
+                sheet = Image.new("RGB", (frame_w * CLIP_COLS, frame_h * CLIP_ROWS), (0, 0, 0))
+                for k, f in enumerate(files[n : n + per]):
+                    with Image.open(f) as im:
+                        sheet.paste(im.convert("RGB").resize((frame_w, frame_h)), ((k % CLIP_COLS) * frame_w, (k // CLIP_COLS) * frame_h))
+                path = base / f"{ref}-hoja-{n // per:02d}.jpg"
+                sheet.save(path, "JPEG", quality=84, optimize=True, progressive=True)
+                sheet_key = f"editor/{pid}/compos/clips/{ref}-{n // per:02d}.jpg"
+                ctx.app.upload(pid, sheet_key, path, "image/jpeg")
+                sheets.append({"key": sheet_key, "width": sheet.width, "height": sheet.height})
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            out.append(
+                {
+                    "ref": ref,
+                    "clipId": clip_id,
+                    "width": width,
+                    "height": height,
+                    "duration": round(len(files) / CLIP_FPS, 3),
+                    "fps": CLIP_FPS,
+                    "frames": len(files),
+                    "cols": CLIP_COLS,
+                    "rows": CLIP_ROWS,
+                    "frameW": frame_w,
+                    "frameH": frame_h,
+                    "sheets": sheets,
+                }
+            )
+            log.info("video %s dentro de la animación: %s cuadros en %s hojas", ref, len(files), len(sheets))
+        except Cancelled:
+            raise
+        except JobError as e:
+            log.warning("video %s: %s", ref, e.detail or e.user_message)
+            out.append({"ref": ref, "error": e.user_message[:300]})
+    return out
+
+
+__all__ = ["generate_images", "stills", "eyes", "fx_mask", "clip_sheets"]

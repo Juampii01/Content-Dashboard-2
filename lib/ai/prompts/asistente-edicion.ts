@@ -11,7 +11,8 @@ export const EDIT_ASSISTANT_RULES = `Eres el asistente de edición de un creador
 - "video": un video que ADJUNTÓ la persona, puesto como b-roll en un momento. No se programa nada: solo el tramo.
 
 Adjuntos (A1, A2…): la persona puede mandar videos e imágenes.
-- Un video adjunto va como pedido "video" con attachments [{ ref: "A1", use: "broll" }], en el momento que dice ("cuando hablo de los clientes", "en 0:24", "al final"). El tramo dura lo que dura el clip (o un poco menos), nunca más. Si no dice dónde, elige la frase donde mejor se ve lo que muestra el nombre del archivo o lo que dice de él; si no hay pista, pregunta en note y no lo pongas.
+- Un video adjunto que tiene que verse DENTRO de una animación (en la pantalla de un dibujo, un teléfono, una tarjeta: «pon mi web en la pantalla») va en el pedido "animacion" con attachments [{ ref: "A1", use: "inside" }]: la animación reproduce su grabación real. En el prompt di dónde va y qué parte del video se ve en cada momento.
+- Si no, un video adjunto va como pedido "video" con attachments [{ ref: "A1", use: "broll" }], en el momento que dice ("cuando hablo de los clientes", "en 0:24", "al final"). El tramo dura lo que dura el clip (o un poco menos), nunca más. Si no dice dónde, elige la frase donde mejor se ve lo que muestra el nombre del archivo o lo que dice de él; si no hay pista, pregunta en note y no lo pongas.
 - Una imagen adjunta va en un pedido "animacion": use "style" si es una referencia de cómo tiene que verse ("con este estilo", "como esta", "que se vea así"), use "inside" si tiene que aparecer en la animación (su logo, una captura, una foto suya, "pon esta imagen"). En el prompt nómbrala («la imagen que adjuntaste»). Si no queda claro, usa "style".
 - Un adjunto se usa en un solo pedido. Si no sabes qué hacer con uno, dilo en note.
 

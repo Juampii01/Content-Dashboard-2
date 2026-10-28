@@ -76,6 +76,8 @@ const VIDEO = Object.freeze({ __src: "video" });
 const PERSON = Object.freeze({ __src: "person" });
 type Sil = { __src: "sil"; color: string; grow: number };
 type AssetHandle = { __src: "asset"; id: string; width: number; height: number; kind: string; title: string };
+/** Un cuadro de un video de la biblioteca: la hoja donde está y su lugar en ella (env.clip). */
+type ClipFrame = { __src: "clipframe"; sheet: string; sx: number; sy: number; sw: number; sh: number; width: number; height: number };
 
 // ─── El grabador (la API de Canvas 2D) ───────────────────────────────────
 
@@ -367,8 +369,28 @@ class Rec {
       case "asset":
         this._push(["img", (s as AssetHandle).id, ...v]);
         return;
+      case "clipframe": {
+        // El cuadro en su hoja: las coordenadas de origen van en píxeles del clip (0…width) y se pasan a la hoja,
+        // siempre dentro del cuadro (nunca se ve el de al lado).
+        const c = s as ClipFrame;
+        const k = c.sw / c.width;
+        if (v.length === 2) this._push(["img", c.sheet, c.sx, c.sy, c.sw, c.sh, v[0]!, v[1]!, c.width, c.height]);
+        else if (v.length === 4) this._push(["img", c.sheet, c.sx, c.sy, c.sw, c.sh, ...v]);
+        else {
+          const x0 = clamp(v[0]!, 0, c.width);
+          const y0 = clamp(v[1]!, 0, c.height);
+          const x1 = clamp(v[0]! + v[2]!, 0, c.width);
+          const y1 = clamp(v[1]! + v[3]!, 0, c.height);
+          if (x1 <= x0 || y1 <= y0) return;
+          this._push(["img", c.sheet, c.sx + x0 * k, c.sy + y0 * k, (x1 - x0) * k, (y1 - y0) * k, v[4]!, v[5]!, v[6]!, v[7]!]);
+        }
+        return;
+      }
+      case "clip":
+        fail("drawImage: un video se dibuja con env.clip(i, tiempo), que da el cuadro de ese segundo (no con env.clips[i]).");
+        return;
       default:
-        fail("drawImage: la imagen tiene que ser env.video, env.person, env.silhouette(…), env.assets[i] o una capa de env.layer().");
+        fail("drawImage: la imagen tiene que ser env.video, env.person, env.silhouette(…), env.assets[i], env.clip(i, tiempo) o una capa de env.layer().");
     }
   }
   drawVideo(...a: unknown[]) {
@@ -557,6 +579,8 @@ function makeEnv(d: ComposEnvData): G {
       .replace(/[̀-ͯ]/g, "")
       .replace(/[^a-z0-9ñ%$]+/g, "");
   const assets = d.assets.map((a) => Object.freeze({ __src: "asset", id: a.id, width: a.width, height: a.height, kind: a.kind, title: a.title }));
+  const clipData = d.clips ?? [];
+  const clips = clipData.map((c, i) => Object.freeze({ __src: "clip", index: i, title: c.title, width: c.width, height: c.height, duration: c.duration }));
   const e: G = {
     W,
     H,
@@ -581,6 +605,21 @@ function makeEnv(d: ComposEnvData): G {
     video: VIDEO,
     person: PERSON,
     assets: Object.freeze(assets),
+    clips: Object.freeze(clips),
+    clip: (which: unknown, time: unknown, opts?: { loop?: boolean }) => {
+      const i = typeof which === "number" ? which : (which as { index?: number } | null)?.index;
+      const c = typeof i === "number" && Number.isInteger(i) ? clipData[i] : undefined;
+      if (!c) fail(`env.clip: no hay video ${String(i)} (hay ${clipData.length}; mira env.clips.length).`);
+      const clip = c!;
+      const t = num(time, "env.clip");
+      const loop = opts?.loop !== false;
+      const tt = loop ? ((t % clip.duration) + clip.duration) % clip.duration : clamp(t, 0, clip.duration);
+      const frame = Math.max(0, Math.min(clip.frames - 1, Math.floor(tt * clip.fps + 1e-6)));
+      const per = clip.cols * clip.rows;
+      const sheet = clip.sheets[Math.floor(frame / per)] ?? clip.sheets[clip.sheets.length - 1]!;
+      const k = frame % per;
+      return Object.freeze({ __src: "clipframe", sheet, sx: (k % clip.cols) * clip.frameW, sy: Math.floor(k / clip.cols) * clip.frameH, sw: clip.frameW, sh: clip.frameH, width: clip.width, height: clip.height });
+    },
     silhouette: (color: unknown, grow: unknown) => Object.freeze({ __src: "sil", color: color3(color, "silhouette"), grow: clamp(num(grow ?? 10, "silhouette"), 0, 80) }),
     layer: () => {
       if (layerSeq >= LIM.layersPerFrame) fail(`Demasiadas capas por cuadro (máximo ${LIM.layersPerFrame}). Reutiliza una capa.`);

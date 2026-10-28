@@ -12,6 +12,7 @@ import { UploadDropzone } from "@/components/ui/upload-dropzone";
 import { cn } from "@/lib/utils";
 import { analyzeTemplateAction, startTemplateAction } from "./template-actions";
 import { downscaleImage, uploadImage } from "./upload";
+import { userMessage } from "@/lib/user-message";
 
 type Source = "upload" | "link";
 type Picked = { id: string; file: File; url: string };
@@ -86,7 +87,7 @@ export function NewTemplateFlow({ storageReady }: { storageReady: boolean }) {
       router.push(`/carruseles/plantillas/${id}`);
     } catch (e) {
       setBusy(null);
-      setError(e instanceof Error ? e.message : "Algo salió mal. Prueba de nuevo.");
+      setError(userMessage(e, "Algo salió mal. Prueba de nuevo."));
     }
   }
 

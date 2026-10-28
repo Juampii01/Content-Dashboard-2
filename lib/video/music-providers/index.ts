@@ -7,6 +7,7 @@ import { fileDriver, workerTransfer } from "@/lib/storage";
 import { writeLocal } from "@/lib/storage/files";
 import { jamendoProvider, JamendoError } from "./jamendo";
 import { attributionText, type MusicProvider } from "./types";
+import { userMessage } from "@/lib/user-message";
 
 export { JamendoError } from "./jamendo";
 
@@ -69,7 +70,7 @@ export async function importProviderTrack(trackId: string, userId: string): Prom
   if (existing?.status === "READY") return { id: existing.id, title: existing.title, duration: existing.duration, attribution: existing.attribution ?? "" };
   if (!fileDriver()) throw new MusicProviderError("Falta configurar el almacenamiento de videos en esta instalación. Avísale a soporte.");
   const track = await provider.get(trackId).catch((error) => {
-    throw new MusicProviderError(error instanceof Error ? error.message : "No pudimos leer esa pista.");
+    throw new MusicProviderError(error instanceof MusicProviderError ? error.message : userMessage(error, "No pudimos leer esa pista."));
   });
   if (!track) throw new MusicProviderError("Esa pista no se puede usar en videos de una marca (su licencia no lo permite o no se puede descargar).");
   const res = await fetch(track.downloadUrl, { signal: AbortSignal.timeout(60_000) }).catch(() => null);

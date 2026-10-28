@@ -27,7 +27,7 @@ import { wholeFromChatAction } from "../compos-actions";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
 import { isTextPreset, TEXT_PRESETS, TEXT_SECONDS, textOption, updateTextOption, type TextPresetKey, type TextSpecInput } from "@/lib/video/text-presets";
-import { rangesFromIds } from "@/lib/video/plan";
+import { rangesFromIds, MAX_BROLL } from "@/lib/video/plan";
 import { fillRhythm, rhythmScore, themeOfPlan, RHYTHM_TAG, type Density } from "@/lib/video/rhythm";
 import { cueClip, fitCueClip, hookEnd, MIN_CUE_LENGTH, newSoundCueId, SFX_FILES, sfxCues, soundCueTimes, SOUND_GAIN } from "@/lib/video/sfx";
 import { isSfxName, SFX_LIBRARY, type SfxName } from "@/lib/video/sfx-library";
@@ -532,7 +532,15 @@ export function Studio(props: StudioProps) {
     toast.info(`Agregado encima de ${replacedLabel(under)}`, { duration: 2500 });
   }
 
+  /** ¿Entra otro b-roll, gráfico o texto? (el plan admite MAX_BROLL; más no se podría guardar). Si no, avisa. */
+  function roomForBroll(): boolean {
+    if (s.broll.length < MAX_BROLL) return true;
+    toast.error(`Llegaste al máximo de ${MAX_BROLL} b-roll, gráficos y textos en un video.`, { description: "Quita alguno que ya no uses para agregar otro." });
+    return false;
+  }
+
   function addBroll(range: WordSpan, ask = false, prompt?: string) {
+    if (!roomForBroll()) return;
     const query = words
       .slice(range.from, range.to + 1)
       .map((w) => w.text.replace(/[^\p{L}\p{N}]+/gu, ""))
@@ -553,6 +561,7 @@ export function Studio(props: StudioProps) {
    * que dura el clip (desde su inicio).
    */
   function addClipBroll(rawRange: WordSpan, option: SignedOption) {
+    if (!roomForBroll()) return;
     let range = rawRange;
     const r0 = outputRange(timeline, range.from, range.to);
     if (r0 && option.duration > 0 && r0.end - r0.start > option.duration + 0.2) {
@@ -577,6 +586,7 @@ export function Studio(props: StudioProps) {
 
   /** Un gráfico de plantilla en un tramo (se abre el estudio de gráficos para ajustarlo). */
   function addGraphic(range: WordSpan, template: GraphicTemplate) {
+    if (!roomForBroll()) return;
     const option = brollGraphicOption(defaultGraphic(textOf(range.from, range.to, 400), graphicLook, template));
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: "", keywords: [], choice: option, options: [option] };
     const r = outputRange(timeline, range.from, range.to);
@@ -592,6 +602,7 @@ export function Studio(props: StudioProps) {
 
   /** Un texto a mano en un tramo: el estilo con su texto de muestra, elegido para escribir el tuyo en el panel. */
   function addText(range: WordSpan, preset: TextPresetKey) {
+    if (!roomForBroll()) return;
     const p = TEXT_PRESETS[preset];
     const option = textOption({ preset, text: p.sample, ...(p.sub ? { sub: p.sub } : {}) }, graphicLook, { format: s.format });
     const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: "", keywords: [], choice: option, options: [option] };
@@ -904,6 +915,60 @@ export function Studio(props: StudioProps) {
       update((st) => ({ ...st, rhythmTouched: true, zoomMoments: next }));
       setSelection({ kind: "zoom", index: next.findIndex((z) => z.from_word === parts[1].from) });
     }
+  }
+
+  /**
+   * Duplica lo elegido (b-roll, texto, gráfico, efecto o zoom) justo después, con el mismo largo y la misma edición, como
+   * Ctrl+D en un editor. Si después no hay palabras suficientes, avisa. Se deshace con Ctrl+Z.
+   */
+  function duplicate() {
+    const sel = selection;
+    if (!canEdit || !sel) return;
+    const after = (from: number, to: number) => {
+      const r = outputRange(timeline, from, to);
+      if (!r) return null;
+      const len = Math.max(0.6, r.end - r.start);
+      const span = snapToWords(timeline, r.end + 0.02, Math.min(timeline.duration, r.end + 0.02 + len));
+      return span && span.from > to ? span : null;
+    };
+    const full = () => toast.error("Después de esto no queda lugar en el video para la copia. Mueve el cabezal o acorta el bloque.");
+    if (sel.kind === "broll") {
+      const item = s.broll.find((b) => b.id === sel.id);
+      if (!item) return;
+      if (!roomForBroll()) return;
+      const span = after(item.from_word, item.to_word);
+      if (!span) return full();
+      const copy: BrollItem = { ...item, id: newBrollId(), from_word: span.from, to_word: span.to };
+      const r = outputRange(timeline, span.from, span.to);
+      const top = r ? layerOnTop(r.start, r.end) : { layer: undefined, under: [] };
+      if (top.layer != null) copy.layer = top.layer;
+      else delete copy.layer;
+      update((st) => ({ ...st, broll: [...st.broll, copy].sort((a, b) => a.from_word - b.from_word) }));
+      setSelection({ kind: "broll", id: copy.id });
+      if (r) seek(r.start);
+    } else if (sel.kind === "fx") {
+      const item = s.effects.find((e) => e.id === sel.id);
+      if (!item) return;
+      const span = after(item.from_word, item.to_word);
+      if (!span) return full();
+      const shift = span.from - item.from_word;
+      const copy: FxItem = { ...item, id: newFxId(), from_word: span.from, to_word: span.to, words: item.words?.map((w) => w + shift).filter((w) => w <= span.to), source: "user" };
+      update((st) => ({ ...st, effects: [...st.effects, copy].sort((a, b) => a.from_word - b.from_word) }));
+      setSelection({ kind: "fx", id: copy.id });
+      const r = outputRange(timeline, span.from, span.to);
+      if (r) seek(r.start);
+    } else if (sel.kind === "zoom") {
+      const m = s.zoomMoments[sel.index];
+      if (!m) return;
+      const span = after(m.from_word, m.to_word);
+      if (!span) return full();
+      const next = [...s.zoomMoments, { ...m, from_word: span.from, to_word: span.to }].sort((a, b) => a.from_word - b.from_word);
+      update((st) => ({ ...st, rhythmTouched: true, zoomMoments: next }));
+      setSelection({ kind: "zoom", index: next.findIndex((z) => z.from_word === span.from) });
+    } else {
+      return void toast.info("Duplicar funciona con b-roll, textos, gráficos, efectos y zooms.");
+    }
+    toast.success("Duplicado justo después.", { description: "Muévelo o cambia su largo en la línea de tiempo. Ctrl+Z lo deshace." });
   }
 
   /** Corre lo elegido (b-roll, efecto o zoom) una palabra hacia un lado. */
@@ -1595,6 +1660,12 @@ export function Studio(props: StudioProps) {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
+        return;
+      }
+      if (mod && (key === "d" || key === "D")) {
+        if (typing(e.target)) return;
+        e.preventDefault();
+        duplicate();
         return;
       }
       if (mod && (key === "y" || key === "Y")) {
@@ -2732,6 +2803,7 @@ const SHORTCUTS: [string, string][] = [
   ["S", "Dividir lo elegido (b-roll, efecto o zoom) en el cabezal"],
   ["Alt + ← →", "Mover lo elegido una palabra"],
   ["Mayús + Alt + ← →", "Mover la parte del video elegida antes o después"],
+  ["Ctrl + D", "Duplicar lo elegido justo después (b-roll, texto, gráfico, efecto o zoom)"],
   ["Supr", "Quitar lo elegido (en un tramo de video: cortarlo)"],
   ["Esc", "Soltar la selección"],
   ["+ −", "Acercar o alejar la línea de tiempo (también Ctrl + rueda)"],

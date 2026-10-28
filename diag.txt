@@ -1,0 +1,834 @@
+== clave de Anthropic del servidor configurada: False
+== clave de Anthropic cargada en Ajustes: no (se usa la del servidor)
+== últimos 1 días: USD 3.82 en 11 llamadas
+== últimos 7 días: USD 72.53 en 500 llamadas
+== últimos 30 días: USD 72.53 en 509 llamadas
+== por día (últimos 10)
+   2026-10-21  USD    0.00  (13)
+   2026-10-22  USD    0.00  (9)
+   2026-10-23  USD    5.82  (36)
+   2026-10-24  USD   28.36  (138)
+   2026-10-25  USD   13.64  (135)
+   2026-10-26  USD    4.46  (45)
+   2026-10-27  USD   20.25  (133)
+== por proveedor y modelo (30 días)
+   anthropic    claude-opus-5-5              USD   64.44  (246)
+   anthropic    claude-sonnet-5-5            USD    8.09  (174)
+   anthropic    claude-haiku-5-5             USD    0.00  (4)
+   claude-plan  claude-haiku-5-5             USD    0.00  (2)
+   claude-plan  claude-sonnet-5-5            USD    0.00  (44)
+   claude-plan  claude-opus-5-5              USD    0.00  (33)
+   claude-plan  claude-opus                  USD    0.00  (1)
+   claude-plan  opus                         USD    0.00  (5)
+== en curso (lo que muestra Inicio)
+   WhatsApp Ptt 2026 10 28 at 15.11.52 esv2 28p bg 7p AWAITING_REVIEW
+   Video 12 AWAITING_REVIEW
+   Video 12 AWAITING_REVIEW
+   fish audio 03888fe2b312442ba1d8c77fdae96756 AWAITING_REVIEW
+   WhatsApp Ptt 2026 10 27 at 15.33.31 esv2 21p bg 90 AWAITING_REVIEW
+   Video 13 AWAITING_REVIEW
+   WhatsApp Ptt 2026 10 27 at 15.33.31 AWAITING_REVIEW
+   fish audio 03888fe2b312442ba1d8c77fdae96756 AWAITING_REVIEW
+== pedidos de animación (los últimos)
+{"id": "wmvo5d58c1297b", "status": "done", "delivered": true, "error": null, "created": "2026-10-25 18:14:22.132618+00:00", "updated": "2026-10-25 18:29:01.729000+00:00", "request": "Mejora esta automatizacion, lo veo muy plano 1D, hazlo mas realista y 3D todo mejora la tipografia la animacion de letra todo", "scene": null, "long": null, "status_task": "done", "attempts": 1, "note": "", "compId": "cmmvmv3z4d0", "resultLen": 19280}
+{"id": "wmvn568ic1araz", "status": "failed", "delivered": false, "error": "No pudimos generar el resultado. Prueba de nuevo.", "created": "2026-10-25 01:21:13.615329+00:00", "updated": "2026-10-25 01:29:12.122000+00:00", "request": "Mejora la animacion, hazla mas realista avanzada y en 3D, mejora el diseño y que se vea mas profesional cada animacion y elemento que aparece en pantalla", "scene": null, "long": null, "status_task": "failed", "attempts": 3, "note": "", "compId": "cmmvmv3z4d0", "resultLen": 0}
+{"id": "wmvn3gwkd1zui4", "status": "failed", "delivered": true, "error": "No pudimos generar el resultado. Prueba de nuevo.", "created": "2026-10-25 00:33:32.118583+00:00", "updated": "2026-10-26 13:51:07.890000+00:00", "request": "La idea de la animacion esta buena pero es muy plana, 1D, mejorar hacerlo mas realista y 3D", "scene": null, "long": null, "status_task": "failed", "attempts": 3, "note": "", "compId": "cmmvmv3z4d0", "resultLen": 0}
+{"id": "wmvn2526k3sjr2", "status": "failed", "delivered": true, "error": "El resultado salió demasiado largo. Prueba con un formato más corto.", "created": "2026-10-24 23:56:19.909335+00:00", "updated": "2026-10-26 13:51:07.316000+00:00", "request": "La animacion es muy plana, muy 1D hay que reemplazarla por algo mas elaborado mas 3D mas futurista con animacionde que el reloj cae algo mas profesional y dopaminico", "scene": null, "long": null, "status_task": "failed", "attempts": 3, "note": "", "compId": "cmmvmv3z4d0", "resultLen": 0}
+{"id": "wmvn1gu1e351wh", "status": "canceled", "delivered": true, "error": null, "created": "2026-10-24 23:37:29.612266+00:00", "updated": "2026-10-25 00:32:45.987000+00:00", "request": "Elimina la pizarra plana, arma algo mas pro en 3D que mejore la visual de los 3 pasos", "scene": null, "long": null, "status_task": "code", "attempts": 1, "note": "", "compId": "cmmvmtto0q1", "resultLen": 0}
+{"id": "wmvn1fpwx1ig9y", "status": "done", "delivered": true, "error": null, "created": "2026-10-24 23:36:37.579157+00:00", "updated": "2026-10-24 23:52:05.136000+00:00", "request": "Hace los efectos y los iconos mas realistas no tan planos, mas 3D", "scene": null, "long": null, "status_task": "done", "attempts": 1, "note": "Las figuras ahora tienen volumen real: luz de borde, oclusión, cuello y especulares. Además suben sobre pedestales 3D y la multitud común se desenfoca al golpe (foco selectivo), y los textos chicos crecen un poco; el bloque sigue achicándose para no tapar la cara, así que los detalles finos se notan", "compId": "cmmvmuv2ie0", "resultLen": 20731}
+== animaciones del plan guardado
+{"id": "cmmvmwkqv30", "name": "Gancho la verdad con candado", "long": null, "codeLen": 13884, "sounds": 8, "scenes": 0, "why": "El gancho se arma sobre fondo blanco al ritmo de la voz. «LA VERDAD» golpea con rebote y temblor, «exitoso» se resalta con marcatextos y en «decir» se abre un candado 3D mientras la frase se escribe a"}
+{"id": "cmmvmyg3w40", "name": "VERDAD metálica sin video", "long": null, "codeLen": 17989, "sounds": 5, "scenes": 0, "why": "Quité la miniatura y el recuadro del video: solo queda el fondo blanco, la palabra metálica que cae en «verdad», el texto y objetos dibujados en zonas libres, sin tocar «detrás de un negocio exitoso» "}
+{"id": "cmmvmznl3w0", "name": "Destello de empalme con microzoom", "long": null, "codeLen": 1488, "sounds": 1, "scenes": 0, "why": "Disimula el corte directo hacia «decenas de clientes» con un destello blanco breve y un microzoom que se asienta sobre la cara, así el salto se siente intencional y no brusco."}
+{"id": "cmmvmznl3w1", "name": "Panel del 90% con barra", "long": null, "codeLen": 4786, "sounds": 4, "scenes": 0, "why": "Cuando dice «90%» el dato ocupa la mitad superior y cuenta hasta su valor, mientras la cara queda completa abajo; «se equivocan» aparece justo al decirlo."}
+{"id": "cmmvmznl3w2", "name": "Zoom de impacto con glitch", "long": null, "codeLen": 2958, "sounds": 3, "scenes": 0, "why": "El golpe de cámara cae justo en «equivocan»: un zoom seco a la cara, un temblor entre las dos palabras y un corte RGB de tres cuadros. Así la confrontación pega fuerte sin escalar el panel del 90 % de"}
+{"id": "cmmvmyxb8e0", "name": "Medidor al cien por ciento", "long": null, "codeLen": 11508, "sounds": 5, "scenes": 0, "why": "Mantiene la estética de estudio blanco y metal del gancho: el titular cae con golpe en «Ellos», el medidor se dispara al rojo en «100 %» y debajo se nombra el error cuando dice «mayor cantidad de clie"}
+{"id": "cmmvmuv2ie0", "name": "Multitud 3D que se filtra", "long": null, "codeLen": 20731, "sounds": 5, "scenes": 0, "why": "La multitud ahora tiene volumen real (cabezas esféricas con brillo, cuerpos sombreados, sombras en un piso en perspectiva) y los elegidos se elevan bajo un haz de luz con un anillo en el piso. Así «lo"}
+{"id": "cmmvmtto0q2", "name": "Tarjeta cliente con sello", "long": null, "codeLen": 10282, "sounds": 5, "scenes": 0, "why": "Ordena la idea en una tarjeta editorial. Cada concepto entra justo cuando se dice: «Resultados» en olivo, y «Tiempo» y «Esfuerzo» aparecen y se tachan. Al final cae el sello amarillo, igual que el «NI"}
+{"id": "cmmvmtto0q0", "name": "Carpeta sistema con cabeza afuera", "long": null, "codeLen": 20370, "sounds": 6, "scenes": 0, "why": "Arreglé el corte de la cara: la ventana ahora es más alta y angosta, la escala se calcula para que la cabeza entera quede fuera del marco, y la persona se dibuja encima de la carpeta para que nada la "}
+{"id": "cmmvmtto0q1", "name": "Índice 3 pasos fondo blanco", "long": null, "codeLen": 15762, "sounds": 6, "scenes": 0, "why": "Se quita el fondo verde y queda un fondo blanco limpio; la carpeta, los tres pasos sincronizados con «atraer, convertir, retener» y la persona saliendo del marco se mantienen igual."}
+{"id": "cmmvmv3z4d0", "name": "Reloj 3D roto, sistema", "long": null, "codeLen": 19280, "sounds": 6, "scenes": 0, "why": "Rehice todo en 3D y en tres actos que siguen la voz: un reloj metálico que gira, se tacha y se parte; después una tarjeta de vidrio con texto con volumen; y al final engranajes inclinados y un botón 3"}
+== proyecto
+{
+ "status": "AWAITING_REVIEW",
+ "format": "9:16",
+ "media": {
+  "peaks": {
+   "key": "editor/4d38e497-f8a4-4e8a-8c55-ca40fccd4f4f/picos-v1.json",
+   "rate": 50,
+   "count": 2706,
+   "version": 1
+  },
+  "width": 1080,
+  "height": 1920,
+  "source": {
+   "fps": 23.976,
+   "hdr": false,
+   "vfr": false,
+   "codec": "h264",
+   "width": 1080,
+   "height": 1920,
+   "hasAudio": true,
+   "rotation": 0
+  },
+  "fxMasks": {
+   "9x16-op000-mp2": {
+    "at": "2026-10-24T21:08:12.707948+00:00",
+    "fps": 10,
+    "tile": [
+     180,
+     320
+    ],
+    "chunks": [
+     0,
+     1,
+     2,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     21,
+     22,
+     23,
+     24,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     41,
+     42,
+     43,
+     44,
+     45
+    ]
+   }
+  },
+  "duration": 54.1,
+  "proxyKey": "editor/4d38e497-f8a4-4e8a-8c55-ca40fccd4f4f/proxy.mp4",
+  "mezzanine": {
+   "fps": 30,
+   "width": 1080,
+   "height": 1920
+  },
+  "posterKey": "editor/4d38e497-f8a4-4e8a-8c55-ca40fccd4f4f/poster.jpg",
+  "proxyWidth": 540,
+  "proxyHeight": 960
+ }
+}
+== render 1f9c7d1e-04a0-4ae5-98dc-0460decf6805 SUCCEEDED intentos=1 creado=2026-10-25 00:58:23.233408+00:00 error=None
+clips (start,end en cuadros a 30 fps; role): [(3, 1623, 'body')]
+total cuadros: 1620 esperado s: None
+audio: {"sfx": [{"at": 0, "gain": -16, "name": "reverse_hit"}, {"at": 0.043, "gain": -18, "name": "swish"}, {"at": 0.263, "gain": -14, "name": "swish"}, {"at": 0.533, "gain": -9, "name": "impact"}, {"at": 0.573, "gain": -10, "name": "boom"}, {"at": 0.843, "gain": -18, "name": "swipe"}, {"at": 0.933, "gain": -18, "name": "pop_soft"}, {"at": 2.003, "gain": -16, "name": "swish"}, {"at": 2.473, "gain": -16, "name": "swipe"}, {"at": 2.693, "gain": -18, "name": "typing"}, {"at": 3.973, "gain": -18, "name": "tap"}, {"at": 4.123, "gain": -12, "name": "switch"}, {"at": 4.153, "gain": -16, "name": "sparkle"}, 
+claves del input: ['audio', 'broll', 'captions', 'clips', 'credits', 'creditsKey', 'effects', 'expectedDuration', 'finalFrames', 'format', 'fps', 'framing', 'outputKey', 'phraseFixes', 'posterKey', 'previousKeys', 'projectId', 'sourceKey', 'srt', 'srtKey', 'zooms']
+broll: 5
+effects: 15
+zooms: 1
+phraseFixes: 0
+== render 352a5bdf-bc0e-4a35-8065-31224836e111 SUCCEEDED intentos=1 creado=2026-10-25 00:14:20.855961+00:00 error=None
+clips (start,end en cuadros a 30 fps; role): [(3, 1623, 'body')]
+total cuadros: 1620 esperado s: None
+audio: {"sfx": [{"at": 0, "gain": -16, "name": "reverse_hit"}, {"at": 0.043, "gain": -18, "name": "swish"}, {"at": 0.263, "gain": -14, "name": "swish"}, {"at": 0.533, "gain": -9, "name": "impact"}, {"at": 0.573, "gain": -10, "name": "boom"}, {"at": 0.843, "gain": -18, "name": "swipe"}, {"at": 0.933, "gain": -18, "name": "pop_soft"}, {"at": 2.003, "gain": -16, "name": "swish"}, {"at": 2.473, "gain": -16, "name": "swipe"}, {"at": 2.693, "gain": -18, "name": "typing"}, {"at": 3.973, "gain": -18, "name": "tap"}, {"at": 4.123, "gain": -12, "name": "switch"}, {"at": 4.153, "gain": -16, "name": "sparkle"}, 
+claves del input: ['audio', 'broll', 'captions', 'clips', 'credits', 'creditsKey', 'effectSamples', 'effects', 'expectedDuration', 'finalFrames', 'format', 'fps', 'framing', 'outputKey', 'phraseFixes', 'posterKey', 'previousKeys', 'projectId', 'sourceKey', 'srt', 'srtKey', 'zooms']
+broll: 5
+effects: 15
+zooms: 1
+phraseFixes: 0
+== render 1c29f4b2-9e99-416a-a4b5-fe65a643172c SUCCEEDED intentos=1 creado=2026-10-24 23:38:40.445812+00:00 error=None
+clips (start,end en cuadros a 30 fps; role): [(3, 481, 'body'), (483, 852, 'body'), (854, 1623, 'body')]
+total cuadros: 1616 esperado s: None
+audio: {"sfx": [{"at": 0, "gain": -16, "name": "reverse_hit"}, {"at": 0.043, "gain": -18, "name": "swish"}, {"at": 0.263, "gain": -14, "name": "swish"}, {"at": 0.533, "gain": -9, "name": "impact"}, {"at": 0.573, "gain": -10, "name": "boom"}, {"at": 0.843, "gain": -18, "name": "swipe"}, {"at": 0.933, "gain": -18, "name": "pop_soft"}, {"at": 2.003, "gain": -16, "name": "swish"}, {"at": 2.473, "gain": -16, "name": "swipe"}, {"at": 2.693, "gain": -18, "name": "typing"}, {"at": 3.973, "gain": -18, "name": "tap"}, {"at": 4.123, "gain": -12, "name": "switch"}, {"at": 4.153, "gain": -16, "name": "sparkle"}, 
+claves del input: ['audio', 'broll', 'captions', 'clips', 'credits', 'creditsKey', 'effectSamples', 'effects', 'expectedDuration', 'finalFrames', 'format', 'fps', 'framing', 'outputKey', 'phraseFixes', 'posterKey', 'previousKeys', 'projectId', 'sourceKey', 'srt', 'srtKey', 'zooms']
+broll: 5
+effects: 15
+zooms: 1
+phraseFixes: 0
+== render 9ec0b380-8ff4-4472-bd1c-9cc03137fe8d FAILED intentos=3 creado=2026-10-24 23:20:14.315578+00:00 error=El audio del video final no quedó alineado con la imagen. No lo entregamos así: vamos a rehacerlo desde el original. Si vuelve a pasar, escríbenos.
+clips (start,end en cuadros a 30 fps; role): [(3, 481, 'body'), (483, 852, 'body'), (854, 1623, 'body')]
+total cuadros: 1616 esperado s: None
+audio: {"sfx": [{"at": 0, "gain": -16, "name": "reverse_hit"}, {"at": 0.043, "gain": -18, "name": "swish"}, {"at": 0.263, "gain": -14, "name": "swish"}, {"at": 0.533, "gain": -9, "name": "impact"}, {"at": 0.573, "gain": -10, "name": "boom"}, {"at": 0.843, "gain": -18, "name": "swipe"}, {"at": 0.933, "gain": -18, "name": "pop_soft"}, {"at": 2.003, "gain": -16, "name": "swish"}, {"at": 2.473, "gain": -16, "name": "swipe"}, {"at": 2.693, "gain": -18, "name": "typing"}, {"at": 3.973, "gain": -18, "name": "tap"}, {"at": 4.123, "gain": -12, "name": "switch"}, {"at": 4.153, "gain": -16, "name": "sparkle"}, 
+claves del input: ['audio', 'broll', 'captions', 'clips', 'credits', 'creditsKey', 'effectSamples', 'effects', 'expectedDuration', 'finalFrames', 'format', 'fps', 'framing', 'outputKey', 'phraseFixes', 'posterKey', 'previousKeys', 'projectId', 'sourceKey', 'srt', 'srtKey', 'zooms']
+broll: 5
+effects: 15
+zooms: 1
+phraseFixes: 0
+== render 627b6197-ea19-44ab-b4f5-347567040d6d FAILED intentos=3 creado=2026-10-24 23:04:56.750094+00:00 error=El audio del video final no quedó alineado con la imagen. No lo entregamos así: vamos a rehacerlo desde el original. Si vuelve a pasar, escríbenos.
+clips (start,end en cuadros a 30 fps; role): [(3, 481, 'body'), (483, 852, 'body'), (854, 1623, 'body')]
+total cuadros: 1616 esperado s: None
+audio: {"sfx": [{"at": 0, "gain": -16, "name": "reverse_hit"}, {"at": 0.043, "gain": -18, "name": "swish"}, {"at": 0.263, "gain": -14, "name": "swish"}, {"at": 0.533, "gain": -9, "name": "impact"}, {"at": 0.573, "gain": -10, "name": "boom"}, {"at": 0.843, "gain": -18, "name": "swipe"}, {"at": 0.933, "gain": -18, "name": "pop_soft"}, {"at": 2.003, "gain": -16, "name": "swish"}, {"at": 2.473, "gain": -16, "name": "swipe"}, {"at": 2.693, "gain": -18, "name": "typing"}, {"at": 3.973, "gain": -18, "name": "tap"}, {"at": 4.123, "gain": -12, "name": "switch"}, {"at": 4.153, "gain": -16, "name": "sparkle"}, 
+claves del input: ['audio', 'broll', 'captions', 'clips', 'credits', 'creditsKey', 'effectSamples', 'effects', 'expectedDuration', 'finalFrames', 'format', 'fps', 'framing', 'outputKey', 'phraseFixes', 'posterKey', 'previousKeys', 'projectId', 'sourceKey', 'srt', 'srtKey', 'zooms']
+broll: 5
+effects: 15
+zooms: 1
+phraseFixes: 0
+== render d43954c8-fb7a-4f5a-a80d-851c48bdc6ec SUCCEEDED intentos=2 creado=2026-10-24 22:32:03.409579+00:00 error=None
+clips (start,end en cuadros a 30 fps; role): [(3, 852, 'body'), (854, 1623, 'body')]
+total cuadros: 1618 esperado s: None
+audio: {"sfx": [{"at": 0, "gain": -16, "name": "reverse_hit"}, {"at": 0.043, "gain": -18, "name": "swish"}, {"at": 0.263, "gain": -14, "name": "swish"}, {"at": 0.533, "gain": -9, "name": "impact"}, {"at": 0.573, "gain": -10, "name": "boom"}, {"at": 0.843, "gain": -18, "name": "swipe"}, {"at": 0.933, "gain": -18, "name": "pop_soft"}, {"at": 2.003, "gain": -16, "name": "swish"}, {"at": 2.473, "gain": -16, "name": "swipe"}, {"at": 2.693, "gain": -18, "name": "typing"}, {"at": 3.973, "gain": -18, "name": "tap"}, {"at": 4.123, "gain": -12, "name": "switch"}, {"at": 4.153, "gain": -16, "name": "sparkle"}, 
+claves del input: ['audio', 'broll', 'captions', 'clips', 'credits', 'creditsKey', 'effectSamples', 'effects', 'expectedDuration', 'finalFrames', 'format', 'fps', 'framing', 'outputKey', 'phraseFixes', 'posterKey', 'previousKeys', 'projectId', 'sourceKey', 'srt', 'srtKey', 'zooms']
+broll: 1
+effects: 10
+zooms: 0
+phraseFixes: 0
+== ffmpeg ffmpeg version 5.1.9-0+deb12u1 Copyright (c) 2000-2026 the FFmpeg developers
+== archivos de trabajo /data/work/4d38e497-f8a4-4e8a-8c55-ca40fccd4f4f
+asr16.wav 1731320 {"format": "54.101313", "streams": [{"codec_type": "audio", "duration": "54.101312", "nb_frames": null, "r_frame_rate": "0/0"}]}
+audio.wav 5193806 {"format": "54.101333", "streams": [{"codec_type": "audio", "duration": "54.101333", "nb_frames": null, "r_frame_rate": "0/0"}]}
+broll/motion-01479e38f7b0089c.mov 2703563 {"format": "2.467000", "streams": [{"codec_type": "video", "duration": "2.466667", "nb_frames": "74", "r_frame_rate": "30/1"}]}
+broll/motion-244a528e7ee26203.mp4 1001225 {"format": "6.367000", "streams": [{"codec_type": "video", "duration": "6.366667", "nb_frames": "191", "r_frame_rate": "30/1"}]}
+broll/motion-323225e5bc916714.mov 7915515 {"format": "3.100000", "streams": [{"codec_type": "video", "duration": "3.100000", "nb_frames": "93", "r_frame_rate": "30/1"}]}
+broll/motion-38b2147bc66a13eb.mp4 984889 {"format": "4.067000", "streams": [{"codec_type": "video", "duration": "4.066667", "nb_frames": "122", "r_frame_rate": "30/1"}]}
+broll/motion-77a007a2ed315488.mp4 904860 {"format": "3.200000", "streams": [{"codec_type": "video", "duration": "3.200000", "nb_frames": "96", "r_frame_rate": "30/1"}]}
+broll/motion-855cdbbfa0037519.mp4 935144 {"format": "3.967000", "streams": [{"codec_type": "video", "duration": "3.966667", "nb_frames": "119", "r_frame_rate": "30/1"}]}
+broll/motion-8e12ba541c6d8e0d.mp4 891587 {"format": "3.467000", "streams": [{"codec_type": "video", "duration": "3.466667", "nb_frames": "104", "r_frame_rate": "30/1"}]}
+broll/motion-a404343b723fae82.mov 3601216 {"format": "2.367000", "streams": [{"codec_type": "video", "duration": "2.366667", "nb_frames": "71", "r_frame_rate": "30/1"}]}
+broll/motion-ae180b9d75b54980.mp4 930165 {"format": "4.300000", "streams": [{"codec_type": "video", "duration": "4.300000", "nb_frames": "129", "r_frame_rate": "30/1"}]}
+broll/motion-b215c7e44609765b.mp4 607209 {"format": "3.567000", "streams": [{"codec_type": "video", "duration": "3.566667", "nb_frames": "107", "r_frame_rate": "30/1"}]}
+broll/motion-c1742743c7065b35.mp4 988924 {"format": "4.200000", "streams": [{"codec_type": "video", "duration": "4.200000", "nb_frames": "126", "r_frame_rate": "30/1"}]}
+broll/motion-db029a7e26780860.mp4 618159 {"format": "3.500000", "streams": [{"codec_type": "video", "duration": "3.500000", "nb_frames": "105", "r_frame_rate": "30/1"}]}
+broll/motion-e283ec54914c2688.mp4 938605 {"format": "3.900000", "streams": [{"codec_type": "video", "duration": "3.900000", "nb_frames": "117", "r_frame_rate": "30/1"}]}
+broll/motion-e65f175474a784e7.mp4 1001225 {"format": "6.367000", "streams": [{"codec_type": "video", "duration": "6.366667", "nb_frames": "191", "r_frame_rate": "30/1"}]}
+broll/motion-fb13a86870bd842e.mp4 615904 {"format": "3.500000", "streams": [{"codec_type": "video", "duration": "3.500000", "nb_frames": "105", "r_frame_rate": "30/1"}]}
+fx/fx-03ba8578fccde819.mp4 6584698 {"format": "7.867000", "streams": [{"codec_type": "video", "duration": "7.866667", "nb_frames": "236", "r_frame_rate": "30/1"}]}
+fx/fx-083529879d9e1155.mp4 1713187 {"format": "4.567000", "streams": [{"codec_type": "video", "duration": "4.566667", "nb_frames": "137", "r_frame_rate": "30/1"}]}
+fx/fx-09519892cc55912b.mp4 2051884 {"format": "5.567000", "streams": [{"codec_type": "video", "duration": "5.566667", "nb_frames": "167", "r_frame_rate": "30/1"}]}
+fx/fx-09b9e9ad8f73e149.mp4 4226316 {"format": "4.434000", "streams": [{"codec_type": "video", "duration": "4.433333", "nb_frames": "133", "r_frame_rate": "30/1"}]}
+fx/fx-12240a67fa2ae862.mp4 7631495 {"format": "7.500000", "streams": [{"codec_type": "video", "duration": "7.500000", "nb_frames": "225", "r_frame_rate": "30/1"}]}
+fx/fx-15650aa555ae9c53.mp4 4203455 {"format": "4.567000", "streams": [{"codec_type": "video", "duration": "4.566667", "nb_frames": "137", "r_frame_rate": "30/1"}]}
+fx/fx-188403599004cab7.mp4 3345132 {"format": "7.867000", "streams": [{"codec_type": "video", "duration": "7.866667", "nb_frames": "236", "r_frame_rate": "30/1"}]}
+fx/fx-1c5667e254c43713.mp4 4055534 {"format": "2.800000", "streams": [{"codec_type": "video", "duration": "2.800000", "nb_frames": "84", "r_frame_rate": "30/1"}]}
+fx/fx-1ceba9f116d61c35.mp4 1009042 {"format": "0.500000", "streams": [{"codec_type": "video", "duration": "0.500000", "nb_frames": "15", "r_frame_rate": "30/1"}]}
+fx/fx-2263e92136d0748e.mp4 8259450 {"format": "6.800000", "streams": [{"codec_type": "video", "duration": "6.800000", "nb_frames": "204", "r_frame_rate": "30/1"}]}
+fx/fx-234fab6f87922186.mp4 4245507 {"format": "4.567000", "streams": [{"codec_type": "video", "duration": "4.566667", "nb_frames": "137", "r_frame_rate": "30/1"}]}
+fx/fx-2950d9523ef3d005.mp4 1215027 {"format": "0.800000", "streams": [{"codec_type": "video", "duration": "0.800000", "nb_frames": "24", "r_frame_rate": "30/1"}]}
+fx/fx-2dd672d5ed5a6ef6.mp4 5030424 {"format": "4.034000", "streams": [{"codec_type": "video", "duration": "4.033333", "nb_frames": "121", "r_frame_rate": "30/1"}]}
+fx/fx-33603ad40b4decbc.mp4 3158738 {"format": "2.000000", "streams": [{"codec_type": "video", "duration": "2.000000", "nb_frames": "60", "r_frame_rate": "30/1"}]}
+fx/fx-34bfb63d21c8c46d.mp4 4245147 {"format": "4.567000", "streams": [{"codec_type": "video", "duration": "4.566667", "nb_frames": "137", "r_frame_rate": "30/1"}]}
+fx/fx-34fdab3f3b96c00b.mp4 8219546 {"format": "6.800000", "streams": [{"codec_type": "video", "duration": "6.800000", "nb_frames": "204", "r_frame_rate": "30/1"}]}
+fx/fx-445ac49533acdb64.mp4 948405 {"format": "0.600000", "streams": [{"codec_type": "video", "duration": "0.600000", "nb_frames": "18", "r_frame_rate": "30/1"}]}
+fx/fx-482f10cd9ecc6649.mp4 4027495 {"format": "3.534000", "streams": [{"codec_type": "video", "duration": "3.533333", "nb_frames": "106", "r_frame_rate": "30/1"}]}
+fx/fx-49827c0e9fb95322.mp4 3158738 {"format": "2.000000", "streams": [{"codec_type": "video", "duration": "2.000000", "nb_frames": "60", "r_frame_rate": "30/1"}]}
+fx/fx-4e16ce31edb841e1.mp4 7642470 {"format": "7.500000", "streams": [{"codec_type": "video", "duration": "7.500000", "nb_frames": "225", "r_frame_rate": "30/1"}]}
+fx/fx-4f484ac5bdd008c8.mp4 2051884 {"format": "5.567000", "streams": [{"codec_type": "video", "duration": "5.566667", "nb_frames": "167", "r_frame_rate": "30/1"}]}
+fx/fx-57cf2fc5e8645cde.mp4 1704364 {"format": "4.500000", "streams": [{"codec_type": "video", "duration": "4.500000", "nb_frames": "135", "r_frame_rate": "30/1"}]}
+fx/fx-5c91b429de05bf51.mp4 8219546 {"format": "6.800000", "streams": [{"codec_type": "video", "duration": "6.800000", "nb_frames": "204", "r_frame_rate": "30/1"}]}
+fx/fx-5c95001206c832e8.mp4 6609176 {"format": "7.867000", "streams": [{"codec_type": "video", "duration": "7.866667", "nb_frames": "236", "r_frame_rate": "30/1"}]}
+fx/fx-5e4b1dc11860c517.mp4 1520276 {"format": "5.567000", "streams": [{"codec_type": "video", "duration": "5.566667", "nb_frames": "167", "r_frame_rate": "30/1"}]}
+fx/fx-727d8619f64deffd.mp4 1095185 {"format": "0.600000", "streams": [{"codec_type": "video", "duration": "0.600000", "nb_frames": "18", "r_frame_rate": "30/1"}]}
+fx/fx-7571595cce2fc84c.mp4 6598010 {"format": "6.134000", "streams": [{"codec_type": "video", "duration": "6.133333", "nb_frames": "184", "r_frame_rate": "30/1"}]}
+fx/fx-75902ba6500044ef.mp4 6632644 {"format": "7.867000", "streams": [{"codec_type": "video", "duration": "7.866667", "nb_frames": "236", "r_frame_rate": "30/1"}]}
+fx/fx-798f7f2b3a4646c3.mp4 1520276 {"format": "5.567000", "streams": [{"codec_type": "video", "duration": "5.566667", "nb_frames": "167", "r_frame_rate": "30/1"}]}
+fx/fx-80fb8be46ddabf3d.mp4 6621967 {"format": "7.867000", "streams": [{"codec_type": "video", "duration": "7.866667", "nb_frames": "236", "r_frame_rate": "30/1"}]}
+fx/fx-81387282de1c1767.mp4 7721025 {"format": "7.500000", "streams": [{"codec_type": "video", "duration": "7.500000", "nb_frames": "225", "r_frame_rate": "30/1"}]}
+fx/fx-832178fe86079ed6.mp4 8259450 {"format": "6.800000", "streams": [{"codec_type": "video", "duration": "6.800000", "nb_frames": "204", "r_frame_rate": "30/1"}]}
+fx/fx-832376916df5a8a6.mp4 4066257 {"format": "2.800000", "streams": [{"codec_type": "video", "duration": "2.800000", "nb_frames": "84", "r_frame_rate": "30/1"}]}
+fx/fx-8436e23c3551a90f.mp4 3158738 {"format": "2.000000", "streams": [{"codec_type": "video", "duration": "2.000000", "nb_frames": "60", "r_frame_rate": "30/1"}]}
+fx/fx-88c24e572b1212a1.mp4 6552881 {"format": "6.067000", "streams": [{"codec_type": "video", "duration": "6.066667", "nb_frames": "182", "r_frame_rate": "30/1"}]}
+fx/fx-897fbfc3f14edd90.mp4 6517880 {"format": "5.367000", "streams": [{"codec_type": "video", "duration": "5.366667", "nb_frames": "161", "r_frame_rate": "30/1"}]}
+fx/fx-94126b49cd0057a1.mp4 2051884 {"format": "5.567000", "streams": [{"codec_type": "video", "duration": "5.566667", "nb_frames": "167", "r_frame_rate": "30/1"}]}
+fx/fx-94b2c4f88167b8ab.mp4 1897640 {"format": "1.067000", "streams": [{"codec_type": "video", "duration": "1.066667", "nb_frames": "32", "r_frame_rate": "30/1"}]}
+fx/fx-94c2195c0775ffc3.mp4 1211934 {"format": "0.800000", "streams": [{"codec_type": "video", "duration": "0.800000", "nb_frames": "24", "r_frame_rate": "30/1"}]}
+fx/fx-95ca8eb7b5076073.mp4 1901654 {"format": "1.067000", "streams": [{"codec_type": "video", "duration": "1.066667", "nb_frames": "32", "r_frame_rate": "30/1"}]}
+fx/fx-9b5a45050fd7ed19.mp4 4159404 {"format": "2.800000", "streams": [{"codec_type": "video", "duration": "2.800000", "nb_frames": "84", "r_frame_rate": "30/1"}]}
+fx/fx-a350f3f17eaaa0fe.mp4 4203455 {"format": "4.567000", "streams": [{"codec_type": "video", "duration": "4.566667", "nb_frames": "137", "r_frame_rate": "30/1"}]}
+fx/fx-a5b91ef580efa9c8.mp4 1704364 {"format": "4.500000", "streams": [{"codec_type": "video", "duration": "4.500000", "nb_frames": "135", "r_frame_rate": "30/1"}]}
+fx/fx-a5e1a0f0eb777799.mp4 6674957 {"format": "5.367000", "streams": [{"codec_type": "video", "duration": "5.366667", "nb_frames": "161", "r_frame_rate": "30/1"}]}
+fx/fx-ae2df054d8343289.mp4 1713187 {"format": "4.567000", "streams": [{"codec_type": "video", "duration": "4.566667", "nb_frames": "137", "r_frame_rate": "30/1"}]}
+fx/fx-aef1b7c641d95955.mp4 3376453 {"format": "2.100000", "streams": [{"codec_type": "video", "duration": "2.100000", "nb_frames": "63", "r_frame_rate": "30/1"}]}
+fx/fx-b212ff926d8bedf1.mp4 7631495 {"format": "7.500000", "streams": [{"codec_type": "video", "duration": "7.500000", "nb_frames": "225", "r_frame_rate": "30/1"}]}
+fx/fx-b608077ff70c6407.mp4 4245507 {"format": "4.567000", "streams": [{"codec_type": "video", "duration": "4.566667", "nb_frames": "137", "r_frame_rate": "30/1"}]}
+fx/fx-c00a0afb034c105d.mp4 6564232 {"format": "5.367000", "streams": [{"codec_type": "video", "duration": "5.366667", "nb_frames": "161", "r_frame_rate": "30/1"}]}
+fx/fx-c7590784ad31ed52.mp4 2985184 {"format": "2.000000", "streams": [{"codec_type": "video", "duration": "2.000000", "nb_frames": "60", "r_frame_rate": "30/1"}]}
+fx/fx-cbd234cdf435aba1.mp4 1520276 {"format": "5.567000", "streams": [{"codec_type": "video", "duration": "5.566667", "nb_frames": "167", "r_frame_rate": "30/1"}]}
+fx/fx-cf9faa910558a153.mp4 6595022 {"format": "5.367000", "streams": [{"codec_type": "video", "duration": "5.366667", "nb_frames": "161", "r_frame_rate": "30/1"}]}
+fx/fx-df139490c2f1050a.mp4 1046076 {"format": "0.500000", "streams": [{"codec_type": "video", "duration": "0.500000", "nb_frames": "15", "r_frame_rate": "30/1"}]}
+fx/fx-e1d9b09e1a7e80c3.mp4 4187030 {"format": "2.800000", "streams": [{"codec_type": "video", "duration": "2.800000", "nb_frames": "84", "r_frame_rate": "30/1"}]}
+fx/fx-e5e3a62fc5261a1d.mp4 6552881 {"format": "6.067000", "streams": [{"codec_type": "video", "duration": "6.066667", "nb_frames": "182", "r_frame_rate": "30/1"}]}
+fx/fx-ea1a745629153ad5.mp4 893784 {"format": "0.600000", "streams": [{"codec_type": "video", "duration": "0.600000", "nb_frames": "18", "r_frame_rate": "30/1"}]}
+fx/fx-f671d292277ccc8c.mp4 3449379 {"format": "2.100000", "streams": [{"codec_type": "video", "duration": "2.100000", "nb_frames": "63", "r_frame_rate": "30/1"}]}
+fx/fx-f6d048a56d64f6a8.mp4 6559408 {"format": "6.067000", "streams": [{"codec_type": "video", "duration": "6.066667", "nb_frames": "182", "r_frame_rate": "30/1"}]}
+fx/fx-f77bd49447071528.mp4 4285596 {"format": "4.434000", "streams": [{"codec_type": "video", "duration": "4.433333", "nb_frames": "133", "r_frame_rate": "30/1"}]}
+fx/fx-f93dc7882e513f70.mp4 6506915 {"format": "6.067000", "streams": [{"codec_type": "video", "duration": "6.066667", "nb_frames": "182", "r_frame_rate": "30/1"}]}
+fx/fx-f959124924ad31c3.mp4 3615918 {"format": "2.800000", "streams": [{"codec_type": "video", "duration": "2.800000", "nb_frames": "84", "r_frame_rate": "30/1"}]}
+fx/fx-fc899e0c15d35400.mp4 4361890 {"format": "7.500000", "streams": [{"codec_type": "video", "duration": "7.500000", "nb_frames": "225", "r_frame_rate": "30/1"}]}
+mezz.mp4 63458893 {"format": "54.100000", "streams": [{"codec_type": "video", "duration": "54.100000", "nb_frames": "1623", "r_frame_rate": "30/1"}]}
+muestra-audio/fragmento.wav 960078 {"format": "10.000000", "streams": [{"codec_type": "audio", "duration": "10.000000", "nb_frames": null, "r_frame_rate": "0/0"}]}
+muestra-audio/original.wav 960078 {"format": "10.000000", "streams": [{"codec_type": "audio", "duration": "10.000000", "nb_frames": null, "r_frame_rate": "0/0"}]}
+muestra-audio/soft.wav 960078 {"format": "10.000000", "streams": [{"codec_type": "audio", "duration": "10.000000", "nb_frames": null, "r_frame_rate": "0/0"}]}
+muestra-audio/strong.wav 960078 {"format": "10.000000", "streams": [{"codec_type": "audio", "duration": "10.000000", "nb_frames": null, "r_frame_rate": "0/0"}]}
+original.mp4 103105871 {"format": "54.122667", "streams": [{"codec_type": "video", "duration": "54.095708", "nb_frames": "1297", "r_frame_rate": "24000/1001"}, {"codec_type": "audio", "duration": "54.095708", "nb_frames": "2537", "r_frame_rate": "0/0"}]}
+proxy.mp4 4462258 {"format": "54.102000", "streams": [{"codec_type": "video", "duration": "54.100000", "nb_frames": "1623", "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": "54.101000", "nb_frames": "2537", "r_frame_rate": "0/0"}]}
+render-2070fdab80c1/joined.mkv 88573596 {"format": "53.866000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+render-b3c3e633e66a/cut.wav 5184044 {"format": "54.000000", "streams": [{"codec_type": "audio", "duration": "54.000000", "nb_frames": null, "r_frame_rate": "0/0"}]}
+render-b3c3e633e66a/joined.mkv 87352956 {"format": "54.000000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+render-dcd7bebe7a63/joined.mkv 87650079 {"format": "52.765000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+render-f9da94f61f11/joined.mkv 87462255 {"format": "52.731000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000003-0000170.mkv 10092499 {"format": "5.566000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000003-0000481.mkv 27089246 {"format": "15.933000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000003-0000852.mkv 46770466 {"format": "28.300000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000003-0001623.mkv 87350593 {"format": "54.000000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000203-0000352.mkv 8827429 {"format": "4.966000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000203-0000481.mkv 16074170 {"format": "9.266000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000353-0000481.mkv 7059861 {"format": "4.266000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000483-0000852.mkv 20966779 {"format": "12.300000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+segments/seg-0000854-0001623.mkv 40517037 {"format": "25.633000", "streams": [{"codec_type": "video", "duration": null, "nb_frames": null, "r_frame_rate": "30/1"}, {"codec_type": "audio", "duration": null, "nb_frames": null, "r_frame_rate": "0/0"}]}
+== sincronía 1f9c7d1e-04a0-4ae5-98dc-0460decf6805
+ tramo seg-0000003-0001623.mkv 5.3s:+0ms(r1.00) 13.6s:+0ms(r1.00) 35.1s:+0ms(r1.00) 44.9s:-0ms(r1.00)
+ unión 0.1s:+0ms(r1.00) 5.3s:+0ms(r1.00) 9.1s:-0ms(r1.00) 11.8s:-0ms(r1.00) 13.6s:+0ms(r1.00) 16.4s:-0ms(r1.00) 19.9s:-0ms(r1.00) 25.9s:+0ms(r1.00) 26.4s:+0ms(r1.00) 31.6s:+0ms(r1.00) 35.1s:+0ms(r1.00) 35.9s:-0ms(r1.00) 42.1s:+0ms(r1.00) 44.9s:-0ms(r1.00) 48.4s:-0ms(r1.00) 50.9s:+0ms(r1.00)
+== sincronía 1c29f4b2-9e99-416a-a4b5-fe65a643172c
+ tramo seg-0000003-0000481.mkv 0.1s:+0ms(r1.00) 5.3s:+0ms(r1.00) 9.1s:-0ms(r1.00) 11.8s:-0ms(r1.00)
+ tramo seg-0000483-0000852.mkv 0.3s:-0ms(r1.00) 3.9s:-0ms(r1.00) 7.6s:+0ms(r1.00) 10.3s:+0ms(r1.00)
+ tramo seg-0000854-0001623.mkv 5.1s:-3ms(r0.98) 6.6s:-3ms(r0.99) 16.4s:-4ms(r0.97) 22.6s:-4ms(r0.97)
+ unión 0.1s:+0ms(r1.00) 5.3s:+0ms(r1.00) 8.8s:-0ms(r1.00) 11.8s:-0ms(r1.00) 13.6s:+0ms(r1.00) 16.3s:-213ms(r0.46) 19.8s:-462ms(r0.34) 23.5s:+101ms(r0.24) 26.3s:+260ms(r0.30) 31.1s:-443ms(r0.47) 34.8s:-192ms(r0.49) 35.6s:-280ms(r0.66) 38.6s:-73ms(r0.45) 44.3s:-321ms(r0.47) 44.6s:-486ms(r0.47) 50.3s:-275ms(r0.42)
+== sincronía d43954c8-fb7a-4f5a-a80d-851c48bdc6ec
+ tramo seg-0000003-0000852.mkv 5.3s:+0ms(r1.00) 11.8s:-0ms(r1.00) 13.6s:+0ms(r1.00) 26.4s:+0ms(r1.00)
+ tramo seg-0000854-0001623.mkv 5.1s:-3ms(r0.98) 6.6s:-3ms(r0.99) 16.4s:-4ms(r0.97) 22.6s:-4ms(r0.97)
+== proyecto {"status": "AWAITING_REVIEW", "format": "9:16", "edit_mode": "auto", "caption_preset": "caja", "created_at": "2026-10-24 16:27:44.073171+00:00", "updated_at": "2026-10-28 17:31:07.319000+00:00"}
+palabras: 151 duración: 54.1 claves del plan: ['audio', 'broll', 'captions', 'compositions', 'corrections', 'director', 'effects', 'format', 'framing', 'hook_candidates', 'off_script', 'order', 'overlays', 'pacing', 'planned_by', 'proposed_removals', 'removals', 'rhythm', 'segments', 'selected_hook', 'style_id', 'summary', 'version', 'warning', 'zoom_moments', 'zooms_enabled']
+cortes: 0 pausas: {"keep": [19, 41, 75], "long_pause": 0.25} subtítulos: {"hide": [{"why": "Lo quitaste t\u00fa.", "to_word": 18, "from_word": 0}, {"why": "Lo quitaste t\u00fa.", "to_word": 29, "from_word": 21}, {"why": "Lo quitaste t\u00fa.", "to_word": 53, "from_word": 4
+== trabajos
+VIDEO_ANALYZE SUCCEEDED 2026-10-24 16:31:15 → 2026-10-24 16:48:02 | Listo | 
+VIDEO_ANALYZE SUCCEEDED 2026-10-24 19:54:25 → 2026-10-24 20:20:23 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 20:32:36 → 2026-10-24 20:34:55 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 20:39:31 → 2026-10-24 20:46:17 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 20:49:03 → 2026-10-24 20:56:50 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 20:59:56 → 2026-10-24 21:08:02 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 21:10:31 → 2026-10-24 21:13:29 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 21:16:11 → 2026-10-24 21:18:32 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 21:20:34 → 2026-10-24 21:26:41 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 21:28:03 → 2026-10-24 21:35:44 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 22:03:25 → 2026-10-24 22:10:53 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 22:12:56 → 2026-10-24 22:19:22 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 22:20:27 → 2026-10-24 22:22:58 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 22:23:52 → 2026-10-24 22:25:21 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 22:26:19 → 2026-10-24 22:30:49 | Listo | 
+VIDEO_RENDER SUCCEEDED 2026-10-24 22:32:03 → 2026-10-24 22:41:59 | Listo | 
+VIDEO_ANALYZE SUCCEEDED 2026-10-24 22:43:09 → 2026-10-24 23:02:48 | Listo | 
+VIDEO_RENDER FAILED 2026-10-24 23:04:56 → 2026-10-24 23:19:19 | Renderizando | El audio del video final no quedó alineado con la imagen. No lo entregamos así: vamos a rehacerlo desde el original. Si vuelve a pasar, escríbenos.
+VIDEO_RENDER FAILED 2026-10-24 23:20:14 → 2026-10-24 23:28:00 | Renderizando | El audio del video final no quedó alineado con la imagen. No lo entregamos así: vamos a rehacerlo desde el original. Si vuelve a pasar, escríbenos.
+VIDEO_COMPOS SUCCEEDED 2026-10-24 23:36:37 → 2026-10-24 23:45:26 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 23:37:29 → 2026-10-25 01:56:17 | Listo | 
+VIDEO_RENDER SUCCEEDED 2026-10-24 23:38:40 → 2026-10-24 23:42:32 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-24 23:56:19 → 2026-10-25 00:11:02 | Listo | 
+VIDEO_RENDER SUCCEEDED 2026-10-25 00:14:20 → 2026-10-25 00:21:42 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-25 00:33:32 → 2026-10-25 00:41:00 | Listo | 
+VIDEO_RENDER SUCCEEDED 2026-10-25 00:58:23 → 2026-10-25 01:00:00 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-25 01:21:13 → 2026-10-25 01:29:12 | Listo | 
+VIDEO_COMPOS SUCCEEDED 2026-10-25 18:14:22 → 2026-10-25 18:28:22 | Listo | 
+== pedidos de animación
+done True 2026-10-24 23:36:37 2026-10-24 23:52:05 | tareas: 1 | Hace los efectos y los iconos mas realistas no tan planos, mas 3D | 
+   tarea done | clips: [] | resultado con clips: 0 | usa env.clip: False | error: 
+canceled True 2026-10-24 23:37:29 2026-10-25 00:32:45 | tareas: 1 | Elimina la pizarra plana, arma algo mas pro en 3D que mejore la visual de los 3 pasos | 
+   tarea code | clips: [] | resultado con clips: 0 | usa env.clip: False | error: 
+failed True 2026-10-24 23:56:19 2026-10-26 13:51:07 | tareas: 1 | La animacion es muy plana, muy 1D hay que reemplazarla por algo mas elaborado mas 3D mas futurista con animacionde que el reloj cae algo mas | El resultado salió demasiado largo. Prueba con un formato más corto.
+   tarea failed | clips: [] | resultado con clips: 0 | usa env.clip: False | error: El resultado salió demasiado largo. Prueba con un formato más corto.
+failed True 2026-10-25 00:33:32 2026-10-26 13:51:07 | tareas: 1 | La idea de la animacion esta buena pero es muy plana, 1D, mejorar hacerlo mas realista y 3D | No pudimos generar el resultado. Prueba de nuevo.
+   tarea failed | clips: [] | resultado con clips: 0 | usa env.clip: False | error: No pudimos generar el resultado. Prueba de nuevo.
+failed False 2026-10-25 01:21:13 2026-10-25 01:29:12 | tareas: 1 | Mejora la animacion, hazla mas realista avanzada y en 3D, mejora el diseño y que se vea mas profesional cada animacion y elemento que aparec | No pudimos generar el resultado. Prueba de nuevo.
+   tarea failed | clips: [] | resultado con clips: 0 | usa env.clip: False | error: No pudimos generar el resultado. Prueba de nuevo.
+done True 2026-10-25 18:14:22 2026-10-25 18:29:01 | tareas: 1 | Mejora esta automatizacion, lo veo muy plano 1D, hazlo mas realista y 3D todo mejora la tipografia la animacion de letra todo | 
+   tarea done | clips: [] | resultado con clips: 0 | usa env.clip: False | error: 
+== compositions: 11
+  0.2-5.0s w0-17 | Gancho la verdad con candado | {"id": "cmmvmwkqv30", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  0.2-5.0s w0-17 | VERDAD metálica sin video | {"id": "cmmvmyg3w40", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  6.8-6.8s w19-19 | Destello de empalme con microzoom | {"id": "cmmvmznl3w0", "source": "user", "hide_captions": false}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  7.4-11.3s w21-29 | Panel del 90% con barra | {"id": "cmmvmznl3w1", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  9.8-9.9s w24-25 | Zoom de impacto con glitch | {"id": "cmmvmznl3w2", "source": "user", "hide_captions": false}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  14.2-18.0s w38-47 | Medidor al cien por ciento | {"id": "cmmvmyxb8e0", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  18.7-23.2s w48-62 | Multitud 3D que se filtra | {"id": "cmmvmuv2ie0", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  24.0-29.5s w63-80 | Tarjeta cliente con sello | {"id": "cmmvmtto0q2", "source": "copy", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  30.1-37.2s w81-101 | Carpeta sistema con cabeza afuera | {"id": "cmmvmtto0q0", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  37.9-44.7s w102-123 | Índice 3 pasos fondo blanco | {"id": "cmmvmtto0q1", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+  47.3-53.4s w130-150 | Reloj 3D roto, sistema | {"id": "cmmvmv3z4d0", "source": "user", "hide_captions": true}
+    clips: [] | imágenes hoja: 0 | usa env.clip: False
+== effects: 4
+  0.2-2.1s w0-8 | text_behind | {"id": "fxmvmzn5ag0", "source": "director"}
+  9.8-11.3s w24-29 | beat_pulse | {"id": "fxmvmzn5ag1", "source": "director"}
+  22.2-23.2s w58-62 | glass_type | {"id": "fxmvmnaem68", "source": "user"}
+  40.8-44.7s w114-123 | phone_frame | {"id": "fxmvmngnwsa", "source": "user"}
+== broll: 5
+  6.8-9.2s w19-23 |  | {"id": "dmvn088303"}
+  14.5-18.0s w40-47 |  | {"id": "dmvmzn59z0"}
+  26.8-29.5s w72-80 |  | {"id": "dmvmzn5ac1"}
+  35.2-37.2s w98-101 |  | {"id": "dmvn088314"}
+  51.6-53.4s w143-150 |  | {"id": "dmvmzn5ad2"}
+== zoom_moments: 11
+  3.2-3.2s w11-11 |  | {}
+  12.6-12.6s w35-35 |  | {}
+  19.8-21.0s w51-54 |  | {}
+  21.2-21.2s w55-55 |  | {}
+  26.1-26.1s w70-70 |  | {}
+  31.7-33.2s w88-92 |  | {}
+  38.7-38.7s w105-105 |  | {}
+  40.4-40.4s w111-111 |  | {}
+  47.3-47.3s w130-130 |  | {}
+  47.6-48.9s w131-135 |  | {}
+  50.1-50.1s w138-138 |  | {}
+== trabajos en curso o en cola: 0
+{
+ "periodo": {
+  "desde": "2026-10-21 03:41:14.060624+00:00",
+  "hasta": "2026-10-28 19:36:54.242671+00:00"
+ },
+ "trabajos": {
+  "VIDEO_COMPOS": {
+   "n": 93,
+   "min": 814.1,
+   "fallidos": 1
+  },
+  "VIDEO_ANALYZE": {
+   "n": 40,
+   "min": 288.8,
+   "fallidos": 0
+  },
+  "VIDEO_RENDER": {
+   "n": 29,
+   "min": 102.6,
+   "fallidos": 5
+  },
+  "CODEX_LOGIN": {
+   "n": 2,
+   "min": 17.6,
+   "fallidos": 1
+  },
+  "CLAUDE_LOGIN": {
+   "n": 6,
+   "min": 15.6,
+   "fallidos": 3
+  },
+  "VIDEO_LOOK": {
+   "n": 8,
+   "min": 10.9,
+   "fallidos": 0
+  },
+  "CAROUSEL_IMAGES": {
+   "n": 4,
+   "min": 7.7,
+   "fallidos": 0
+  },
+  "VIDEO_STYLE": {
+   "n": 6,
+   "min": 5.9,
+   "fallidos": 0
+  },
+  "VIDEO_FX": {
+   "n": 27,
+   "min": 2.5,
+   "fallidos": 0
+  },
+  "VIDEO_CLIP": {
+   "n": 8,
+   "min": 0.5,
+   "fallidos": 0
+  },
+  "VIDEO_PEAKS": {
+   "n": 5,
+   "min": 0.1,
+   "fallidos": 0
+  }
+ },
+ "maquina_encendida_horas": 26.3,
+ "videos": {
+  "n": 24,
+  "min_de_video": 27.4,
+  "renders_ok": 24
+ },
+ "ia": [
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.codigo",
+   "n": 69,
+   "usd": 23.66,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.director.revisar",
+   "n": 48,
+   "usd": 16.07,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.mirar",
+   "n": 72,
+   "usd": 15.54,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.director.plan",
+   "n": 9,
+   "usd": 3.71,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.director.critica",
+   "n": 34,
+   "usd": 2.81,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.plan",
+   "n": 40,
+   "usd": 2.39,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.codigo",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 1.79
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.plan",
+   "n": 19,
+   "usd": 0,
+   "usd_equivalente_plan": 1.44
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.director.mapa",
+   "n": 10,
+   "usd": 1.42,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.director.revisar",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 1.37
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.chat",
+   "n": 36,
+   "usd": 1.26,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.mirar.receta",
+   "n": 4,
+   "usd": 1.05,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.director.final",
+   "n": 18,
+   "usd": 1.01,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.receta",
+   "n": 2,
+   "usd": 0.66,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.mirar",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0.65
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.todo",
+   "n": 10,
+   "usd": 0.6,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.director.plan",
+   "n": 1,
+   "usd": 0,
+   "usd_equivalente_plan": 0.58
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.todo",
+   "n": 7,
+   "usd": 0,
+   "usd_equivalente_plan": 0.55
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.charla",
+   "n": 10,
+   "usd": 0,
+   "usd_equivalente_plan": 0.46
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.adaptar",
+   "n": 2,
+   "usd": 0.36,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.imagenes",
+   "n": 11,
+   "usd": 0.36,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.mirar.charla",
+   "n": 3,
+   "usd": 0.35,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.motion.pedido",
+   "n": 9,
+   "usd": 0.23,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.imagenes",
+   "n": 3,
+   "usd": 0,
+   "usd_equivalente_plan": 0.23
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.director.critica",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0.21
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.charla",
+   "n": 4,
+   "usd": 0.2,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.broll.motion",
+   "n": 3,
+   "usd": 0.2,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.director.mapa",
+   "n": 1,
+   "usd": 0,
+   "usd_equivalente_plan": 0.19
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.transcripcion.corregir",
+   "n": 8,
+   "usd": 0.19,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.director.final",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0.18
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.plan",
+   "n": 7,
+   "usd": 0.1,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.plan",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0.08
+  },
+  {
+   "provider": "anthropic",
+   "feature": "jugo.shorts",
+   "n": 2,
+   "usd": 0.08,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.motion.retry",
+   "n": 2,
+   "usd": 0.06,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.pedido",
+   "n": 1,
+   "usd": 0.05,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.momentos",
+   "n": 1,
+   "usd": 0,
+   "usd_equivalente_plan": 0.05
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.compos.momentos",
+   "n": 1,
+   "usd": 0.05,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "jugo.carrusel",
+   "n": 2,
+   "usd": 0.04,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "jugo.textos",
+   "n": 2,
+   "usd": 0.04,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.transcripcion.corregir",
+   "n": 1,
+   "usd": 0,
+   "usd_equivalente_plan": 0.03
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.motion.ajuste",
+   "n": 2,
+   "usd": 0.03,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.efectos.textos",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0.0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.efectos.textos",
+   "n": 1,
+   "usd": 0.0,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "claude-plan",
+   "feature": "video.compos.agente",
+   "n": 28,
+   "usd": 0,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "video.broll",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "metricas.analisis",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "marca.prueba",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "carruseles.ficha",
+   "n": 1,
+   "usd": 0,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "metricas.ganchos",
+   "n": 3,
+   "usd": 0,
+   "usd_equivalente_plan": 0
+  },
+  {
+   "provider": "anthropic",
+   "feature": "marca.borrador",
+   "n": 2,
+   "usd": 0,
+   "usd_equivalente_plan": 0
+  }
+ ],
+ "base_mb": 20.6,
+ "disco_worker_gb": {
+  "total": 20.9,
+  "usado": 6.9
+ }
+}
+[
+  {
+    "id": "895992f6050478",
+    "state": "started",
+    "region": "iad",
+    "size": {
+      "cpu_kind": "performance",
+      "cpus": 4,
+      "memory_mb": 8192
+    }
+  }
+]
+[
+  {
+    "name": "work",
+    "size_gb": 20,
+    "region": "iad"
+  }
+]
+Connecting to fdaa:dc:ae48:a7b:892:d6af:ec89:2...
+modelo: /app/models/htdemucs/htdemucs_fp16weights.onnx (157 MB)
+separó 20 s en 36.1 s · voz -74.6 dBFS · resto -15.3 dBFS

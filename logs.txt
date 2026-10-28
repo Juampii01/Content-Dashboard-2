@@ -1,0 +1,16 @@
+[2m2026-10-28T18:30:49Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 18:30:49,118 INFO worker: trabajo 06099dc4-b005-4c56-9b46-3cd14f3ff202 (VIDEO_COMPOS), intento 1 de 2
+[2m2026-10-28T18:40:38Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 18:40:38,995 INFO worker.claude_api: llamada larga tmvsg9up50: end_turn, 61019 tokens de salida, 541 s
+[2m2026-10-28T18:43:50Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 18:43:50,146 INFO worker: trabajo ea09f0e1-367a-4ec2-a3d8-95029adb7a79 (VIDEO_COMPOS), intento 1 de 2
+[2m2026-10-28T18:47:32Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 18:47:32,581 INFO worker.claude_api: llamada larga tmvsgqkut0: end_turn, 24827 tokens de salida, 165 s
+[2m2026-10-28T18:48:22Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 18:48:22,193 INFO worker.claude_api: llamada larga tmvsgqkut0: end_turn, 671 tokens de salida, 12 s
+[2m2026-10-28T19:13:34Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:13:34,690 INFO worker: trabajo 75ad944c-c952-44fc-aca8-78fa731833c7 (VIDEO_COMPOS), intento 1 de 2
+[2m2026-10-28T19:17:05Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:17:05,059 INFO worker.claude_api: llamada larga tmvshssad0: end_turn, 24652 tokens de salida, 162 s
+[2m2026-10-28T19:17:44Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:17:44,546 INFO worker.claude_api: llamada larga tmvshssad0: end_turn, 698 tokens de salida, 7 s
+[2m2026-10-28T19:22:28Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:22:28,254 INFO worker: trabajo 50d7c028-c925-4f98-b283-72f52bfe45ac (VIDEO_COMPOS), intento 1 de 2
+[2m2026-10-28T19:26:32Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:26:32,758 INFO worker.claude_api: llamada larga tmvsi4a2p0: end_turn, 26316 tokens de salida, 178 s
+[2m2026-10-28T19:27:09Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:27:09,230 INFO worker.claude_api: llamada larga tmvsi4a2p0: end_turn, 642 tokens de salida, 8 s
+[2m2026-10-28T19:30:13Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:30:13,165 INFO worker: trabajo 1ef63215-18ee-4511-bfe2-718456996896 (VIDEO_COMPOS), intento 1 de 2
+[2m2026-10-28T19:33:46Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:33:46,268 INFO worker.claude_api: llamada larga tmvsie8lt2: end_turn, 24946 tokens de salida, 166 s
+[2m2026-10-28T19:34:21Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:34:21,420 INFO worker.claude_api: llamada larga tmvsie8lt2: end_turn, 645 tokens de salida, 7 s
+[2m2026-10-28T19:36:55Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:36:55,110 INFO worker: trabajo 2bed0624-34ca-42e2-aab8-54fbaf9fd5d1 (VIDEO_COMPOS), intento 1 de 2
+[2m2026-10-28T19:40:25Z[0m app[895992f6050478] [32miad[0m [[34minfo[0m]2026-10-28 19:40:25,492 INFO worker.claude_api: llamada larga tmvsimuac4: end_turn, 24782 tokens de salida, 164 s

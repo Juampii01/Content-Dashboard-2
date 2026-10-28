@@ -1154,7 +1154,7 @@ export const aiUsage = pgTable(
  * - Tokens separados: entrada sin caché, salida (incluye el razonamiento), lectura de caché y escritura de caché.
  * - `videoDurationSec`: duración del video del Editor al momento de la llamada (para comparar costo por minuto).
  * - `requestId`: el pedido que la originó (una animación, una corrección del director), para sumar por corrección.
- * - `status`: "ok", "truncada" (se quedó sin tokens), "error_lectura" (llegó pero no se pudo leer) o "rechazada".
+ * - `status`: "ok", "truncada" (se quedó sin tokens), "error_lectura" (llegó pero no se pudo leer), "rechazada" o "cancelada" (la persona canceló y se cortó la respuesta).
  */
 export const apiUsage = pgTable(
   "api_usage",

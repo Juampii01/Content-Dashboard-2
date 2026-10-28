@@ -196,3 +196,50 @@ def test_el_director_hace_la_llamada_larga_y_devuelve_el_resultado(monkeypatch: 
     assert sent[1]["step"] == "compos-ai-done" and sent[1]["workId"] == "w1"
     assert sent[1]["remote"]["result"]["text"] == CODE
     assert stages == ["Programando la animación 1 de 1"]
+
+
+def test_cancelar_corta_la_respuesta_y_devuelve_lo_cobrado() -> None:
+    """Si la persona cancela el pedido mientras la IA escribe, se corta la conexión (no se sigue pagando) y vuelve
+    lo que se alcanzó a generar."""
+    import time
+
+    class Slow(BaseHTTPRequestHandler):
+        def log_message(self, *a: Any) -> None:  # noqa: D401
+            pass
+
+        def do_POST(self) -> None:  # noqa: N802
+            self.rfile.read(int(self.headers.get("content-length") or 0))
+            self.send_response(200)
+            self.send_header("content-type", "text/event-stream")
+            self.end_headers()
+            start = ev("message_start", {"message": {"id": "m", "model": "claude-opus-5-5", "content": [], "usage": {"input_tokens": 9000, "output_tokens": 1}}})
+            self.wfile.write(start + ev("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}}))
+            try:
+                for _ in range(60):  # ~18 s si nadie corta
+                    self.wfile.write(ev("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "x" * 40}}))
+                    self.wfile.flush()
+                    time.sleep(0.3)
+                self.wfile.write(ev("message_delta", {"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 999}}) + ev("message_stop", {}))
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    asked = []
+    try:
+        t0 = time.monotonic()
+        out = claude_api.stream_message(f"http://127.0.0.1:{server.server_address[1]}", FAKE_KEY, BODY, sleep=lambda s: None, should_stop=lambda: asked.append(1) or True)
+        took = time.monotonic() - t0
+    finally:
+        server.shutdown()
+    assert asked, "se preguntó si seguía en pie"
+    assert took < 8, f"cortó enseguida ({took:.1f} s)"
+    err = out["error"]
+    assert err["source"] == "canceled"
+    assert err["usage"]["input_tokens"] == 9000, "vuelve lo que se cobró hasta el corte"
+
+
+def test_sin_cancelar_termina_normal(api: Api) -> None:
+    api.script.append((200, sse(CODE, "end_turn"), {}))
+    out = claude_api.stream_message(api.url, FAKE_KEY, BODY, sleep=lambda s: None, should_stop=lambda: False)
+    assert out["result"]["stop_reason"] == "end_turn"

@@ -37,7 +37,7 @@ export type TokenUsage = {
   cache_creation_input_tokens?: number | null;
 };
 
-export type UsageStatus = "ok" | "truncada" | "error_lectura" | "rechazada";
+export type UsageStatus = "ok" | "truncada" | "error_lectura" | "rechazada" | "cancelada";
 
 export type UsageRow = {
   step: string;

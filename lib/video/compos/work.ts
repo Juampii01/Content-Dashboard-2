@@ -165,8 +165,11 @@ export type RemoteDone = {
   taskId: string;
   call: string;
   result?: { stop_reason: string | null; text: string; usage: TokenUsage; model?: string } | null;
-  /** `source`: "app" (la app no dio la llamada: créditos, sin clave; el mensaje ya es para la persona), "api" o "network". */
-  error?: { source?: "app" | "api" | "network"; status?: number | null; message?: string; usage?: TokenUsage | null } | null;
+  /**
+   * `source`: "app" (la app no dio la llamada: créditos, sin clave; el mensaje ya es para la persona), "api", "network" o
+   * "canceled" (la persona canceló el pedido y el worker cortó la respuesta).
+   */
+  error?: { source?: "app" | "api" | "network" | "canceled"; status?: number | null; message?: string; usage?: TokenUsage | null } | null;
 };
 
 export const readWork = (d: DirectorState): ComposWork | null => ((d as DirectorState & { compos?: ComposWork | null }).compos ?? null);
@@ -467,7 +470,18 @@ async function loadTarget(projectId: string, workId: string | undefined): Promis
 
 async function advanceWorkInner(projectId: string, body: AdvanceBody): Promise<StepResult> {
   const target = await loadTarget(projectId, body.workId);
-  if (!target) return { next: null, finished: true };
+  if (!target) {
+    // Un pedido que se canceló mientras el worker escribía: la respuesta se cortó, pero lo generado se cobra igual. Se
+    // registra para que el consumo y el tope del mes digan la verdad (antes quedaba sin contar).
+    if (body.step === "compos-ai-done") {
+      const usage = body.remote?.result?.usage ?? body.remote?.error?.usage ?? null;
+      if (usage && (usage.output_tokens ?? 0) > 0) {
+        const model = body.remote?.result?.model ?? MODELS.deep;
+        await recordUsage({ step: "video.compos.codigo", model, usage, status: "cancelada", videoProjectId: projectId }).catch((e) => console.error("[animaciones] consumo de un pedido cancelado:", e instanceof Error ? e.message : e));
+      }
+    }
+    return { next: null, finished: true };
+  }
   const { ctx, work } = target;
 
   // Lo que devuelve el worker.

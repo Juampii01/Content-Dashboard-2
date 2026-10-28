@@ -35,7 +35,7 @@ export const TEXT_PRESETS: Record<TextPresetKey, { label: string; hint: string; 
   titleBox: { label: "Título con fondo", hint: "Sobre una caja que se descubre de lado.", sample: "Paso número uno", role: "box", position: "top" },
   subtitle: { label: "Subtítulo inferior", hint: "Una línea abajo, sobre una franja oscura.", sample: "Lo que nadie te cuenta", role: "text", position: "bottom" },
   pill: { label: "Etiqueta", hint: "Corta, en una píldora con tu color.", sample: "Nuevo", role: "accent", position: "top" },
-  number: { label: "Número gigante", hint: "La cifra cuenta hasta su valor.", sample: "+300%", sub: "más ventas", role: "accent", position: "center", subLabel: "Detalle debajo" },
+  number: { label: "Número gigante", hint: "La cifra cuenta hasta su valor.", sample: "100", sub: "cambia este número por el tuyo", role: "accent", position: "center", subLabel: "Detalle debajo" },
   quote: { label: "Cita", hint: "Una frase entre comillas, palabra por palabra.", sample: "Hecho es mejor que perfecto", sub: "Tu nombre", role: "text", position: "center", subLabel: "Autor", emphasis: true },
   marker: { label: "Resaltado", hint: "Un marcador barre las palabras clave.", sample: "La clave es la constancia", role: "accent", position: "center", emphasis: true },
   strike: { label: "Tachado", hint: "Una línea tacha lo que no va.", sample: "Publicar sin plan", role: "accent", position: "center", emphasis: true },

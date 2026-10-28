@@ -50,6 +50,11 @@ def main(pid: str) -> None:
         tasks = (r["work"] or {}).get("tasks") or []
         t0 = tasks[0] if tasks else {}
         print(r["status"], r["delivered"], str(r["created_at"])[:19], str(r["updated_at"])[:19], "| tareas:", len(tasks), "|", (str(t0.get("request") or ""))[:140].replace("\n", " "), "|", (r["error"] or "")[:160])
+        # Videos dentro de la animación (clips): si llegaron y si el worker armó sus hojas.
+        for tk in tasks:
+            cl = tk.get("clips") or []
+            res = tk.get("result") or {}
+            print("   tarea", tk.get("status"), "| clips:", [{"titulo": c.get("title"), "hojas": len((c.get("ready") or {}).get("sheets") or []), "error": c.get("error")} for c in cl], "| resultado con clips:", len(res.get("clips") or []), "| usa env.clip:", "env.clip(" in str(res.get("code") or ""), "| error:", (tk.get("error") or "")[:160])
     for key in ("compositions", "effects", "broll", "zoom_moments", "transitions", "graphics"):
         items = plan.get(key)
         if not isinstance(items, list):
@@ -59,6 +64,8 @@ def main(pid: str) -> None:
             name = x.get("name") or x.get("title") or x.get("kind") or x.get("type") or (x.get("choice") or {}).get("kind") or ""
             extra = {k: x.get(k) for k in ("id", "long", "mode", "frame", "layout", "source", "lane", "captions", "hide_captions") if k in x}
             print(" ", span(x), "|", str(name)[:70], "|", json.dumps(extra, ensure_ascii=False)[:200])
+            if key == "compositions":
+                print("    clips:", [{"titulo": c.get("title"), "seg": c.get("duration"), "cuadros": c.get("frames"), "hojas": len(c.get("sheets") or [])} for c in x.get("clips") or []], "| imágenes hoja:", sum(1 for g in x.get("images") or [] if g.get("sheet")), "| usa env.clip:", "env.clip(" in str(x.get("code") or ""))
 
 
 if __name__ == "__main__":

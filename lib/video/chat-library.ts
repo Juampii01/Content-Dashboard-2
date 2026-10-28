@@ -9,7 +9,12 @@ import { matchLibrary } from "./library-ficha";
 
 /** clipId y clipStart: la pieza de la biblioteca que eligió la IA para una acción "video" (validada aquí). */
 /** styleClips: videos de la biblioteca cuyas hojas de cuadros van como referencia de estilo de una animación. */
-export type VideoChatItem = VideoChatOutput["items"][number] & { clipId?: string; clipStart?: number | null; styleClips?: string[] };
+/**
+ * insideClips: videos de la biblioteca que se reproducen DENTRO de una animación. Se guardan con la acción (ids de la
+ * biblioteca), así el botón los encuentra siempre: aunque la página se haya recargado o el video se haya mandado en
+ * otro mensaje.
+ */
+export type VideoChatItem = VideoChatOutput["items"][number] & { clipId?: string; clipStart?: number | null; styleClips?: string[]; insideClips?: string[] };
 export type ChatAttachment = { ref: string; kind: "video" | "image"; libraryId?: string };
 
 /**
@@ -71,3 +76,48 @@ export function fakeLibraryBroll(sentences: { from: number; to: number; text: st
   return { reply: items.length ? `Encontré ${items.length === 1 ? "un momento" : `${items.length} momentos`} donde tus clips muestran lo que dices.` : "No encontré clips de tu biblioteca que muestren lo que dices.", go: false, items };
 }
 
+
+/** Un video o imagen de la charla con su pieza de la biblioteca: V1, V2… (los que ya miró) o A1, A2… (de este mensaje). */
+export type ChatPiece = { code: string; id: string; kind: "video" | "image"; reference: boolean };
+
+/** Cuando la persona pide que su video se vea adentro de la animación (en la pantalla, en el teléfono…). */
+const INSIDE_RE = /\b(dentro|adentro)\b|en (la|una|el|un) (pantalla|tel[eé]fono|celular|monitor|notebook|laptop|computadora|navegador|tablet|tarjeta|ventana|tv|televisor)|(se vea|aparezca|se reproduzca|que salga) (mi|el|la|este|esta|ese|esa) (video|grabaci[oó]n|web|p[aá]gina|app)|\bmi (web|p[aá]gina|app|grabaci[oó]n)\b/i;
+
+/**
+ * Pasa los adjuntos que nombró la IA (V1, A1…) a piezas de la biblioteca guardadas en la acción, para que el botón no
+ * dependa de lo que tiene abierto el navegador:
+ * - "inside" en una animación → insideClips (el video se reproduce dentro).
+ * - "broll" en una acción video → clipId.
+ * - "style" (o un video que la persona mandó como referencia) → styleClips, salvo que ya vaya adentro.
+ * Si la IA no marcó ningún video para adentro pero la persona lo pidió con palabras («que se vea mi web en la
+ * pantalla») o el pedido de la animación nombra el video por su código, se pone adentro el video de la charla.
+ */
+export function withClipReferences(items: VideoChatItem[], pieces: ChatPiece[], lastText = ""): VideoChatItem[] {
+  const byCode = new Map(pieces.map((c) => [c.code, c]));
+  const videos = pieces.filter((c) => c.kind === "video");
+  const wantsInside = INSIDE_RE.test(lastText);
+  return items.map((it) => {
+    const named = it.attachments.flatMap((a) => (byCode.has(a.ref) ? [{ ...a, clip: byCode.get(a.ref)! }] : []));
+    // Las imágenes sueltas de este mensaje (sin pieza de la biblioteca) siguen yendo por el navegador.
+    const rest = it.attachments.filter((a) => !byCode.has(a.ref) || byCode.get(a.ref)!.kind === "image");
+    const next: VideoChatItem = { ...it, attachments: rest };
+    const broll = named.find((a) => a.use === "broll");
+    if (it.kind === "video" && broll && !next.clipId) next.clipId = broll.clip.id;
+    if (it.kind === "animacion") {
+      const inside = new Set(named.filter((a) => a.use === "inside" && a.clip.kind === "video").map((a) => a.clip.id));
+      if (!inside.size) {
+        // El pedido nombra un video por su código («el video V1 en la pantalla»): va adentro.
+        for (const c of videos) if (!c.reference && new RegExp(`\\b${c.code}\\b`).test(it.prompt)) inside.add(c.id);
+        // La persona lo pidió con palabras y hay un solo video de la charla que no es referencia.
+        const own = videos.filter((c) => !c.reference && broll?.clip.id !== c.id);
+        if (!inside.size && wantsInside && own.length === 1) inside.add(own[0]!.id);
+      }
+      if (inside.size) next.insideClips = [...inside].slice(0, 2);
+      const style = new Set(named.filter((a) => a.use === "style" && a.clip.kind === "video").map((a) => a.clip.id));
+      for (const c of videos) if (c.reference && broll?.clip.id !== c.id) style.add(c.id);
+      for (const id of inside) style.delete(id);
+      if (style.size) next.styleClips = [...style].slice(0, 2);
+    }
+    return next;
+  });
+}

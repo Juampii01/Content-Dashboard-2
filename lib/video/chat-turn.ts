@@ -7,7 +7,7 @@ import { VIDEO_CHAT_RULES, videoChatSchema, videoChatTask, type VideoChatOutput 
 import { getDb, schema } from "@/lib/db";
 import { readBytes } from "@/lib/storage";
 import { libraryForPrompt } from "./broll";
-import { chatItems, fakeLibraryBroll, type ChatAttachment, type VideoChatItem } from "./chat-library";
+import { chatItems, fakeLibraryBroll, withClipReferences, type ChatAttachment, type ChatPiece } from "./chat-library";
 import type { ChatClip, ChatMessage } from "./compos/chat";
 import type { RefImage } from "./compos/schema";
 import { pieceOf } from "./library";
@@ -218,30 +218,14 @@ export async function chatTurn(d: ChatContext, messages: ChatMessage[], userId: 
       fake: () => fakeTurn(d, lastText, reference, library, seen.clips),
     }),
   );
-  const items = withClipReferences(chatItems(out.items, allAttachments, max, ids, library), seen.clips);
+  // Cada adjunto (V1… de la charla, A1… de este mensaje) con su pieza de la biblioteca: la acción guarda los ids.
+  const byId = new Map(seen.clips.map((c) => [c.id, c]));
+  const pieces: ChatPiece[] = [
+    ...seen.clips.map((c) => ({ code: c.code, id: c.id, kind: c.kind, reference: c.reference })),
+    ...d.attachments.flatMap((a) => (a.libraryId ? [{ code: a.ref, id: a.libraryId, kind: a.kind, reference: byId.get(a.libraryId)?.reference ?? REFERENCE_RE.test(lastText) }] : [])),
+  ];
+  const items = withClipReferences(chatItems(out.items, allAttachments, max, ids, library), pieces, lastText);
   return { message: { role: "assistant", text: out.reply.slice(0, 4000), at: new Date().toISOString(), ...(items.length ? { items } : {}) }, go: out.go && items.length > 0 };
-}
-
-/**
- * Las animaciones que salen de una charla con un video de referencia llevan sus hojas de cuadros como referencia de
- * estilo (styleClips: el cliente las copia a las referencias del pedido). Si la persona lo mandó como referencia, va en
- * todas las animaciones aunque la IA no lo haya nombrado; un video usado como b-roll en esa acción, no.
- */
-export function withClipReferences(items: VideoChatItem[], clips: { code: string; id: string; kind: "video" | "image"; reference: boolean }[]): VideoChatItem[] {
-  const byCode = new Map(clips.map((c) => [c.code, c]));
-  return items.map((it) => {
-    const named = it.attachments.flatMap((a) => (byCode.has(a.ref) ? [{ ...a, clip: byCode.get(a.ref)! }] : []));
-    const rest = it.attachments.filter((a) => !byCode.has(a.ref));
-    const next: VideoChatItem = { ...it, attachments: rest };
-    const broll = named.find((a) => a.use === "broll");
-    if (it.kind === "video" && broll && !next.clipId) next.clipId = broll.clip.id;
-    if (it.kind === "animacion") {
-      const style = new Set(named.filter((a) => a.use === "style" && a.clip.kind === "video").map((a) => a.clip.id));
-      for (const c of clips) if (c.reference && c.kind === "video" && broll?.clip.id !== c.id) style.add(c.id);
-      if (style.size) next.styleClips = [...style].slice(0, 2);
-    }
-    return next;
-  });
 }
 
 /** AI_FAKE=1: respuestas armadas con los datos reales (para probar la interfaz sin gastar). */

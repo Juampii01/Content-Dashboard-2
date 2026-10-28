@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { completeUploadAction, createProjectAction } from "../actions";
 import { putFile } from "../upload-manager";
 import { deleteTake, getTakeFile, listTakes, patchTake, type TakeMeta } from "./take-store";
+import { userMessage } from "@/lib/user-message";
 
 /**
  * Cola de subidas de las tomas grabadas en el navegador. Una a la vez (con conexión lenta, dos en paralelo tardan lo
@@ -87,7 +88,7 @@ async function pump() {
     while (queue.length) {
       const id = queue.shift()!;
       await uploadOne(id).catch((error: unknown) => {
-        patch(id, { status: "error", error: error instanceof Error ? error.message : "La subida falló. Vuelve a intentarlo." });
+        patch(id, { status: "error", error: userMessage(error, "La subida falló. Vuelve a intentarlo.") });
       });
     }
   } finally {

@@ -7,6 +7,7 @@ import { Field, Textarea } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import type { CarouselSlide } from "@/lib/db/schema";
 import { downscaleImage, uploadImage } from "./upload";
+import { userMessage } from "@/lib/user-message";
 
 /**
  * Imagen de un slide: escena para la IA (editable, siempre sin texto), generar u otra imagen, subir una foto propia
@@ -55,7 +56,7 @@ export function SlideImagePanel({
       onPatch({ imageUrl: res.url, imageSource: "upload" });
       toast.success("Foto lista. Guarda para conservarla.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No pudimos subir la foto.");
+      toast.error(userMessage(e, "No pudimos subir la foto."));
     } finally {
       setUploading(false);
       if (input.current) input.current.value = "";

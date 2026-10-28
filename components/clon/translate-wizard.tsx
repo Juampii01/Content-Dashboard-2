@@ -43,6 +43,7 @@ import {
   previewVoiceAction,
   translateScriptAction,
 } from "./translate-actions";
+import { userMessage } from "@/lib/user-message";
 
 type Picked = { type: "editor" | "clone"; id: string } | null;
 type Uploaded = { key: string; title: string; seconds: number; aspectRatio: "9:16" | "1:1" | "16:9"; fileName: string; size: number };
@@ -290,7 +291,7 @@ export function TranslateWizard({
     try {
       measured = await measureVideo(file);
     } catch (error) {
-      setUpload({ status: "error", loaded: 0, total: file.size, name: file.name, error: error instanceof Error ? error.message : "No pudimos leer el video." });
+      setUpload({ status: "error", loaded: 0, total: file.size, name: file.name, error: userMessage(error, "No pudimos leer el video.") });
       return;
     }
     const prepared = await prepareTranslationUploadAction({ name: file.name, size: file.size, type: file.type });
@@ -325,7 +326,7 @@ export function TranslateWizard({
         setUpload({ status: "idle", loaded: 0, total: 0 });
         return;
       }
-      setUpload({ status: "error", loaded: 0, total: file.size, name: file.name, error: error instanceof Error ? error.message : "La subida falló. Vuelve a intentarlo." });
+      setUpload({ status: "error", loaded: 0, total: file.size, name: file.name, error: userMessage(error, "La subida falló. Vuelve a intentarlo.") });
     }
   };
 

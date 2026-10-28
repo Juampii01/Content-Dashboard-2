@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { CharacterPhotoUpload } from "./character-panel";
 import { analyzeCopyAction, startCopyAction } from "./copy-actions";
 import { PICK_MIN, ReferencePicker, uploadPicked, type PickedImage } from "./reference-picker";
+import { userMessage } from "@/lib/user-message";
 
 type Source = "link" | "upload";
 type CharacterMode = "auto" | "siempre" | "nunca";
@@ -87,7 +88,7 @@ export function CopyFlow({
       router.push(`/carruseles/copiar/${id}`);
     } catch (e) {
       setBusy(null);
-      setError(e instanceof Error ? e.message : "Algo salió mal. Prueba de nuevo.");
+      setError(userMessage(e, "Algo salió mal. Prueba de nuevo."));
     }
   }
 

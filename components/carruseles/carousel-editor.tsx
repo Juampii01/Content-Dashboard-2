@@ -84,6 +84,7 @@ import { SlideVideoPanel, type AnimateSettings } from "./slide-video-panel";
 import { uploadImage } from "./upload";
 import { ScaledSlide, Slide } from "./slide";
 import { SlideImagePanel } from "./slide-image-panel";
+import { userMessage } from "@/lib/user-message";
 
 type Theme = { palette?: string; accent?: string; font?: string };
 type Look = BrandLook & { identity: SlideIdentity; bannedWords: string[] };
@@ -424,7 +425,7 @@ export function CarouselEditor({
       setAnimJobId(res.data);
       toast.success("Animando el slide…", { description: "Tarda menos de un minuto. Puedes seguir editando." });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No pudimos animar el slide.");
+      toast.error(userMessage(e, "No pudimos animar el slide."));
     } finally {
       setDrawing(null);
     }

@@ -11,6 +11,7 @@ import type { CarouselSlide } from "@/lib/db/schema";
 import { DEFAULT_POSES, pickPhotos, traitsLabel, type CharacterPhoto } from "@/lib/carousels/character";
 import { cn } from "@/lib/utils";
 import { downscaleImage } from "./upload";
+import { userMessage } from "@/lib/user-message";
 
 /** Sube una foto del personaje a Mi marca (la misma lista que usan las miniaturas de YouTube). */
 export async function uploadCharacterPhoto(file: File): Promise<void> {
@@ -39,7 +40,7 @@ export function CharacterPhotoUpload({ disabled, label = "Subir fotos tuyas", va
       toast.success(files.length === 1 ? "Foto lista." : "Fotos listas.", { description: "Se guardaron en Mi marca." });
       router.refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No pudimos subir la foto.");
+      toast.error(userMessage(e, "No pudimos subir la foto."));
     } finally {
       setBusy(false);
       if (input.current) input.current.value = "";

@@ -11,6 +11,7 @@ import { useJob } from "@/lib/carousels/use-job";
 import type { CopyView } from "@/lib/dal/carousels";
 import { analyzeCopyAction, switchToUploadsAction } from "./copy-actions";
 import { PICK_MIN, ReferencePicker, uploadPicked, type PickedImage } from "./reference-picker";
+import { userMessage } from "@/lib/user-message";
 
 const STAGES = [
   { at: 0, label: "Bajando el carrusel" },
@@ -56,7 +57,7 @@ export function CopyProgress({ copy, canEdit }: { copy: CopyView; canEdit: boole
       router.refresh();
     } catch (e) {
       setBusy(null);
-      toast.error(e instanceof Error ? e.message : "No pudimos subir los slides.");
+      toast.error(userMessage(e, "No pudimos subir los slides."));
     }
   }
 

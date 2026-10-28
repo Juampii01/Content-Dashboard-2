@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { ArrowUp, Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -11,7 +11,13 @@ const QUICK = ["¿Qué publico esta semana?", "¿Qué gancho me funciona mejor?"
 export function AskStrategistCard() {
   const router = useRouter();
   const [q, setQ] = useState("");
-  const go = (question: string) => router.push(`/estratega?q=${encodeURIComponent(question.trim())}&enviar=1`);
+  // Un doble clic no manda la pregunta dos veces.
+  const sent = useRef(false);
+  const go = (question: string) => {
+    if (sent.current) return;
+    sent.current = true;
+    router.push(`/estratega?q=${encodeURIComponent(question.trim())}&enviar=1`);
+  };
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (q.trim().length >= 3) go(q);

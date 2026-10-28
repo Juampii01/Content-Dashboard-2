@@ -135,6 +135,8 @@ export function EntryDialog({
   }
 
   function save() {
+    // Enter dos veces (o un doble clic) no crea la pieza dos veces.
+    if (pending) return;
     setError(null);
     if (draft.title.trim().length < 2) return setError("Ponle un título a la pieza.");
     if (draft.platforms.length === 0) return setError("Elige al menos una red de destino.");

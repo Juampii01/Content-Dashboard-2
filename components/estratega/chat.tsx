@@ -14,6 +14,7 @@ import { formatDate, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { addIdeaToCalendarAction, deleteConversationAction } from "./actions";
 import { InlineText, RichText } from "./rich-text";
+import { userMessage } from "@/lib/user-message";
 
 export type ChatMessage = {
   id: string;
@@ -350,7 +351,7 @@ export function StrategistChat({
       const aborted = error instanceof DOMException && error.name === "AbortError";
       setMessages((m) => [
         ...m,
-        { id: `error-${Date.now()}`, role: "assistant", content: "", citations: [], ideas: [], error: aborted ? "Detuviste la respuesta." : error instanceof Error ? error.message : "No pudimos responder. Prueba de nuevo.", createdAt: new Date().toISOString() },
+        { id: `error-${Date.now()}`, role: "assistant", content: "", citations: [], ideas: [], error: aborted ? "Detuviste la respuesta." : userMessage(error, "No pudimos responder. Prueba de nuevo."), createdAt: new Date().toISOString() },
       ]);
     } finally {
       setLive(null);

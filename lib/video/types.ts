@@ -16,6 +16,7 @@ import type { AudioMix, MusicFade } from "./audio-mix";
 import type { Marker } from "./markers";
 import type { GraphicSpec } from "./graphics";
 import type { MotionScene } from "./motion/schema";
+import type { TextSpec } from "./text-presets";
 import type { AudioPreviewMedia } from "./studio-audio";
 
 /** Una palabra con su id (posición en la transcripción), su texto tal como se dijo y sus bordes. */
@@ -219,6 +220,11 @@ export type BrollOption = {
    * (plantilla, textos, colores de marca y modo). Los dos se dibujan con el motor.
    */
   graphic?: GraphicSpec | MotionScene | null;
+  /**
+   * Texto a mano (Estudio → Biblioteca → Textos): lo que eligió la persona para volver a armar la escena del gráfico
+   * (lib/video/text-presets.ts). Sin el campo, un gráfico como siempre.
+   */
+  text?: TextSpec | null;
 };
 
 export type BrollItem = {

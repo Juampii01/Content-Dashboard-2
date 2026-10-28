@@ -26,6 +26,7 @@ import { placeMyEffectAction } from "../my-effects-actions";
 import { wholeFromChatAction } from "../compos-actions";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
+import { isTextPreset, TEXT_PRESETS, TEXT_SECONDS, textOption, updateTextOption, type TextPresetKey, type TextSpecInput } from "@/lib/video/text-presets";
 import { rangesFromIds } from "@/lib/video/plan";
 import { fillRhythm, rhythmScore, themeOfPlan, RHYTHM_TAG, type Density } from "@/lib/video/rhythm";
 import { cueClip, fitCueClip, hookEnd, MIN_CUE_LENGTH, newSoundCueId, SFX_FILES, sfxCues, soundCueTimes, SOUND_GAIN } from "@/lib/video/sfx";
@@ -587,6 +588,35 @@ export function Studio(props: StudioProps) {
     if (r) seek(r.start);
     // Se abre el estudio de gráficos con la plantilla para poner los textos (las cifras salen de lo que dices).
     setPicking({ id: item.id, tab: "grafico" });
+  }
+
+  /** Un texto a mano en un tramo: el estilo con su texto de muestra, elegido para escribir el tuyo en el panel. */
+  function addText(range: WordSpan, preset: TextPresetKey) {
+    const p = TEXT_PRESETS[preset];
+    const option = textOption({ preset, text: p.sample, ...(p.sub ? { sub: p.sub } : {}) }, graphicLook, { format: s.format });
+    const item: BrollItem = { id: newBrollId(), from_word: range.from, to_word: range.to, query_en: "", keywords: [], choice: option, options: [option] };
+    const r = outputRange(timeline, range.from, range.to);
+    const top = r ? layerOnTop(r.start, r.end) : { layer: undefined, under: [] };
+    if (top.layer != null) item.layer = top.layer;
+    update((st) => ({ ...st, broll: [...st.broll, item].sort((a, b) => a.from_word - b.from_word) }));
+    notifyOnTop(top.under);
+    setSelection({ kind: "broll", id: item.id });
+    if (r) seek(r.start);
+  }
+
+  /** Cambia un texto a mano (texto, estilo, color, tamaño o lugar): se vuelve a armar su escena. */
+  function setText(id: string, patch: Partial<TextSpecInput>) {
+    update(
+      (st) => ({
+        ...st,
+        broll: st.broll.map((b) => {
+          if (b.id !== id || !b.choice) return b;
+          const next = updateTextOption(b.choice, patch, graphicLook, st.format);
+          return next ? { ...b, choice: next, options: [next] } : b;
+        }),
+      }),
+      { coalesce: `txt:${id}` },
+    );
   }
 
   /** Un tramo para un efecto: si pasa de lo que puede durar, se acorta a su máximo (en vez de rechazarlo). */
@@ -1370,6 +1400,11 @@ export function Studio(props: StudioProps) {
       const span = spanAround(timeline, t, clipSpanSeconds(item.option));
       return span ? { track: "broll", start: span.start, end: span.end, label: item.option.title ?? "Tu clip" } : null;
     }
+    if (item.type === "text") {
+      if (!isTextPreset(item.preset)) return null;
+      const span = spanAround(timeline, t, TEXT_SECONDS);
+      return span ? { track: "broll", start: span.start, end: span.end, label: TEXT_PRESETS[item.preset].label } : null;
+    }
     if (item.type === "mine") {
       const span = mineSpan(item, t);
       const seg = span ? composSegments(timeline, [{ id: "drop", from_word: span.from, to_word: span.to, name: item.name, code: "x", params: [], source: "user" }])[0] : null;
@@ -1445,6 +1480,11 @@ export function Studio(props: StudioProps) {
       const span = spanAround(timeline, t, clipSpanSeconds(item.option));
       if (!span) return noWords();
       addClipBroll(span, item.option);
+    } else if (item.type === "text") {
+      if (!isTextPreset(item.preset)) return;
+      const span = spanAround(timeline, t, TEXT_SECONDS);
+      if (!span) return noWords();
+      addText(span, item.preset);
     }
   }
 
@@ -2066,6 +2106,7 @@ export function Studio(props: StudioProps) {
       setBrollEdit,
       applyLookToAll,
       setGraphic,
+      setText,
       changeDensity,
       pickOption,
       setTransition,

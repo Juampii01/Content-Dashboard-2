@@ -11,6 +11,7 @@ import { sentences } from "@/lib/ai/prompts/editor";
 import { confidentRemovals, type Candidate } from "./candidates";
 import { brollEditSchema } from "./broll-edit";
 import { brollGraphicSchema } from "./motion-graphics";
+import { textSpecSchema } from "./text-presets";
 import { fxIssues, fxListSchema } from "./fx/schema";
 import { transitionListSchema } from "./fx/transitions";
 import { compositionListSchema } from "./compos/schema";
@@ -54,6 +55,8 @@ const brollOptionSchema = z.object({
   title: z.string().max(200).nullable().optional(),
   /** Escena v2 o, en planes viejos, spec v1. */
   graphic: brollGraphicSchema.nullable().optional(),
+  /** Texto a mano (lib/video/text-presets.ts): opcional, solo en gráficos. */
+  text: textSpecSchema.nullable().optional(),
 }).refine((o) => (o.source === "graphic") === Boolean(o.graphic), { message: "Un gráfico necesita su diseño (y solo un gráfico lo lleva)." });
 
 export const brollItemSchema = z.object({

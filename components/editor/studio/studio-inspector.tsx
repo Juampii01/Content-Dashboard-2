@@ -3,13 +3,14 @@
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Bot, BringToFront, SendToBack, Check, ChevronDown, Clapperboard, Headphones, Mic, PenLine, RefreshCcw, RotateCcw, Scissors, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Wand2, WandSparkles, X, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/field";
+import { Input, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/feedback";
 import { formatNumber } from "@/lib/format";
 import { resolveEdit } from "@/lib/video/broll-edit";
 import { FX_INFO } from "@/lib/video/fx/catalog";
 import { graphicKindLabel, isMotionScene, sceneFields, setSceneField, unsupportedGraphicNumbers, unsupportedSceneNumbers } from "@/lib/video/motion-graphics";
 import { outputRange } from "@/lib/video/timeline";
+import { defaultEmphasis, isTextOption, TEXT_COLOR_LABELS, TEXT_COLOR_SWATCHES, TEXT_MAX, TEXT_POSITION_LABELS, TEXT_POSITIONS, TEXT_PRESET_KEYS, TEXT_PRESETS, TEXT_SIZE_LABELS, TEXT_SIZES, type TextSpecInput } from "@/lib/video/text-presets";
 import { secondsLabel, timeLabel } from "@/lib/video/studio";
 import { cn } from "@/lib/utils";
 import { TRANSITION_DURATION, TRANSITION_GALLERY_ORDER, TRANSITION_INFO } from "@/lib/video/fx/transitions";
@@ -270,6 +271,7 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
   const ai = !item.id.startsWith("u");
   const others = state.broll.filter((b) => b.id !== id && b.choice && b.choice.source !== "graphic").length;
   const sel: StudioSelection = { kind: "broll", id };
+  if (choice && isTextOption(choice)) return <TextInspector api={api} id={id} onClose={onClose} />;
   const fields = graphic && isMotionScene(graphic) ? sceneFields(graphic) : [];
   const missing = graphic ? (isMotionScene(graphic) ? unsupportedSceneNumbers(graphic, spoken) : unsupportedGraphicNumbers(graphic, spoken)) : [];
   return (
@@ -366,6 +368,189 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
           />
         </Group>
       )}
+    </>
+  );
+}
+
+/** Un chip de una opción (estilo, tamaño, lugar): negro cuando está elegido. */
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={cn("rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-accent-hi", on ? "border-white bg-white text-paper" : "border-white/10 text-text hover:border-white/30")}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Texto a mano (Biblioteca → Textos): el texto, el estilo, el color (de la marca o uno propio), el tamaño y el lugar.
+ * Cada cambio vuelve a armar la escena (lib/video/text-presets.ts); el lugar fino se ajusta arrastrando en el video.
+ */
+function TextInspector({ api, id, onClose }: { api: StudioApi; id: string; onClose: () => void }) {
+  const { props, state } = api;
+  // Borradores: un texto vacío no rearma la escena (es obligatorio), pero se puede borrar para escribir otro.
+  const [draft, setDraft] = useState<{ id: string; text: string; sub: string; emphasis: string } | null>(null);
+  const item = state.broll.find((b) => b.id === id);
+  const spec = item?.choice?.text ?? null;
+  if (!item?.choice || !spec) return <Gone onClose={onClose} />;
+  const choice = item.choice;
+  const seg = api.segments.find((s) => s.id === id) ?? null;
+  const sel: StudioSelection = { kind: "broll", id };
+  const preset = TEXT_PRESETS[spec.preset];
+  const d = draft?.id === id ? draft : { id, text: spec.text, sub: spec.sub ?? "", emphasis: spec.emphasis ?? "" };
+  const set = (patch: Partial<TextSpecInput>) => api.actions.setText(id, patch);
+  const edit = props.canEdit;
+  const position = spec.position ?? preset.position;
+  const custom = spec.color.startsWith("#") ? spec.color : null;
+  return (
+    <>
+      <Header eyebrow="Texto" title={preset.label} onClose={onClose} />
+      <div className="flex flex-col gap-3 p-4">
+        {seg ? (
+          <p className="font-mono text-[11px] text-muted tabular-nums">
+            {timeLabel(seg.start)} – {timeLabel(seg.end)} · {secondsLabel(seg.end - seg.start)}
+          </p>
+        ) : (
+          <p className="text-xs text-warning">Cae sobre palabras cortadas: no se ve en el video.</p>
+        )}
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-muted">Tu texto</span>
+          <Textarea
+            rows={2}
+            maxLength={TEXT_MAX}
+            disabled={!edit}
+            value={d.text}
+            className="!py-2 !text-sm"
+            onChange={(e) => {
+              setDraft({ ...d, text: e.target.value });
+              if (e.target.value.trim()) set({ text: e.target.value });
+            }}
+            onBlur={() => setDraft(null)}
+          />
+        </label>
+        {preset.subLabel && (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted">{preset.subLabel}</span>
+            <Input
+              maxLength={40}
+              disabled={!edit}
+              value={d.sub}
+              className="!py-2 !text-sm"
+              onChange={(e) => {
+                setDraft({ ...d, sub: e.target.value });
+                set({ sub: e.target.value.trim() || undefined });
+              }}
+              onBlur={() => setDraft(null)}
+            />
+          </label>
+        )}
+        {preset.emphasis && (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted">{spec.preset === "strike" ? "Palabras tachadas" : "Palabras resaltadas"}</span>
+            <Input
+              maxLength={80}
+              disabled={!edit}
+              value={d.emphasis}
+              placeholder={spec.preset === "quote" ? "Ninguna" : `Si lo dejas vacío: «${defaultEmphasis(spec.text)}»`}
+              className="!py-2 !text-sm"
+              onChange={(e) => {
+                setDraft({ ...d, emphasis: e.target.value });
+                set({ emphasis: e.target.value.trim() || undefined });
+              }}
+              onBlur={() => setDraft(null)}
+            />
+          </label>
+        )}
+        <LayerButtons api={api} sel={sel} />
+        {edit && (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="ghost" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.split} title="Dividir en el cabezal (S)">
+              Dividir
+            </Button>
+            <Button size="sm" variant="subtle" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.removeSelection} title="Quitar (Supr)">
+              Quitar
+            </Button>
+          </div>
+        )}
+      </div>
+      {edit && (
+        <Group title="Estilo, color, tamaño y lugar" icon={<PenLine className="h-4 w-4" aria-hidden />}>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Estilo del texto">
+            {TEXT_PRESET_KEYS.map((k) => (
+              <Chip key={k} on={spec.preset === k} onClick={() => set({ preset: k, ...(TEXT_PRESETS[k].subLabel && !spec.sub && TEXT_PRESETS[k].sub ? { sub: TEXT_PRESETS[k].sub } : {}) })}>
+                {TEXT_PRESETS[k].label}
+              </Chip>
+            ))}
+          </div>
+          <p className="text-xs text-muted">{preset.hint}</p>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted">Color</span>
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Color del texto">
+              {TEXT_COLOR_SWATCHES.map((c) => (
+                <Chip key={c} on={spec.color === c} onClick={() => set({ color: c })}>
+                  <span className="flex items-center gap-1.5">
+                    {c !== "auto" && <span aria-hidden className="h-3 w-3 rounded-full border border-white/20" style={{ background: c === "brand" ? props.graphicLook.theme.accent : c === "white" ? "#ffffff" : "#111111" }} />}
+                    {TEXT_COLOR_LABELS[c]}
+                  </span>
+                </Chip>
+              ))}
+              <label className={cn("flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold", custom ? "border-white bg-white text-paper" : "border-white/10 text-text hover:border-white/30")}>
+                <input type="color" value={custom ?? props.graphicLook.theme.accent} onChange={(e) => set({ color: e.target.value })} className="h-5 w-6 cursor-pointer rounded border-0 bg-transparent p-0" aria-label="Elegir un color propio" />
+                Otro color
+              </label>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted">Tamaño</span>
+            <div className="flex gap-1.5" role="group" aria-label="Tamaño del texto">
+              {TEXT_SIZES.map((sz) => (
+                <Chip key={sz} on={spec.size === sz} onClick={() => set({ size: sz })}>
+                  {TEXT_SIZE_LABELS[sz]}
+                </Chip>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted">Lugar</span>
+            <div className="flex gap-1.5" role="group" aria-label="Lugar del texto">
+              {TEXT_POSITIONS.map((p) => (
+                <Chip key={p} on={position === p} onClick={() => set({ position: p })}>
+                  {TEXT_POSITION_LABELS[p]}
+                </Chip>
+              ))}
+            </div>
+            <p className="text-xs text-muted">Para dejarlo justo donde quieres, arrástralo en el video. Abajo, los subtítulos se ocultan mientras se ve.</p>
+          </div>
+        </Group>
+      )}
+      <TransformSlot api={api} sel={sel} />
+      <Group title="Tiempo" icon={<Clapperboard className="h-4 w-4" aria-hidden />} defaultOpen={false}>
+        <BrollEditBody
+          key={id}
+          inline
+          edit={resolveEdit(item.edit)}
+          onChange={(e) => api.actions.setBrollEdit(id, e)}
+          onApplyLookToAll={() => api.actions.applyLookToAll(id)}
+          otherVideos={0}
+          format={state.format}
+          media={{ previewUrl: null, thumbUrl: null, width: choice.width, height: choice.height }}
+          poster={props.posterUrl}
+          accent={props.graphicLook.theme.accent}
+          ground={props.graphicLook.theme.bg}
+          focusY={props.style?.focusY ?? 0.42}
+          span={seg ? { start: seg.start, end: seg.end } : null}
+          clipDuration={choice.duration}
+          isGraphic
+          graphic={choice.graphic ?? null}
+          posterFit={state.format === "16:9" && props.sourceHeight > props.sourceWidth * 1.02 ? "contain" : "cover"}
+          posterX={api.showFraming ? state.offsetX : 0}
+          title={spec.text.slice(0, 70)}
+        />
+      </Group>
     </>
   );
 }

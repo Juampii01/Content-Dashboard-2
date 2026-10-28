@@ -21,6 +21,7 @@ import { LibraryMusic } from "./library-music";
 import { LibrarySounds } from "./library-sounds";
 import { MyEffectsSection } from "./library-mine";
 import { LibraryClips } from "./library-clips";
+import { LibraryTexts } from "./library-texts";
 import { startLibraryDrag, type LibraryDrop, type StudioSelection } from "./studio-timeline";
 import { USER_TAG, type StudioApi } from "./types";
 
@@ -167,10 +168,10 @@ function dragProps(item: LibraryDrop, enabled: boolean) {
   };
 }
 
-type LibTab = "efectos" | "transiciones" | "graficos" | "broll" | "musica" | "sonidos";
+type LibTab = "efectos" | "transiciones" | "textos" | "graficos" | "broll" | "musica" | "sonidos";
 
 /**
- * Pestaña Biblioteca: 100 efectos en categorías con buscador, 20 transiciones, gráficos, b-roll, música (generada, tuya
+ * Pestaña Biblioteca: 100 efectos en categorías con buscador, 20 transiciones, 12 estilos de texto, gráficos, b-roll, música (generada, tuya
  * y de catálogo) y los sonidos de la biblioteca. Tocar agrega en el cabezal (si ahí hay algo, lo nuevo va encima, en capas); también se
  * arrastran a la línea de tiempo.
  */
@@ -182,11 +183,12 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
   const transitions = useMemo(() => searchTransitions(trQ), [trQ]);
   return (
     <div className="flex flex-col gap-3 p-4">
-      <div role="tablist" aria-label="Qué agregar" className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.02] p-1">
+      <div role="tablist" aria-label="Qué agregar" className="grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-white/[0.02] p-1">
         {(
           [
             ["efectos", "Efectos"],
             ["transiciones", "Transiciones"],
+            ["textos", "Textos"],
             ["graficos", "Gráficos"],
             ["broll", "B-roll"],
             ["musica", "Música"],
@@ -234,6 +236,8 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
           <p className="text-xs text-muted">Las transiciones tapan un corte o marcan un cambio en medio de un plano, con movimiento, luz o color: tu voz no se corre ni se pisa. Cada una trae su sonido (lo puedes apagar).</p>
         </div>
       )}
+
+      {tab === "textos" && <LibraryTexts look={props.graphicLook} format={api.state.format} canEdit={edit} onAdd={onAdd} />}
 
       {tab === "graficos" && (
         <div className="flex flex-col gap-2">

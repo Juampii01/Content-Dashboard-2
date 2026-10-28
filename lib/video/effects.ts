@@ -217,8 +217,10 @@ export function brollCredits(segments: OutputBroll[]): string {
  */
 export function graphicHidesCaptions(graphic: unknown): boolean {
   if (!graphic || typeof graphic !== "object") return false;
-  const g = graphic as { v?: number; mode?: string; position?: string; layers?: { type?: string; component?: string }[] };
+  const g = graphic as { v?: number; mode?: string; position?: string; veil?: string; layers?: { type?: string; component?: string }[] };
   if (g.v !== 2) return true;
+  // Textos a mano (sin velo, lib/video/text-presets.ts): solo los de abajo tapan la franja de los subtítulos.
+  if (g.mode === "overlay" && g.veil === "none") return g.position === "bottom";
   if (g.mode !== "overlay" || g.position === "bottom") return true;
   const comps = (g.layers ?? []).filter((l) => l.type === "component").map((l) => l.component);
   return !(comps.length && comps.every((c) => c === "keyword" || c === "dmNotification" || c === "iconBurst"));

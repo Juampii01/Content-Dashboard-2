@@ -12,6 +12,7 @@ import type { SfxName } from "@/lib/video/sfx-library";
 import type { FxKind } from "@/lib/video/fx/catalog";
 import type { GraphicLook } from "@/lib/video/graphics";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
+import type { TextSpecInput } from "@/lib/video/text-presets";
 import type { Density, RhythmScore } from "@/lib/video/rhythm";
 import type { BrollEdit } from "@/lib/video/broll-edit";
 import type { AudioPreview } from "@/lib/video/studio-audio";
@@ -175,6 +176,8 @@ export type StudioApi = {
     setBrollEdit: (id: string, edit: BrollEdit) => void;
     applyLookToAll: (id: string) => void;
     setGraphic: (id: string, graphic: BrollGraphic) => void;
+    /** Cambia un texto a mano (Biblioteca → Textos) y vuelve a armar su escena. */
+    setText: (id: string, patch: Partial<TextSpecInput>) => void;
     changeDensity: (d: Density) => void;
     pickOption: (id: string, option: SignedOption | BrollOption) => void;
     /**

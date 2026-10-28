@@ -59,9 +59,33 @@ export function planReservation(free: number, needsPlan: boolean, longSeconds: n
   return null;
 }
 
+/** Aviso cuando ya hay una pieza de todo el video en curso (se muestra tal cual en el Estudio y en el chat). */
+export const LONG_BUSY_MESSAGE =
+  "Ya se está creando la animación de todo el video. Tarda de 10 a 20 minutos y aparece sola en la pista Animaciones: espera a que termine antes de pedir otra.";
+
+/** Condición SQL: el pedido es una pieza de todo el video («Animar todo», `task.long`). */
+const isLongRequest = sql`${schema.composRequests.work} -> 'tasks' @> '[{"long": true}]'::jsonb`;
+
+/**
+ * El pedido de pieza larga que está esperando, en cola o corriendo en este video, o null. Sirve para no lanzar otra
+ * pieza de todo el video encima de una que ya se está creando: cada una cuesta varios dólares y solo una queda.
+ */
+export async function activeLongRequest(projectId: string): Promise<string | null> {
+  const rows = await getDb()
+    .select({ id: schema.composRequests.id })
+    .from(schema.composRequests)
+    .where(and(eq(schema.composRequests.projectId, projectId), inArray(schema.composRequests.status, [...ACTIVE]), isLongRequest))
+    .limit(1);
+  return rows[0]?.id ?? null;
+}
+
 /**
  * Encola un pedido. `build` arma el taller con las vueltas que alcanzan. Devuelve el id; si no alcanzó el tope, el
  * pedido queda fallido con el motivo (para mostrarlo en ese pedido, sin frenar a los demás).
+ *
+ * `exclusiveLong`: es una pieza de todo el video y no puede haber otra en curso. Se comprueba con la fila del video
+ * bloqueada, así dos clics casi simultáneos no crean dos piezas (antes se crearon tres en 70 s y se pagaron las tres).
+ * Si ya hay una, no se crea nada y vuelve `busy` con el id de la que está en curso.
  */
 export async function enqueueRequest(input: {
   projectId: string;
@@ -74,18 +98,39 @@ export async function enqueueRequest(input: {
   longSeconds?: number | null;
   /** En espera: se crea sin trabajo y entra a la cola cuando haya lugar (`promoteWaiting`). */
   wait?: boolean;
-}): Promise<{ workId: string; error: string | null }> {
+  /** Pieza de todo el video: falla con `busy` si ya hay otra esperando, en cola o corriendo en este video. */
+  exclusiveLong?: boolean;
+}): Promise<{ workId: string; error: string | null; busy?: boolean }> {
   const db = getDb();
   if (input.wait) {
-    const work = input.build(0);
-    work.reservedUsd = 0;
-    work.usedUsd = 0;
-    await db.insert(schema.composRequests).values({ id: work.id, projectId: input.projectId, status: "waiting", work: work as unknown as Record<string, unknown>, reservedUsd: 0, createdBy: input.userId });
-    return { workId: work.id, error: null };
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select id from video_projects where id = ${input.projectId} for update`);
+      if (input.exclusiveLong) {
+        const busy = await tx
+          .select({ id: schema.composRequests.id })
+          .from(schema.composRequests)
+          .where(and(eq(schema.composRequests.projectId, input.projectId), inArray(schema.composRequests.status, [...ACTIVE]), isLongRequest))
+          .limit(1);
+        if (busy[0]) return { workId: busy[0].id, error: LONG_BUSY_MESSAGE, busy: true };
+      }
+      const work = input.build(0);
+      work.reservedUsd = 0;
+      work.usedUsd = 0;
+      await tx.insert(schema.composRequests).values({ id: work.id, projectId: input.projectId, status: "waiting", work: work as unknown as Record<string, unknown>, reservedUsd: 0, createdBy: input.userId });
+      return { workId: work.id, error: null as string | null };
+    });
   }
   const out = await db.transaction(async (tx) => {
     // Un pedido a la vez reserva en este video: los demás esperan aquí unos milisegundos.
     await tx.execute(sql`select id from video_projects where id = ${input.projectId} for update`);
+    if (input.exclusiveLong) {
+      const busy = await tx
+        .select({ id: schema.composRequests.id })
+        .from(schema.composRequests)
+        .where(and(eq(schema.composRequests.projectId, input.projectId), inArray(schema.composRequests.status, [...ACTIVE]), isLongRequest))
+        .limit(1);
+      if (busy[0]) return { workId: busy[0].id, error: LONG_BUSY_MESSAGE, busy: true };
+    }
     const active = await tx
       .select({ reserved: schema.composRequests.reservedUsd, used: schema.composRequests.usedUsd })
       .from(schema.composRequests)
@@ -109,7 +154,7 @@ export async function enqueueRequest(input: {
     await tx.insert(schema.composRequests).values({ id: work.id, projectId: input.projectId, status: "queued", work: work as unknown as Record<string, unknown>, reservedUsd: plan.reserved, createdBy: input.userId });
     return { workId: work.id, error: null as string | null };
   });
-  if (!out.error) {
+  if (!out.error && !out.busy) {
     const jobId = await enqueueJob({ type: "VIDEO_COMPOS", videoProjectId: input.projectId, createdBy: input.userId, stage: "En cola", maxAttempts: 2, input: { projectId: input.projectId, workId: out.workId } });
     await db.update(schema.composRequests).set({ jobId }).where(eq(schema.composRequests.id, out.workId));
   }

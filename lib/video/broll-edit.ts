@@ -9,6 +9,11 @@
  *
  * Un plan guardado antes no tiene `edit`: los valores por defecto dan exactamente el comportamiento de antes
  * (pantalla completa, recorte al centro, sin filtro, fundido de 0,2 s).
+ *
+ * Fotos con movimiento: una imagen de la biblioteca puede llevar `motion` (acercar, alejar o recorrer la foto, tipo Ken
+ * Burns) y `fit` (recortada o entera sobre una copia desenfocada de sí misma). Sin esos campos (planes de antes), la
+ * foto queda fija y recortada, como siempre. Las imágenes nuevas entran con movimiento automático y fondo desenfocado
+ * (`PHOTO_DEFAULTS`, lo pone `withLibraryStart` de lib/video/library-ficha.ts).
  */
 import { z } from "zod";
 import { animFades, animSchema, rampAlpha, transformSchema } from "./canvas/transform";
@@ -24,6 +29,19 @@ export const LOOK_FILTERS = ["none", "bw", "duotone", "warm", "cool"] as const;
 export type LookFilter = (typeof LOOK_FILTERS)[number];
 export const TRANSITIONS = ["fade", "cut", "zoom"] as const;
 export type BrollTransition = (typeof TRANSITIONS)[number];
+export const MOTION_KINDS = ["none", "auto", "zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down"] as const;
+export type MotionKind = (typeof MOTION_KINDS)[number];
+export const MOTION_EASES = ["linear", "smooth"] as const;
+export type MotionEase = (typeof MOTION_EASES)[number];
+export const PHOTO_FITS = ["cover", "blur"] as const;
+export type PhotoFit = (typeof PHOTO_FITS)[number];
+
+/** Movimiento de una foto: qué hace, cuánto (0,05 a 0,35: cuánto se acerca o cuánto recorre) y con qué curva. */
+export const motionSchema = z.object({
+  kind: z.enum(MOTION_KINDS).default("none"),
+  amount: z.number().min(0.05).max(0.35).default(0.15),
+  ease: z.enum(MOTION_EASES).default("smooth"),
+});
 
 export const frameSchema = z.object({
   /** Recorte del clip dentro de su marco: -1 muestra el borde izquierdo (o el de arriba), 1 el derecho (o el de abajo). */
@@ -70,15 +88,25 @@ export const brollEditSchema = z.object({
    */
   transform: transformSchema.optional(),
   anim: animSchema.optional(),
+  /**
+   * Solo imágenes: movimiento de la foto y cómo encaja en su marco. Sin estos campos (planes de antes), fija y recortada
+   * ("cover"), exactamente como antes.
+   */
+  motion: motionSchema.optional(),
+  fit: z.enum(PHOTO_FITS).optional(),
 });
 
 export type BrollFrame = z.output<typeof frameSchema>;
+export type PhotoMotion = z.output<typeof motionSchema>;
 export type BrollLook = z.output<typeof lookSchema>;
 export type BrollEdit = z.output<typeof brollEditSchema>;
 export type BrollEditInput = z.input<typeof brollEditSchema>;
 
 export const DEFAULT_EDIT: BrollEdit = brollEditSchema.parse({});
 export const DEFAULT_LOOK: BrollLook = DEFAULT_EDIT.look;
+
+/** Lo que lleva una foto nueva de la biblioteca al entrar al plan: movimiento automático y fondo desenfocado. */
+export const PHOTO_DEFAULTS: Pick<BrollEdit, "motion" | "fit"> = { motion: motionSchema.parse({ kind: "auto" }), fit: "blur" };
 
 /** La edición completa (con todos los valores) a partir de lo guardado; sin nada, la de siempre. */
 export function resolveEdit(edit: BrollEditInput | null | undefined): BrollEdit {
@@ -213,6 +241,135 @@ export function frameCrop(srcW: number, srcH: number, boxW: number, boxH: number
   const sh = Math.max(boxH, h * s);
   return { sw, sh, cx: ((sw - boxW) / 2) * (1 + clamp(frame.x, -1, 1)), cy: ((sh - boxH) / 2) * (1 + clamp(frame.y, -1, 1)) };
 }
+
+// ─── Fotos con movimiento ─────────────────────────────────────────────────
+
+/** Lo que elige "Automático", en este orden (según el id del b-roll, así no todas las fotos hacen lo mismo). */
+export const AUTO_MOTIONS = ["zoom_in", "pan_right", "zoom_out", "pan_left", "pan_up", "pan_down"] as const satisfies readonly MotionKind[];
+
+/** Hash FNV-1a de 32 bits (determinista, igual en el navegador y en el servidor). */
+export function seedHash(seed: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** El movimiento concreto: "auto" se resuelve con el id del b-roll (`seed`). */
+export function resolveMotionKind(kind: MotionKind, seed: string): Exclude<MotionKind, "auto"> {
+  if (kind !== "auto") return kind;
+  return AUTO_MOTIONS[seedHash(seed || "broll") % AUTO_MOTIONS.length]!;
+}
+
+/**
+ * Estado de la "cámara" sobre la foto ya encajada en su marco (el cuadro base, tal como se ve sin movimiento): `scale`
+ * ≥ 1 es cuánto se acerca y (x, y) es el centro de lo que se ve, de 0 a 1 dentro del cuadro base.
+ */
+export type MotionState = { scale: number; x: number; y: number };
+/** Recorrido completo: de dónde a dónde va la cámara y con qué curva. Es lo que recibe el worker. */
+export type MotionPath = { from: MotionState; to: MotionState; ease: MotionEase };
+
+/**
+ * Recorrido de un movimiento (null = sin movimiento). Acercar y alejar van al centro; los recorridos van con la foto
+ * acercada en `1 + amount` y llevan la cámara de un borde al otro ("Hacia la izquierda": la cámara recorre la foto
+ * hacia su borde izquierdo, así que la foto se desliza hacia la derecha).
+ */
+export function motionPath(motion: PhotoMotion | null | undefined, seed: string): MotionPath | null {
+  if (!motion) return null;
+  const kind = resolveMotionKind(motion.kind, seed);
+  if (kind === "none") return null;
+  const s = 1 + clamp(motion.amount, 0.05, 0.35);
+  const near = 0.5 / s;
+  const far = 1 - near;
+  const ease = motion.ease;
+  const at = (scale: number, x = 0.5, y = 0.5): MotionState => ({ scale, x, y });
+  switch (kind) {
+    case "zoom_in":
+      return { from: at(1), to: at(s), ease };
+    case "zoom_out":
+      return { from: at(s), to: at(1), ease };
+    case "pan_left":
+      return { from: at(s, far), to: at(s, near), ease };
+    case "pan_right":
+      return { from: at(s, near), to: at(s, far), ease };
+    case "pan_up":
+      return { from: at(s, 0.5, far), to: at(s, 0.5, near), ease };
+    case "pan_down":
+      return { from: at(s, 0.5, near), to: at(s, 0.5, far), ease };
+  }
+}
+
+/** Curva del recorrido: lineal o suave (coseno: arranca y termina sin tirón). */
+export function motionEase(ease: MotionEase, p: number): number {
+  const q = clamp(p, 0, 1);
+  return ease === "smooth" ? (1 - Math.cos(Math.PI * q)) / 2 : q;
+}
+
+/**
+ * Dónde está la cámara en el instante relativo t (0 = entra el b-roll, 1 = sale). La escala se interpola en forma
+ * geométrica (el acercamiento se siente parejo) y el centro en línea recta; el centro nunca deja ver fuera de la foto.
+ * Es la misma cuenta que la expresión de ffmpeg del worker (`broll_edit.perspective_filter`).
+ */
+export function motionAt(path: MotionPath, t: number): MotionState {
+  const e = motionEase(path.ease, t);
+  const scale = Math.max(1, path.from.scale * Math.pow(path.to.scale / path.from.scale, e));
+  const half = 0.5 / scale;
+  const x = clamp(path.from.x + (path.to.x - path.from.x) * e, half, 1 - half);
+  const y = clamp(path.from.y + (path.to.y - path.from.y) * e, half, 1 - half);
+  return { scale, x, y };
+}
+
+/**
+ * La cámara como transformación del cuadro base (origen arriba a la izquierda): primero `scale`, después correr
+ * (tx, ty) en fracciones del marco. Un punto p del cuadro base cae en (p − centro)·scale + 0,5.
+ */
+export function motionTransform(state: MotionState): { scale: number; tx: number; ty: number } {
+  return { scale: state.scale, tx: 0.5 - state.x * state.scale, ty: 0.5 - state.y * state.scale };
+}
+
+/** Escala máxima del recorrido (el worker prepara la foto a esa resolución para no perder nitidez al acercar). */
+export function motionMaxScale(path: MotionPath | null): number {
+  return path ? Math.max(path.from.scale, path.to.scale, 1) : 1;
+}
+
+/**
+ * Fondo desenfocado (`fit: "blur"`): la foto entera al centro sobre una copia que cubre el marco, agrandada
+ * (`overscan`, así no se ve el borde del desenfoque), desenfocada (desvío gaussiano = `sigma` × el lado corto del
+ * marco, como `blur()` de CSS y `gblur` de ffmpeg) y oscurecida (`dim` multiplica el color, como `brightness()`).
+ */
+export const PHOTO_BLUR = { sigma: 0.05, overscan: 1.2, dim: 0.78 } as const;
+
+/** Tamaño de la foto entera dentro de su marco (sin recortar). */
+export function containSize(srcW: number, srcH: number, boxW: number, boxH: number): { w: number; h: number } {
+  if (!(srcW > 0 && srcH > 0)) return { w: boxW, h: boxH };
+  const s = Math.min(boxW / srcW, boxH / srcH);
+  return { w: srcW * s, h: srcH * s };
+}
+
+/** Cómo se dibuja una foto: encaje y recorrido. null si es una foto fija recortada (como antes). */
+export type PhotoRender = { fit: PhotoFit; motion: MotionPath | null };
+
+export function photoRender(edit: Pick<BrollEdit, "motion" | "fit">, seed: string): PhotoRender | null {
+  const fit: PhotoFit = edit.fit ?? "cover";
+  const motion = motionPath(edit.motion, seed);
+  if (fit === "cover" && !motion) return null;
+  return { fit, motion };
+}
+
+export const MOTION_LABELS: Record<MotionKind, string> = {
+  none: "Sin movimiento",
+  auto: "Automático",
+  zoom_in: "Acercar",
+  zoom_out: "Alejar",
+  pan_left: "Hacia la izquierda",
+  pan_right: "Hacia la derecha",
+  pan_up: "Hacia arriba",
+  pan_down: "Hacia abajo",
+};
+
+export const FIT_LABELS: Record<PhotoFit, string> = { cover: "Recortar", blur: "Fondo desenfocado" };
 
 // ─── Color ────────────────────────────────────────────────────────────────
 
@@ -397,6 +554,11 @@ export type BrollRenderEdit = {
   fadeOut?: number;
   clipStart: number;
   zoom: { from: number; seconds: number } | null;
+  /**
+   * Solo imágenes con movimiento o fondo desenfocado: el encaje, el recorrido de la cámara (`motionAt`) y el
+   * desenfoque. Sin esto (fotos de planes de antes, videos y gráficos), como siempre.
+   */
+  photo?: { fit: PhotoFit; motion: MotionPath | null; blur: { sigma: number; overscan: number; dim: number } };
 };
 
 /**
@@ -414,6 +576,10 @@ export function brollRenderEdit(input: {
   accent: string;
   ground: string;
   graphic?: { mode?: string; position?: string } | null;
+  /** El b-roll es una imagen de la biblioteca (lleva movimiento y encaje). */
+  image?: boolean;
+  /** Id del b-roll (lo que resuelve "Automático"). */
+  seed?: string;
 }): BrollRenderEdit {
   const { edit, format, duration } = input;
   const { w: W, h: H } = OUTPUT_SIZE[format];
@@ -437,6 +603,7 @@ export function brollRenderEdit(input: {
     };
   }
   const geo = brollGeometry(edit, format, clipAspectOf(input.clipWidth, input.clipHeight), input.focusY);
+  const photo = input.image ? photoRender(edit, input.seed ?? "") : null;
   return {
     layout: geo.layout,
     box: geo.clip,
@@ -450,6 +617,7 @@ export function brollRenderEdit(input: {
     fade: fadeSeconds(edit.transition, duration),
     clipStart: edit.clip_start,
     zoom: edit.transition === "zoom" ? { from: TRANSITION_TIMING.zoomFrom, seconds: TRANSITION_TIMING.zoomSeconds } : null,
+    ...(photo ? { photo: { ...photo, blur: { ...PHOTO_BLUR } } } : {}),
   };
 }
 
@@ -469,5 +637,7 @@ export function editSummary(edit: BrollEdit, format: VideoFormat): string | null
   if (edit.frame.zoom > 1 || edit.frame.x !== 0 || edit.frame.y !== 0) parts.push("Encuadre");
   if (edit.transition !== "fade") parts.push(TRANSITION_LABELS[edit.transition]);
   if (edit.start_delta !== 0 || edit.end_delta !== 0 || edit.clip_start !== 0) parts.push("Tiempo");
+  if (edit.motion && edit.motion.kind !== "none") parts.push("Con movimiento");
+  if (edit.fit === "blur") parts.push(FIT_LABELS.blur);
   return parts.length ? parts.join(" · ") : null;
 }

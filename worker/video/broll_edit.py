@@ -9,6 +9,10 @@ Aquí solo se ejecuta lo que llega en el trabajo, con las mismas fórmulas que l
 - **Tarjeta**: máscara de esquinas redondeadas, sombra y borde fino dibujados con Pillow (con sobremuestreo), que
   ffmpeg combina con el clip en una capa con alfa (FFV1 en MKV).
 - **Zoom de entrada**: `zoompan` con la misma curva (salida cúbica) que la vista previa.
+- **Fotos con movimiento** (`edit.photo`, solo imágenes de la biblioteca): la foto se encaja en un "cuadro base"
+  (recortada como siempre o entera sobre una copia desenfocada con `gblur`) preparado a la resolución de la escala
+  máxima del recorrido, y una cámara lo recorre con `perspective` (ver `perspective_filter`). Sin `photo`, la foto
+  queda fija como antes.
 """
 
 from __future__ import annotations
@@ -119,6 +123,9 @@ def edit_key(edit: dict[str, Any] | None) -> str:
     if not edit:
         return "base"
     relevant = {k: edit.get(k) for k in ("layout", "box", "card", "frame", "color", "zoom", "clipStart")}
+    if edit.get("photo"):
+        # Solo si viene (así la caché de los b-roll de antes no cambia).
+        relevant["photo"] = edit.get("photo")
     return hashlib.sha1(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:12]
 
 
@@ -188,3 +195,146 @@ def lut_name(matrix: list[float]) -> str:
 
 def is_finite_matrix(matrix: Any) -> bool:
     return isinstance(matrix, list) and len(matrix) == 12 and all(isinstance(v, (int, float)) and math.isfinite(v) and abs(v) < 10 for v in matrix)
+
+
+# ─── Fotos con movimiento ─────────────────────────────────────────────────
+#
+# La app (`photoRender` y `motionPath` de lib/video/broll-edit.ts) manda el encaje, el recorrido de la cámara y el
+# desenfoque; aquí se repite la misma cuenta que `motionAt` para que la vista previa y el render coincidan.
+#
+# Por qué `perspective` y no `zoompan`: zoompan redondea la esquina del recorte a píxeles enteros en cada cuadro, y en
+# un acercamiento o un recorrido lento eso se ve como temblor (el corrimiento avanza a saltos de 0 y 1 píxel).
+# `perspective` con `eval=frame` toma las cuatro esquinas del recorte como números reales (con precisión de 1/256 de
+# píxel) e interpola con cúbica, así la cámara avanza pareja a 30 fps. La foto se prepara antes a la resolución de la
+# escala máxima del recorrido: al acercar nunca se agranda una imagen chica (no pierde nitidez).
+
+MOTION_EASES = ("linear", "smooth")
+PHOTO_FITS = ("cover", "blur")
+DEFAULT_BLUR = {"sigma": 0.05, "overscan": 1.2, "dim": 0.78}
+MAX_MOTION_SCALE = 1.5
+
+
+def _num(raw: dict[str, Any], key: str, default: float) -> float:
+    v = raw.get(key)
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else default
+
+
+def _state(raw: Any) -> dict[str, float]:
+    raw = raw if isinstance(raw, dict) else {}
+    return {"scale": clamp(_num(raw, "scale", 1.0), 1.0, MAX_MOTION_SCALE), "x": clamp(_num(raw, "x", 0.5), 0.0, 1.0), "y": clamp(_num(raw, "y", 0.5), 0.0, 1.0)}
+
+
+def photo_of(edit: dict[str, Any] | None) -> dict[str, Any] | None:
+    """El `photo` de la edición, validado. None si no viene o si es una foto fija recortada (como antes)."""
+    raw = (edit or {}).get("photo")
+    if not isinstance(raw, dict):
+        return None
+    fit = raw.get("fit") if raw.get("fit") in PHOTO_FITS else "cover"
+    motion = None
+    m = raw.get("motion")
+    if isinstance(m, dict):
+        motion = {"from": _state(m.get("from")), "to": _state(m.get("to")), "ease": m.get("ease") if m.get("ease") in MOTION_EASES else "smooth"}
+    b = raw.get("blur") if isinstance(raw.get("blur"), dict) else {}
+    blur = {
+        "sigma": clamp(_num(b, "sigma", DEFAULT_BLUR["sigma"]), 0.0, 0.2),
+        "overscan": clamp(_num(b, "overscan", DEFAULT_BLUR["overscan"]), 1.0, 2.0),
+        "dim": clamp(_num(b, "dim", DEFAULT_BLUR["dim"]), 0.2, 1.0),
+    }
+    if fit == "cover" and motion is None:
+        return None
+    return {"fit": fit, "motion": motion, "blur": blur}
+
+
+def motion_ease(ease: str, p: float) -> float:
+    q = clamp(p, 0.0, 1.0)
+    return (1 - math.cos(math.pi * q)) / 2 if ease == "smooth" else q
+
+
+def motion_at(path: dict[str, Any], t: float) -> dict[str, float]:
+    """Espejo de `motionAt`: escala geométrica, centro en línea recta y sin dejar ver fuera de la foto."""
+    e = motion_ease(path["ease"], t)
+    a, b = path["from"], path["to"]
+    scale = max(1.0, a["scale"] * (b["scale"] / a["scale"]) ** e)
+    half = 0.5 / scale
+    x = clamp(a["x"] + (b["x"] - a["x"]) * e, half, 1 - half)
+    y = clamp(a["y"] + (b["y"] - a["y"]) * e, half, 1 - half)
+    return {"scale": scale, "x": x, "y": y}
+
+
+def motion_max_scale(path: dict[str, Any] | None) -> float:
+    return max(1.0, path["from"]["scale"], path["to"]["scale"]) if path else 1.0
+
+
+def photo_canvas_size(box_w: int, box_h: int, photo: dict[str, Any]) -> tuple[int, int]:
+    """Tamaño del cuadro base preparado: el marco por la escala máxima del recorrido (pares)."""
+    q = motion_max_scale(photo.get("motion"))
+    return even(box_w * q), even(box_h * q)
+
+
+def contain_size(src_w: int, src_h: int, box_w: int, box_h: int) -> tuple[int, int]:
+    """La foto entera dentro del marco (pares). Igual que `containSize` de la app."""
+    if src_w <= 0 or src_h <= 0:
+        return box_w, box_h
+    s = min(box_w / src_w, box_h / src_h)
+    return min(box_w, even(src_w * s)), min(box_h, even(src_h * s))
+
+
+def photo_canvas_graph(src_w: int, src_h: int, cw: int, ch: int, photo: dict[str, Any], frame: dict[str, Any] | None) -> str:
+    """Grafo (de la entrada 0 a [v]) que arma el cuadro base de `cw`×`ch`:
+
+    - "cover": recortada como siempre (con el encuadre de la revisión, `frame_crop`).
+    - "blur": la foto entera al centro sobre una copia que cubre el marco, agrandada (`overscan`), oscurecida (`dim`
+      multiplica el color, como `brightness()` de CSS) y desenfocada con `gblur` (desvío = `sigma` × el lado corto,
+      como `blur()` de CSS)."""
+    if photo["fit"] != "blur":
+        sw, sh, cx, cy = frame_crop(src_w, src_h, cw, ch, frame)
+        return f"[0:v]scale={sw}:{sh}:flags=lanczos,crop={cw}:{ch}:{cx}:{cy},setsar=1,format=rgb24[v]"
+    blur = photo["blur"]
+    ow, oh = even(cw * blur["overscan"]), even(ch * blur["overscan"])
+    fw, fh = contain_size(src_w, src_h, cw, ch)
+    sigma = blur["sigma"] * min(cw, ch)
+    dim = blur["dim"]
+    bg = (
+        f"[a]scale={ow}:{oh}:force_original_aspect_ratio=increase:flags=lanczos,crop={ow}:{oh},crop={cw}:{ch},"
+        f"format=gbrp,colorchannelmixer=rr={dim:.4f}:gg={dim:.4f}:bb={dim:.4f}" + (f",gblur=sigma={sigma:.3f}:steps=3" if sigma > 0.05 else "") + "[bg]"
+    )
+    fg = f"[b]scale={fw}:{fh}:flags=lanczos,format=gbrp[fg]"
+    return f"[0:v]split[a][b];{bg};{fg};[bg][fg]overlay=({cw}-{fw})/2:({ch}-{fh})/2,setsar=1,format=rgb24[v]"
+
+
+def perspective_filter(path: dict[str, Any], duration: float, box_w: int, box_h: int, cw: int, ch: int) -> str:
+    """Cámara sobre el cuadro base (`cw`×`ch`) con salida de `box_w`×`box_h`: `perspective` manda a las esquinas de la
+    salida las esquinas de la ventana que ve la cámara en cada cuadro (t = cuadro / (30 · duración), la misma cuenta
+    que `motion_at`). La salida de perspective tiene el tamaño de la entrada; la ventana queda en su esquina de arriba
+    a la izquierda (`box_w`×`box_h`), que es lo que se recorta después."""
+    a, b = path["from"], path["to"]
+    frames = max(1.0, duration * FPS)
+    # En perspective `in` cuenta desde 1 (el primer cuadro es in=1): el cuadro n del tramo es in-1.
+    p = f"clip((in-1)/{frames:.4f},0,1)"
+    e = f"((1-cos(PI*{p}))/2)" if path["ease"] == "smooth" else p
+    ratio = b["scale"] / a["scale"]
+    # Nunca por debajo de 1: con el redondeo, 1,15·0,869565 da 0,9999997 y `clip` con mínimo > máximo da NaN.
+    s = f"max(1,{a['scale']:.9f}*pow({ratio:.9f},{e}))" if abs(ratio - 1) > 1e-9 else f"{max(1.0, a['scale']):.9f}"
+
+    def center(k: str) -> str:
+        d = b[k] - a[k]
+        lin = f"({a[k]:.6f}+{d:.6f}*{e})" if abs(d) > 1e-9 else f"{a[k]:.6f}"
+        return f"clip({lin},0.5/{s},1-0.5/{s})"
+
+    # Esquina de la ventana (en píxeles del cuadro base) y lo que mide la salida completa vista en el cuadro base.
+    left = f"({center('x')}*{cw}-{cw}/(2*{s}))"
+    top = f"({center('y')}*{ch}-{ch}/(2*{s}))"
+    right = f"({left}+{cw}*{cw}/({s}*{box_w}))"
+    bottom = f"({top}+{ch}*{ch}/({s}*{box_h}))"
+
+    def q(v: str) -> str:
+        return f"'{v}'"
+
+    return (
+        f"perspective=x0={q(left)}:y0={q(top)}:x1={q(right)}:y1={q(top)}:x2={q(left)}:y2={q(bottom)}:x3={q(right)}:y3={q(bottom)}"
+        f":interpolation=cubic:sense=source:eval=frame,crop={box_w}:{box_h}:0:0"
+    )
+
+
+def photo_key(photo: dict[str, Any], box_w: int, box_h: int, frame: dict[str, Any] | None, duration: float) -> str:
+    return hashlib.sha1(json.dumps([photo, box_w, box_h, frame or DEFAULT_FRAME, round(duration, 3)], sort_keys=True).encode()).hexdigest()[:12]

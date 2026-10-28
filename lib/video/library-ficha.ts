@@ -6,6 +6,7 @@
  * Funciones puras (sin base ni red): las usan lib/video/library.ts, lib/video/broll.ts, el chat del video y las pruebas.
  */
 import { z } from "zod";
+import { PHOTO_DEFAULTS } from "./broll-edit";
 import { normalizeWord } from "./broll-options";
 import type { BrollItem, BrollOption } from "./types";
 
@@ -286,10 +287,18 @@ export function pieceOption(p: LibraryEntry & { fileKey: string; thumbKey: strin
 /**
  * Si el b-roll elegido es un clip de la biblioteca con su tramo, se ve desde ese segundo (`edit.clip_start`). Lo usan
  * el plan automático, el director y el chat; en la revisión, elegir otra alternativa vuelve a calcularlo.
+ *
+ * Una imagen que entra al plan sin movimiento elegido recibe el de las fotos nuevas (automático, con fondo
+ * desenfocado). Los planes guardados antes no pasan por aquí: sus fotos siguen fijas.
  */
 export function withLibraryStart(item: BrollItem, span: number): BrollItem {
   const c = item.choice;
   if (!c || c.source !== "library") return item;
+  if (c.kind === "image" && !item.edit?.motion) {
+    const edit = { ...(item.edit ?? {}), ...PHOTO_DEFAULTS, clip_start: 0 };
+    if (item.edit?.fit) edit.fit = item.edit.fit;
+    return { ...item, edit };
+  }
   const start = c.kind === "image" ? 0 : clipStartFor({ kind: "video", duration: c.duration }, c.moment ?? null, span);
   if (!start && !item.edit?.clip_start) return item;
   return { ...item, edit: { ...(item.edit ?? {}), clip_start: start } };

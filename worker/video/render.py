@@ -661,6 +661,49 @@ def prepare_broll(src: Path, out: Path, duration: float, size: tuple[int, int], 
     return out
 
 
+def prepare_photo(src: Path, out: Path, duration: float, box: tuple[int, int], photo: dict[str, Any], frame: dict[str, Any] | None = None) -> Path:
+    """Foto de la biblioteca con movimiento o fondo desenfocado (`broll_edit.photo_of`): un clip de `box` (el marco del
+    b-roll), 30 fps y un poco más largo que el tramo, que después pasa por `prepare_broll` como cualquier clip (con el
+    encuadre neutro: ya viene encajado).
+
+    1. El cuadro base (una sola imagen, a la resolución de la escala máxima del recorrido): recortada con el encuadre o
+       entera sobre una copia desenfocada (`broll_edit.photo_canvas_graph`).
+    2. La cámara: `perspective` cuadro a cuadro (`broll_edit.perspective_filter`), sin el temblor de `zoompan`."""
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    bw, bh = box
+    info = ffmpeg.probe(src)
+    vstream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+    src_w, src_h = int(vstream.get("width") or 0), int(vstream.get("height") or 0)
+    cw, ch = broll_edit.photo_canvas_size(bw, bh, photo)
+    base = out.with_name(f"{out.stem}-base.png")
+    if not (base.exists() and base.stat().st_size > 0):
+        tmp_base = _atomic(base)
+        ffmpeg.run(["-i", str(src), "-filter_complex", broll_edit.photo_canvas_graph(src_w, src_h, cw, ch, photo, frame), "-map", "[v]", "-frames:v", "1", str(tmp_base)], what="foto del b-roll")
+        os.replace(tmp_base, base)
+    # Unos cuadros de más (como la imagen fija de antes): el tramo se corta exacto en prepare_broll.
+    frames = max(1, round(duration * FPS)) + 6
+    chain = ["format=yuv444p"]
+    if photo.get("motion"):
+        chain.append(broll_edit.perspective_filter(photo["motion"], duration, bw, bh, cw, ch))
+    elif (cw, ch) != (bw, bh):
+        chain.append(f"scale={bw}:{bh}:flags=lanczos")
+    chain += ["setsar=1", "format=yuv420p"]
+    tmp = _atomic(out)
+    ffmpeg.run(
+        [
+            "-loop", "1", "-framerate", str(FPS), "-i", str(base),
+            "-vf", ",".join(chain), "-an",
+            "-frames:v", str(frames), "-r", str(FPS),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-g", str(FPS),
+            str(tmp),
+        ],
+        what="foto con movimiento",
+    )
+    os.replace(tmp, out)
+    return out
+
+
 def framing_graph(
     src_w: int,
     src_h: int,

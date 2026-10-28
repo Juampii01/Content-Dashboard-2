@@ -341,7 +341,7 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
       )}
       <TransformSlot api={api} sel={sel} />
       {choice && (
-        <Group title={graphic ? "Tiempo" : "Ubicación, encuadre, look y tiempo"} icon={<Clapperboard className="h-4 w-4" aria-hidden />}>
+        <Group title={graphic ? "Tiempo" : choice.kind === "image" ? "Ubicación, movimiento, look y tiempo" : "Ubicación, encuadre, look y tiempo"} icon={<Clapperboard className="h-4 w-4" aria-hidden />}>
           <BrollEditBody
             key={id}
             inline
@@ -350,7 +350,8 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
             onApplyLookToAll={() => api.actions.applyLookToAll(id)}
             otherVideos={others}
             format={state.format}
-            media={{ previewUrl: choice.previewUrl, thumbUrl: choice.thumbUrl, width: choice.width, height: choice.height }}
+            media={{ previewUrl: choice.previewUrl, thumbUrl: choice.thumbUrl, width: choice.width, height: choice.height, kind: choice.kind }}
+            seed={id}
             poster={props.posterUrl}
             accent={props.graphicLook.theme.accent}
             ground={props.graphicLook.theme.bg}

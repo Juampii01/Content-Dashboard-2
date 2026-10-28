@@ -338,3 +338,14 @@ def perspective_filter(path: dict[str, Any], duration: float, box_w: int, box_h:
 
 def photo_key(photo: dict[str, Any], box_w: int, box_h: int, frame: dict[str, Any] | None, duration: float) -> str:
     return hashlib.sha1(json.dumps([photo, box_w, box_h, frame or DEFAULT_FRAME, round(duration, 3)], sort_keys=True).encode()).hexdigest()[:12]
+
+
+def speed_of(edit: dict[str, Any] | None) -> float:
+    """Velocidad del clip (lib/video/broll-edit.ts): entre 0,25 y 4; 1 sin el campo (planes de antes)."""
+    try:
+        speed = float((edit or {}).get("speed") or 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+    if not (speed > 0):
+        return 1.0
+    return max(0.25, min(4.0, speed))

@@ -33,7 +33,7 @@ import {
 import type { VideoFormat } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
 import { BrollLayer, personStyle, type BrollMedia } from "./broll-layer";
-import { brollAlpha, brollGeometry, clipAspectOf, graphicSideGeometry } from "@/lib/video/broll-edit";
+import { brollAlpha, brollGeometry, clipAspectOf, graphicSideGeometry, SPEEDS, speedLabel } from "@/lib/video/broll-edit";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
 import { GraphicCanvas } from "./graphic-canvas";
 
@@ -460,12 +460,24 @@ export function BrollEditBody({
               <p className="font-mono text-xs text-muted">{span ? `Se ve de ${formatDuration(span.start)} a ${formatDuration(span.end)} (${duration.toFixed(1).replace(".", ",")} s)` : "Este tramo cae sobre palabras cortadas."}</p>
               <Slider label="Entra" value={edit.start_delta} min={-3} max={3} step={0.1} onChange={(v) => set({ start_delta: v })} text={secs(edit.start_delta, "antes", "después")} />
               <Slider label="Sale" value={edit.end_delta} min={-3} max={3} step={0.1} onChange={(v) => set({ end_delta: v })} text={secs(edit.end_delta, "antes", "después")} />
-              {!isGraphic && clipDuration > duration + 0.2 && (
+              {!isGraphic && !isImage && (
+                <Row label="Velocidad">
+                  <SegmentedControl
+                    label="Velocidad del clip"
+                    size="sm"
+                    className="max-w-full overflow-x-auto"
+                    value={String(SPEEDS.includes(edit.speed as (typeof SPEEDS)[number]) ? edit.speed : 1)}
+                    onValueChange={(v) => set({ speed: Number(v) })}
+                    options={SPEEDS.map((s) => ({ value: String(s), label: speedLabel(s) }))}
+                  />
+                </Row>
+              )}
+              {!isGraphic && clipDuration > duration * edit.speed + 0.2 && (
                 <Slider
                   label="Parte del clip"
-                  value={Math.min(edit.clip_start, Math.max(0, clipDuration - duration))}
+                  value={Math.min(edit.clip_start, Math.max(0, clipDuration - duration * edit.speed))}
                   min={0}
-                  max={Math.max(0.1, Math.floor((clipDuration - duration) * 10) / 10)}
+                  max={Math.max(0.1, Math.floor((clipDuration - duration * edit.speed) * 10) / 10)}
                   step={0.1}
                   onChange={(v) => set({ clip_start: v })}
                   text={`desde ${formatDuration(edit.clip_start)}`}

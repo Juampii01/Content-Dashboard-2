@@ -3,7 +3,7 @@
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { formatDuration } from "@/lib/format";
-import { brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicAlpha, graphicSideGeometry, svgMatrixValues, type BrollEdit, type ColorMatrix } from "@/lib/video/broll-edit";
+import { brollGeometry, clipAspectOf, DEFAULT_EDIT, graphicAlpha, graphicSideGeometry, svgMatrixValues, clipTimeAt, type BrollEdit, type ColorMatrix } from "@/lib/video/broll-edit";
 import type { OutputZoom } from "@/lib/video/effects";
 import type { CaptionLook } from "@/lib/video/caption-styles";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
@@ -572,9 +572,10 @@ function SyncedBroll({ item, out, playing, format, accent, pxScale }: { item: Pr
   useEffect(() => {
     const v = ref.current;
     if (!v || !item.previewUrl) return;
-    const raw = Math.max(0, out - item.start) + (item.edit?.clip_start ?? 0);
-    const target = v.duration && Number.isFinite(v.duration) && raw >= v.duration ? raw % v.duration : raw;
-    if (Math.abs(v.currentTime - target) > 0.35) v.currentTime = target;
+    const speed = item.edit?.speed ?? 1;
+    const target = clipTimeAt(out - item.start, item.edit?.clip_start ?? 0, speed, v.duration);
+    if (v.playbackRate !== speed) v.playbackRate = speed;
+    if (Math.abs(v.currentTime - target) > 0.35 * Math.max(1, speed)) v.currentTime = target;
     if (playing && v.paused) void v.play().catch(() => undefined);
     if (!playing && !v.paused) v.pause();
   }, [item, out, playing]);

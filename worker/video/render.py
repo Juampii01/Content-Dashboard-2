@@ -616,10 +616,15 @@ def prepare_broll(src: Path, out: Path, duration: float, size: tuple[int, int], 
     rotation = abs(int(float((vstream.get("tags") or {}).get("rotate") or 0))) % 180
     if rotation == 90:
         src_w, src_h = src_h, src_w
-    offset = max(0.0, min(offset, max(0.0, clip_dur - duration))) if clip_dur else 0.0
-    loop = ["-stream_loop", "-1"] if clip_dur and clip_dur - offset < duration else []
+    # Velocidad (lib/video/broll-edit.ts, solo videos): a 2× se gasta el doble de clip en el mismo tramo.
+    speed = broll_edit.speed_of(edit)
+    need = duration * speed
+    offset = max(0.0, min(offset, max(0.0, clip_dur - need))) if clip_dur else 0.0
+    loop = ["-stream_loop", "-1"] if clip_dur and clip_dur - offset < need else []
     sw, sh, cx, cy = broll_edit.frame_crop(src_w, src_h, bw, bh, (edit or {}).get("frame"))
     chain = [f"scale={sw}:{sh}:flags=lanczos", f"crop={bw}:{bh}:{cx}:{cy}", f"fps={FPS}", "setsar=1"]
+    if speed != 1.0:
+        chain.insert(0, f"setpts=PTS/{speed:.4f}")
     zoom = broll_edit.zoom_filter((edit or {}).get("zoom"), bw, bh)
     if zoom:
         chain.append(zoom)

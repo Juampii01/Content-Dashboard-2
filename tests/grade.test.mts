@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { cleanGrade, GRADE_PRESETS, gradeMatrix, matchingGradePreset, NEUTRAL_GRADE, presetGrade } from "../lib/video/grade";
+import { cleanGrade, CURVE_POINTS, GRADE_PRESETS, gradeCurve, gradeMatrix, gradeSchema, matchingGradePreset, NEUTRAL_GRADE, presetGrade } from "../lib/video/grade";
 import { applyReview } from "../lib/video/review";
 import { assemblePlan } from "../lib/video/plan";
 
@@ -24,6 +24,38 @@ describe("color del video", () => {
     assert.ok(r1! > 0.5 && b1! < 0.5, `cálido: ${r1} ${b1}`);
     const [r2, , b2] = apply(gradeMatrix(presetGrade("frio"), "#000000")!, gris);
     assert.ok(r2! < 0.5 && b2! > 0.5, `frío: ${r2} ${b2}`);
+  });
+
+  test("exposición +1 duplica la luz y -1 la reduce a la mitad", () => {
+    const [r] = apply(gradeMatrix(cleanGrade({ exposure: 1 }), "#000000")!, [0.2, 0.2, 0.2]);
+    assert.ok(Math.abs(r! - 0.4) < 1e-4, `+1: ${r}`);
+    const [r2] = apply(gradeMatrix(cleanGrade({ exposure: -1 }), "#000000")!, [0.2, 0.2, 0.2]);
+    assert.ok(Math.abs(r2! - 0.1) < 1e-4, `-1: ${r2}`);
+  });
+
+  test("luces y sombras: curva que siempre sube y deja el negro y el blanco en su lugar", () => {
+    assert.equal(gradeCurve(null), null);
+    assert.equal(gradeCurve(cleanGrade({ brightness: 0.1 })), null, "sin luces ni sombras no hay curva");
+    for (const g of [{ shadows: 1 }, { shadows: -1 }, { highlights: 1 }, { highlights: -1 }, { shadows: 1, highlights: -1 }]) {
+      const c = gradeCurve(gradeSchema.parse(g))!;
+      assert.equal(c.length, CURVE_POINTS);
+      assert.equal(c[0], 0);
+      assert.equal(c[c.length - 1], 1);
+      for (let i = 1; i < c.length; i++) assert.ok(c[i]! >= c[i - 1]!, `sube siempre (${JSON.stringify(g)})`);
+    }
+    const lift = gradeCurve(gradeSchema.parse({ shadows: 1 }))!;
+    assert.ok(lift[4]! > 0.25 + 0.05, "sombras +1 aclara los tonos bajos");
+    const down = gradeCurve(gradeSchema.parse({ highlights: -1 }))!;
+    assert.ok(down[12]! < 0.75 - 0.05, "luces -1 baja los tonos altos");
+    // Solo luces o sombras igual cuenta como color (el plan lo guarda y el render arma la LUT).
+    assert.ok(cleanGrade({ shadows: 0.5 }));
+    assert.deepEqual(gradeMatrix(cleanGrade({ shadows: 0.5 }), "#000000"), [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
+  });
+
+  test("los planes de antes (sin exposición, luces ni sombras) se leen igual", () => {
+    const old = { filter: "none", strength: 1, brightness: 0.1, contrast: 0, saturation: 0, temperature: 0 } as never;
+    assert.ok(gradeMatrix(old, "#000000"));
+    assert.equal(gradeCurve(old), null);
   });
 
   test("blanco y negro deja los tres canales iguales", () => {

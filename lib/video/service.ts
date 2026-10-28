@@ -1,5 +1,5 @@
 import "server-only";
-import { gradeMatrix } from "./grade";
+import { gradeCurve, gradeMatrix } from "./grade";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { brandContext, getBrand } from "@/lib/ai/brand-context";
@@ -622,6 +622,8 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
     framing: { offsetX: next.framing.offset_x, focusY: faceY },
     // Color del video principal (lib/video/grade.ts): matriz 3×4 que el worker escribe como LUT 3D, o null.
     grade: gradeMatrix(next.grade, look.theme.accent),
+    // Luces y sombras: curva de tonos que el worker aplica después de la matriz, dentro de la misma LUT.
+    gradeCurve: gradeCurve(next.grade),
     captions: capLook
       ? // Galería: la app arma renglones y pistas (lib/video/caption-styles.ts); el worker solo mide y dibuja.
         { preset, accent, look: capLook, blocks: captionPayload }

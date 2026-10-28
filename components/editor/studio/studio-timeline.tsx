@@ -764,7 +764,9 @@ export function StudioTimeline({
                         b.empty && "border-dashed bg-transparent text-warning",
                         b.pending && "border-dashed bg-[#8b5cf6]/15 text-[#3d2a9a] animate-pulse motion-reduce:animate-none",
                         b.track !== "video" && b.track !== "captions" && canEdit && b.editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
-                        selected && "z-10 ring-2 ring-white",
+                        // Lo elegido con el acento (no en negro: tapaba el texto) y, si es un subtítulo, entero aunque el bloque sea corto.
+                        selected && "z-20 ring-2 ring-accent ring-offset-1 ring-offset-card",
+                        selected && b.track === "captions" && "min-w-max bg-card px-1.5 text-white shadow-[0_4px_14px_rgba(0,0,0,.18)]",
                         b.dim && "opacity-45 saturate-0",
                         g && "z-20 opacity-90 shadow-[0_6px_18px_rgba(0,0,0,.45)]",
                         g && !g.span && "ring-2 ring-danger",

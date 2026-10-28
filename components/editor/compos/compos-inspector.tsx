@@ -318,7 +318,7 @@ export function ComposInspectorBody({ api, item }: { api: StudioApi; item: Compo
               </li>
             ))}
           </ol>
-          <p className="mt-2 text-[11px] text-muted">Pon el cabezal en una escena y pídele el cambio abajo: se rehace solo esa escena.</p>
+          <p className="mt-2 text-[11px] text-muted">Pon la línea de reproducción en una escena y pídele el cambio abajo: se rehace solo esa escena.</p>
         </section>
       )}
       {props.canEdit && (

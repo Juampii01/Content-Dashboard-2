@@ -57,16 +57,32 @@ def apply_matrix(m: list[float], rgb: tuple[float, float, float]) -> tuple[float
     return tuple(clamp(m[i * 4] * r + m[i * 4 + 1] * g + m[i * 4 + 2] * b + m[i * 4 + 3], 0.0, 1.0) for i in range(3))  # type: ignore[return-value]
 
 
-def write_cube(matrix: list[float], path: Path, size: int = LUT_SIZE) -> Path:
-    """LUT 3D de la matriz (rojo cambia más rápido, como pide el formato .cube)."""
+def apply_curve(curve: list[float] | None, v: float) -> float:
+    """Curva de tonos (luces y sombras, lib/video/grade.ts `gradeCurve`): tabla de puntos a la misma distancia con
+    interpolación lineal, igual que `feComponentTransfer type="table"` en la vista previa."""
+    if not curve:
+        return v
+    n = len(curve) - 1
+    x = clamp(v, 0.0, 1.0) * n
+    i = min(int(x), n - 1)
+    f = x - i
+    return clamp(curve[i] + (curve[i + 1] - curve[i]) * f, 0.0, 1.0)
+
+
+def write_cube(matrix: list[float], path: Path, size: int = LUT_SIZE, curve: list[float] | None = None) -> Path:
+    """LUT 3D de la matriz y, si hay, la curva de tonos después (rojo cambia más rápido, como pide el formato .cube)."""
     if len(matrix) != 12:
         raise ValueError("matriz de color inválida")
+    if curve is not None and (len(curve) < 2 or len(curve) > 256):
+        raise ValueError("curva de tonos inválida")
     lines = ['TITLE "broll"', f"LUT_3D_SIZE {size}", "DOMAIN_MIN 0 0 0", "DOMAIN_MAX 1 1 1"]
     step = size - 1
     for bi in range(size):
         for gi in range(size):
             for ri in range(size):
                 r, g, b = apply_matrix(matrix, (ri / step, gi / step, bi / step))
+                if curve:
+                    r, g, b = apply_curve(curve, r), apply_curve(curve, g), apply_curve(curve, b)
                 lines.append(f"{r:.6f} {g:.6f} {b:.6f}")
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
     return path

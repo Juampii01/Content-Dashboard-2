@@ -1,6 +1,6 @@
 "use client";
 
-import { cleanGrade, gradeMatrix, presetGrade } from "@/lib/video/grade";
+import { cleanGrade, gradeCurve, gradeMatrix, presetGrade } from "@/lib/video/grade";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, AudioLines, BarChart3, Bot, Captions, Film, Flag, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
@@ -844,13 +844,20 @@ export function Studio(props: StudioProps) {
   function splitVideo() {
     if (!canEdit) return;
     const t = outRef.current + 0.01;
-    const w = wordAt(timeline, t);
-    if (!w) return void toast.info("Pon el cabezal sobre el video, donde quieres dividirlo.");
+    const here = wordAt(timeline, t);
+    if (!here) return void toast.info("Pon la línea de reproducción donde quieres cortar el video.");
+    // El video se corta entre palabras: se usa el borde más cercano a la línea (si la palabra que suena ya va por la
+    // mitad, el corte cae después de ella, no al comienzo).
+    const idx = timeline.words.indexOf(here);
+    const after = timeline.words[idx + 1];
+    const w = after && t > (here.start + here.end) / 2 ? after : here;
     const clip = timeline.clips.find((c) => w.id >= c.firstWord && w.id <= c.lastWord);
     const first = timeline.words.find((x) => clip && x.id >= clip.firstWord && x.id <= clip.lastWord);
-    if (!clip || first?.id === w.id || s.splits.includes(w.id)) return void toast.info("Ahí ya hay un corte. Mueve el cabezal a otra palabra.");
+    if (!clip || first?.id === w.id || s.splits.includes(w.id)) return void toast.info("Ahí ya hay un corte. Mueve la línea a otro lugar.");
     update((st) => ({ ...st, splits: [...st.splits, w.id].sort((a, b) => a - b) }));
-    toast.success("Video dividido.", { description: "Toca una parte en la pista de video y bórrala con Supr si no la quieres." });
+    // El cabezal va justo al corte, así se ve dónde quedó.
+    seek(w.start);
+    toast.success("Video cortado aquí.", { description: "El corte cae en el espacio entre dos palabras. Toca una parte en la pista Video y bórrala con Supr si no la quieres." });
   }
 
   /** La parte del video elegida (un tramo de la pista Video o de la transcripción), en palabras del original. */
@@ -886,7 +893,7 @@ export function Studio(props: StudioProps) {
     if (sel.kind === "broll") {
       const item = s.broll.find((b) => b.id === sel.id);
       const parts = item ? splitSpan({ from: item.from_word, to: item.to_word }, w.id) : null;
-      if (!item || !parts) return void toast.error("Pon el cabezal dentro del bloque, después de su primera palabra.");
+      if (!item || !parts) return void toast.error("Pon la línea de reproducción dentro del bloque, después de su primera palabra.");
       const edit = resolveEdit(item.edit);
       const a: BrollItem = { ...item, to_word: parts[0].to, edit: isDefaultEdit({ ...edit, end_delta: 0 }) ? undefined : { ...edit, end_delta: 0 } };
       const b: BrollItem = { ...item, id: newBrollId(), from_word: parts[1].from, edit: isDefaultEdit({ ...edit, start_delta: 0 }) ? undefined : { ...edit, start_delta: 0 } };
@@ -897,7 +904,7 @@ export function Studio(props: StudioProps) {
     } else if (sel.kind === "fx") {
       const item = s.effects.find((e) => e.id === sel.id);
       const parts = item ? splitSpan({ from: item.from_word, to: item.to_word }, w.id) : null;
-      if (!item || !parts) return void toast.error("Pon el cabezal dentro del efecto, después de su primera palabra.");
+      if (!item || !parts) return void toast.error("Pon la línea de reproducción dentro del efecto, después de su primera palabra.");
       const min = FX_INFO[item.kind].duration.min;
       const short = parts.some((p) => {
         const r = outputRange(timeline, p.from, p.to);
@@ -911,7 +918,7 @@ export function Studio(props: StudioProps) {
     } else if (sel.kind === "zoom") {
       const m = s.zoomMoments[sel.index];
       const parts = m ? splitSpan({ from: m.from_word, to: m.to_word }, w.id) : null;
-      if (!m || !parts) return void toast.error("Pon el cabezal dentro del zoom, después de su primera palabra.");
+      if (!m || !parts) return void toast.error("Pon la línea de reproducción dentro del zoom, después de su primera palabra.");
       const next = [...s.zoomMoments.filter((_, i) => i !== sel.index), { ...m, to_word: parts[0].to }, { ...m, from_word: parts[1].from }].sort((x, y) => x.from_word - y.from_word);
       update((st) => ({ ...st, rhythmTouched: true, zoomMoments: next }));
       setSelection({ kind: "zoom", index: next.findIndex((z) => z.from_word === parts[1].from) });
@@ -932,7 +939,7 @@ export function Studio(props: StudioProps) {
       const span = snapToWords(timeline, r.end + 0.02, Math.min(timeline.duration, r.end + 0.02 + len));
       return span && span.from > to ? span : null;
     };
-    const full = () => toast.error("Después de esto no queda lugar en el video para la copia. Mueve el cabezal o acorta el bloque.");
+    const full = () => toast.error("Después de esto no queda lugar en el video para la copia. Mueve la línea de reproducción o acorta el bloque.");
     if (sel.kind === "broll") {
       const item = s.broll.find((b) => b.id === sel.id);
       if (!item) return;
@@ -1641,7 +1648,7 @@ export function Studio(props: StudioProps) {
     if (near) return void select({ kind: "marker", id: near.marker.id }, { seek: false });
     if (s.markers.length >= MAX_MARKERS) return void toast.info(`Ya hay ${MAX_MARKERS} marcadores: quita alguno para poner otro.`);
     const anchor = anchorAt(timeline, t);
-    if (!anchor) return void toast.info("Ahí no hay video. Mueve el cabezal a otro lugar.");
+    if (!anchor) return void toast.info("Ahí no hay video. Mueve la línea de reproducción a otro lugar.");
     const id = newMarkerId();
     update((st) => ({ ...st, markers: [...st.markers, { id, ...anchor, note: "" }] }));
     setLeftOpen(true);
@@ -2217,10 +2224,10 @@ export function Studio(props: StudioProps) {
       {canEdit && (
         <>
           <span className="mx-1 h-5 w-px bg-white/10" aria-hidden />
-          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Flag className="h-3.5 w-3.5" aria-hidden />} onClick={addMarker} title="Poner un marcador en el cabezal (M)">
+          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Flag className="h-3.5 w-3.5" aria-hidden />} onClick={addMarker} title="Poner un marcador donde está la línea (M)">
             <span className="hidden xl:inline">Marcador</span>
           </Button>
-          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={splitVideo} title="Dividir el video en el cabezal (C)">
+          <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={splitVideo} title="Cortar el video donde está la línea (C)">
             <span className="hidden xl:inline">Dividir</span>
           </Button>
           <Button size="sm" variant="subtle" className="!h-8 !px-2" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={removeSelection} disabled={!selection || selection.kind === "cut" || selection.kind === "pause" || selection.kind === "audio"} title="Quitar lo elegido (Supr)">
@@ -2233,7 +2240,7 @@ export function Studio(props: StudioProps) {
           )}
         </>
       )}
-      <p className="ml-2 hidden min-w-0 flex-1 truncate text-[11px] text-placeholder lg:block">{canEdit ? "Pon el cabezal y toca Dividir (C) para cortar el video; elige la parte que sobra y bórrala con Supr." : "Solo lectura: tu usuario no puede editar."}</p>
+      <p className="ml-2 hidden min-w-0 flex-1 truncate text-[11px] text-placeholder lg:block">{canEdit ? "Para cortar: pon la línea donde quieres y toca Dividir (C). Después elige la parte que sobra y bórrala con Supr." : "Solo lectura: tu usuario no puede editar."}</p>
       <div className="ml-auto flex items-center gap-1">
         <div role="radiogroup" aria-label="Vista de la línea de tiempo" className="mr-1 hidden items-center rounded-lg border border-white/10 p-0.5 text-[11px] font-semibold md:flex">
           {(["tipo", "capas"] as const).map((v) => (
@@ -2617,6 +2624,7 @@ export function Studio(props: StudioProps) {
                   brandAccent={graphicLook.theme.accent}
                   brandGround={graphicLook.theme.bg}
                   grade={gradeMatrix(s.grade, graphicLook.theme.accent)}
+                  gradeCurve={gradeCurve(s.grade)}
                   effects={previewSpecs}
                   order={previewOrder}
                   fxStrips={fxStrips}
@@ -2804,9 +2812,9 @@ const SHORTCUTS: [string, string][] = [
   ["J · K · L", "Atrás 2 s · pausar · reproducir (otra vez L: más rápido)"],
   ["← →", "Un cuadro atrás o adelante"],
   ["Mayús + ← →", "Palabra anterior o siguiente"],
-  ["M", "Poner un marcador con nota en el cabezal (la IA los lee)"],
-  ["C", "Dividir el video en el cabezal"],
-  ["S", "Dividir lo elegido (b-roll, efecto o zoom) en el cabezal"],
+  ["M", "Poner un marcador con nota donde está la línea (la IA los lee)"],
+  ["C", "Cortar el video donde está la línea"],
+  ["S", "Dividir lo elegido (b-roll, efecto o zoom) donde está la línea"],
   ["Alt + ← →", "Mover lo elegido una palabra"],
   ["Mayús + Alt + ← →", "Mover la parte del video elegida antes o después"],
   ["Ctrl + D", "Duplicar lo elegido justo después (b-roll, texto, gráfico, efecto o zoom)"],

@@ -262,7 +262,7 @@ export function LibraryClips({ canEdit, onAdd }: { canEdit: boolean; onAdd: (ite
                 draggable={canEdit}
                 onDragStart={(e) => startLibraryDrag(e, { type: "clip", option: p })}
                 onClick={() => onAdd({ type: "clip", option: p })}
-                title={canEdit ? `${p.title ?? "Clip"}: tócalo para ponerlo en el cabezal o arrástralo a la línea de tiempo` : (p.title ?? "Clip")}
+                title={canEdit ? `${p.title ?? "Clip"}: tócalo para ponerlo donde está la línea o arrástralo a la línea de tiempo` : (p.title ?? "Clip")}
                 className="group relative block aspect-[4/5] w-full overflow-hidden rounded-lg border border-white/10 bg-black/40 text-left transition hover:border-white/40 disabled:cursor-default"
               >
                 {p.thumbUrl ? (

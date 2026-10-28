@@ -57,3 +57,27 @@ def test_matriz_identidad_no_cambia_nada(tmp_path: Path) -> None:
     diff = np.abs(_frame(graph, src, tmp_path).astype(int) - _frame(plain, src, tmp_path).astype(int)).mean()
     # El paso YUV → RGB → YUV de lut3d redondea (~2 de 255, invisible). Sin ajustes la app manda null y no hay LUT.
     assert diff < 3, f"la identidad casi no cambia el cuadro (diferencia media {diff:.2f})"
+
+
+def test_la_curva_de_sombras_aclara_lo_oscuro_y_deja_el_blanco(tmp_path: Path) -> None:
+    """Luces y sombras (`gradeCurve`): la curva va después de la matriz, dentro de la misma LUT."""
+    # Curva de 17 puntos que sube los tonos bajos (como «Sombras +1» de la app) y deja 0 y 1 en su lugar.
+    curve = [i / 16 + 0.14 * (i / 16) * (1 - i / 16) ** 2 * 27 / 4 for i in range(17)]
+    assert broll_edit.apply_curve(curve, 0.0) == 0.0
+    assert abs(broll_edit.apply_curve(curve, 1.0) - 1.0) < 1e-9
+    assert broll_edit.apply_curve(curve, 0.3) > 0.3 + 0.1
+    # Entre dos puntos interpola en línea recta (igual que feComponentTransfer type="table").
+    x = 5.5 / 16
+    assert abs(broll_edit.apply_curve(curve, x) - (curve[5] + curve[6]) / 2) < 1e-9
+
+    src = tmp_path / "dark.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x404040:size=1080x1920:rate=30:duration=1", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(src)],
+        check=True,
+    )
+    lut = broll_edit.write_cube([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], tmp_path / "curve.cube", curve=curve)
+    graph, _, _ = render.framing_graph(1080, 1920, "9:16", 0.0, None, tmp_path, grade_lut=lut)
+    plain, _, _ = render.framing_graph(1080, 1920, "9:16", 0.0, None, tmp_path)
+    a = _frame(plain, src, tmp_path).mean()
+    b = _frame(graph, src, tmp_path).mean()
+    assert b > a + 15, f"las sombras se aclaran: {a:.1f} → {b:.1f}"

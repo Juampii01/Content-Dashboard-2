@@ -356,7 +356,7 @@ export function assemblePlan(input: {
     hook_candidates: hooks,
     // La IA no trae un gancho de otra parte del video: la persona lo elige a mano si quiere.
     selected_hook: null,
-    captions: { preset: input.preset, emphasis_words: emphasis },
+    captions: { preset: input.preset, emphasis_words: emphasis, transform: NEW_CAPTION_TRANSFORM },
     corrections: input.corrections,
     overlays: [],
     broll: [],
@@ -370,6 +370,9 @@ export function assemblePlan(input: {
   };
   return withDerived(plan, words, input.duration);
 }
+
+/** Los videos nuevos arrancan con subtítulos un poco más chicos que el diseño del estilo (ocupan menos pantalla). */
+export const NEW_CAPTION_TRANSFORM = { x: 0, y: 0, scale: 0.85 };
 
 export type PlanStyle = { id: string; aggressiveness: "suave" | "media" | "alta"; hookTarget: number; longPause: number; zoom: boolean };
 

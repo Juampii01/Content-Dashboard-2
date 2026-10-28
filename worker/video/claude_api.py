@@ -94,7 +94,11 @@ class _Stream:
         return out
 
 
-def _read_sse(res: Any, stream: _Stream, deadline: float, on_tick: Callable[[], None]) -> None:
+class Stopped(Exception):
+    """La persona canceló el pedido mientras la IA escribía: se corta la respuesta para no seguir pagando tokens."""
+
+
+def _read_sse(res: Any, stream: _Stream, deadline: float, on_tick: Callable[[], None], should_stop: Callable[[], bool] | None = None) -> None:
     event = ""
     data: list[str] = []
     last_tick = 0.0
@@ -121,6 +125,8 @@ def _read_sse(res: Any, stream: _Stream, deadline: float, on_tick: Callable[[], 
             if time.monotonic() - last_tick > 2:
                 on_tick()
                 last_tick = time.monotonic()
+                if should_stop is not None and should_stop():
+                    raise Stopped()
             continue
         if line.startswith("event:"):
             event = line[6:].strip()
@@ -137,8 +143,12 @@ def stream_message(
     expected_tokens: int = 0,
     on_progress: Callable[[float], None] | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Hace la llamada por streaming. Devuelve {"result": {...}} o {"error": {...}} (nunca con la clave)."""
+    """Hace la llamada por streaming. Devuelve {"result": {...}} o {"error": {...}} (nunca con la clave).
+
+    `should_stop` se consulta cada ~2 s mientras llega la respuesta (quien llama lo espacia más si consulta la base):
+    si devuelve True, se corta la conexión y vuelve un error "canceled" con lo que se alcanzó a generar (se cobra)."""
     if not base_allowed(base_url):
         return {"error": {"source": "app", "message": "La dirección de la API de Anthropic no es válida."}}
     url = f"{base_url.rstrip('/')}/v1/messages"
@@ -158,8 +168,11 @@ def stream_message(
         try:
             with urllib.request.urlopen(req, timeout=READ_TIMEOUT_S) as res:
                 stream.started = True
-                _read_sse(res, stream, deadline, tick)
+                _read_sse(res, stream, deadline, tick, should_stop)
             break
+        except Stopped:
+            log.info("pedido cancelado: se cortó la respuesta de la IA")
+            return {"error": {"source": "canceled", "message": "Cancelaste esta animación.", "usage": stream.usage_out()}}
         except urllib.error.HTTPError as exc:
             status = exc.code
             try:
@@ -221,6 +234,28 @@ def run_call(ctx: Any, pid: str, nxt: dict[str, Any], extra: dict[str, Any]) -> 
     if not api_key or not isinstance(body, dict):
         return {**out, "error": {"source": "app", "message": "No pudimos preparar la llamada a la IA."}}
     started = time.monotonic()
+    work_id = str(extra.get("workId") or "")
+    checked = {"at": 0.0, "stop": False}
+
+    def should_stop() -> bool:
+        # ¿La persona canceló el pedido? Se mira la base cada 10 s como mucho (la llamada puede durar 10–15 min).
+        if not work_id or checked["stop"]:
+            return checked["stop"]
+        now = time.monotonic()
+        if now - checked["at"] < 10:
+            return False
+        checked["at"] = now
+        try:
+            from comunes import db  # noqa: PLC0415
+
+            from .compos import DBLOCK  # noqa: PLC0415
+
+            with DBLOCK:
+                checked["stop"] = db.compos_request_status(ctx.conn, work_id) not in (None, "queued", "running")
+        except Exception:  # noqa: BLE001 — si la base no responde, se sigue (mejor terminar que cortar de más)
+            log.warning("no se pudo consultar si el pedido %s sigue en pie", work_id)
+        return checked["stop"]
+
     done = stream_message(
         str(req.get("baseUrl") or "https://api.anthropic.com"),
         api_key,
@@ -228,6 +263,7 @@ def run_call(ctx: Any, pid: str, nxt: dict[str, Any], extra: dict[str, Any]) -> 
         timeout_s=float(req.get("timeoutS") or 3600),
         expected_tokens=int(req.get("expected") or 0),
         on_progress=ctx.progress,
+        should_stop=should_stop,
     )
     res = done.get("result") or {}
     log.info(

@@ -25,6 +25,7 @@ Object.assign(process.env, {
 
 const { getDb, schema } = await import("../lib/db");
 const { enqueueRequest, activeLongRequest, cancelRequest, LONG_BUSY_MESSAGE } = await import("../lib/video/compos/requests");
+const { advanceWork } = await import("../lib/video/compos/work");
 const { eq, and, inArray } = await import("drizzle-orm");
 
 let projectId = "";
@@ -46,6 +47,7 @@ describe("«Animar todo» una sola vez por video", () => {
   });
   after(async () => {
     const db = getDb();
+    await db.delete(schema.apiUsage).where(eq(schema.apiUsage.videoId, projectId));
     await db.delete(schema.composRequests).where(eq(schema.composRequests.projectId, projectId));
     await db.delete(schema.jobs).where(eq(schema.jobs.videoProjectId, projectId));
     await db.delete(schema.videoProjects).where(eq(schema.videoProjects.id, projectId));
@@ -86,5 +88,17 @@ describe("«Animar todo» una sola vez por video", () => {
     const r = await ask(true);
     assert.equal(r.busy, undefined);
     assert.equal(r.error, null);
+  });
+
+  test("si se cancela mientras el worker escribe, lo que se alcanzó a generar queda registrado", async () => {
+    const r = await ask(true);
+    assert.equal(await cancelRequest(projectId, r.workId), true);
+    const out = await advanceWork(projectId, { step: "compos-ai-done", workId: r.workId, remote: { taskId: "t", call: "c", error: { source: "canceled", message: "Cancelaste esta animación.", usage: { input_tokens: 9000, output_tokens: 4000 } } } } as never);
+    assert.equal(out.finished, true, "el pedido cancelado no sigue");
+    const rows = await getDb().select().from(schema.apiUsage).where(eq(schema.apiUsage.videoId, projectId));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.status, "cancelada");
+    assert.equal(rows[0]!.outputTokens, 4000);
+    assert.ok(rows[0]!.costUsd > 0, "se cobra");
   });
 });

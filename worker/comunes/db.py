@@ -149,6 +149,14 @@ def finish_adopted(conn: psycopg.Connection, job_id: str, worker: str, error: st
     )
 
 
+def compos_request_status(conn: psycopg.Connection, work_id: str) -> str | None:
+    """Estado de un pedido de animación ("queued", "running", "canceled"…), o None si ya no existe."""
+    row = conn.execute("SELECT status FROM compos_requests WHERE id = %s", (work_id,)).fetchone()
+    if row is None:
+        return None
+    return str(row["status"] if isinstance(row, dict) else row[0])
+
+
 def fail_compos_request(conn: psycopg.Connection, work_id: str, message: str) -> None:
     """Un pedido de animación que no se pudo terminar: el aviso queda en su fila (los demás siguen)."""
     conn.execute(

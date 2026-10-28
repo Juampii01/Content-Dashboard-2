@@ -564,6 +564,9 @@ export async function renderInputFor(project: Project, next: EditPlan, format: V
       accent: look.theme.accent,
       ground: look.theme.bg,
       graphic: b.option.source === "graphic" ? { mode: g?.mode ?? (b.option.graphic as { mode?: string } | null)?.mode, position: g?.position } : null,
+      // Fotos de la biblioteca: movimiento y encaje ("Automático" se resuelve con el id del b-roll, como en la vista previa).
+      image: b.option.source === "library" && b.option.kind === "image",
+      seed: b.id,
     });
   };
   // Lugar de los subtítulos del lienzo (solo galería): cada bloque lleva el suyo, como en la vista previa.
@@ -668,7 +671,8 @@ async function verifiedBroll(segments: ReturnType<typeof brollSegments>, look: G
   const ids = segments.filter((s) => s.option.source === "library").map((s) => s.option.id).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
   if (ids.length) {
     const rows = await getDb().select().from(schema.brollClips).where(and(inArray(schema.brollClips.id, ids), eq(schema.brollClips.status, "READY")));
-    for (const r of rows) library.set(r.id, { source: "library", id: r.id, duration: r.duration ?? 0, width: r.width ?? 0, height: r.height ?? 0, key: r.fileKey, thumbKey: r.thumbKey, title: r.title });
+    // El tipo (imagen o video) sale de la base: decide si la foto lleva movimiento y encaje.
+    for (const r of rows) library.set(r.id, { source: "library", id: r.id, duration: r.duration ?? 0, width: r.width ?? 0, height: r.height ?? 0, key: r.fileKey, thumbKey: r.thumbKey, title: r.title, ...(r.kind === "image" ? { kind: "image" as const } : {}) });
   }
   const out: ReturnType<typeof brollSegments> = [];
   for (const seg of segments) {

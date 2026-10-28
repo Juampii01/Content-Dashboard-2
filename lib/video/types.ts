@@ -175,7 +175,7 @@ export type EditPlan = {
   audio: { music_asset_id: string | null; music_db: number; target_lufs: number; sfx?: "off" | "subtle" | "strong"; /** «Volumen de los efectos» (dB sobre todos). */ sfx_db?: number; studio?: "off" | "soft" | "strong"; cues?: SoundCue[]; music_gen?: MusicGenSpec | null; /** Volumen de la voz (dB, lib/video/audio-mix.ts). */ voice_db?: number; /** Pistas silenciadas y en solo. */ mix?: AudioMix; /** Fundidos de la música (s). */ music_fade?: MusicFade };
   /** Marcadores con nota (lib/video/markers.ts), anclados a palabras. No cambian el render. */
   markers?: Marker[];
-  /** Color del video principal (lib/video/grade.ts): filtro, brillo, contraste, saturación y temperatura. */
+  /** Color del video principal (lib/video/grade.ts): filtro, exposición, brillo, contraste, luces, sombras, saturación y temperatura. */
   grade?: Grade;
   /** Recorte para 16:9 → 9:16. offset_x va de -1 (izquierda) a 1 (derecha); 0 es el centro. */
   framing: { mode: "center" | "manual"; offset_x: number };

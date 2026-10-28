@@ -305,7 +305,7 @@ function BrollInspector({ api, id, onClose }: { api: StudioApi; id: string; onCl
                 Cambiar por un clip
               </Button>
             )}
-            <Button size="sm" variant="ghost" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.split} title="Dividir en el cabezal (S)">
+            <Button size="sm" variant="ghost" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.split} title="Dividir donde está la línea (S)">
               Dividir
             </Button>
             <Button size="sm" variant="subtle" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.removeSelection} title="Quitar (Supr)">
@@ -468,7 +468,7 @@ function TextInspector({ api, id, onClose }: { api: StudioApi; id: string; onClo
         <LayerButtons api={api} sel={sel} />
         {edit && (
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="ghost" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.split} title="Dividir en el cabezal (S)">
+            <Button size="sm" variant="ghost" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.split} title="Dividir donde está la línea (S)">
               Dividir
             </Button>
             <Button size="sm" variant="subtle" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.removeSelection} title="Quitar (Supr)">
@@ -592,7 +592,7 @@ function FxInspector({ api, id, onClose }: { api: StudioApi; id: string; onClose
             <Button size="sm" variant="ghost" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.openGallery({ from: item.from_word, to: item.to_word }, id)}>
               Cambiar de efecto
             </Button>
-            <Button size="sm" variant="ghost" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.split} title="Dividir en el cabezal (S)">
+            <Button size="sm" variant="ghost" icon={<SplitSquareHorizontal className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.split} title="Dividir donde está la línea (S)">
               Dividir
             </Button>
             <Button size="sm" variant="subtle" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} onClick={api.actions.removeSelection} title="Quitar (Supr)">
@@ -814,7 +814,7 @@ function ClipInspector({ api, index, onClose }: { api: StudioApi; index: number;
       <Header eyebrow="Tramo de video" title={clip.role === "hook" ? "Gancho (va al principio)" : `Tramo ${index + 1} de ${api.timeline.clips.length}`} onClose={onClose} />
       <div className="flex flex-col gap-3 p-4">
         <Spoken text={kept.map((w) => w.text).join(" ")} start={start} end={end} />
-        <p className="text-xs text-muted">Para cortar o mover solo una parte, pon el cabezal y toca Dividir (C): el tramo queda en partes.</p>
+        <p className="text-xs text-muted">Para cortar o mover solo una parte, pon la línea de reproducción ahí y toca Dividir (C): el tramo queda en partes.</p>
           {api.props.canEdit && (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="ghost" icon={<ArrowLeft className="h-3.5 w-3.5" aria-hidden />} onClick={() => api.actions.movePart(-1)} title="Mayús + Alt + ←">

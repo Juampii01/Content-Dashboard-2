@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { ChevronDown, Palette, RotateCcw } from "lucide-react";
 import { svgMatrixValues } from "@/lib/video/broll-edit";
-import { cleanGrade, GRADE_PRESETS, GRADE_SLIDERS, gradeMatrix, matchingGradePreset, NEUTRAL_GRADE, presetGrade, type Grade } from "@/lib/video/grade";
+import { cleanGrade, GRADE_PRESETS, GRADE_SLIDERS, gradeMatrix, gradeSchema, matchingGradePreset, NEUTRAL_GRADE, presetGrade, type Grade } from "@/lib/video/grade";
 import { cn } from "@/lib/utils";
 import type { StudioApi } from "./types";
 
@@ -11,16 +11,18 @@ const pct = (v: number, min: number, max: number) => `${((v - min) / (max - min)
 const signed = (v: number) => (v === 0 ? "0" : `${v > 0 ? "+" : ""}${Math.round(v * 100)}`);
 
 /**
- * «Color y filtros» (pestaña Edición): filtros de un toque y ajustes finos del video grabado (brillo, contraste,
- * saturación y temperatura). Las miniaturas usan un cuadro de tu video con el mismo filtro que la vista previa; el render
+ * «Color y filtros» (pestaña Edición): filtros de un toque y ajustes finos del video grabado (exposición, brillo,
+ * contraste, luces, sombras, saturación y temperatura). Las miniaturas usan un cuadro de tu video con el mismo filtro que la vista previa; el render
  * aplica la misma matriz como LUT. Solo cambia a la persona: el b-roll y las animaciones quedan como están.
  */
 export function ColorPanel({ api, accent }: { api: StudioApi; accent: string }) {
   const { state, props } = api;
   const canEdit = props.canEdit;
-  const grade = state.grade ?? NEUTRAL_GRADE;
+  // Los planes de antes no tienen exposición, luces ni sombras: valen 0.
+  const grade = gradeSchema.parse(state.grade ?? {});
   const active = matchingGradePreset(state.grade);
-  const [open, setOpen] = useState(Boolean(state.grade));
+  // Abierto de entrada: los ajustes (exposición, luces, sombras…) tienen que estar a la vista.
+  const [open, setOpen] = useState(true);
   const uid = useId().replace(/:/g, "");
   const set = (next: Grade, coalesce?: string) => api.update((s) => ({ ...s, grade: cleanGrade(next) }), coalesce ? { coalesce } : undefined);
 
@@ -32,19 +34,19 @@ export function ColorPanel({ api, accent }: { api: StudioApi; accent: string }) 
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-white">Color y filtros</span>
-          <span className="block text-xs text-muted">{state.grade ? `Con ${active ? (GRADE_PRESETS.find((p) => p.id === active)?.label ?? "ajustes") : "ajustes a mano"}` : "Tu video como se grabó"}</span>
+          <span className="block text-xs text-muted">{state.grade ? `Con ${active ? (GRADE_PRESETS.find((p) => p.id === active)?.label ?? "ajustes") : "ajustes a mano"}` : "Exposición, luces, sombras, color y filtros de un toque"}</span>
         </span>
         <ChevronDown className={cn("h-4 w-4 text-muted transition-transform", open && "rotate-180")} aria-hidden />
       </button>
       {open && (
         <>
-          <ul className="grid grid-cols-5 gap-1.5" aria-label="Filtros">
+          <ul className="-mx-1 flex snap-x gap-1.5 overflow-x-auto px-1 pb-1" aria-label="Filtros">
             {GRADE_PRESETS.map((p) => {
               const g = presetGrade(p.id);
               const m = gradeMatrix(g, accent);
               const fid = `cp-${uid}-${p.id}`;
               return (
-                <li key={p.id}>
+                <li key={p.id} className="w-16 flex-none snap-start">
                   <button
                     type="button"
                     disabled={!canEdit}
@@ -73,7 +75,7 @@ export function ColorPanel({ api, accent }: { api: StudioApi; accent: string }) 
               );
             })}
           </ul>
-          <div className="flex flex-col gap-2.5">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
             {GRADE_SLIDERS.map((sl) => (
               <label key={sl.key} className="flex flex-col gap-1">
                 <span className="flex items-center justify-between text-xs text-text">

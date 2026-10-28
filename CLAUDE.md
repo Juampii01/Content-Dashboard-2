@@ -8,6 +8,7 @@ Content 2 es un sistema de contenido para **una sola marca personal**. Lo usa un
 
 - **Modelo de negocio:** Juampi y Cristian (Código MaestrIA) lo venden como **desarrollo propio** a cada cliente, por un precio de entre **USD 5.000 y 6.000**. El cliente lo recibe para su marca personal. Nada más.
 - **Single-tenant.** Cada cliente tiene su propia instalación: su propio deploy, su propia base de datos, sus propias claves. No hay organizaciones, ni planes, ni registro abierto, ni billing dentro de la app. No construyas nada multi-tenant.
+- **Marca del editor: NovaCut.** El módulo Editor de video se presenta como **NovaCut** (nombre, logo y estética propios, a definir en la tanda de diseño). Es solo la marca del editor: el producto, el modelo de venta y el resto de los módulos siguen como se describe aquí.
 - **Calidad sobre velocidad.** No hay fecha de entrega para hoy. La prioridad es fundar bien las bases: arquitectura limpia, módulos bien separados, diseño cuidado. Es un producto de USD 5.000: tiene que verse y sentirse así.
 
 ### Lo que NO entra

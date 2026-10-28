@@ -207,7 +207,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
           </button>
         ))}
       </div>
-      <p className="text-xs text-muted">{edit ? (tab === "transiciones" ? "Toca una para ponerla donde está el cabezal, o arrástrala a cualquier punto de la línea de tiempo. Si la sueltas sobre un rombo, va en ese corte." : tab === "musica" ? "Elige la música de fondo: va debajo de tu voz y baja sola cuando hablas." : "Toca para agregarlo donde está el cabezal, o arrástralo a la línea de tiempo.") : "Solo lectura: tu usuario no puede editar."}</p>
+      <p className="text-xs text-muted">{edit ? (tab === "transiciones" ? "Toca una para ponerla donde está la línea de reproducción, o arrástrala a cualquier punto de la línea de tiempo. Si la sueltas sobre un rombo, va en ese corte." : tab === "musica" ? "Elige la música de fondo: va debajo de tu voz y baja sola cuando hablas." : "Toca para agregarlo donde está la línea de reproducción, o arrástralo a la línea de tiempo.") : "Solo lectura: tu usuario no puede editar."}</p>
 
       {tab === "efectos" && <MyEffectsSection canEdit={edit} onAdd={onAdd} />}
       {tab === "efectos" && <FxLibraryGrid brand={api.fxBrand} onPick={edit ? (kind) => onAdd({ type: "fx", kind }) : null} dragData={edit ? (kind) => JSON.stringify({ type: "fx", kind } satisfies LibraryDrop) : undefined} />}
@@ -243,7 +243,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
         <div className="flex flex-col gap-2">
           {edit && (
             <Button size="sm" icon={<WandSparkles className="h-3.5 w-3.5" aria-hidden />} onClick={() => onAdd({ type: "graphic" })} {...dragProps({ type: "graphic" }, edit)}>
-              Pide un gráfico en el cabezal
+              Pide un gráfico aquí
             </Button>
           )}
           <ul className="flex flex-col gap-1.5" aria-label="Plantillas de gráfico">
@@ -275,7 +275,7 @@ export function LibraryPanel({ api, onAdd }: { api: StudioApi; onAdd: (item: Lib
         <div className="flex flex-col gap-2">
           {edit && (
             <Button size="sm" icon={<Clapperboard className="h-3.5 w-3.5" aria-hidden />} onClick={() => onAdd({ type: "broll" })} {...dragProps({ type: "broll" }, edit)}>
-              Poner b-roll en el cabezal
+              Poner b-roll aquí
             </Button>
           )}
           <p className="text-xs text-muted">«Poner b-roll» te muestra sugerencias, tu biblioteca y una búsqueda en Pexels y Pixabay. O toca o arrastra uno de tus clips:</p>

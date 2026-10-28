@@ -245,7 +245,8 @@ describe("pedidos típicos de punta a punta (simulador + cadena del servicio)", 
 
   test("«que los subtítulos sean más grandes»: más grandes y lo dice", async () => {
     const r = await pipeline("que los subtítulos sean más grandes", first);
-    assert.ok((r.plan.captions.transform?.scale ?? 1) > 1.2);
+    // Más grandes que como estaban (los videos nuevos arrancan en 0,85: NEW_CAPTION_TRANSFORM).
+    assert.ok((r.plan.captions.transform?.scale ?? 1) > (first.captions.transform?.scale ?? 1) * 1.2);
     assert.equal(r.compliance[0]!.status, "hecho");
     assert.ok(diffPlans(first, r.plan, words, duration).some((c) => c.startsWith("Subtítulos más grandes")));
   });

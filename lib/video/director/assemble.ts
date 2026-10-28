@@ -10,7 +10,7 @@ import { sentences } from "@/lib/ai/prompts/editor";
 import { sceneFromWire, type MotionSceneAi } from "@/lib/ai/prompts/motion";
 import type { DirectorWire } from "@/lib/ai/prompts/director";
 import type { Candidate } from "../candidates";
-import { fallbackHooks, hookIsValid, normalizeRemovals, trimHook, withDerived, type PlanStyle } from "../plan";
+import { fallbackHooks, hookIsValid, NEW_CAPTION_TRANSFORM, normalizeRemovals, trimHook, withDerived, type PlanStyle } from "../plan";
 import { buildTimeline, removedIds } from "../timeline";
 import type { BrollItem, CaptionPresetKey, EditPlan, HookCandidate, PlanMove, Removal, VideoFormat, Word, ZoomMoment } from "../types";
 import type { PlanVariant, VideoMap } from "./types";
@@ -261,7 +261,7 @@ export function planFromDirector(ai: DirectorWire, input: DirectorInput): Assemb
       ...(base?.captions.emoji != null ? { emoji: base.captions.emoji } : {}),
       ...(hide.length ? { hide } : {}),
       // El lugar y el tamaño que eligió la persona en el lienzo se quedan al corregir.
-      ...(base?.captions.transform ? { transform: base.captions.transform } : {}),
+      ...(base?.captions.transform ? { transform: base.captions.transform } : base ? {} : { transform: NEW_CAPTION_TRANSFORM }),
       ...(base?.captions.lines ? { lines: base.captions.lines } : {}),
     },
     corrections: base?.corrections ?? input.corrections,

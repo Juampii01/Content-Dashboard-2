@@ -45,7 +45,7 @@ export function LibrarySounds({ canEdit, onAdd }: { canEdit: boolean; onAdd: (it
                 <span className="block text-[10px] text-muted">{SFX_CATEGORY_LABELS[SFX_LIBRARY[n].category]}</span>
               </span>
               {canEdit && (
-                <button type="button" onClick={() => onAdd({ type: "sound", name: n })} className="grid h-7 w-7 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.08] hover:text-white" aria-label={`Poner «${SFX_LIBRARY[n].label}» en el cabezal`} title="Poner en el cabezal">
+                <button type="button" onClick={() => onAdd({ type: "sound", name: n })} className="grid h-7 w-7 flex-none place-items-center rounded-lg text-muted hover:bg-white/[0.08] hover:text-white" aria-label={`Poner «${SFX_LIBRARY[n].label}» donde está la línea`} title="Poner donde está la línea">
                   <Plus className="h-3.5 w-3.5" aria-hidden />
                 </button>
               )}

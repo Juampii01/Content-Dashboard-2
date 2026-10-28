@@ -1,11 +1,12 @@
 /**
- * Color del video principal (Estudio → Edición → «Color y filtros»): filtro, brillo, contraste, saturación y
- * temperatura, como los ajustes de un editor de video. Solo toca a la persona (el video grabado): el b-roll, los gráficos
+ * Color del video principal (Estudio → Edición → «Color y filtros»): filtro, exposición, brillo, contraste, saturación,
+ * temperatura, luces y sombras, como los ajustes de un editor de video. Solo toca a la persona (el video grabado): el b-roll, los gráficos
  * y las animaciones tienen su propio look.
  *
  * Es la única fuente de verdad: la vista previa usa la matriz como filtro SVG (`feColorMatrix`) y el worker la escribe
- * como una LUT 3D (`lut3d`), igual que el look del b-roll (lib/video/broll-edit.ts). Un plan sin `grade` (los de antes)
- * se ve exactamente igual.
+ * como una LUT 3D (`lut3d`), igual que el look del b-roll (lib/video/broll-edit.ts). Luces y sombras no son lineales:
+ * van como una curva de tonos después de la matriz (`gradeCurve`), en la vista previa con `feComponentTransfer` (tabla)
+ * y en el worker dentro de la misma LUT, con la misma interpolación. Un plan sin `grade` (los de antes) se ve igual.
  */
 import { z } from "zod";
 import { LOOK_FILTERS, lookMatrix, lookSchema, type ColorMatrix } from "./broll-edit";
@@ -19,6 +20,12 @@ export const gradeSchema = z.object({
   saturation: z.number().min(-1).max(1).default(0),
   /** -1 = frío (azul), 1 = cálido (naranja). */
   temperature: z.number().min(-1).max(1).default(0),
+  /** Pasos de diafragma (-1 = la mitad de luz, 1 = el doble). */
+  exposure: z.number().min(-1).max(1).default(0),
+  /** -1 = baja las partes claras, 1 = las sube. */
+  highlights: z.number().min(-1).max(1).default(0),
+  /** -1 = oscurece las partes oscuras, 1 = las aclara. */
+  shadows: z.number().min(-1).max(1).default(0),
 });
 export type Grade = z.output<typeof gradeSchema>;
 export type GradeInput = z.input<typeof gradeSchema>;
@@ -33,12 +40,22 @@ export function cleanGrade(raw: unknown): Grade | null {
 }
 
 export function isNeutral(g: Grade): boolean {
-  return (g.filter === "none" || g.strength <= 0) && g.brightness === 0 && g.contrast === 0 && g.saturation === 0 && g.temperature === 0;
+  return (g.filter === "none" || g.strength <= 0) && g.brightness === 0 && g.contrast === 0 && g.saturation === 0 && g.temperature === 0 && g.exposure === 0 && g.highlights === 0 && g.shadows === 0;
 }
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 function roundGrade(g: Grade): Grade {
-  return { filter: g.filter, strength: r3(g.strength), brightness: r3(g.brightness), contrast: r3(g.contrast), saturation: r3(g.saturation), temperature: r3(g.temperature) };
+  return {
+    filter: g.filter,
+    strength: r3(g.strength),
+    brightness: r3(g.brightness),
+    contrast: r3(g.contrast),
+    saturation: r3(g.saturation),
+    temperature: r3(g.temperature),
+    exposure: r3(g.exposure),
+    highlights: r3(g.highlights),
+    shadows: r3(g.shadows),
+  };
 }
 
 /** a ∘ b (primero b, después a), en matrices 3×4 por filas. */
@@ -58,6 +75,7 @@ function compose(a: ColorMatrix, b: ColorMatrix): ColorMatrix {
  */
 export function gradeMatrix(g: Grade | null | undefined, accent: string): ColorMatrix | null {
   if (!g || isNeutral(g)) return null;
+  g = gradeSchema.parse(g);
   const look = lookSchema.parse({ filter: g.filter, strength: g.strength, brightness: g.brightness, contrast: g.contrast, saturation: g.saturation });
   let m = lookMatrix(look, accent) ?? ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0] as ColorMatrix);
   if (g.temperature !== 0) {
@@ -65,7 +83,34 @@ export function gradeMatrix(g: Grade | null | undefined, accent: string): ColorM
     const warm: ColorMatrix = [1 + 0.12 * t, 0, 0, 0, 0, 1 + 0.025 * t, 0, 0, 0, 0, 1 - 0.14 * t, 0];
     m = compose(warm, m);
   }
+  if (g.exposure !== 0) {
+    const k = 2 ** g.exposure;
+    m = compose([k, 0, 0, 0, 0, k, 0, 0, 0, 0, k, 0], m);
+  }
   return m.map((v) => Math.round(v * 1e5) / 1e5) as ColorMatrix;
+}
+
+/** Puntos de la curva de tonos (iguales en la vista previa y en el worker). */
+export const CURVE_POINTS = 17;
+const TONE = 0.14;
+
+/**
+ * Curva de luces y sombras: tabla de CURVE_POINTS valores entre 0 y 1 (interpolación lineal entre puntos), o null si no
+ * cambia nada. Las sombras pesan más cerca de 1/3 y las luces cerca de 2/3; el tope (14 %) deja la curva siempre en
+ * subida, así nunca invierte tonos.
+ */
+export function gradeCurve(g: Grade | null | undefined): number[] | null {
+  if (!g) return null;
+  const { highlights, shadows } = gradeSchema.parse(g);
+  if (!highlights && !shadows) return null;
+  const out: number[] = [];
+  for (let i = 0; i < CURVE_POINTS; i++) {
+    const x = i / (CURVE_POINTS - 1);
+    const low = ((x * (1 - x) ** 2) * 27) / 4;
+    const high = ((x ** 2 * (1 - x)) * 27) / 4;
+    out.push(Math.round(Math.min(1, Math.max(0, x + TONE * shadows * low + TONE * highlights * high)) * 1e5) / 1e5);
+  }
+  return out;
 }
 
 /** Presets de un toque, como los filtros de un editor. */
@@ -89,14 +134,17 @@ export function presetGrade(id: string): Grade {
 
 /** El preset que coincide con la corrección actual (para marcarlo), o null si se ajustó a mano. */
 export function matchingGradePreset(g: Grade | null): string | null {
-  const cur = JSON.stringify(roundGrade(g ?? NEUTRAL_GRADE));
+  const cur = JSON.stringify(roundGrade(gradeSchema.parse(g ?? {})));
   for (const p of GRADE_PRESETS) if (JSON.stringify(roundGrade(presetGrade(p.id))) === cur) return p.id;
   return null;
 }
 
-export const GRADE_SLIDERS: { key: "brightness" | "contrast" | "saturation" | "temperature"; label: string; min: number; max: number; step: number }[] = [
+export const GRADE_SLIDERS: { key: "exposure" | "brightness" | "contrast" | "highlights" | "shadows" | "saturation" | "temperature"; label: string; min: number; max: number; step: number }[] = [
+  { key: "exposure", label: "Exposición", min: -1, max: 1, step: 0.02 },
   { key: "brightness", label: "Brillo", min: -0.3, max: 0.3, step: 0.01 },
   { key: "contrast", label: "Contraste", min: -0.5, max: 0.5, step: 0.01 },
+  { key: "highlights", label: "Luces", min: -1, max: 1, step: 0.02 },
+  { key: "shadows", label: "Sombras", min: -1, max: 1, step: 0.02 },
   { key: "saturation", label: "Saturación", min: -1, max: 1, step: 0.02 },
   { key: "temperature", label: "Temperatura", min: -1, max: 1, step: 0.02 },
 ];

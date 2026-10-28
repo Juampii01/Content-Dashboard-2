@@ -118,6 +118,8 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
   order?: Record<string, number>;
   /** Color del video principal (lib/video/grade.ts): la misma matriz que el worker escribe como LUT. null = sin cambios. */
   grade?: ColorMatrix | null;
+  /** Curva de luces y sombras (lib/video/grade.ts, `gradeCurve`): va después de la matriz, igual que en la LUT del worker. */
+  gradeCurve?: number[] | null;
 }>(function PreviewPlayer(
   {
     src,
@@ -141,6 +143,7 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
     brandAccent = "#0070f8",
     brandGround = "#030a22",
     grade = null,
+    gradeCurve = null,
     effects = [],
     fxStrips = {},
     fxMaskFps = 10,
@@ -435,6 +438,13 @@ export const PreviewPlayer = forwardRef<PreviewHandle, {
             <svg aria-hidden width="0" height="0" className="absolute">
               <filter id={gradeId} colorInterpolationFilters="sRGB">
                 <feColorMatrix type="matrix" values={svgMatrixValues(grade)} />
+                {gradeCurve && (
+                  <feComponentTransfer>
+                    <feFuncR type="table" tableValues={gradeCurve.join(" ")} />
+                    <feFuncG type="table" tableValues={gradeCurve.join(" ")} />
+                    <feFuncB type="table" tableValues={gradeCurve.join(" ")} />
+                  </feComponentTransfer>
+                )}
               </filter>
             </svg>
           )}

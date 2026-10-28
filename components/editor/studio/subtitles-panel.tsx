@@ -1,14 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Captions, Eye, Loader2, SpellCheck, X } from "lucide-react";
+import { Captions, ChevronDown, Eye, Loader2, SpellCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isCaptionStyle } from "@/lib/video/caption-styles";
+import { USER_CAPTION_HIDE } from "@/lib/video/captions";
 import { CAPTION_PICKER_ORDER, CAPTION_PRESETS } from "@/lib/video/captions";
 import { formatNumber } from "@/lib/format";
 import { CaptionPicker } from "../caption-picker";
 import type { StudioApi } from "./types";
+
+/** Tamaños de los subtítulos (escala sobre el diseño del estilo). */
+const SIZES = [
+  { label: "Chico", scale: 0.7 },
+  { label: "Mediano", scale: 0.85 },
+  { label: "Grande", scale: 1 },
+] as const;
 
 const stamp = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
@@ -26,6 +34,18 @@ export function SubtitlesPanel({ api, proofreading, onProofread }: { api: Studio
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   const list = useRef<HTMLOListElement>(null);
   const activeIndex = api.captions.findIndex((b) => api.time >= b.start && api.time < b.end);
+  const [showText, setShowText] = useState(false);
+  const scale = state.captionPlace.transform?.scale ?? 1;
+  const directorHides = state.captionHide.filter((h) => h.why !== USER_CAPTION_HIDE).length;
+  const composHides = state.compositions.filter((c) => c.captions === "hide").length;
+
+  function setScale(next: number) {
+    api.update((st) => {
+      const t = st.captionPlace.transform ?? { x: 0, y: 0, scale: 1 };
+      const nt = { ...t, scale: next };
+      return { ...st, captionPlace: { ...st.captionPlace, transform: nt.x || nt.y || nt.scale !== 1 ? nt : undefined } };
+    });
+  }
 
   // La lista sigue al video: el bloque que suena queda a la vista (solo se mueve la lista, no la página).
   useEffect(() => {
@@ -89,7 +109,7 @@ export function SubtitlesPanel({ api, proofreading, onProofread }: { api: Studio
           emoji={state.emoji}
           captionStyle={captionStyle}
           disabled={!canEdit}
-          className="!grid-cols-3 !gap-2 [&_button]:!p-1.5 [&_button]:text-[11px]"
+          className="![grid-template-columns:repeat(auto-fill,minmax(112px,1fr))] !gap-1.5 [&_button]:!p-1 [&_button]:text-[11px]"
         />
         {on && isCaptionStyle(state.preset) && (
           <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
@@ -103,6 +123,84 @@ export function SubtitlesPanel({ api, proofreading, onProofread }: { api: Studio
       </section>
 
       {on && (
+        <section aria-labelledby="subs-size" className="flex flex-col gap-2">
+          <h3 id="subs-size" className="px-1 text-xs font-semibold tracking-wide text-muted uppercase">
+            Tamaño
+          </h3>
+          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-labelledby="subs-size">
+            {SIZES.map((o) => {
+              const active = Math.abs(scale - o.scale) < 0.03;
+              return (
+                <button
+                  key={o.label}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={!canEdit}
+                  onClick={() => setScale(o.scale)}
+                  className={cn("rounded-xl border px-2 py-1.5 text-xs font-semibold transition disabled:opacity-50", active ? "border-white bg-white text-paper" : "border-white/10 text-text hover:border-white/30")}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="px-1 text-xs text-muted">Para moverlos, arrástralos sobre el video.</p>
+        </section>
+      )}
+
+      {on && (directorHides > 0 || composHides > 0) && (
+        <section aria-labelledby="subs-hidden" className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-card p-3">
+          <h3 id="subs-hidden" className="text-sm font-semibold text-white">
+            Partes sin subtítulos
+          </h3>
+          <p className="text-xs text-muted">Las rayas de la pista Subtítulos son los tramos donde no salen. Puedes mostrarlos ahí también.</p>
+          <div className="flex flex-col gap-1.5">
+            {directorHides > 0 && (
+              <div className="flex items-center justify-between gap-2 text-xs text-text">
+                <span>
+                  {formatNumber(directorHides)} {directorHides === 1 ? "tramo que ocultó la IA" : "tramos que ocultó la IA"}
+                </span>
+                {canEdit && (
+                  <Button size="sm" variant="ghost" onClick={() => api.update((st) => ({ ...st, captionHide: st.captionHide.filter((h) => h.why === USER_CAPTION_HIDE) }))}>
+                    Mostrar
+                  </Button>
+                )}
+              </div>
+            )}
+            {composHides > 0 && (
+              <div className="flex items-center justify-between gap-2 text-xs text-text">
+                <span>
+                  {formatNumber(composHides)} {composHides === 1 ? "animación los tapa" : "animaciones los tapan"}
+                  <span className="block text-muted">Si la animación tiene texto, pueden pisarse.</span>
+                </span>
+                {canEdit && (
+                  <Button size="sm" variant="ghost" onClick={() => api.update((st) => ({ ...st, compositions: st.compositions.map((c) => (c.captions === "hide" ? { ...c, captions: "show" as const } : c)) }))}>
+                    Mostrar
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {on && (
+        <button
+          type="button"
+          onClick={() => setShowText((v) => !v)}
+          aria-expanded={showText}
+          className="flex items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-left text-sm text-text transition hover:border-white/30"
+        >
+          <span>
+            Corregir palabras
+            <span className="block text-xs text-muted">Arreglar una palabra o sacarla de los subtítulos sin tocar el audio.</span>
+          </span>
+          <ChevronDown className={cn("h-4 w-4 flex-none text-muted transition-transform", showText && "rotate-180")} aria-hidden />
+        </button>
+      )}
+
+      {on && showText && (
         <section aria-labelledby="subs-text" className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <h3 id="subs-text" className="text-xs font-semibold tracking-wide text-muted uppercase">

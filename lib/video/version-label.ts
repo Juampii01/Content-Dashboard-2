@@ -19,9 +19,14 @@ const PARTS: { name: string; pick: (p: EditPlan) => unknown }[] = [
   { name: "marcadores", pick: (p) => p.markers ?? [] },
 ];
 
+/** JSON con las claves ordenadas: el mismo objeto armado en otro orden no cuenta como cambio. */
+function stable(v: unknown): string {
+  return JSON.stringify(v ?? null, (_k, x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x));
+}
+
 /** Qué partes cambiaron (nombres para la persona). */
 export function changedParts(before: EditPlan, after: EditPlan): string[] {
-  return PARTS.filter((part) => JSON.stringify(part.pick(before) ?? null) !== JSON.stringify(part.pick(after) ?? null)).map((p) => p.name);
+  return PARTS.filter((part) => stable(part.pick(before)) !== stable(part.pick(after))).map((p) => p.name);
 }
 
 /** «cortes», «cortes y sonido», «cortes, sonido y música». */

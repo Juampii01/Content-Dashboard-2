@@ -243,12 +243,21 @@ def prepare_broll(ctx: JobContext, pid: str, workdir: Path, items: list[dict[str
             raw = cache / f"lib-{clip_id}{Path(key).suffix or '.mp4'}"
             if not raw.exists():
                 ctx.app.download(None, key, raw, owner={"clipId": clip_id})
-            if raw.suffix.lower() in IMAGE_SUFFIXES:
-                # Una imagen de la biblioteca: b-roll fijo (se arma un clip quieto del largo del tramo).
-                raw = image_clip(raw, cache / f"lib-{clip_id}-{end - start:.3f}.mp4", end - start)
         else:
             raise JobError("Un b-roll tiene un origen desconocido. Cámbialo en la revisión.", retry=False)
         edit = item.get("edit") or None
+        if source == "library" and raw.suffix.lower() in IMAGE_SUFFIXES:
+            photo = broll_edit.photo_of(edit)
+            if photo and edit:
+                # Foto con movimiento o fondo desenfocado: sale ya encajada en su marco, con la cámara recorriéndola.
+                box = edit.get("box") or {}
+                bw, bh = (int(box["w"]), int(box["h"])) if box.get("w") and box.get("h") else size
+                look = broll_edit.photo_key(photo, bw, bh, edit.get("frame"), end - start)
+                raw = render.prepare_photo(raw, cache / f"lib-{clip_id}-photo-{look}.mp4", end - start, (bw, bh), photo, edit.get("frame"))
+                edit = {**edit, "frame": dict(broll_edit.DEFAULT_FRAME)}
+            else:
+                # Una imagen de la biblioteca sin movimiento: b-roll fijo (se arma un clip quieto del largo del tramo).
+                raw = image_clip(raw, cache / f"lib-{clip_id}-{end - start:.3f}.mp4", end - start)
         offset = float((edit or {}).get("clipStart", item.get("offset") or 0) or 0)
         ready = cache / f"ready-{raw.stem}-{size[0]}x{size[1]}-{offset:.2f}-{end - start:.3f}-{broll_edit.edit_key(edit)}.mp4"
         out.append(render.prepare_broll(raw, ready, end - start, size, offset, edit))

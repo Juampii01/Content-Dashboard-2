@@ -11,6 +11,7 @@ import { ensureWeeklyPack } from "@/lib/autopilot/service";
 import { sweepCloneVideos } from "@/lib/heygen/service";
 import { sweepJobNotifications } from "@/lib/notifications";
 import { sweepSystemAlerts } from "@/lib/system/alerts";
+import { wakeIfStuck } from "@/lib/jobs";
 
 export const maxDuration = 300;
 
@@ -49,6 +50,9 @@ export async function GET(request: NextRequest) {
       results.push({ platform: account.platform, kind, outcome: await syncAccount(account.id, kind, budget) });
     }
   }
+
+  // Trabajos trabados (el worker murió a mitad o no arrancó): se enciende para que los retome.
+  await wakeIfStuck().catch((error: unknown) => console.error("[cron] worker", error instanceof Error ? error.message : error));
 
   // Ganchos de las piezas nuevas (con el modelo rápido, cuesta centavos). Si falla, se reintenta en la próxima hora.
   if (deadline - Date.now() > 40_000) {

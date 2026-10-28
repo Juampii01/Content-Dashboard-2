@@ -6,10 +6,12 @@ para cada archivo y hace la petición tal cual. Nunca se loguean las URLs firmad
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import shutil
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -158,16 +160,17 @@ class AppClient:
         ok_host = any(host == h or host.endswith("." + h) for h in allowed_hosts)
         if not ok_host or scheme not in ("https", "http") or (scheme == "http" and host not in ("localhost", "127.0.0.1")):
             raise JobError("Un clip de b-roll tiene una dirección no permitida. Cámbialo en la revisión.", retry=False, detail=f"host {host}")
-        # Algunos CDN (Pixabay) rechazan el agente por defecto de urllib.
-        return self._fetch(url, {"User-Agent": "ContentStudio-Worker/1.0"}, dest, None, host, max_bytes=max_bytes)
+        # Algunos CDN (Pixabay) rechazan el agente por defecto de urllib. Las redirecciones se revisan igual que la URL.
+        opener = urllib.request.build_opener(_StockRedirect(allowed_hosts))
+        return self._fetch(url, {"User-Agent": "ContentStudio-Worker/1.0"}, dest, None, host, max_bytes=max_bytes, opener=opener)
 
-    def _fetch(self, url: str, headers: dict[str, str], dest: Path, on_progress: Callable[[float], None] | None, what: str, max_bytes: int | None = None) -> Path:
+    def _fetch(self, url: str, headers: dict[str, str], dest: Path, on_progress: Callable[[float], None] | None, what: str, max_bytes: int | None = None, opener: urllib.request.OpenerDirector | None = None) -> Path:
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(dest.name + ".part")
         key = what
         req = urllib.request.Request(url, method="GET", headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=120) as res, open(tmp, "wb") as out:
+            with (opener.open(req, timeout=120) if opener else urllib.request.urlopen(req, timeout=120)) as res, open(tmp, "wb") as out:
                 total = int(res.headers.get("content-length") or 0)
                 done = 0
                 last = 0.0
@@ -223,3 +226,39 @@ def copy_atomic(src: Path, dest: Path) -> None:
     tmp = dest.with_name(dest.name + ".part")
     shutil.copyfile(src, tmp)
     os.replace(tmp, dest)
+
+
+LOCAL_HOSTS = ("localhost", "127.0.0.1")
+
+
+def _public_host(host: str) -> bool:
+    """El host resuelve solo a direcciones públicas (una redirección no puede llevar a la red interna de la máquina)."""
+    try:
+        infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return False
+    for info in infos:
+        addr = ipaddress.ip_address(info[4][0])
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+            return False
+    return bool(infos)
+
+
+class _StockRedirect(urllib.request.HTTPRedirectHandler):
+    """Sigue una redirección del b-roll de stock solo hacia un host permitido, por https y con dirección pública."""
+
+    max_redirections = 5
+
+    def __init__(self, allowed_hosts: tuple[str, ...]) -> None:
+        super().__init__()
+        self.allowed_hosts = allowed_hosts
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201, PLR0913
+        newurl = urllib.parse.urljoin(req.full_url, newurl)
+        parts = urllib.parse.urlsplit(newurl)
+        host = (parts.hostname or "").lower()
+        allowed = any(host == h or host.endswith("." + h) for h in self.allowed_hosts)
+        local = host in LOCAL_HOSTS and host in self.allowed_hosts and parts.scheme in ("http", "https")
+        if not allowed or not (local or (parts.scheme == "https" and _public_host(host))):
+            raise JobError("Un clip de b-roll tiene una dirección no permitida. Cámbialo en la revisión.", retry=False, detail=f"redirección a {host}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)

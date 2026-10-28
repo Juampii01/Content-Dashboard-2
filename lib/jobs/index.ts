@@ -68,11 +68,25 @@ export type WorkerStatus = {
   lastSeen: Date | null;
   /** La app sabe encenderlo sola (Fly Machines configurado). */
   autoStart: boolean;
-  /** Trabajos esperando que nadie tomó en más de 3 minutos. */
+  /** Trabajos esperando que nadie tomó en más de 3 minutos, o en curso sin un worker vivo (lease vencido). */
   stuck: number;
   /** Versión que reportó el worker en su último latido (null = nunca se conectó o no la manda). */
   version: string | null;
 };
+
+/** En cola hace más de 3 minutos sin que nadie la tome, o "en curso" con el lease vencido (el worker murió a mitad). */
+const STUCK = sql`((${schema.jobs.status} = 'QUEUED' and ${schema.jobs.runAfter} < now() - interval '3 minutes') or (${schema.jobs.status} = 'RUNNING' and ${schema.jobs.lockedUntil} < now()))`;
+
+/**
+ * Lo llama el cron: si hay trabajos trabados (en cola sin tomar o en curso sin worker vivo), enciende el worker para
+ * que los retome. Sin esto, un trabajo podía quedar "en curso" para siempre si Fly dejó de reiniciar la máquina.
+ */
+export async function wakeIfStuck(): Promise<boolean> {
+  const [row] = await getDb().select({ n: sql<number>`count(*)::int` }).from(schema.jobs).where(STUCK);
+  if (!row?.n) return false;
+  await wakeWorker();
+  return true;
+}
 
 export function flyConfigured(): boolean {
   return Boolean(env().FLY_API_TOKEN && env().FLY_WORKER_APP);
@@ -84,7 +98,7 @@ export async function workerStatus(): Promise<WorkerStatus> {
   const [stuck] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.jobs)
-    .where(and(inArray(schema.jobs.type, ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "REEL_COPY", "AUDIO_SPLIT"]), eq(schema.jobs.status, "QUEUED"), sql`${schema.jobs.runAfter} < now() - interval '3 minutes'`));
+    .where(and(inArray(schema.jobs.type, ["VIDEO_ANALYZE", "VIDEO_RENDER", "VIDEO_STYLE", "VIDEO_CLIP", "LONG_VIDEO_CLIPS", "REEL_COPY", "AUDIO_SPLIT"]), STUCK));
   const lastSeen = beat?.seenAt ?? null;
   return {
     online: Boolean(lastSeen && Date.now() - lastSeen.getTime() < HEARTBEAT_STALE_MS),

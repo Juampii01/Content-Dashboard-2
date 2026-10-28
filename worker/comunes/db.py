@@ -80,30 +80,35 @@ def progress(conn: psycopg.Connection, job_id: str, worker: str, value: int, sta
     return row is not None
 
 
-def succeed(conn: psycopg.Connection, job_id: str, worker: str, output: dict[str, Any]) -> None:
-    conn.execute(
+def succeed(conn: psycopg.Connection, job_id: str, worker: str, output: dict[str, Any]) -> bool:
+    """Marca el trabajo como listo. Solo si sigue en curso y es nuestro: uno cancelado mientras corría queda cancelado."""
+    row = conn.execute(
         """UPDATE jobs SET status = 'SUCCEEDED', progress = 100, stage = 'Listo', output = %s, error_message = NULL,
-           finished_at = now(), locked_until = NULL WHERE id = %s AND locked_by = %s""",
+           finished_at = now(), locked_until = NULL WHERE id = %s AND locked_by = %s AND status = 'RUNNING' RETURNING id""",
         (Jsonb(output), job_id, worker),
-    )
+    ).fetchone()
+    return row is not None
 
 
-def fail(conn: psycopg.Connection, job: dict[str, Any], worker: str, message: str, retry: bool) -> bool:
-    """Marca el intento como fallido. Devuelve True si queda programado un reintento."""
+def fail(conn: psycopg.Connection, job: dict[str, Any], worker: str, message: str, retry: bool) -> bool | None:
+    """Marca el intento como fallido. Devuelve True si queda programado un reintento, False si falló del todo y None si
+    el trabajo ya no estaba en curso (lo cancelaron mientras corría): entonces no se toca nada, ni se revive."""
     attempts = int(job["attempts"])
     if retry and attempts < int(job["max_attempts"]):
         wait = backoff_seconds(attempts)
-        conn.execute(
+        row = conn.execute(
             """UPDATE jobs SET status = 'QUEUED', run_after = now() + make_interval(secs => %s), locked_by = NULL, locked_until = NULL,
-               error_message = %s, stage = %s WHERE id = %s AND locked_by = %s""",
+               error_message = %s, stage = %s WHERE id = %s AND locked_by = %s AND status = 'RUNNING' RETURNING id""",
             (wait, message[:1000], f"Reintento {attempts + 1} de {job['max_attempts']} en {format_wait(wait)}", job["id"], worker),
-        )
-        return True
-    conn.execute(
+        ).fetchone()
+        return True if row else None
+    row = conn.execute(
         """UPDATE jobs SET status = 'FAILED', error_message = %s, finished_at = now(), locked_until = NULL
-           WHERE id = %s AND locked_by = %s""",
+           WHERE id = %s AND locked_by = %s AND status = 'RUNNING' RETURNING id""",
         (message[:1000], job["id"], worker),
-    )
+    ).fetchone()
+    if row is None:
+        return None
     if job.get("video_project_id"):
         conn.execute(
             "UPDATE video_projects SET status = 'FAILED', error_message = %s, updated_at = now() WHERE id = %s",
@@ -144,7 +149,7 @@ def finish_adopted(conn: psycopg.Connection, job_id: str, worker: str, error: st
         return
     conn.execute(
         """UPDATE jobs SET status = 'FAILED', error_message = %s, finished_at = now(), locked_until = NULL
-           WHERE id = %s AND locked_by = %s""",
+           WHERE id = %s AND locked_by = %s AND status = 'RUNNING'""",
         (error[:1000], job_id, worker),
     )
 

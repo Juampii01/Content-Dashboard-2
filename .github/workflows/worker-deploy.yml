@@ -20,7 +20,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 80
     defaults:
       run:
         working-directory: worker
@@ -34,6 +34,20 @@ jobs:
           for id in $(flyctl volumes list --config fly.toml --json | jq -r '.[] | select(.name=="work" and (.attached_machine_id // "") == "") | .id'); do
             flyctl volumes destroy "$id" --config fly.toml --yes
           done
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Esperar a que el worker esté libre
+        # El worker se apaga solo a los 5 minutos sin trabajos: si la máquina está encendida, puede estar en medio de
+        # un render o de una animación. Se espera hasta 30 minutos; después se despliega igual (el apagado ordenado
+        # devuelve los trabajos a la cola y registra lo que la IA alcanzó a generar).
+        run: |
+          for i in $(seq 1 60); do
+            started=$(flyctl machines list --config fly.toml --json | jq '[.[] | select(.state == "started")] | length')
+            if [ "$started" = "0" ]; then echo "Worker apagado: se despliega."; exit 0; fi
+            echo "Worker encendido ($started máquina): espero 30 s ($i de 60)."
+            sleep 30
+          done
+          echo "Sigue encendido después de 30 minutos: se despliega igual."
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Desplegar

@@ -103,3 +103,33 @@ def test_sin_pedido_sigue_el_taller_del_director(monkeypatch: pytest.MonkeyPatch
     ctx.input = {"projectId": "p1"}
     assert compos.compos_job(ctx) == {"status": "AWAITING_REVIEW"}
     assert calls == [{}]
+
+
+def test_si_se_corta_todo_los_adoptados_vuelven_a_la_cola(monkeypatch: pytest.MonkeyPatch, fake_db: dict[str, Any]) -> None:
+    """Apagado o cancelación del pedido principal: los adoptados que no terminaron se devuelven a la cola enseguida
+    (antes quedaban "en curso" las 2 horas de su lease)."""
+    from comunes import db
+    from comunes.errors import Cancelled
+    from comunes.ffmpeg import stop_event
+
+    fake_db["queue"] = [{"id": "j1", "input": {"workId": "w1"}}, {"id": "j2", "input": {"workId": "w2"}}]
+    released: list[str] = []
+    monkeypatch.setattr(db, "release", lambda conn, job, worker: released.append(job["id"]))
+
+    def fake_run(ctx: Any, project: dict[str, Any], first: str, a: float, b: float, extra: dict[str, Any] | None = None, heavy: Any = None) -> dict[str, Any]:
+        if extra["workId"] == "w0":
+            time.sleep(0.2)
+            stop_event.set()
+            raise Cancelled()
+        while not stop_event.is_set():
+            time.sleep(0.05)
+        raise Cancelled()
+
+    monkeypatch.setattr(compos.director, "run", fake_run)
+    try:
+        with pytest.raises(Cancelled):
+            compos.compos_job(_Ctx("w0"))
+    finally:
+        stop_event.clear()
+    assert sorted(released) == ["j1", "j2"]
+    assert fake_db["finished"] == {}

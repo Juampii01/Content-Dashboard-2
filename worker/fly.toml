@@ -5,7 +5,7 @@
 app = "content2-worker-juampi"
 primary_region = "iad"
 kill_signal = "SIGTERM"
-kill_timeout = "60s"
+kill_timeout = "300s"
 
 [build]
   dockerfile = "Dockerfile"

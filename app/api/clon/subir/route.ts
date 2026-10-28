@@ -3,11 +3,13 @@ import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/b
 import { getOptionalUser } from "@/lib/auth";
 import { fileDriver } from "@/lib/storage";
 import { uploadDelegation } from "@/lib/storage/files";
+import { validUploadTicket } from "@/lib/storage/upload-ticket";
 
 /**
  * POST /api/clon/subir — firma la subida directa del navegador a Vercel Blob (store privado) de un video para
  * traducir (Videos con clon → Traducir → Subir un video). El archivo no pasa por esta función.
- * Solo admite la ruta que reserva `prepareTranslationUploadAction` (`clon/subidas/<uuid>/original.mp4|webm`),
+ * Solo admite la ruta que reserva `prepareTranslationUploadAction` (`clon/subidas/<uuid>/original.mp4|webm`), con su
+ * boleto firmado para este usuario (`clientPayload`, lib/storage/upload-ticket.ts),
  * MP4 o WebM y hasta 200 MB (lo que acepta la subida directa de HeyGen).
  */
 const KEY_RE = /^clon\/subidas\/[0-9a-f-]{36}\/original\.(mp4|webm)$/;
@@ -24,8 +26,8 @@ export async function POST(request: NextRequest) {
     const result = await handleUploadPresigned({
       body,
       request,
-      getSignedToken: async (pathname) => {
-        if (!KEY_RE.test(pathname)) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
+      getSignedToken: async (pathname, clientPayload) => {
+        if (!KEY_RE.test(pathname) || !validUploadTicket(clientPayload, pathname, user.id)) throw new Error("Esta subida ya no es válida. Vuelve a empezar.");
         return {
           token: await uploadDelegation(pathname, "video"),
           urlOptions: {

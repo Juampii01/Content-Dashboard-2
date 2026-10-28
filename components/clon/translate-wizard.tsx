@@ -120,11 +120,12 @@ function uploadLocal(file: File, key: string, signal: AbortSignal, onProgress: (
   });
 }
 
-async function uploadBlob(file: File, key: string, signal: AbortSignal, onProgress: (loaded: number) => void): Promise<void> {
+async function uploadBlob(file: File, key: string, ticket: string, signal: AbortSignal, onProgress: (loaded: number) => void): Promise<void> {
   const { uploadPresigned } = await import("@vercel/blob/client");
   await uploadPresigned(key, file, {
     access: "private",
     handleUploadUrl: "/api/clon/subir",
+    clientPayload: ticket,
     contentType: file.type || undefined,
     multipart: file.size > 100 * 1024 * 1024,
     abortSignal: signal,
@@ -310,7 +311,7 @@ export function TranslateWizard({
       setUpload((u) => ({ ...u, loaded }));
     };
     try {
-      if (prepared.data.mode === "blob") await uploadBlob(file, prepared.data.key, controller.signal, onProgress);
+      if (prepared.data.mode === "blob") await uploadBlob(file, prepared.data.key, prepared.data.ticket, controller.signal, onProgress);
       else await uploadLocal(file, prepared.data.key, controller.signal, onProgress);
       setUpload({ status: "done", loaded: file.size, total: file.size, name: file.name });
       setUploaded({

@@ -42,6 +42,17 @@ def run(
 
     reader = threading.Thread(target=read_err, daemon=True)
     reader.start()
+    # Tope de tiempo: un ffmpeg trabado no puede tener el trabajo (y la máquina) ocupados para siempre.
+    limit = max(900.0, duration * 8 + 900) if duration else 3600.0
+    timed_out = threading.Event()
+
+    def on_timeout() -> None:
+        timed_out.set()
+        proc.kill()
+
+    watchdog = threading.Timer(limit, on_timeout)
+    watchdog.daemon = True
+    watchdog.start()
     assert proc.stdout is not None
     try:
         for line in proc.stdout:
@@ -56,10 +67,14 @@ def run(
                     pass
         code = proc.wait()
     finally:
+        watchdog.cancel()
         if proc.poll() is None:
             proc.kill()
             proc.wait()
     reader.join(timeout=5)
+    if timed_out.is_set():
+        log.error("%s superó el tope de %.0f s y se cortó", what, limit)
+        raise JobError("El procesamiento se trabó y lo cortamos. Vamos a reintentarlo.", detail=f"{what}: más de {limit:.0f} s")
     if stop_event.is_set():
         raise Cancelled()
     stderr = "\n".join(err_tail)

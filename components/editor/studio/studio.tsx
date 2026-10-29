@@ -83,6 +83,9 @@ const stripTag = (why: string | undefined) => (why ?? "").replace(RHYTHM_TAG, ""
 type LeftTab = "ia" | "edicion" | "subtitulos" | "texto" | "audio" | "biblioteca";
 /** Panel de herramientas: arranca en la mitad de la pantalla (el video, la otra mitad) y se arrastra su borde. */
 const TOOLS_W = { min: 380, max: 1200, default: 640, fraction: 0.5 };
+/** Edición solo con IA: chat y video, sin línea de tiempo ni paneles manuales. */
+const AI_ONLY = FEATURES.aiOnly;
+
 const LEFT_TABS = [
   { v: "ia", label: "Editor IA", Icon: Bot },
   { v: "edicion", label: "Edición", Icon: Scissors },
@@ -1671,6 +1674,8 @@ export function Studio(props: StudioProps) {
         else undo();
         return;
       }
+      // Solo con IA: el teclado solo reproduce y salta (nada edita a escondidas).
+      if (AI_ONLY && (mod ? !["y", "Y"].includes(key) : ![" ", "k", "K", "l", "L", "j", "J", "ArrowLeft", "ArrowRight", "f", "F", "Escape"].includes(key))) return;
       if (mod && (key === "d" || key === "D")) {
         if (typing(e.target)) return;
         e.preventDefault();
@@ -2187,6 +2192,19 @@ export function Studio(props: StudioProps) {
           const z1 = [...timeline.words].reverse().find((w) => w.id <= z.to_word)?.end;
           if (z0 != null && z1 != null && hits(z0, z1)) zoomIdx.add(i);
         });
+      // En todo el video también va lo que hoy no se ve (por ejemplo, una animación sobre una parte cortada).
+      if (!range) {
+        if (want("animaciones")) for (const c of s.compositions) compos.add(c.id);
+        if (want("efectos")) for (const e of s.effects) fx.add(e.id);
+        if (want("sonidos")) for (const c of s.soundCues) sounds.add(c.id);
+        if (want("zooms")) s.zoomMoments.forEach((_, i) => zoomIdx.add(i));
+        if (want("transiciones")) for (const t of s.transitions) if (!tr.some((r) => (r.id ? r.id === t.id : !t.id && t.at_word === r.at_word))) tr.push(t);
+        for (const b of s.broll) {
+          if (!b.choice) continue;
+          const k = b.choice.text ? "textos" : b.choice.source === "graphic" ? "graficos" : "broll";
+          if (want(k)) broll.add(b.id);
+        }
+      }
       const n = compos.size + broll.size + fx.size + tr.length + sounds.size + zoomIdx.size;
       if (!n) return 0;
       update((st) => ({
@@ -2381,7 +2399,7 @@ export function Studio(props: StudioProps) {
             </div>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <button type="button" className="btn-ghost hidden !h-9 !w-9 !p-0 sm:inline-flex" onClick={() => setHelp(true)} aria-label="Atajos de teclado (?)" title="Atajos de teclado (?)">
+            <button type="button" className={cn("btn-ghost hidden !h-9 !w-9 !p-0", !AI_ONLY && "sm:inline-flex")} onClick={() => setHelp(true)} aria-label="Atajos de teclado (?)" title="Atajos de teclado (?)">
               <Keyboard className="h-4 w-4" aria-hidden />
             </button>
             {props.menu}
@@ -2396,7 +2414,8 @@ export function Studio(props: StudioProps) {
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <div
             className={cn(
-              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_var(--tl)] lg:grid-cols-[var(--left)_minmax(0,1fr)]",
+              "flex flex-col lg:grid lg:h-full lg:grid-cols-[var(--left)_minmax(0,1fr)]",
+              AI_ONLY ? "lg:grid-rows-[minmax(0,1fr)]" : "lg:grid-rows-[minmax(0,1fr)_var(--tl)]",
             )}
             style={{ "--left": leftOpen ? `${leftW}px` : "52px", "--tl": `${timelineH}px` } as React.CSSProperties}
           >
@@ -2406,7 +2425,11 @@ export function Studio(props: StudioProps) {
                 // Borde para arrastrar: agranda o achica el panel (doble clic vuelve al ancho de siempre).
 <div {...leftHandle} aria-label="Ancho del panel izquierdo" className={cn(HANDLE_CLASS, "-right-1.5")} />
               )}
-              {leftOpen ? (
+              {AI_ONLY ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden" role="region" aria-label="Edición con IA">
+                  <AiTab api={api} simple tools={null} />
+                </div>
+              ) : leftOpen ? (
                 <>
                   <div className="flex flex-none items-center gap-1 border-b border-white/10 px-2 py-1.5">
                     <div role="tablist" aria-label="Herramientas" className="grid min-w-0 flex-1 grid-cols-6 gap-1">
@@ -2708,13 +2731,33 @@ export function Studio(props: StudioProps) {
                   Capa del lienzo: aquí va el overlay para mover, escalar y animar lo elegido sobre el video (lo agrega el
                   agente del lienzo con `stageOverlay`). Cubre exactamente el cuadro del video, arriba de la vista previa.
                 */}
-                {props.stageOverlay && (
+                {!AI_ONLY && props.stageOverlay && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 z-10 [&>*]:pointer-events-auto" style={{ aspectRatio: s.format === "9:16" ? "9 / 16" : "16 / 9" }} data-testid="studio-stage-overlay">
                     {props.stageOverlay}
                   </div>
                 )}
               </div>
-              <div className={cn("mt-1 flex h-8 items-center justify-center", full && "hidden")}>
+              {AI_ONLY && (
+                <div className={cn("mt-2 flex w-full max-w-[640px] items-center gap-2 self-center px-2", full && "hidden")} data-testid="ai-transport">
+                  <button type="button" className="btn-ghost !h-9 !w-9 flex-none !p-0" onClick={togglePlay} disabled={!proxyUrl} aria-label={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"} title={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"}>
+                    {playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
+                  </button>
+                  <span className="w-12 flex-none text-right font-mono text-[11px] text-muted tabular-nums">{formatDuration(outTime)}</span>
+                  <input
+                    type="range"
+                    className="range min-w-0 flex-1"
+                    min={0}
+                    max={Math.max(0.1, timeline.duration)}
+                    step={0.01}
+                    value={Math.min(outTime, timeline.duration)}
+                    onChange={(e) => seek(Number(e.target.value), Boolean(videoEl() && !videoEl()!.paused))}
+                    aria-label="Ir a un momento del video"
+                    style={{ ["--pct" as string]: `${(Math.min(outTime, timeline.duration) / Math.max(0.1, timeline.duration)) * 100}%` }}
+                  />
+                  <span className="w-12 flex-none font-mono text-[11px] text-muted tabular-nums">{formatDuration(timeline.duration)}</span>
+                </div>
+              )}
+              <div className={cn("mt-1 flex h-8 items-center justify-center", (full || AI_ONLY) && "hidden")}>
                 {composNow && (
                   <button
                     type="button"
@@ -2738,8 +2781,8 @@ export function Studio(props: StudioProps) {
               </div>
             </main>
 
-            {/* Abajo: la línea de tiempo */}
-            <section className="relative order-2 h-[320px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-2 lg:h-auto" aria-label="Línea de tiempo">
+            {/* Abajo: la línea de tiempo (no en la edición solo con IA) */}
+            {!AI_ONLY && <section className="relative order-2 h-[320px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-2 lg:h-auto" aria-label="Línea de tiempo">
               <div {...timelineHandle} aria-label="Alto de la línea de tiempo" className="absolute inset-x-0 -top-1.5 z-40 hidden h-3 cursor-row-resize touch-none lg:block after:absolute after:inset-x-0 after:top-1/2 after:h-0.5 after:-translate-y-1/2 after:bg-transparent after:transition hover:after:bg-accent/60 focus-visible:outline-none focus-visible:after:bg-accent" />
               <StudioTimeline
                 duration={timeline.duration}
@@ -2791,7 +2834,7 @@ export function Studio(props: StudioProps) {
                 transitionSlots={transitionSlots}
                 dropPreview={canEdit ? dropPreview : undefined}
               />
-            </section>
+            </section>}
           </div>
         </div>
       </div>

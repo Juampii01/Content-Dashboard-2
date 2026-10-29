@@ -115,6 +115,12 @@ export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttach
         const w = Math.max(0, Math.min(it.from_word, it.to_word));
         return { ...it, scope: "momento" as const, from_word: w, to_word: w, level, at_second: null };
       }
+      // Un zoom remarca algo corto: como mucho 8 palabras desde donde empieza.
+      if (it.kind === "zoom" && it.scope !== "todo") {
+        const from = Math.max(0, Math.min(it.from_word, it.to_word));
+        if (!ids.has(from)) return null;
+        return { ...it, from_word: from, to_word: Math.min(max, Math.max(it.from_word, it.to_word), from + 7) };
+      }
       if (it.kind === "cortar") {
         if (it.scope === "todo") return null;
         const from = Math.max(0, Math.min(it.from_word, it.to_word)), to = Math.min(max, Math.max(it.from_word, it.to_word));

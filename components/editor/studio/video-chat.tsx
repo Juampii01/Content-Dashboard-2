@@ -12,6 +12,7 @@ import { CAPTION_PRESETS } from "@/lib/video/captions";
 import type { RefImage } from "@/lib/video/compos/schema";
 import type { Word } from "@/lib/video/types";
 import { cn } from "@/lib/utils";
+import { FEATURES } from "@/lib/features";
 import { mentionSlug } from "@/lib/video/library-ficha";
 import { clearVideoChatAction, loadVideoChatAction, videoChatAction, videoChatClipAction, videoChatDoneAction, videoChatLookAction, type VideoChatItem, type VideoChatThread } from "../video-chat-actions";
 import { mentionLibraryAction } from "../library-mention-actions";
@@ -28,6 +29,7 @@ import { useDictation } from "./use-dictation";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const IDEAS = ["¿Qué le falta a este video para retener más?", "Ponle subtítulos y anima el gancho", "Dame 3 ideas de animaciones para el principio", "Recorta los silencios"];
+const AI_ONLY = FEATURES.aiOnly;
 const POLL_MS = 5000;
 const KIND_LABEL: Record<VideoChatItem["kind"], string> = {
   animacion: "Animación",
@@ -139,6 +141,17 @@ export function VideoChat({ api }: { api: StudioApi }) {
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
   }, [thread.messages.length, pending, looking, watching]);
+
+  /** Ejemplos de pedidos según lo que le falta al video (edición solo con IA): se tocan y se mandan. */
+  function ideas(): string[] {
+    const out: string[] = [];
+    if (state.preset === "ninguno") out.push("Ponle subtítulos estilo Hormozi");
+    if (!api.removedSet.size) out.push("Recorta los silencios y las muletillas");
+    if (!state.musicGen && !state.music.trackId) out.push("Pon música tranquila de fondo");
+    if (!api.composSegs.length) out.push("Anima el gancho del principio");
+    out.push("Pon una transición en cada cambio de tema", "Haz un zoom cuando digo lo más importante", "Deshaz lo último");
+    return out.slice(0, 4);
+  }
 
   /** Lo que ya tiene el video, para que la IA no proponga encima sin saberlo. */
   function stateText(): string {
@@ -260,6 +273,10 @@ export function VideoChat({ api }: { api: StudioApi }) {
 
   function timeOf(it: VideoChatItem): string {
     if (it.scope === "todo") return "todo el video";
+    if (it.kind === "transicion" || it.kind === "sonido") {
+      const t = pointTime(it);
+      return t == null ? "" : mmss(t);
+    }
     const a = timeline.words.find((w) => w.id >= it.from_word);
     const b = [...timeline.words].reverse().find((w) => w.id <= it.to_word);
     return a && b ? `${mmss(a.start)}–${mmss(b.end)}` : "";
@@ -371,8 +388,12 @@ export function VideoChat({ api }: { api: StudioApi }) {
       <ol ref={list} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3" aria-label="Conversación con la IA" aria-live="polite">
         {thread.messages.length === 0 && (
           <li className="flex flex-col gap-2">
-            <p className="text-sm text-text">Pregúntame lo que quieras de este video o dime qué cambiar. Miro tu transcripción y lo que ya tiene, y te propongo acciones que haces con un toque. También puedes pegarme un link de Instagram, TikTok o YouTube: lo miro y te digo qué copiaría.</p>
-            {canEdit && (
+            <p className="text-sm text-text">
+              {AI_ONLY
+                ? "Dime cómo quieres tu video y lo edito por ti: subtítulos, cortes, música, zooms, transiciones, sonidos, animaciones o color, en el momento que digas («en el 0:12», «cuando digo precio»). Si no te gusta, dime «deshazlo». También puedes adjuntar videos e imágenes o pegarme un link de referencia."
+                : "Pregúntame lo que quieras de este video o dime qué cambiar. Miro tu transcripción y lo que ya tiene, y te propongo acciones que haces con un toque. También puedes pegarme un link de Instagram, TikTok o YouTube: lo miro y te digo qué copiaría."}
+            </p>
+            {canEdit && !AI_ONLY && (
               <div className="flex flex-wrap gap-1.5" aria-label="Ideas">
                 {IDEAS.map((s) => (
                   <button key={s} type="button" className="pill border border-white/10 text-left text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => send(s)} disabled={pending}>
@@ -397,6 +418,8 @@ export function VideoChat({ api }: { api: StudioApi }) {
               {m.items?.map((it, k) => {
                 const key = `${i}-${k}`;
                 const isDone = done.has(key);
+                // Solo con IA, lo que ya se hizo queda en la línea verde de abajo: la tarjeta sobra.
+                if (AI_ONLY && isDone) return null;
                 return (
                   <div key={key} className={cn("flex w-full flex-col gap-1.5 rounded-xl border p-2.5", isDone ? "border-success/30 bg-success/[0.05]" : "border-accent/30 bg-accent/[0.04]")}>
                     <div className="flex items-start justify-between gap-2">
@@ -452,6 +475,15 @@ export function VideoChat({ api }: { api: StudioApi }) {
       </ol>
       {canEdit && (
         <div className="flex flex-col gap-2 border-t border-white/10 bg-card px-4 py-3">
+          {AI_ONLY && !pending && (
+            <div className="flex flex-wrap gap-1.5" aria-label="Ideas para pedir">
+              {ideas().map((idea) => (
+                <button key={idea} type="button" className="pill border border-white/10 text-left text-[11px] text-muted transition hover:border-white/25 hover:text-text" onClick={() => send(idea)} disabled={pending}>
+                  {idea}
+                </button>
+              ))}
+            </div>
+          )}
           <AttachList api={files} showUse={false} />
           <label htmlFor="video-chat-msg" className="sr-only">
             Tu mensaje para la IA
@@ -469,7 +501,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
             onBlur={() => setTimeout(mention.close, 150)}
             maxLength={2000}
             className="!min-h-16 text-sm"
-            placeholder={dictation.listening ? "Te escucho… toca el micrófono para terminar" : "Escríbele o dicta con el micrófono. Arrastra aquí videos o imágenes; con @ nombras algo de tu biblioteca"}
+            placeholder={dictation.listening ? "Te escucho… toca el micrófono para terminar" : AI_ONLY ? "Dime qué cambiar: «pon música tranquila», «corta cuando digo…», «un zoom en el 0:12». También puedes dictarlo." : "Escríbele o dicta con el micrófono. Arrastra aquí videos o imágenes; con @ nombras algo de tu biblioteca"}
             disabled={pending}
             aria-controls={mention.open ? "video-chat-mention" : undefined}
             onKeyDown={(e) => {

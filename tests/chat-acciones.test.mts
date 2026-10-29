@@ -69,6 +69,7 @@ describe("acciones nuevas", () => {
   test("zoom en un tramo que existe; el final se acota al video", () => {
     assert.equal(one({ kind: "zoom", from_word: 9, to_word: 10 }).length, 1);
     assert.equal(one({ kind: "zoom", from_word: 15, to_word: 410 })[0]!.to_word, max);
+    assert.equal(one({ kind: "zoom", from_word: 0, to_word: 16 })[0]!.to_word, 7, "como mucho 8 palabras");
   });
   test("subtítulos con estilo y tamaño", () => {
     const [s] = one({ kind: "subtitulos", from_word: -1, to_word: -1, caption_style: "hormozi", caption_size: "grande" });

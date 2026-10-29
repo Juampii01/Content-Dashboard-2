@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { FEATURES } from "@/lib/features";
+
 import { Suspense, type ReactNode } from "react";
 import { ArrowLeft, Clapperboard, Library, Music } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
@@ -69,6 +72,8 @@ function SectionTitle({ id, icon, title, description }: { id: string; icon: Reac
 }
 
 export default function LibraryPage() {
+  // Edición solo con IA: la biblioteca y los estilos a mano no se usan (lo que necesites, adjúntalo en el chat).
+  if (FEATURES.aiOnly) redirect("/editor");
   return (
     <>
       <ButtonLink href="/editor" variant="subtle" size="sm" icon={<ArrowLeft className="h-4 w-4" aria-hidden />} className="mb-4">

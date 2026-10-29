@@ -1,5 +1,7 @@
 "use client";
 
+import { FEATURES } from "@/lib/features";
+
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Activity, Clapperboard, Ban, Feather, Gauge, Monitor, Save, Smartphone, Wand2, Zap } from "lucide-react";
@@ -153,7 +155,7 @@ export function EditorDefaultsForm({
             tracks={tracks}
             canEdit={canEdit}
           />
-          {!track && tracks.length > 0 && d.music.trackId == null && (
+          {!FEATURES.aiOnly && !track && tracks.length > 0 && d.music.trackId == null && (
             <p className="mt-2 text-xs text-muted">
               Si eliges una pista, «Hazlo por mí» la pone debajo de tu voz. Súbelas en{" "}
               <Link href="/editor/biblioteca#musica" className="font-medium text-accent-hi hover:underline">

@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { FEATURES } from "@/lib/features";
+
 import { Suspense } from "react";
 import { ArrowLeft, Palette } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
@@ -49,6 +52,8 @@ async function Styles() {
 }
 
 export default function StylesPage() {
+  // Edición solo con IA: la biblioteca y los estilos a mano no se usan (lo que necesites, adjúntalo en el chat).
+  if (FEATURES.aiOnly) redirect("/editor");
   return (
     <>
       <ButtonLink href="/editor" variant="subtle" size="sm" icon={<ArrowLeft className="h-4 w-4" aria-hidden />} className="mb-4">

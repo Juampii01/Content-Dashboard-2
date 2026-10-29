@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { FEATURES } from "@/lib/features";
 import { Suspense } from "react";
 import { Clapperboard, Library, Palette, Scissors, Upload, Video } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -29,7 +30,7 @@ async function Projects() {
         <EmptyState
           icon={<Clapperboard className="h-5 w-5" aria-hidden />}
           title="Todavía no editaste ningún video"
-          description="Sube un video donde hablas a cámara. Te lo devolvemos con los silencios y tomas malas cortados, el mejor gancho al inicio y subtítulos con tu estilo."
+          description={FEATURES.aiOnly ? "Sube un video donde hablas a cámara y dile a la IA cómo lo quieres: «recorta los silencios», «ponle subtítulos», «música tranquila de fondo». Ella lo edita por ti." : "Sube un video donde hablas a cámara. Te lo devolvemos con los silencios y tomas malas cortados, el mejor gancho al inicio y subtítulos con tu estilo."}
           action={
             me.role !== "VIEWER" && storageReady ? (
               <div className="flex flex-wrap justify-center gap-2">
@@ -55,20 +56,24 @@ export default function EditorPage() {
     <>
       <PageHeader
         eyebrow="Editor de video"
-        title="Sube tu video crudo y recíbelo editado"
-        description="Cortamos silencios y tomas malas, ponemos el mejor gancho al inicio y agregamos subtítulos. Tú revisas cada corte antes del render."
+        title={FEATURES.aiOnly ? "Sube tu video y edítalo hablándole a la IA" : "Sube tu video crudo y recíbelo editado"}
+        description={FEATURES.aiOnly ? "Le dices qué quieres (cortes, subtítulos, música, zooms, transiciones o animaciones) y la IA lo edita por ti. Si algo no te gusta, le pides que lo deshaga." : "Cortamos silencios y tomas malas, ponemos el mejor gancho al inicio y agregamos subtítulos. Tú revisas cada corte antes del render."}
         icon={<Clapperboard className="h-5 w-5" aria-hidden />}
         actions={
           <div className="flex flex-wrap gap-2">
             <ButtonLink href="/editor/clips" variant="ghost" icon={<Scissors className="h-4 w-4" aria-hidden />}>
               Clips desde un video largo
             </ButtonLink>
-            <ButtonLink href="/editor/estilos" variant="ghost" icon={<Palette className="h-4 w-4" aria-hidden />}>
-              Estilos
-            </ButtonLink>
-            <ButtonLink href="/editor/biblioteca" variant="ghost" icon={<Library className="h-4 w-4" aria-hidden />}>
-              Biblioteca
-            </ButtonLink>
+            {!FEATURES.aiOnly && (
+              <>
+                <ButtonLink href="/editor/estilos" variant="ghost" icon={<Palette className="h-4 w-4" aria-hidden />}>
+                  Estilos
+                </ButtonLink>
+                <ButtonLink href="/editor/biblioteca" variant="ghost" icon={<Library className="h-4 w-4" aria-hidden />}>
+                  Biblioteca
+                </ButtonLink>
+              </>
+            )}
             <ButtonLink href="/editor/grabar" variant="ghost" icon={<Video className="h-4 w-4" aria-hidden />}>
               Grabar ahora
             </ButtonLink>

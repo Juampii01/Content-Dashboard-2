@@ -7,4 +7,4 @@
  * - `aiOnly`: el Editor de video se usa solo hablándole a la IA (chat y video, sin línea de tiempo, biblioteca ni
  *   paneles manuales). El chat hace lo que se pide en el momento. Apagado, vuelve el Estudio completo.
  */
-export const FEATURES = { clone: false, aiOnly: false } as const;
+export const FEATURES = { clone: false, aiOnly: true } as const;

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { FEATURES } from "@/lib/features";
+
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Clapperboard, Link2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badges";
 import { ButtonLink } from "@/components/ui/button";
@@ -57,6 +59,8 @@ async function Style({ params }: { params: PageProps<"/editor/estilos/[id]">["pa
 }
 
 export default function StylePage({ params }: PageProps<"/editor/estilos/[id]">) {
+  // Edición solo con IA: la biblioteca y los estilos a mano no se usan (lo que necesites, adjúntalo en el chat).
+  if (FEATURES.aiOnly) redirect("/editor");
   return (
     <>
       <ButtonLink href="/editor/estilos" variant="subtle" size="sm" icon={<ArrowLeft className="h-4 w-4" aria-hidden />} className="mb-4">

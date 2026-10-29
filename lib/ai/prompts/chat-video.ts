@@ -7,6 +7,11 @@ import { z } from "zod";
 import { EDIT_ASSISTANT_RULES } from "./asistente-edicion";
 import { TEXT_PRESET_KEYS } from "@/lib/video/text-presets";
 import { GRADE_PRESETS } from "@/lib/video/grade";
+import { TRANSITION_INFO, TRANSITION_KINDS } from "@/lib/video/fx/transitions";
+import { SFX_LIBRARY, SFX_NAMES } from "@/lib/video/sfx-library";
+import { MUSIC_STYLE_INFO, MUSIC_STYLES } from "@/lib/video/music-gen/spec";
+import { CAPTION_PRESETS } from "@/lib/video/captions";
+import { CAPTION_PRESET_KEYS } from "@/lib/video/types";
 
 const GRADE_IDS = GRADE_PRESETS.map((p) => p.id) as [string, ...string[]];
 
@@ -39,6 +44,22 @@ Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "texto": un texto o título a mano en un momento (lo que dice la persona: «pon un título que diga…», «escribe "Paso 1" acá», «un cartel con mi nombre»). En prompt va SOLO el texto que se ve, tal cual y corto (hasta 80 caracteres; en «Nombre y cargo», el nombre). text_style con el estilo: title (título grande), titleBox (título con fondo), subtitle (línea abajo), pill (etiqueta corta), number (número gigante: solo si la persona dio la cifra), quote (cita), marker (resaltado), strike (tachado), cta (llamado a la acción), lowerThird (nombre y cargo), typewriter (máquina de escribir), neon (neón). El tramo: la frase donde va. Nunca inventes cifras ni datos: si falta el número, pregúntalo.
 - "color": cambiar el color de TODO el video (la imagen de la persona). scope "todo", from_word y to_word en -1, y look con el filtro: natural (quitar el color), vivido, calido, frio, cine, luminoso, suave, retro, bn (blanco y negro) o noche.
 - "editar": un cambio general de la edición que hace el director (más o menos ritmo, más zooms, quitar o cambiar b-roll, efectos o gráficos en todo el video, cortar una parte que sobra, cambiar el sonido). scope "todo", from_word y to_word en -1, y en prompt el pedido completo y claro, con lo que se habló (hasta 550 caracteres). Nunca para cambiar el orden del video ni traer un gancho de otra parte: eso no se hace.
+- "transicion": una transición en un momento («una transición cuando cambio de tema», «un barrido en el 0:40»). transition con el tipo (lista abajo). El momento: el tramo de la frase y, en hit_text, la palabra exacta donde cae (tal cual se dice en esa frase), o at_second si dio el segundo. Si pide transiciones en todos los cambios de tema, una acción por cada cambio (máximo 6 por mensaje).
+- "sonido": un efecto de sonido en un momento («un whoosh en el 0:12», «un golpe cuando digo "precio"»). sound con el sonido (lista abajo) y el momento igual que en transicion (hit_text o at_second). level: volumen en dB entre -30 y 0 (null = normal; «fuerte» -3, «suave» -16).
+- "musica": la música de fondo de TODO el video (scope "todo", from_word y to_word en -1). music con el estilo (lista abajo) o "quitar" para sacarla; null si solo cambia el volumen. level: volumen de la música en dB entre -40 y -6 (null = como está; «más baja» -28, «bien bajita» -34, «más alta» -14). La música siempre baja sola cuando habla la persona.
+- "zoom": un acercamiento a la cara en un tramo corto (1 a 3 segundos) para remarcar algo.
+- "cortar": sacar del video una parte que dice la persona («saca cuando digo "bueno, eh"», «corta desde "en fin" hasta "listo"», «borra el 0:10 al 0:14»). El tramo: la frase; hit_text la primera palabra que se saca y end_text la última (tal cual se dicen), o null para sacar la frase entera. Solo lo que pide: nunca cortes de más.
+- "voz": el volumen de la voz en todo el video (scope "todo"). level en dB entre -12 y 6 («más fuerte» 3, «más baja» -4).
+- "quitar": sacar cosas que ya tiene el video en un tramo, o en todo (scope "todo"). remove con lo que se saca: animaciones, broll, graficos, textos, efectos, transiciones, sonidos, zooms o todo.
+- "deshacer": volver atrás lo último que hiciste en este video (scope "todo"). Úsalo cuando dice «deshazlo», «como estaba antes», «no me gustó, vuelve atrás».
+- En "subtitulos" también puedes cambiar el estilo y el tamaño: caption_style (lista abajo; "ninguno" los quita) y caption_size (chico, mediano o grande). null deja lo que está.
+
+Tipos de transición (transition): ${TRANSITION_KINDS.map((k) => `${k} (${TRANSITION_INFO[k].label})`).join(", ")}.
+Sonidos (sound): ${SFX_NAMES.map((k) => `${k} (${SFX_LIBRARY[k].label})`).join(", ")}.
+Estilos de música (music): ${MUSIC_STYLES.map((k) => `${k} (${MUSIC_STYLE_INFO[k].label}: ${MUSIC_STYLE_INFO[k].mood})`).join(", ")}.
+Estilos de subtítulos (caption_style): ${CAPTION_PRESET_KEYS.map((k) => `${k}${CAPTION_PRESETS[k] ? ` (${CAPTION_PRESETS[k].label})` : ""}`).join(", ")}.
+En las acciones que no los usan, transition, sound, music, level, caption_style, caption_size, remove, hit_text, end_text y at_second van en null.
+
 Solo propones acciones cuando la persona pide algo o acepta una idea; si solo conversa, items vacío.
 
 Tu biblioteca (clips e imágenes propios de la persona):
@@ -51,13 +72,24 @@ ${EDIT_ASSISTANT_RULES}
 
 (Aquí no hay campo note: lo que en esas reglas va en note, dilo en reply.)`;
 
+/**
+ * Edición solo con IA (FEATURES.aiOnly): no hay editor manual, así que lo que la persona pide se hace en el momento,
+ * sin botones ni planes de por medio.
+ */
+export const VIDEO_CHAT_DIRECT = `MODO EDICIÓN CON IA (manda sobre lo anterior): esta app no tiene editor manual. La persona solo te habla a ti y tú editas por ella.
+- Cuando pide un cambio, hazlo ya: devuelve las acciones con go = true, sin preguntar si va así ni contar un plan antes. Vale también para las animaciones y para «Animar todo»: arma el pedido completo con lo que pidió.
+- Pregunta (items vacío) solo si falta algo que no puedes decidir: una cifra, el texto exacto, qué video usar.
+- Si pide ideas o pregunta algo, contesta y propone acciones con go = false: se hacen cuando diga que sí.
+- En reply, una o dos líneas: qué hiciste y en qué momento (minuto:segundo), como «Listo: puse un whoosh en 0:12 y bajé la música». Las animaciones tardan unos minutos: dilo.
+- Si pide algo que no está en tus acciones, dilo con honestidad y ofrece lo más cercano.`;
+
 export const videoChatSchema = z.object({
   reply: z.string().describe("Lo que le contestas a la persona."),
   go: z.boolean().describe("true si la persona pidió hacerlo ya en su último mensaje: las acciones se ejecutan solas."),
   items: z
     .array(
       z.object({
-        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar", "texto", "color"]),
+        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar", "texto", "color", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar", "deshacer"]),
         scope: z.enum(["momento", "todo"]),
         from_word: z.number().int(),
         to_word: z.number().int(),
@@ -69,11 +101,23 @@ export const videoChatSchema = z.object({
         clip_start: z.number().nullable().describe("Acción video: segundo del clip desde el que se ve; si no, null."),
         text_style: z.enum(TEXT_PRESET_KEYS).nullable().describe("Acción texto: el estilo; si no, null."),
         look: z.enum(GRADE_IDS).nullable().describe("Acción color: el filtro; si no, null."),
+        transition: z.enum(TRANSITION_KINDS).nullable().describe("Acción transicion: el tipo; si no, null."),
+        sound: z.enum(SFX_NAMES as [string, ...string[]]).nullable().describe("Acción sonido: el sonido; si no, null."),
+        music: z.enum([...MUSIC_STYLES, "quitar"]).nullable().describe("Acción musica: el estilo o quitar; null si solo cambia el volumen."),
+        level: z.number().nullable().describe("Volumen en dB (sonido, musica o voz); si no, null."),
+        caption_style: z.enum(CAPTION_PRESET_KEYS).nullable().describe("Acción subtitulos: el estilo; si no, null."),
+        caption_size: z.enum(["chico", "mediano", "grande"]).nullable().describe("Acción subtitulos: el tamaño; si no, null."),
+        remove: z.enum(["animaciones", "broll", "graficos", "textos", "efectos", "transiciones", "sonidos", "zooms", "todo"]).nullable().describe("Acción quitar: qué se saca; si no, null."),
+        hit_text: z.string().nullable().describe("Transicion, sonido o cortar: la palabra exacta (tal cual se dice) donde cae o donde empieza el corte; si no, null."),
+        end_text: z.string().nullable().describe("Cortar: la última palabra que se saca; si no, null."),
+        at_second: z.number().nullable().describe("Transicion o sonido: el segundo del video final si la persona lo dio; si no, null."),
       }),
     )
     .max(6),
 });
 export type VideoChatOutput = z.infer<typeof videoChatSchema>;
+/** Los campos de las acciones nuevas en null (para armar acciones a mano). */
+export const NO_EXTRA = { transition: null, sound: null, music: null, level: null, caption_style: null, caption_size: null, remove: null, hit_text: null, end_text: null, at_second: null } as const;
 
 export function videoChatTask(input: { sentences: string; duration: number; format: string; playhead: number | null; selection: string | null; state: string; attachments: string | null; library?: string; reference?: { source: string; text: string } | null; messages: { role: "user" | "assistant"; text: string }[]; markers?: string | null }): string {
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;

@@ -171,7 +171,7 @@ describe("ficha (funciones puras)", () => {
 describe("chat del video con la biblioteca (validación de acciones)", () => {
   const library = { text: "", codes: new Map([["C1", oficina], ["C2", clinica]]) } as unknown as import("../lib/video/broll").LibraryPrompt;
   const ids = new Set(Array.from({ length: 40 }, (_, i) => i));
-  const base = { scope: "momento" as const, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null };
+  const base = { scope: "momento" as const, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null, transition: null, sound: null, music: null, level: null, caption_style: null, caption_size: null, remove: null, hit_text: null, end_text: null, at_second: null };
 
   test("«pon b-roll de lo que hablo»: un video de la biblioteca por su código, con su segundo dentro del clip", () => {
     const out = chatItems(
@@ -213,7 +213,7 @@ describe("chat del video con la biblioteca (validación de acciones)", () => {
 });
 
 describe("videos de la charla guardados en la acción (adentro, b-roll, estilo)", () => {
-  const base = { scope: "momento" as const, from_word: 2, to_word: 6, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null };
+  const base = { scope: "momento" as const, from_word: 2, to_word: 6, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null, transition: null, sound: null, music: null, level: null, caption_style: null, caption_size: null, remove: null, hit_text: null, end_text: null, at_second: null };
   const web = { code: "V1", id: oficina.id, kind: "video" as const, reference: false };
   const ref = { code: "V2", id: clinica.id, kind: "video" as const, reference: true };
 
@@ -499,7 +499,7 @@ describe("biblioteca en la base", { skip: !url && "TEST_DATABASE_URL no está de
     await assert.rejects(mod.updateFicha(recep, { description: 1 }));
   });
   test("chat: un texto a mano queda con su estilo y solo el texto; un color va a todo el video", () => {
-    const base = { scope: "momento" as const, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null, attachments: [] };
+    const base = { scope: "momento" as const, title: "t", prompt: "p", layout: null, library: null, clip_start: null, text_style: null, look: null, attachments: [], transition: null, sound: null, music: null, level: null, caption_style: null, caption_size: null, remove: null, hit_text: null, end_text: null, at_second: null };
     const ids = new Set(Array.from({ length: 40 }, (_, i) => i));
     const library = { text: "", codes: new Map() };
     const out = chatItems(

@@ -10,6 +10,7 @@ import type { WorkView } from "@/lib/video/compos/work";
 import type { ComposRequest, LiveRequest } from "../compos/use-compos-work";
 import type { TransitionItem, TransitionSegment } from "@/lib/video/fx/transitions";
 import type { SfxName } from "@/lib/video/sfx-library";
+import type { MusicStyle } from "@/lib/video/music-gen/spec";
 import type { FxKind } from "@/lib/video/fx/catalog";
 import type { GraphicLook } from "@/lib/video/graphics";
 import type { BrollGraphic } from "@/lib/video/motion-graphics";
@@ -27,6 +28,9 @@ import type { StudioSelection } from "./studio-timeline";
 import type { StudioState, StudioUpdate } from "./use-studio-state";
 import type { MixMeters } from "./use-studio-mix";
 import type { PlacedMarker } from "@/lib/video/markers";
+
+/** Lo que el chat puede quitar de un tramo. */
+export type RemoveWhat = "animaciones" | "broll" | "graficos" | "textos" | "efectos" | "transiciones" | "sonidos" | "zooms" | "todo";
 
 export type StudioStyle = { id: string; name: string; zoom: StylePreset["zoom"]; captions: CaptionStyle | null; focusY: number } | null;
 
@@ -158,6 +162,22 @@ export type StudioApi = {
     lookPreset: (id: string) => void;
     /** Recortar todo el video (silencios, tomas repetidas, arranques en falso). Devuelve cuántas palabras cortó. */
     trim: () => Promise<{ ok: true; removed: number } | { ok: false; error: string }>;
+    /** Segundo del video final donde empieza una palabra (o null si quedó cortada y no hay otra después). */
+    timeOfWord: (word: number) => number | null;
+    /** Transición en el segundo `t` (en el corte si cae justo ahí, o libre). */
+    transitionAt: (kind: TransitionItem["kind"], t: number) => void;
+    /** Efecto de sonido con su golpe en `t` (dB opcional). */
+    soundAt: (name: SfxName, t: number, gain?: number | null) => void;
+    /** Música generada de todo el video (estilo, "quitar" o null para no tocarla) y su volumen en dB. */
+    music: (style: MusicStyle | "quitar" | null, db: number | null) => void;
+    /** Volumen de la voz (dB). */
+    voice: (db: number) => void;
+    /** Estilo y tamaño de los subtítulos (null deja lo que está). */
+    captions: (style: CaptionPresetKey | null, size: "chico" | "mediano" | "grande" | null) => void;
+    /** Quita lo que hay en el tramo (o en todo el video). Devuelve cuántas cosas quitó. */
+    removeIn: (range: WordSpan | null, what: RemoveWhat) => number;
+    /** Deshace los últimos `steps` cambios. */
+    undo: (steps?: number) => void;
   };
   actions: {
     seek: (t: number, play?: boolean) => void;

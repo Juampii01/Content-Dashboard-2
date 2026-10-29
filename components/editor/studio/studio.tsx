@@ -33,6 +33,7 @@ import { cueClip, fitCueClip, hookEnd, MIN_CUE_LENGTH, newSoundCueId, SFX_FILES,
 import { isSfxName, SFX_LIBRARY, type SfxName } from "@/lib/video/sfx-library";
 import { compileTransition, cutPoints, freeAnchor, isFreeTransition, isTransitionKind, newTransitionId, TRANSITION_INFO, TRANSITION_SOUND_GAIN, transitionSegments, transitionSounds, type TransitionItem } from "@/lib/video/fx/transitions";
 import { musicGenLabel } from "@/lib/video/music-gen/catalog";
+import { MUSIC_STYLE_INFO } from "@/lib/video/music-gen/spec";
 import { useGeneratedMusic } from "../sound/use-sound";
 import { useMusicBuffer, peaksOfBuffer, useStudioMix } from "./use-studio-mix";
 import { useVoicePeaks } from "./use-voice-peaks";
@@ -2132,6 +2133,77 @@ export function Studio(props: StudioProps) {
       if (!r.ok) return r;
       applyTrim(r.removed);
       return { ok: true, removed: r.removed.length };
+    },
+    timeOfWord: (word) => timeline.words.find((w) => w.id >= word)?.start ?? null,
+    transitionAt: (kind, t) => dropTransition(kind, Math.max(0, Math.min(timeline.duration, t))),
+    soundAt: (name, t, gain) => placeSound(null, name, Math.max(0, Math.min(timeline.duration, t)), gain == null ? undefined : Math.max(SOUND_GAIN.min, Math.min(SOUND_GAIN.max, gain))),
+    music: (style, db) =>
+      update((st) => {
+        let next = st;
+        if (style === "quitar") next = { ...next, musicGen: null, music: { ...next.music, trackId: null } };
+        else if (style) {
+          const [lo, hi] = MUSIC_STYLE_INFO[style].bpm;
+          // Semilla fija por video y estilo: el mismo pedido da la misma pista.
+          let seed = 7;
+          for (const ch of `${projectId}:${style}`) seed = (seed * 31 + ch.charCodeAt(0)) % 2147483647;
+          next = { ...next, musicGen: { style, seed, bpm: Math.round((lo + hi) / 2) }, music: { ...next.music, trackId: null } };
+        }
+        if (db != null) next = { ...next, music: { ...next.music, db: Math.max(-40, Math.min(-6, db)) } };
+        return next;
+      }),
+    voice: (db) => update((st) => ({ ...st, voiceDb: Math.max(-12, Math.min(6, db)) })),
+    captions: (style, size) =>
+      update((st) => {
+        let next = st;
+        if (style) next = { ...next, preset: style };
+        else if (st.preset === "ninguno" && size) next = { ...next, preset: props.captionDefault && props.captionDefault !== "ninguno" ? props.captionDefault : "caja" };
+        if (size) {
+          const scale = size === "chico" ? 0.7 : size === "mediano" ? 0.85 : 1;
+          const t = next.captionPlace.transform ?? { x: 0, y: 0, scale: 1 };
+          const nt = { ...t, scale };
+          next = { ...next, captionPlace: { ...next.captionPlace, transform: nt.x || nt.y || nt.scale !== 1 ? nt : undefined } };
+        }
+        return next;
+      }),
+    removeIn: (range, what) => {
+      const a = range ? (timeline.words.find((w) => w.id >= range.from)?.start ?? 0) : 0;
+      const b = range ? ([...timeline.words].reverse().find((w) => w.id <= range.to)?.end ?? a) : timeline.duration;
+      const hits = (s0: number, s1: number) => s0 < b - 0.05 && s1 > a + 0.05;
+      const want = (k: Exclude<typeof what, "todo">) => what === "todo" || what === k;
+      const compos = new Set(want("animaciones") ? composSegs.filter((c) => hits(c.start, c.end)).map((c) => c.id) : []);
+      const broll = new Set(
+        segments
+          .filter((g) => hits(g.start, g.end))
+          .filter((g) => (g.option.text ? want("textos") : g.option.source === "graphic" ? want("graficos") : want("broll")))
+          .map((g) => g.id),
+      );
+      const fx = new Set(want("efectos") ? fxSegs.filter((f) => hits(f.start, f.end)).map((f) => f.id) : []);
+      const tr = want("transiciones") ? trSegs.filter((t) => hits(t.start, t.end)).map((t) => t.item) : [];
+      const sounds = new Set(want("sonidos") ? soundCueTimes(timeline, s.soundCues).filter(({ hitAt }) => hits(hitAt - 0.1, hitAt + 0.1)).map(({ cue }) => cue.id) : []);
+      const zoomIdx = new Set<number>();
+      if (want("zooms"))
+        s.zoomMoments.forEach((z, i) => {
+          const z0 = timeline.words.find((w) => w.id >= z.from_word)?.start;
+          const z1 = [...timeline.words].reverse().find((w) => w.id <= z.to_word)?.end;
+          if (z0 != null && z1 != null && hits(z0, z1)) zoomIdx.add(i);
+        });
+      const n = compos.size + broll.size + fx.size + tr.length + sounds.size + zoomIdx.size;
+      if (!n) return 0;
+      update((st) => ({
+        ...st,
+        compositions: st.compositions.filter((c) => !compos.has(c.id)),
+        broll: st.broll.filter((x) => !broll.has(x.id)),
+        effects: st.effects.filter((e) => !fx.has(e.id)),
+        transitions: st.transitions.filter((t) => !tr.some((r) => (r.id ? r.id === t.id : !t.id && t.at_word === r.at_word))),
+        soundCues: st.soundCues.filter((c) => !sounds.has(c.id)),
+        zoomMoments: st.zoomMoments.filter((_, i) => !zoomIdx.has(i)),
+        rhythmTouched: zoomIdx.size ? true : st.rhythmTouched,
+      }));
+      setSelection(null);
+      return n;
+    },
+    undo: (steps = 1) => {
+      for (let i = 0; i < Math.max(1, Math.min(20, steps)); i++) undo();
     },
   };
 

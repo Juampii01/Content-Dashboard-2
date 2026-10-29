@@ -3,7 +3,7 @@
  * puede y, en un b-roll de la biblioteca, una pieza que existe con su segundo dentro del clip). Sin servidor: lo usan
  * la acción del chat y las pruebas.
  */
-import type { VideoChatOutput } from "@/lib/ai/prompts/chat-video";
+import { NO_EXTRA, type VideoChatOutput } from "@/lib/ai/prompts/chat-video";
 import type { LibraryPrompt } from "./broll";
 import { matchLibrary } from "./library-ficha";
 
@@ -21,7 +21,49 @@ export type ChatAttachment = { ref: string; kind: "video" | "image"; libraryId?:
  * Las acciones que propuso la IA, validadas: tramos que existen, adjuntos que se pueden usar así y, en un b-roll de la
  * biblioteca, una pieza que existe (con su segundo dentro del clip).
  */
-export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttachment[], max: number, ids: Set<number>, library: LibraryPrompt): VideoChatItem[] {
+/** Para comparar palabras: minúsculas, sin tildes ni signos. */
+export function normWord(w: string): string {
+  return w
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9ñ]+/g, "");
+}
+
+/**
+ * La palabra (o la secuencia) `text` dentro de [from, to] (con un margen de 6 palabras a cada lado, por si la IA se
+ * corrió de frase). Devuelve los ids de la primera y la última palabra, o null.
+ */
+export function findWords(words: string[] | undefined, text: string | null | undefined, from: number, to: number, after = -1): { first: number; last: number } | null {
+  if (!words?.length || !text) return null;
+  const want = text.split(/\s+/).map(normWord).filter(Boolean);
+  if (!want.length) return null;
+  const lo = Math.max(0, Math.max(from - 6, after)), hi = Math.min(words.length - 1, to + 6);
+  const tryAt = (i: number) => {
+    let k = i, j = 0;
+    while (j < want.length && k <= hi) {
+      const w = normWord(words[k] ?? "");
+      if (!w) {
+        k++;
+        continue;
+      }
+      if (w !== want[j]) return null;
+      j++;
+      k++;
+    }
+    return j === want.length ? { first: i, last: k - 1 } : null;
+  };
+  // Primero dentro del tramo, después en el margen.
+  for (const [a, b] of [[Math.max(from, lo), Math.min(to, hi)], [lo, hi]] as const) for (let i = a; i <= b; i++) {
+    const m = tryAt(i);
+    if (m) return m;
+  }
+  return null;
+}
+
+const clampNum = (v: number | null | undefined, a: number, b: number): number | null => (v == null || !Number.isFinite(v) ? null : Math.max(a, Math.min(b, v)));
+
+export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttachment[], max: number, ids: Set<number>, library: LibraryPrompt, words?: string[]): VideoChatItem[] {
   const kinds = new Map(attachments.map((a) => [a.ref, a.kind]));
   const fromLibrary = new Set(attachments.filter((a) => a.libraryId).map((a) => a.ref));
   /**
@@ -43,9 +85,49 @@ export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttach
       if (it.kind === "texto") {
         const text = it.prompt.replace(/\s+/g, " ").trim().slice(0, 80);
         if (!text || it.scope === "todo") return null;
-        Object.assign(it, { prompt: text, text_style: it.text_style ?? "title", look: null });
+        Object.assign(it, { prompt: text, text_style: it.text_style ?? "title", look: null, ...NO_EXTRA });
       }
       if (it.kind === "subtitulos" || it.kind === "recortar" || it.kind === "editar") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1, library: null, clip_start: null };
+      if (it.kind === "deshacer") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1 };
+      if (it.kind === "voz") {
+        const level = clampNum(it.level, -12, 6);
+        return level == null ? null : { ...it, scope: "todo" as const, from_word: -1, to_word: -1, level };
+      }
+      if (it.kind === "musica") {
+        const level = clampNum(it.level, -40, -6);
+        if (!it.music && level == null) return null;
+        return { ...it, scope: "todo" as const, from_word: -1, to_word: -1, level };
+      }
+      if (it.kind === "quitar") {
+        if (!it.remove) return null;
+        if (it.scope === "todo") return { ...it, from_word: -1, to_word: -1 };
+      }
+      if (it.kind === "transicion" || it.kind === "sonido") {
+        if ((it.kind === "transicion" && !it.transition) || (it.kind === "sonido" && !it.sound)) return null;
+        const level = it.kind === "sonido" ? clampNum(it.level, -30, 0) : null;
+        const at = clampNum(it.at_second, 0, 36000);
+        const rangeOk = ids.has(Math.max(0, Math.min(it.from_word, it.to_word))) || ids.has(Math.min(max, Math.max(it.from_word, it.to_word)));
+        const hit = rangeOk ? findWords(words, it.hit_text, Math.min(it.from_word, it.to_word), Math.max(it.from_word, it.to_word)) : null;
+        if (hit) return { ...it, scope: "momento" as const, from_word: hit.first, to_word: hit.first, level, at_second: null };
+        // Con el segundo que dio la persona, el Estudio lo ubica en el video final.
+        if (at != null) return { ...it, scope: "momento" as const, from_word: rangeOk ? Math.max(0, Math.min(it.from_word, it.to_word)) : 0, to_word: rangeOk ? Math.max(0, Math.min(it.from_word, it.to_word)) : 0, level, at_second: at };
+        if (!rangeOk) return null;
+        const w = Math.max(0, Math.min(it.from_word, it.to_word));
+        return { ...it, scope: "momento" as const, from_word: w, to_word: w, level, at_second: null };
+      }
+      if (it.kind === "cortar") {
+        if (it.scope === "todo") return null;
+        const from = Math.max(0, Math.min(it.from_word, it.to_word)), to = Math.min(max, Math.max(it.from_word, it.to_word));
+        if (!ids.has(from) && !ids.has(to)) return null;
+        if (it.hit_text) {
+          const a = findWords(words, it.hit_text, from, to);
+          // Si no está lo que dijo, no se corta nada a ciegas.
+          if (!a) return null;
+          const b = it.end_text ? findWords(words, it.end_text, a.first, to, a.first) : null;
+          if (it.end_text && !b) return null;
+          return { ...it, from_word: a.first, to_word: b ? b.last : a.last, prompt: it.prompt.slice(0, 300), title: it.title.slice(0, 80) };
+        }
+      }
       if (it.kind === "video" && !it.attachments.some((a) => a.use === "broll")) {
         // Un b-roll de la biblioteca sin adjunto: la pieza que nombró la IA por su código.
         const piece = it.library ? library.codes.get(it.library.trim().toUpperCase()) : undefined;
@@ -71,7 +153,7 @@ export function fakeLibraryBroll(sentences: { from: number; to: number; text: st
       const m = matchLibrary(piece, f.text.split(/\s+/));
       if (m.score >= 2 && (!best || m.score > best.score)) best = { code, score: m.score, start: m.moment?.start ?? null };
     }
-    if (best && items.length < 6) items.push({ kind: "video", scope: "momento", from_word: f.from, to_word: f.to, title: "B-roll de tu biblioteca", prompt: "Se ve lo que dices.", attachments: [], layout: null, library: best.code, clip_start: best.start, text_style: null, look: null });
+    if (best && items.length < 6) items.push({ kind: "video", scope: "momento", from_word: f.from, to_word: f.to, title: "B-roll de tu biblioteca", prompt: "Se ve lo que dices.", attachments: [], layout: null, library: best.code, clip_start: best.start, text_style: null, look: null, ...NO_EXTRA });
   }
   return { reply: items.length ? `Encontré ${items.length === 1 ? "un momento" : `${items.length} momentos`} donde tus clips muestran lo que dices.` : "No encontré clips de tu biblioteca que muestren lo que dices.", go: false, items };
 }

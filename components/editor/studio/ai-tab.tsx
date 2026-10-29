@@ -13,7 +13,7 @@ import type { StudioApi } from "./types";
  * Arriba, los accesos a lo demás de la IA: editar todo, copiar la edición de un video, revisar lo que puso y volver a
  * una versión anterior (antes de cada cambio de la IA queda guardada).
  */
-export function AiTab({ api, tools }: { api: StudioApi; tools: ReactNode }) {
+export function AiTab({ api, tools, simple = false }: { api: StudioApi; tools: ReactNode; simple?: boolean }) {
   const pending = useMemo(() => aiItems(api).length, [api]);
   const [view, setView] = useState<"chat" | "tools" | "versions">("chat");
   if (view === "versions") {
@@ -41,6 +41,19 @@ export function AiTab({ api, tools }: { api: StudioApi; tools: ReactNode }) {
     );
   }
   const chip = "inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-card px-3 py-1.5 text-xs font-semibold text-text transition hover:border-white/25 hover:text-white";
+  // Edición solo con IA: el chat ocupa todo; arriba, solo volver a una versión anterior.
+  if (simple)
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-none items-center justify-between gap-2 border-b border-white/10 px-4 py-2.5">
+          <p className="min-w-0 truncate text-sm font-semibold text-white">Dime qué cambiar y lo edito</p>
+          <button type="button" className={chip} onClick={() => setView("versions")} title="Vuelve a cómo estaba el video antes de un cambio">
+            <History className="h-3.5 w-3.5" aria-hidden /> Versiones
+          </button>
+        </div>
+        <VideoChat api={api} />
+      </div>
+    );
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-white/10 px-4 py-2.5">

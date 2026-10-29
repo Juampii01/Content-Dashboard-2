@@ -237,7 +237,7 @@ function fakeTurn(d: ChatContext, lastText: string, reference: { source: string;
   const act = (kind: VideoChatOutput["items"][number]["kind"], more: Partial<VideoChatOutput["items"][number]> = {}): VideoChatOutput["items"][number] => ({ kind, scope: "momento", from_word: f?.from ?? 0, to_word: f?.to ?? 0, title: "Lo que pediste", prompt: lastText.slice(0, 200), attachments: [], layout: null, library: null, clip_start: null, text_style: null, look: null, ...NO_EXTRA, ...more });
   const all = { scope: "todo" as const, from_word: -1, to_word: -1 };
   const fakeRules: [RegExp, () => VideoChatOutput["items"][number], string][] = [
-    [/deshac|como estaba/i, () => act("deshacer", all), "Listo: volví atrás lo último."],
+    [/desha[cz]|como estaba/i, () => act("deshacer", all), "Listo: volví atrás lo último."],
     [/(quita|saca) (la |las )?animaci/i, () => act("quitar", { ...all, remove: "animaciones" }), "Listo: saqué las animaciones."],
     [/whoosh|efecto de sonido/i, () => act("sonido", { sound: "whoosh" }), "Listo: puse un whoosh."],
     [/transici/i, () => act("transicion", { transition: "tr_whip" }), "Listo: puse una transición."],

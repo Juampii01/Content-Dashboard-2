@@ -197,6 +197,11 @@ export function toReview(s: StudioState, ctx: { plan: EditPlan; hasStyle: boolea
   };
 }
 
+/** Al deshacer o rehacer, lo que ya se guardó como tocado sigue tocado (así el cambio llega al servidor). */
+function sticky(next: StudioState, now: StudioState): StudioState {
+  return now.rhythmTouched && !next.rhythmTouched ? { ...next, rhythmTouched: true } : next;
+}
+
 type History = { past: StudioState[]; present: StudioState; future: StudioState[]; key: string | null; at: number };
 
 /** Cuántos pasos se pueden deshacer. */
@@ -224,7 +229,8 @@ export function useStudioState(plan: EditPlan, wordCount?: number) {
     setH((prev) => {
       const last = prev.past[prev.past.length - 1];
       if (!last) return prev;
-      return { past: prev.past.slice(0, -1), present: last, future: [prev.present, ...prev.future].slice(0, LIMIT), key: null, at: 0 };
+      // Si el ritmo (zooms, densidad) ya se tocó, sigue «tocado»: si no, deshacer el primer zoom no se guardaría.
+      return { past: prev.past.slice(0, -1), present: sticky(last, prev.present), future: [prev.present, ...prev.future].slice(0, LIMIT), key: null, at: 0 };
     });
   }, []);
 
@@ -232,7 +238,7 @@ export function useStudioState(plan: EditPlan, wordCount?: number) {
     setH((prev) => {
       const next = prev.future[0];
       if (!next) return prev;
-      return { past: [...prev.past, prev.present].slice(-LIMIT), present: next, future: prev.future.slice(1), key: null, at: 0 };
+      return { past: [...prev.past, prev.present].slice(-LIMIT), present: sticky(next, prev.present), future: prev.future.slice(1), key: null, at: 0 };
     });
   }, []);
 

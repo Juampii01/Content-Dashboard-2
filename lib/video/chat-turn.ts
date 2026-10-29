@@ -3,8 +3,9 @@ import { inArray } from "drizzle-orm";
 import { z } from "zod";
 import { brandContext, getBrand } from "@/lib/ai/brand-context";
 import { generateStructured, withAiScope } from "@/lib/ai/client";
-import { VIDEO_CHAT_RULES, videoChatSchema, videoChatTask, type VideoChatOutput } from "@/lib/ai/prompts/chat-video";
+import { NO_EXTRA, VIDEO_CHAT_DIRECT, VIDEO_CHAT_RULES, videoChatSchema, videoChatTask, type VideoChatOutput } from "@/lib/ai/prompts/chat-video";
 import { getDb, schema } from "@/lib/db";
+import { FEATURES } from "@/lib/features";
 import { readBytes } from "@/lib/storage";
 import { libraryForPrompt } from "./broll";
 import { chatItems, fakeLibraryBroll, withClipReferences, type ChatAttachment, type ChatPiece } from "./chat-library";
@@ -160,7 +161,7 @@ async function prepare(d: ChatContext) {
   // Marcadores del plan guardado (la persona dice «en el marcador 2…»).
   const plan = project.plan as EditPlan | null;
   const markers = plan?.markers?.length ? markersForPrompt(buildTimeline(words, plan, (project.media as MediaInfo | null)?.duration || (project.transcript as Transcript).duration), plan.markers) : "";
-  return { max, ids, sel, sentencesText, markers };
+  return { max, ids, sel, sentencesText, markers, texts: words.map((w) => w.text) };
 }
 
 export type TurnResult = { message: ChatMessage; go: boolean } | { ok: false; error: string };
@@ -169,7 +170,7 @@ export type TurnResult = { message: ChatMessage; go: boolean } | { ok: false; er
 export async function chatTurn(d: ChatContext, messages: ChatMessage[], userId: string, reference: { source: string; text: string } | null, lastText: string, refs: RefImage[] = []): Promise<TurnResult> {
   const prep = await prepare(d);
   if (!prep) return { ok: false, error: "Este video todavía no tiene transcripción." };
-  const { max, ids, sel, sentencesText } = prep;
+  const { max, ids, sel, sentencesText, texts } = prep;
   const brandCtx = await brandContext(await getBrand());
   const pics = refs.length ? await imagesFor(refs) : { images: [], sizes: [] };
   const seen = await clipVision(conversationClips(messages));
@@ -197,7 +198,7 @@ export async function chatTurn(d: ChatContext, messages: ChatMessage[], userId: 
     generateStructured({
       feature: "video.chat",
       model: "main",
-      context: `${VIDEO_CHAT_RULES}\n\n${brandCtx}`,
+      context: `${VIDEO_CHAT_RULES}${FEATURES.aiOnly ? `\n\n${VIDEO_CHAT_DIRECT}` : ""}\n\n${brandCtx}`,
       task: videoChatTask({
         sentences: sentencesText.slice(0, 40000),
         duration: d.duration,
@@ -224,18 +225,34 @@ export async function chatTurn(d: ChatContext, messages: ChatMessage[], userId: 
     ...seen.clips.map((c) => ({ code: c.code, id: c.id, kind: c.kind, reference: c.reference })),
     ...d.attachments.flatMap((a) => (a.libraryId ? [{ code: a.ref, id: a.libraryId, kind: a.kind, reference: byId.get(a.libraryId)?.reference ?? REFERENCE_RE.test(lastText) }] : [])),
   ];
-  const items = withClipReferences(chatItems(out.items, allAttachments, max, ids, library), pieces, lastText);
+  const items = withClipReferences(chatItems(out.items, allAttachments, max, ids, library, texts), pieces, lastText);
   return { message: { role: "assistant", text: out.reply.slice(0, 4000), at: new Date().toISOString(), ...(items.length ? { items } : {}) }, go: out.go && items.length > 0 };
 }
 
 /** AI_FAKE=1: respuestas armadas con los datos reales (para probar la interfaz sin gastar). */
 function fakeTurn(d: ChatContext, lastText: string, reference: { source: string; text: string } | null, library: Awaited<ReturnType<typeof libraryForPrompt>>, clips: { code: string; reference: boolean }[]): VideoChatOutput {
   const f = d.sentences[Math.floor(d.sentences.length / 3)] ?? d.sentences[0];
+  // Acciones de la edición solo con IA, por palabras clave del pedido.
+  const go = /^(dale|hazlo|ed[ií]talo|cr[eé]ala)/i.test(lastText.trim()) || FEATURES.aiOnly;
+  const act = (kind: VideoChatOutput["items"][number]["kind"], more: Partial<VideoChatOutput["items"][number]> = {}): VideoChatOutput["items"][number] => ({ kind, scope: "momento", from_word: f?.from ?? 0, to_word: f?.to ?? 0, title: "Lo que pediste", prompt: lastText.slice(0, 200), attachments: [], layout: null, library: null, clip_start: null, text_style: null, look: null, ...NO_EXTRA, ...more });
+  const all = { scope: "todo" as const, from_word: -1, to_word: -1 };
+  const fakeRules: [RegExp, () => VideoChatOutput["items"][number], string][] = [
+    [/deshac|como estaba/i, () => act("deshacer", all), "Listo: volví atrás lo último."],
+    [/(quita|saca) (la |las )?animaci/i, () => act("quitar", { ...all, remove: "animaciones" }), "Listo: saqué las animaciones."],
+    [/whoosh|efecto de sonido/i, () => act("sonido", { sound: "whoosh" }), "Listo: puse un whoosh."],
+    [/transici/i, () => act("transicion", { transition: "tr_whip" }), "Listo: puse una transición."],
+    [/m[uú]sica/i, () => act("musica", { ...all, music: /sin m|quita|saca/i.test(lastText) ? "quitar" : /baj/i.test(lastText) ? null : "lofi", level: /baj/i.test(lastText) ? -32 : null }), "Listo con la música."],
+    [/zoom/i, () => act("zoom"), "Listo: puse un zoom."],
+    [/\bvoz\b/i, () => act("voz", { ...all, level: 3 }), "Listo: subí la voz."],
+    [/subt[ií]tulos.*(grande|hormozi)/i, () => act("subtitulos", { ...all, caption_style: "hormozi", caption_size: "grande" }), "Listo: subtítulos estilo Hormozi, grandes."],
+    [/\bcorta\b/i, () => act("cortar"), "Listo: corté esa parte."],
+  ];
+  for (const [re, make, reply] of fakeRules) if (re.test(lastText)) return { reply, go, items: [make()] };
   const wantsSubs = /subt[ií]tul/i.test(lastText);
   if (/b-?roll|mis clips|mis tomas/i.test(lastText) && library.codes.size) return fakeLibraryBroll(d.sentences, library);
   const clip = clips.at(-1);
   return {
-    go: /^(dale|hazlo|ed[ií]talo|cr[eé]ala)/i.test(lastText.trim()),
+    go,
     reply: clip
       ? `Miré los cuadros de ${clip.code}: lo que más se puede copiar es su estilo de animación y sus colores; lo pondría en «${f?.text.slice(0, 80) ?? ""}».`
       : reference
@@ -244,7 +261,7 @@ function fakeTurn(d: ChatContext, lastText: string, reference: { source: string;
           ? "Te propongo ponerle los subtítulos con el estilo de tu marca."
           : `Buena idea. Lo pondría en «${f?.text.slice(0, 80) ?? ""}».`,
     items: wantsSubs
-      ? [{ kind: "subtitulos", scope: "todo", from_word: -1, to_word: -1, title: "Poner subtítulos", prompt: "Subtítulos con el estilo de tu marca.", attachments: [], layout: null, library: null, clip_start: null, text_style: null, look: null }]
+      ? [{ kind: "subtitulos", scope: "todo", from_word: -1, to_word: -1, title: "Poner subtítulos", prompt: "Subtítulos con el estilo de tu marca.", attachments: [], layout: null, library: null, clip_start: null, text_style: null, look: null, ...NO_EXTRA }]
       : f
         ? [
             {
@@ -260,6 +277,7 @@ function fakeTurn(d: ChatContext, lastText: string, reference: { source: string;
               clip_start: null,
               text_style: null,
               look: null,
+              ...NO_EXTRA,
             },
           ]
         : [],

@@ -21,13 +21,34 @@ import { clipOptionAction } from "../edit-actions";
 import { MentionMenu, useLibraryMention } from "./library-mention";
 import type { SignedOption } from "../broll-panel";
 import type { StudioApi } from "./types";
+import type { SfxName } from "@/lib/video/sfx-library";
+import type { MusicStyle } from "@/lib/video/music-gen/spec";
 import { LIBRARY_MIME, type LibraryDrop } from "./studio-timeline";
 import { useDictation } from "./use-dictation";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const IDEAS = ["¿Qué le falta a este video para retener más?", "Ponle subtítulos y anima el gancho", "Dame 3 ideas de animaciones para el principio", "Recorta los silencios"];
 const POLL_MS = 5000;
-const KIND_LABEL: Record<VideoChatItem["kind"], string> = { animacion: "Animación", grafico: "Gráfico", video: "Tu video como b-roll", subtitulos: "Subtítulos", recortar: "Recortar", editar: "Edición del video", texto: "Texto", color: "Color del video" };
+const KIND_LABEL: Record<VideoChatItem["kind"], string> = {
+  animacion: "Animación",
+  grafico: "Gráfico",
+  video: "Tu video como b-roll",
+  subtitulos: "Subtítulos",
+  recortar: "Recortar",
+  editar: "Edición del video",
+  texto: "Texto",
+  color: "Color del video",
+  transicion: "Transición",
+  sonido: "Efecto de sonido",
+  musica: "Música",
+  zoom: "Zoom",
+  cortar: "Cortar una parte",
+  voz: "Volumen de la voz",
+  quitar: "Quitar",
+  deshacer: "Deshacer",
+};
+/** Acciones que cambian el video en el momento (las que «deshacer» vuelve atrás). Las animaciones tardan y van aparte. */
+const INSTANT = new Set<VideoChatItem["kind"]>(["subtitulos", "recortar", "texto", "color", "video", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar"]);
 
 /**
  * Chat con la IA (panel derecho sin nada elegido): conversas sobre tu video, la IA contesta mirando la transcripción y lo
@@ -49,6 +70,8 @@ export function VideoChat({ api }: { api: StudioApi }) {
     return files.list;
   };
   const list = useRef<HTMLOListElement>(null);
+  // Cuántos cambios hizo el último pedido (los que «deshazlo» vuelve atrás de una vez).
+  const lastBatch = useRef(0);
   const field = useRef<HTMLTextAreaElement>(null);
   // Dictado: lo que dices se suma a lo que ya estaba escrito (se ve mientras hablas y queda firme al terminar).
   const dictBase = useRef("");
@@ -225,6 +248,12 @@ export function VideoChat({ api }: { api: StudioApi }) {
         const i = r.thread.messages.length - 1;
         const items = r.thread.messages[i]?.items ?? [];
         for (const [k, it] of items.entries()) await run(it, `${i}-${k}`);
+        const changed = items.filter((it) => INSTANT.has(it.kind)).length;
+        if (changed) lastBatch.current = changed;
+        // Lleva el video al primer momento que cambió, para verlo enseguida.
+        const first = items.find((it) => it.scope !== "todo");
+        const at = first ? (first.kind === "transicion" || first.kind === "sonido" ? pointTime(first) : api.tools.timeOfWord(first.from_word)) : null;
+        if (at != null) api.actions.seek(Math.max(0, at - 1));
       }
     });
   }
@@ -242,9 +271,34 @@ export function VideoChat({ api }: { api: StudioApi }) {
     return [...new Set(ids)].slice(0, 2);
   }
 
+  /** Segundo del video final de una acción puntual (transición, sonido): el que dio la persona o el de su palabra. */
+  function pointTime(it: VideoChatItem): number | null {
+    return it.at_second != null ? it.at_second : api.tools.timeOfWord(it.from_word);
+  }
+
   async function run(it: VideoChatItem, key: string) {
     const range = { from: it.from_word, to: it.to_word };
-    if (it.kind === "editar") {
+    if (it.kind === "deshacer") {
+      api.tools.undo(lastBatch.current || 1);
+      lastBatch.current = 0;
+    } else if (it.kind === "transicion" || it.kind === "sonido") {
+      const t = pointTime(it);
+      if (t == null) return toast.error("No encontré ese momento en el video. Dime el minuto o lo que dices ahí.");
+      if (it.kind === "transicion" && it.transition) api.tools.transitionAt(it.transition, t);
+      else if (it.kind === "sonido" && it.sound) api.tools.soundAt(it.sound as SfxName, t, it.level);
+      else return;
+    } else if (it.kind === "musica") api.tools.music(it.music as MusicStyle | "quitar" | null, it.level);
+    else if (it.kind === "voz") {
+      if (it.level == null) return;
+      api.tools.voice(it.level);
+    } else if (it.kind === "zoom") api.actions.addZoom(range);
+    else if (it.kind === "cortar") api.actions.cutSpan(range);
+    else if (it.kind === "quitar") {
+      if (!it.remove) return;
+      const n = api.tools.removeIn(it.scope === "todo" ? null : range, it.remove);
+      if (!n) toast.info("Ahí no había nada para quitar.");
+    } else if (it.kind === "subtitulos" && (it.caption_style || it.caption_size)) api.tools.captions(it.caption_style, it.caption_size);
+    else if (it.kind === "editar") {
       // Lo hace el director sobre lo guardado (tarda unos minutos).
       const r = await editAction(projectId, it.prompt.slice(0, 600));
       if (!r.ok) return toast.error(r.error);
@@ -371,7 +425,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
                     {it.kind === "texto" && <p className="line-clamp-2 text-[11px] text-white">«{it.prompt}»</p>}
                     {canEdit && (
                       <Button size="sm" variant={isDone ? "ghost" : "primary"} className="self-start" disabled={isDone} onClick={() => void run(it, key)} icon={isDone ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />}>
-                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : it.kind === "editar" ? "Editar así" : it.kind === "texto" ? "Poner el texto" : it.kind === "color" ? "Aplicar el color" : "Hacerlo"}
+                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : it.kind === "editar" ? "Editar así" : it.kind === "texto" ? "Poner el texto" : it.kind === "color" ? "Aplicar el color" : it.kind === "deshacer" ? "Deshacer" : it.kind === "quitar" ? "Quitarlo" : "Hacerlo"}
                       </Button>
                     )}
                   </div>

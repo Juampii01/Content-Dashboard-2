@@ -49,7 +49,8 @@
     "test:videos-dentro": "node --require ./tests/support/sin-server-only.cjs --import tsx --test tests/compos-videos.test.mts",
     "test:largas": "node --require ./tests/support/sin-server-only.cjs --import tsx --test tests/piezas-largas.test.mts",
     "test:mis-efectos": "node --conditions=react-server --import tsx --test tests/mis-efectos.test.mts",
-    "compos:fonts": "node scripts/compos-fonts.mjs"
+    "compos:fonts": "node scripts/compos-fonts.mjs",
+    "test:chat-acciones": "node --require ./tests/support/sin-server-only.cjs --import tsx --test tests/chat-acciones.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",

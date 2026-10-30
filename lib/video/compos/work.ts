@@ -1154,7 +1154,9 @@ async function acceptCode(ctx: WorkCtx, work: ComposWork, task: ComposTask, wire
   }
   task.lastError = undefined;
   // Los textos editables con los valores por defecto del módulo si Claude no los listó.
-  const params = item.params.length ? item.params : Object.entries(check.defaults).map(([key, value]) => ({ key, label: key, value }));
+  // Los que Claude listó, más los del módulo que le faltaron (si no, el código lee una clave que no llega).
+  const listed = new Set(item.params.map((p) => p.key));
+  const params = [...item.params, ...Object.entries(check.defaults).filter(([key]) => !listed.has(key)).map(([key, value]) => ({ key, label: key, value }))].slice(0, 12);
   task.result = { ...item, params, checked: check.hash };
   const s = span(ctx, task);
   task.status = work.lookRounds > task.round && remaining(ctx, work) >= lookCostOf(task, s ? s.end - s.start : 0) ? "look" : "done";

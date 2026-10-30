@@ -14,7 +14,8 @@ import { matchLibrary } from "./library-ficha";
  * biblioteca), así el botón los encuentra siempre: aunque la página se haya recargado o el video se haya mandado en
  * otro mensaje.
  */
-export type VideoChatItem = VideoChatOutput["items"][number] & { clipId?: string; clipStart?: number | null; styleClips?: string[]; insideClips?: string[] };
+/** wordIds: en una corrección, las palabras de la transcripción que se corrigen. */
+export type VideoChatItem = VideoChatOutput["items"][number] & { clipId?: string; clipStart?: number | null; styleClips?: string[]; insideClips?: string[]; wordIds?: number[] };
 export type ChatAttachment = { ref: string; kind: "video" | "image"; libraryId?: string };
 
 /**
@@ -89,6 +90,13 @@ export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttach
       }
       if (it.kind === "subtitulos" || it.kind === "recortar" || it.kind === "editar") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1, library: null, clip_start: null };
       if (it.kind === "deshacer") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1 };
+      if (it.kind === "corregir") {
+        const want = normWord(it.hit_text ?? "");
+        const fixed = it.prompt.replace(/\s+/g, " ").trim().slice(0, 40);
+        if (!want || !fixed || !words?.length) return null;
+        const wordIds = words.flatMap((w, i) => (normWord(w) === want ? [i] : [])).slice(0, 80);
+        return wordIds.length ? { ...it, scope: "todo" as const, from_word: -1, to_word: -1, prompt: fixed, wordIds } : null;
+      }
       if (it.kind === "voz") {
         const level = clampNum(it.level, -12, 6);
         return level == null ? null : { ...it, scope: "todo" as const, from_word: -1, to_word: -1, level };

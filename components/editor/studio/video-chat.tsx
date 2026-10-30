@@ -48,9 +48,10 @@ const KIND_LABEL: Record<VideoChatItem["kind"], string> = {
   voz: "Volumen de la voz",
   quitar: "Quitar",
   deshacer: "Deshacer",
+  corregir: "Corregir una palabra",
 };
 /** Acciones que cambian el video en el momento (las que «deshacer» vuelve atrás). Las animaciones tardan y van aparte. */
-const INSTANT = new Set<VideoChatItem["kind"]>(["subtitulos", "recortar", "texto", "color", "video", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar"]);
+const INSTANT = new Set<VideoChatItem["kind"]>(["corregir", "subtitulos", "recortar", "texto", "color", "video", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar"]);
 
 /**
  * Chat con la IA (panel derecho sin nada elegido): conversas sobre tu video, la IA contesta mirando la transcripción y lo
@@ -308,6 +309,9 @@ export function VideoChat({ api }: { api: StudioApi }) {
     if (it.kind === "deshacer") {
       api.tools.undo(lastBatch.current || 1);
       lastBatch.current = 0;
+    } else if (it.kind === "corregir") {
+      if (!it.wordIds?.length) return;
+      api.tools.correct(it.wordIds, it.prompt);
     } else if (it.kind === "transicion" || it.kind === "sonido") {
       const t = pointTime(it);
       if (t == null) return toast.error("No encontré ese momento en el video. Dime el minuto o lo que dices ahí.");

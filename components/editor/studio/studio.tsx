@@ -1674,8 +1674,6 @@ export function Studio(props: StudioProps) {
         else undo();
         return;
       }
-      // Solo con IA: el teclado solo reproduce y salta (nada edita a escondidas).
-      if (AI_ONLY && (mod ? !["y", "Y"].includes(key) : ![" ", "k", "K", "l", "L", "j", "J", "ArrowLeft", "ArrowRight", "f", "F", "Escape"].includes(key))) return;
       if (mod && (key === "d" || key === "D")) {
         if (typing(e.target)) return;
         e.preventDefault();
@@ -2414,8 +2412,7 @@ export function Studio(props: StudioProps) {
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <div
             className={cn(
-              "flex flex-col lg:grid lg:h-full lg:grid-cols-[var(--left)_minmax(0,1fr)]",
-              AI_ONLY ? "lg:grid-rows-[minmax(0,1fr)]" : "lg:grid-rows-[minmax(0,1fr)_var(--tl)]",
+              "flex flex-col lg:grid lg:h-full lg:grid-rows-[minmax(0,1fr)_var(--tl)] lg:grid-cols-[var(--left)_minmax(0,1fr)]",
             )}
             style={{ "--left": leftOpen ? `${leftW}px` : "52px", "--tl": `${timelineH}px` } as React.CSSProperties}
           >
@@ -2737,26 +2734,6 @@ export function Studio(props: StudioProps) {
                   </div>
                 )}
               </div>
-              {AI_ONLY && (
-                <div className={cn("mt-2 flex w-full max-w-[640px] items-center gap-2 self-center px-2", full && "hidden")} data-testid="ai-transport">
-                  <button type="button" className="btn-ghost !h-9 !w-9 flex-none !p-0" onClick={togglePlay} disabled={!proxyUrl} aria-label={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"} title={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"}>
-                    {playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
-                  </button>
-                  <span className="w-12 flex-none text-right font-mono text-[11px] text-muted tabular-nums">{formatDuration(outTime)}</span>
-                  <input
-                    type="range"
-                    className="range min-w-0 flex-1"
-                    min={0}
-                    max={Math.max(0.1, timeline.duration)}
-                    step={0.01}
-                    value={Math.min(outTime, timeline.duration)}
-                    onChange={(e) => seek(Number(e.target.value), Boolean(videoEl() && !videoEl()!.paused))}
-                    aria-label="Ir a un momento del video"
-                    style={{ ["--pct" as string]: `${(Math.min(outTime, timeline.duration) / Math.max(0.1, timeline.duration)) * 100}%` }}
-                  />
-                  <span className="w-12 flex-none font-mono text-[11px] text-muted tabular-nums">{formatDuration(timeline.duration)}</span>
-                </div>
-              )}
               <div className={cn("mt-1 flex h-8 items-center justify-center", (full || AI_ONLY) && "hidden")}>
                 {composNow && (
                   <button
@@ -2781,8 +2758,8 @@ export function Studio(props: StudioProps) {
               </div>
             </main>
 
-            {/* Abajo: la línea de tiempo (no en la edición solo con IA) */}
-            {!AI_ONLY && <section className="relative order-2 h-[320px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-2 lg:h-auto" aria-label="Línea de tiempo">
+            {/* Abajo: la línea de tiempo */}
+            <section className="relative order-2 h-[320px] min-h-0 border-t border-white/10 bg-card lg:order-none lg:col-span-2 lg:h-auto" aria-label="Línea de tiempo">
               <div {...timelineHandle} aria-label="Alto de la línea de tiempo" className="absolute inset-x-0 -top-1.5 z-40 hidden h-3 cursor-row-resize touch-none lg:block after:absolute after:inset-x-0 after:top-1/2 after:h-0.5 after:-translate-y-1/2 after:bg-transparent after:transition hover:after:bg-accent/60 focus-visible:outline-none focus-visible:after:bg-accent" />
               <StudioTimeline
                 duration={timeline.duration}
@@ -2807,7 +2784,7 @@ export function Studio(props: StudioProps) {
                 obstacles={obstacles}
                 snap={snap}
                 canEdit={canEdit}
-                notes={{ layers: "Arrastra gráficos, efectos o animaciones desde la Biblioteca: van encima del video", zoom: styleZooms ? "Automáticos del estilo" : "Sin zooms", fx: "Arrastra un efecto o una transición desde la Biblioteca", broll: "Elige un tramo en la pista de video para poner b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Arrastra sonidos desde la Biblioteca" : undefined, voice: proxyUrl ? "Preparando la forma de onda de tu voz…" : undefined, music: musicLabel ? "Leyendo la música…" : "Elige música en la Biblioteca o en Audio y música" }}
+                notes={AI_ONLY ? { layers: "Pídele a la IA animaciones, gráficos o textos: aparecen aquí", zoom: "Pídele un zoom a la IA", fx: "Pídele una transición a la IA", broll: "Adjunta un video en el chat para usarlo de b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Pídele efectos de sonido a la IA" : undefined, voice: proxyUrl ? "Preparando la forma de onda de tu voz…" : undefined, music: musicLabel ? "Leyendo la música…" : "Pídele música a la IA" } : { layers: "Arrastra gráficos, efectos o animaciones desde la Biblioteca: van encima del video", zoom: styleZooms ? "Automáticos del estilo" : "Sin zooms", fx: "Arrastra un efecto o una transición desde la Biblioteca", broll: "Elige un tramo en la pista de video para poner b-roll", audio: s.sfx === "off" && !s.soundCues.length ? "Arrastra sonidos desde la Biblioteca" : undefined, voice: proxyUrl ? "Preparando la forma de onda de tu voz…" : undefined, music: musicLabel ? "Leyendo la música…" : "Elige música en la Biblioteca o en Audio y música" }}
                 onSeek={(t) => seek(t, Boolean(videoEl() && !videoEl()!.paused))}
                 onSelect={(sel) => (setMulti([]), select(sel))}
                 multi={multi}
@@ -2823,7 +2800,7 @@ export function Studio(props: StudioProps) {
                   if (keys.length) setLeftOpen(true);
                 }}
                 onGroupMove={moveMany}
-                onAddAt={(t, at) => (seek(t), setAddMenu({ t, x: at.x, y: at.y }))}
+                onAddAt={AI_ONLY ? undefined : (t, at) => (seek(t), setAddMenu({ t, x: at.x, y: at.y }))}
                 onCommit={commitBlock}
                 onRange={(span) => {
                   setSelection({ kind: "range", from: span.from, to: span.to });
@@ -2834,7 +2811,7 @@ export function Studio(props: StudioProps) {
                 transitionSlots={transitionSlots}
                 dropPreview={canEdit ? dropPreview : undefined}
               />
-            </section>}
+            </section>
           </div>
         </div>
       </div>

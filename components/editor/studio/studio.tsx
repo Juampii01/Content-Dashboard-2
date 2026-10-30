@@ -2311,6 +2311,138 @@ export function Studio(props: StudioProps) {
   const brNow = fxNow ? null : (segments.find((sg) => outTime >= sg.start && outTime < sg.end) ?? null);
   const pickedItem = picking ? s.broll.find((b) => b.id === picking.id) ?? null : null;
 
+  /** Transcripción editable: cortar o recuperar palabras y corregir cómo se escriben (también en la edición solo con IA). */
+  const transcriptPanel = (
+                      <div className="flex flex-col gap-3 p-3">
+                        <SubtitleBar api={api} onOpenStyle={() => setLeftTab(AI_ONLY ? "ia" : "subtitulos")} />
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs text-muted" data-testid="trim-summary">
+                            {formatNumber(removedSet.size)} {removedSet.size === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}
+                            {pauseList.length > 0 && ` · ${formatNumber(trimmedPauses.length)} ${trimmedPauses.length === 1 ? "pausa acortada" : "pausas acortadas"}`}.
+                          </p>
+                          {canEdit && (
+                            <div className="flex flex-wrap gap-1">
+                              {changedFromProposal && (
+                                <Button size="sm" variant="subtle" className="!px-2" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={backToProposal}>
+                                  Volver a la propuesta
+                                </Button>
+                              )}
+                              <Button size="sm" variant="subtle" className="!px-2" icon={proofreading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <SpellCheck className="h-3.5 w-3.5" aria-hidden />} onClick={proofread} disabled={proofreading}>
+                                {proofreading ? "Revisando…" : "Ortografía con IA"}
+                              </Button>
+                              <Button size="sm" variant="subtle" className="!px-2" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={restoreAll} disabled={nothingTrimmed} title="Todas las palabras y las pausas completas, como lo grabaste">
+                                Sin recortes
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                        {(FEATURES.clone || (phrase.fixes?.length ?? 0) > 0) && <PhraseFixPanel
+                          projectId={projectId}
+                          fixes={phrase.fixes}
+                          canEdit={canEdit}
+                          onUpsert={phrase.upsert}
+                          onCoverChanged={(fix) => {
+                            // Con labios o sin cambios ya no hace falta el b-roll vacío que se puso para tapar la frase.
+                            if (fix.cover !== "broll") update((st) => ({ ...st, broll: st.broll.filter((b) => b.choice || b.to_word < fix.fromWord || b.from_word > fix.toWord) }));
+                          }}
+                          onRemove={(fix) => {
+                            phrase.remove(fix.id);
+                            // Los subtítulos vuelven a la frase original (solo los que puso la corrección).
+                            const ours = captionCorrections(fix.fromWord, fix.toWord, fix.newText);
+                            update((st) => {
+                              const next = { ...st.corrections };
+                              for (const [id, text] of Object.entries(ours)) if (next[id] === text) delete next[id];
+                              return { ...st, corrections: next };
+                            });
+                          }}
+                          onCoverWithBroll={(fix) => addBroll({ from: fix.fromWord, to: fix.toWord })}
+                          onListen={listenFrom}
+                          hasBrollAt={(from, to) => s.broll.some((b) => b.choice && b.from_word <= to && from <= b.to_word)}
+                        />}
+                        <TranscriptEditor
+                          words={words}
+                          removed={removedSet}
+                          reasons={reasons}
+                          hook={s.selectedHook != null && plan.hook_candidates[s.selectedHook] ? { from: plan.hook_candidates[s.selectedHook]!.from_word, to: plan.hook_candidates[s.selectedHook]!.to_word } : null}
+                          offScript={offScript}
+                          corrections={s.corrections}
+                          activeTime={activeTime}
+                          canEdit={canEdit}
+                          onSetCut={cut}
+                          subsHidden={subsHidden}
+                          pauses={pauseList}
+                          onPause={canEdit ? setPause : undefined}
+                          onCorrect={(id, text) =>
+                            update((st) => {
+                              const next = { ...st.corrections };
+                              if (text) next[String(id)] = text;
+                              else delete next[String(id)];
+                              return { ...st, corrections: next };
+                            })
+                          }
+                          onListen={listenFrom}
+                          onJump={(id) => {
+                            // Lleva el cabezal a esa palabra (o a la siguiente que queda, si está cortada) sin cortar la reproducción.
+                            const w = timeline.words.find((x) => x.id >= id);
+                            const v = videoEl();
+                            if (w) seek(w.start, Boolean(v && !v.paused));
+                          }}
+                          brollMarks={brollMarks}
+                          activeBroll={selection?.kind === "broll" ? selection.id : null}
+                          onBrollClick={(id) => select({ kind: "broll", id })}
+                          extraActions={
+                            canEdit && !AI_ONLY
+                              ? (range, clear) => (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        // El pedido se escribe en el inspector del tramo (a la derecha), con el cuadro ya enfocado.
+                                        setSelection({ kind: "range", from: range.from, to: range.to });
+                                        clear();
+                                        setTimeout(() => {
+                                          const box = document.getElementById("ask-animation");
+                                          box?.scrollIntoView({ block: "center", behavior: "smooth" });
+                                          box?.focus({ preventScroll: true });
+                                        }, 120);
+                                      }}
+                                    >
+                                      Pide una animación aquí
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => (addBroll(range), clear())}>
+                                      Poner b-roll aquí
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => (addBroll(range, true), clear())}>
+                                      Pide un gráfico aquí
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => (setGallery({ range, replace: null }), clear())}>
+                                      Poner un efecto aquí
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => (addZoom(range), clear())}>
+                                      Zoom aquí
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => (setFixRange(range), clear())}>
+                                      Corregir esta frase
+                                    </Button>
+                                    {selection?.kind === "fx" && s.effects.some((e) => e.id === selection.id) && (
+                                      <Button size="sm" variant="ghost" onClick={() => (moveTo(selection, range, "move"), clear())}>
+                                        Mover el efecto elegido aquí
+                                      </Button>
+                                    )}
+                                    {selection?.kind === "broll" && s.broll.some((b) => b.id === selection.id) && (
+                                      <Button size="sm" variant="ghost" onClick={() => (moveTo(selection, range, "move"), clear())}>
+                                        Mover el b-roll elegido aquí
+                                      </Button>
+                                    )}
+                                  </>
+                                )
+                              : undefined
+                          }
+                        />
+                        {offScript.size > 0 && <p className="text-xs text-muted">Lo subrayado con puntos amarillos no está en el guion (no se corta solo).</p>}
+                      </div>
+  );
+
   const toolbar = (
     <div className="flex h-10 flex-none items-center gap-1.5 border-b border-white/10 px-2 sm:px-3">
       <button type="button" className="btn-ghost !h-8 !w-8 !p-0" onClick={togglePlay} disabled={!proxyUrl} aria-label={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"} title={playing ? "Pausar (Espacio)" : "Reproducir (Espacio)"}>
@@ -2435,7 +2567,27 @@ export function Studio(props: StudioProps) {
               )}
               {AI_ONLY ? (
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden" role="region" aria-label="Edición con IA">
-                  <AiTab api={api} simple tools={null} />
+                  <div role="tablist" aria-label="Chat o transcripción" className="flex flex-none gap-1 border-b border-white/10 px-3 py-1.5">
+                    {([["ia", "Chat con la IA", Bot], ["texto", "Transcripción", Type]] as const).map(([v, label, Icon]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        role="tab"
+                        aria-selected={leftTab === v}
+                        onClick={() => setLeftTab(v)}
+                        className={cn("inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition", leftTab === v ? "bg-white text-paper" : "text-muted hover:bg-white/[0.06] hover:text-white")}
+                      >
+                        <Icon className="h-3.5 w-3.5" aria-hidden /> {label}
+                      </button>
+                    ))}
+                  </div>
+                  {leftTab === "texto" ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" role="tabpanel">
+                      {transcriptPanel}
+                    </div>
+                  ) : (
+                    <AiTab api={api} simple tools={null} />
+                  )}
                 </div>
               ) : leftOpen ? (
                 <>
@@ -2504,136 +2656,7 @@ export function Studio(props: StudioProps) {
                         <AudioBlock api={api} />
                       </div>
                     )}
-                    {leftTab === "texto" && (
-                      <div className="flex flex-col gap-3 p-3">
-                        <SubtitleBar api={api} onOpenStyle={() => setLeftTab("subtitulos")} />
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs text-muted" data-testid="trim-summary">
-                            {formatNumber(removedSet.size)} {removedSet.size === 1 ? "palabra cortada" : "palabras cortadas"} de {formatNumber(words.length)}
-                            {pauseList.length > 0 && ` · ${formatNumber(trimmedPauses.length)} ${trimmedPauses.length === 1 ? "pausa acortada" : "pausas acortadas"}`}.
-                          </p>
-                          {canEdit && (
-                            <div className="flex flex-wrap gap-1">
-                              {changedFromProposal && (
-                                <Button size="sm" variant="subtle" className="!px-2" icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />} onClick={backToProposal}>
-                                  Volver a la propuesta
-                                </Button>
-                              )}
-                              <Button size="sm" variant="subtle" className="!px-2" icon={proofreading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <SpellCheck className="h-3.5 w-3.5" aria-hidden />} onClick={proofread} disabled={proofreading}>
-                                {proofreading ? "Revisando…" : "Ortografía con IA"}
-                              </Button>
-                              <Button size="sm" variant="subtle" className="!px-2" icon={<Undo2 className="h-3.5 w-3.5" aria-hidden />} onClick={restoreAll} disabled={nothingTrimmed} title="Todas las palabras y las pausas completas, como lo grabaste">
-                                Sin recortes
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                        {(FEATURES.clone || (phrase.fixes?.length ?? 0) > 0) && <PhraseFixPanel
-                          projectId={projectId}
-                          fixes={phrase.fixes}
-                          canEdit={canEdit}
-                          onUpsert={phrase.upsert}
-                          onCoverChanged={(fix) => {
-                            // Con labios o sin cambios ya no hace falta el b-roll vacío que se puso para tapar la frase.
-                            if (fix.cover !== "broll") update((st) => ({ ...st, broll: st.broll.filter((b) => b.choice || b.to_word < fix.fromWord || b.from_word > fix.toWord) }));
-                          }}
-                          onRemove={(fix) => {
-                            phrase.remove(fix.id);
-                            // Los subtítulos vuelven a la frase original (solo los que puso la corrección).
-                            const ours = captionCorrections(fix.fromWord, fix.toWord, fix.newText);
-                            update((st) => {
-                              const next = { ...st.corrections };
-                              for (const [id, text] of Object.entries(ours)) if (next[id] === text) delete next[id];
-                              return { ...st, corrections: next };
-                            });
-                          }}
-                          onCoverWithBroll={(fix) => addBroll({ from: fix.fromWord, to: fix.toWord })}
-                          onListen={listenFrom}
-                          hasBrollAt={(from, to) => s.broll.some((b) => b.choice && b.from_word <= to && from <= b.to_word)}
-                        />}
-                        <TranscriptEditor
-                          words={words}
-                          removed={removedSet}
-                          reasons={reasons}
-                          hook={s.selectedHook != null && plan.hook_candidates[s.selectedHook] ? { from: plan.hook_candidates[s.selectedHook]!.from_word, to: plan.hook_candidates[s.selectedHook]!.to_word } : null}
-                          offScript={offScript}
-                          corrections={s.corrections}
-                          activeTime={activeTime}
-                          canEdit={canEdit}
-                          onSetCut={cut}
-                          subsHidden={subsHidden}
-                          pauses={pauseList}
-                          onPause={canEdit ? setPause : undefined}
-                          onCorrect={(id, text) =>
-                            update((st) => {
-                              const next = { ...st.corrections };
-                              if (text) next[String(id)] = text;
-                              else delete next[String(id)];
-                              return { ...st, corrections: next };
-                            })
-                          }
-                          onListen={listenFrom}
-                          onJump={(id) => {
-                            // Lleva el cabezal a esa palabra (o a la siguiente que queda, si está cortada) sin cortar la reproducción.
-                            const w = timeline.words.find((x) => x.id >= id);
-                            const v = videoEl();
-                            if (w) seek(w.start, Boolean(v && !v.paused));
-                          }}
-                          brollMarks={brollMarks}
-                          activeBroll={selection?.kind === "broll" ? selection.id : null}
-                          onBrollClick={(id) => select({ kind: "broll", id })}
-                          extraActions={
-                            canEdit
-                              ? (range, clear) => (
-                                  <>
-                                    <Button
-                                      size="sm"
-                                      onClick={() => {
-                                        // El pedido se escribe en el inspector del tramo (a la derecha), con el cuadro ya enfocado.
-                                        setSelection({ kind: "range", from: range.from, to: range.to });
-                                        clear();
-                                        setTimeout(() => {
-                                          const box = document.getElementById("ask-animation");
-                                          box?.scrollIntoView({ block: "center", behavior: "smooth" });
-                                          box?.focus({ preventScroll: true });
-                                        }, 120);
-                                      }}
-                                    >
-                                      Pide una animación aquí
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => (addBroll(range), clear())}>
-                                      Poner b-roll aquí
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => (addBroll(range, true), clear())}>
-                                      Pide un gráfico aquí
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => (setGallery({ range, replace: null }), clear())}>
-                                      Poner un efecto aquí
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => (addZoom(range), clear())}>
-                                      Zoom aquí
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => (setFixRange(range), clear())}>
-                                      Corregir esta frase
-                                    </Button>
-                                    {selection?.kind === "fx" && s.effects.some((e) => e.id === selection.id) && (
-                                      <Button size="sm" variant="ghost" onClick={() => (moveTo(selection, range, "move"), clear())}>
-                                        Mover el efecto elegido aquí
-                                      </Button>
-                                    )}
-                                    {selection?.kind === "broll" && s.broll.some((b) => b.id === selection.id) && (
-                                      <Button size="sm" variant="ghost" onClick={() => (moveTo(selection, range, "move"), clear())}>
-                                        Mover el b-roll elegido aquí
-                                      </Button>
-                                    )}
-                                  </>
-                                )
-                              : undefined
-                          }
-                        />
-                        {offScript.size > 0 && <p className="text-xs text-muted">Lo subrayado con puntos amarillos no está en el guion (no se corta solo).</p>}
-                      </div>
-                    )}
+                    {leftTab === "texto" && transcriptPanel}
                     {leftTab === "subtitulos" && <SubtitlesPanel api={api} proofreading={proofreading} onProofread={proofread} />}
                     {leftTab === "edicion" && (
                       <EditPanel

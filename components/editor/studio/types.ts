@@ -155,6 +155,8 @@ export type StudioApi = {
     wholeVideo: (notes?: string) => void;
     /** «Animar todo» desde el chat: directo, sin pantalla de plan, con la charla entera. */
     wholeFromChat: (prompt: string, layout: "full" | "face" | "over" | "split" | "top", clips?: string[]) => Promise<boolean>;
+    /** «Cópiala tal cual»: toda la edición de la referencia de la charla en una sola pieza. */
+    copyLook: (notes: string) => Promise<boolean>;
     subtitle: () => void;
     /** Un texto a mano en el tramo, con su estilo y lo que dice (desde el chat). */
     textAt: (range: WordSpan, preset: TextPresetKey, text: string) => void;

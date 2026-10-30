@@ -81,3 +81,13 @@ describe("acciones nuevas", () => {
     assert.equal(one({ kind: "corregir", from_word: -1, to_word: -1, hit_text: "zapato", prompt: "x" }).length, 0);
   });
 });
+
+describe("copiar la edición", () => {
+  test("va siempre a todo el video, sin adjuntos", () => {
+    const [it] = one({ kind: "copiar", from_word: 3, to_word: 9, prompt: "  más rápido  ", attachments: [{ ref: "A1", use: "style" }] });
+    assert.equal(it!.scope, "todo");
+    assert.equal(it!.from_word, -1);
+    assert.equal(it!.attachments.length, 0);
+    assert.equal(it!.prompt, "más rápido");
+  });
+});

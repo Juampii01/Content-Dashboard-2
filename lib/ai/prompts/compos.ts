@@ -33,6 +33,15 @@ export const recipeWireSchema = z.object({
     music: z.string().describe("Música y sonidos: estilo, golpes, whooshes."),
     density: z.enum(["sobria", "normal", "reels"]),
   }),
+  kit: z
+    .object({
+      background: z.string().describe("El fondo que se repite (escenario, degradé, grilla, velas…): qué es, colores #hex y cómo se mueve. Vacío si se ve a la persona."),
+      character: z.string().describe("Personaje o mascota que se repite (forma, tamaño en % del cuadro, dónde se para, cómo se mueve, estilo: pixel art, 3D, trazo…). Vacío si no hay."),
+      components: z.array(z.string()).describe("Piezas que se repiten entre escenas, cada una como ficha: panel/tarjeta (tamaño, borde, fondo, título), títulos chicos arriba, caja de subtítulos, aros de impacto, destellos, contador, cursor, sello…"),
+      layout: z.string().describe("Dónde va cada cosa en el cuadro (% del alto): título, panel principal, personaje, subtítulos, firma o usuario."),
+      transitions: z.string().describe("Cómo se pasa de una escena a la otra (fundido, sube desde abajo, barrido, corte seco) y cuánto dura."),
+    })
+    .describe("El KIT: lo que se repite en todo el video y lo hace verse como una sola pieza. Con esto otro motion designer arma la base sin ver la referencia."),
   moments: z
     .array(
       z.object({
@@ -60,7 +69,8 @@ Cómo mirar:
 - Un momento es cualquier cosa que el editor agregó: una transición, un texto animado, una tarjeta, un zoom o golpe de cámara, un cambio de look, un b-roll, un recorte de la persona (texto detrás, fondo cambiado), un estilo de subtítulos, un sonido marcado, un gráfico, una imagen.
 - Sé preciso como una ficha técnica: "palabra en Anton blanca de 22 % del ancho, centrada en el 38 % del alto, entra con escala 1,6→1 en 0,25 s con rebote, glitch RGB de 3 cuadros al llegar, sale con desenfoque". Nada de "un texto que aparece".
 - Colores en #hex aproximado. Posiciones en % del cuadro. Tiempos en segundos.
-- Si algo no se distingue, dilo en la descripción ("no se ve bien si…").`;
+- Si algo no se distingue, dilo en la descripción ("no se ve bien si…").
+- Separa el KIT (lo que se repite: fondo, personaje, paneles, títulos, caja de subtítulos, aros, transiciones) de los MOMENTOS (lo que cambia en cada idea). El kit hace que el video se vea como una sola pieza: descríbelo con el mismo detalle que un momento.`;
 
 export function recipeTask(input: { duration: number; aspect: string; metrics: string; moments: string; transcript: string; sheets: number; frames: number }): string {
   return `REFERENCIA: ${input.duration.toFixed(1)} s, ${input.aspect}. Te paso ${input.sheets} hojas con ${input.frames} cuadros (R#n con su segundo).
@@ -106,6 +116,42 @@ Lleva cada momento de la receta al video nuevo POR FUNCIÓN, no por segundo: el 
 ${input.maxCompose >= 20 ? `- Copia TODO: cada momento de la receta que se pueda dibujar (textos, tarjetas, gráficos, imágenes, transiciones con forma, recortes de la persona, looks) va con plan "compose", aunque sea de importancia 1. Solo van como "catalog" los que son nada más ritmo, zooms simples o el estilo de los subtítulos.` : `- Hasta ${input.maxCompose} momentos con plan "compose" (los de importancia 3 y 2 primero). Los que son solo ritmo, zooms simples o subtítulos van como "catalog".`}
 - Cada tramo: de 0,8 a ${COMPOS_LIMITS.maxSeconds} s, sin pisarse entre sí.
 - Si un momento no tiene dónde ir (no hay una cifra que mostrar, por ejemplo), "skip" con la razón. Nunca inventes datos.`;
+}
+
+// ─── Copia exacta de todo el video: escenas atadas a palabras ───────────
+
+export const copyScenesWireSchema = z.object({
+  scenes: z
+    .array(
+      z.object({
+        from_word: z.number().int().describe("Primera palabra (id) del video nuevo donde arranca la escena."),
+        to_word: z.number().int().describe("Última palabra (id) de la escena."),
+        title: z.string().describe("Nombre corto (2 a 5 palabras)."),
+        moments: z.array(z.string()).describe("Ids de los momentos de la receta que copia (m1, m2…)."),
+        frames: z.array(z.number().int()).describe("Cuadros R#n de la referencia que hay que mirar para esta escena (los más claros, hasta 8)."),
+        draw: z.string().describe("Qué se dibuja, como ficha técnica y con el contenido de ESTE video: el panel o lo que vaya, sus textos exactos entre «», colores #hex, tamaños y posiciones en % del cuadro, usando las piezas del kit."),
+        beats: z
+          .array(z.object({ word: z.number().int().describe("Id de la palabra que lo dispara."), what: z.string().describe("Qué pasa justo ahí (entra un elemento, cuenta un número, cae un sello, se tacha…).") }))
+          .describe("Los golpes de la escena, cada uno atado a la palabra exacta que lo dispara."),
+      }),
+    )
+    .describe("Todas las escenas, en orden, cubriendo el video nuevo de principio a fin sin huecos ni pisarse."),
+});
+export type CopyScenesWire = z.infer<typeof copyScenesWireSchema>;
+
+export function copyScenesTask(input: { recipe: string; sentences: string; duration: number; maxScenes: number; notes: string | null }): string {
+  return `RECETA DE LA REFERENCIA (lo que hay que copiar tal cual):
+${input.recipe}
+
+VIDEO NUEVO (${input.duration.toFixed(1)} s). Frases con los ids de sus palabras ([desde–hasta] segundos):
+${input.sentences}
+${input.notes ? `\nLO QUE PIDIÓ LA PERSONA: ${input.notes}\n` : ""}
+Arma las escenas del video nuevo para copiar la edición de la referencia TAL CUAL, con el contenido de este video:
+- Misma estructura y misma densidad que la referencia: si la referencia cambia de escena cada 2–3 s, este también. Entre ${Math.max(3, Math.round(input.maxScenes * 0.6))} y ${input.maxScenes} escenas.
+- Cada escena copia uno o más momentos de la receta POR FUNCIÓN (el gancho al gancho, la enumeración a la enumeración, la cifra a la cifra, la CTA a la CTA) y usa las piezas del KIT. Si el video nuevo habla de algo que la referencia no tiene, inventa una escena en el MISMO estilo (mismo kit, misma composición).
+- Las escenas cubren el video entero en orden: la primera empieza en la primera palabra, cada una termina justo antes de la siguiente y la última llega al final.
+- Cada golpe (beats) va atado a la palabra exacta que lo dispara: el número aparece cuando se dice el número, el sello cuando se dice «gratis», el tachón cuando se dice «no».
+- Textos en pantalla: cortos y sacados de lo que dice la persona. Nunca inventes cifras ni datos.`;
 }
 
 // ─── Pedido libre (Studio y "Edítalo así") ───────────────────────────────
@@ -282,6 +328,8 @@ export function composCodeTask(input: {
   stage?: string | null;
   /** Cambio en una sola escena de la pieza. */
   scene?: { index: number; title: string; start: number; end: number } | null;
+  /** Copia exacta de todo el video: el kit y el estilo de la referencia (las hojas son de toda la referencia). */
+  copyKit?: string | null;
 }): string {
   const parts = [
     `ANIMACIÓN: ${input.brief}`,
@@ -299,11 +347,19 @@ export function composCodeTask(input: {
 ESCENAS (segundos de la pieza):
 ${input.long.scenes.map((sc, i) => `${i + 1}. «${sc.title}» ${sc.start.toFixed(2)}–${sc.end.toFixed(2)} s: ${sc.brief}`).join("\n")}`);
   }
+  if (input.copyKit) parts.push(`COPIA EXACTA DE UNA REFERENCIA (manda sobre lo anterior): este video tiene que verse IGUAL a la referencia, como si lo hubiera editado la misma persona, con el contenido de este video.
+- Primero el KIT, una sola vez y fuera de las escenas: const KIT = { fondo, personaje, panel, título, subtítulo, aros, … } con una función por pieza, fieles a la ficha de abajo (mismos colores #hex, tamaños en % del cuadro, tipografía, estilo de dibujo: si es pixel art, todo en pixel art con rectángulos y sin suavizar). Cada escena se arma con esas piezas: así toda la pieza se ve como una sola.
+- render(): fondo del kit → escena del momento (con su entrada de la transición del kit) → personaje del kit → título de la escena → subtítulos del kit → aros y destellos. Lo que la referencia tiene siempre (personaje, velas, firma), aquí también está siempre.
+- Subtítulos: los dibujas tú con el estilo de la referencia (caja, tipografía, mayúsculas, cuántas palabras a la vez) leyendo env.words, y pones hide_captions en true.
+- Cada golpe de la lista de escenas ya trae su segundo de la pieza (el de la palabra que lo dispara): ponlo exactamente ahí, con su sonido.
+- Las hojas adjuntas son TODA la referencia, cuadro por cuadro (R#n con su segundo). Antes de escribir cada escena, mira sus cuadros R#n: copia la composición, los tamaños, los colores y el movimiento. Nada genérico: si en la referencia el panel ocupa el 55 % del ancho con grilla de 11 casilleros, aquí también.
+KIT Y ESTILO DE LA REFERENCIA:
+${input.copyKit}`);
   if (input.stage) parts.push(input.stage);
   if (input.scene) parts.push(`CAMBIO SOLO EN LA ESCENA ${input.scene.index + 1} «${input.scene.title}» (${input.scene.start.toFixed(2)}–${input.scene.end.toFixed(2)} s de la pieza). Cambia únicamente esa escena (y, si hace falta, la transición de entrada y de salida de esa escena). Todo lo demás del código tiene que quedar exactamente igual, carácter por carácter.`);
   if (input.momentDetail) parts.push(`EL MOMENTO DE LA REFERENCIA QUE COPIAS (reprodúcelo lo más fiel posible: composición, tipografía, colores, movimiento, curvas y tiempos; solo cambia el contenido):\n${input.momentDetail}`);
   if (input.recipeGlobal) parts.push(`ESTILO GLOBAL DE LA REFERENCIA:\n${input.recipeGlobal}`);
-  if (input.refFrames) parts.push(`Te paso ${input.refFrames === 1 ? "una hoja" : `${input.refFrames} hojas`} con los cuadros de la referencia en ese momento (R#n). Míralos y copia lo que se ve.`);
+  if (input.refFrames && !input.copyKit) parts.push(`Te paso ${input.refFrames === 1 ? "una hoja" : `${input.refFrames} hojas`} con los cuadros de la referencia en ese momento (R#n). Míralos y copia lo que se ve.`);
   if (input.images) parts.push(`IMÁGENES GENERADAS PARA ESTA ANIMACIÓN (están en env.assets con kind "image", en este orden):\n${input.images}`);
   if (input.avoid) parts.push(`VARIEDAD: ya se usaron hace poco en esta marca (evita repetir la misma familia visual salvo que el pedido lo exija): ${input.avoid}`);
   if (input.base) parts.push(`ANIMACIÓN ACTUAL (la cambias según el pedido; conserva lo que no se pide cambiar):\nPedido: «${input.base.request}»\nparams actuales: ${input.base.params}\n\`\`\`js\n${input.base.code}\n\`\`\``);
@@ -323,10 +379,10 @@ export const composLookWireSchema = z.object({
 });
 export type ComposLookWire = z.infer<typeof composLookWireSchema>;
 
-export function composLookTask(input: { brief: string; momentDetail?: string | null; code: string; times: number[]; refFrames: number; round: number }): string {
+export function composLookTask(input: { brief: string; momentDetail?: string | null; code: string; times: number[]; refFrames: number; round: number; copy?: boolean }): string {
   return `ANIMACIÓN: ${input.brief}
 ${input.momentDetail ? `MOMENTO DE LA REFERENCIA QUE COPIA:\n${input.momentDetail}\n` : ""}
-La PRIMERA imagen es una hoja con tu animación dibujada sobre el video real en ${input.times.map((t) => `${t.toFixed(2)} s`).join(", ")}.${input.refFrames ? ` Las siguientes son los cuadros de la referencia en ese momento (R#n).` : ""}
+La PRIMERA imagen es una hoja con tu animación dibujada sobre el video real en ${input.times.map((t) => `${t.toFixed(2)} s`).join(", ")}.${input.refFrames ? (input.copy ? ` Las siguientes son las hojas de TODA la referencia que hay que copiar tal cual (R#n): busca en cada escena qué no se parece (fondo, personaje, paneles, tamaños, colores, subtítulos) y corrígelo.` : ` Las siguientes son los cuadros de la referencia en ese momento (R#n).`) : ""}
 Vuelta ${input.round}. Compara como un director exigente: legibilidad, tamaños, lugar, colores, que no tape la cara, que el movimiento se lea en los cuadros${input.refFrames ? " y que se parezca a la referencia" : ""}. Si hay algo para mejorar, devuelve el módulo completo corregido en fixed.
 
 CÓDIGO ACTUAL:

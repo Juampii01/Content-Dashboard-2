@@ -343,3 +343,16 @@ test("textos editables: lo que no llegó usa el valor del módulo, y «undefined
   assert.equal(r2.ok, false);
   assert.match(r2.ok ? "" : r2.error, /undefined/);
 });
+
+test("copia exacta: el pedido de código trae el kit y las reglas de la copia, sin la línea suelta de cuadros", async () => {
+  const { composCodeTask } = await import("../lib/ai/prompts/compos");
+  const base = { brief: "Pieza", said: "hola", words: "hola@0.10", duration: 10, format: "9:16", width: 1080, height: 1920, face: "x 0", refFrames: 6, long: { scenes: [{ title: "Gancho", start: 0, end: 10, brief: "Panel" }] } };
+  const copy = composCodeTask({ ...base, copyKit: "KIT:\n- Fondo: velas" });
+  assert.match(copy, /COPIA EXACTA/);
+  assert.match(copy, /const KIT/);
+  assert.match(copy, /Fondo: velas/);
+  assert.doesNotMatch(copy, /Míralos y copia lo que se ve/);
+  const plain = composCodeTask(base);
+  assert.doesNotMatch(plain, /COPIA EXACTA/);
+  assert.match(plain, /Míralos y copia lo que se ve/);
+});

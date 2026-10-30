@@ -24,6 +24,7 @@ import { WholeVideoDialog } from "../compos/whole-video-dialog";
 import { isActive, requestStage, useComposRequests, type ComposRequest, type LiveRequest } from "../compos/use-compos-work";
 import { placeMyEffectAction } from "../my-effects-actions";
 import { wholeFromChatAction } from "../compos-actions";
+import { videoChatCopyAction } from "../video-chat-actions";
 import { humanize as humanizeText } from "@/lib/video/human-text";
 import { brollGraphicOption, graphicKindLabel, motionTheme, type BrollGraphic } from "@/lib/video/motion-graphics";
 import { isTextPreset, TEXT_PRESETS, TEXT_SECONDS, textOption, updateTextOption, type TextPresetKey, type TextSpecInput } from "@/lib/video/text-presets";
@@ -2116,6 +2117,16 @@ export function Studio(props: StudioProps) {
         return false;
       }
       toast.success(r.replaced ? "Rehaciendo la animación de todo el video con lo que hablaron." : "Creando la animación de todo el video con lo que hablaron.", { description: "Tarda de 10 a 20 minutos: aparece sola en la pista Animaciones y puedes cerrar el Estudio y volver." });
+      void composWork.refresh();
+      return true;
+    },
+    copyLook: async (notes) => {
+      const r = await videoChatCopyAction(projectId, notes);
+      if (!r.ok || r.error) {
+        toast.error(r.ok ? (r.error ?? "") : r.error);
+        return false;
+      }
+      toast.success(`Copiando la edición en ${r.count} escenas.`, { description: "Tarda de 15 a 30 minutos: aparece sola en la pista Animaciones y puedes cerrar el Estudio y volver." });
       void composWork.refresh();
       return true;
     },

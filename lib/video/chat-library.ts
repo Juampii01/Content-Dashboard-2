@@ -3,6 +3,7 @@
  * puede y, en un b-roll de la biblioteca, una pieza que existe con su segundo dentro del clip). Sin servidor: lo usan
  * la acción del chat y las pruebas.
  */
+import { FEATURES } from "@/lib/features";
 import { NO_EXTRA, type VideoChatOutput } from "@/lib/ai/prompts/chat-video";
 import type { LibraryPrompt } from "./broll";
 import { matchLibrary } from "./library-ficha";
@@ -90,6 +91,7 @@ export function chatItems(raw: VideoChatOutput["items"], attachments: ChatAttach
       }
       if (it.kind === "subtitulos" || it.kind === "recortar" || it.kind === "editar") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1, library: null, clip_start: null };
       if (it.kind === "deshacer") return { ...it, scope: "todo" as const, from_word: -1, to_word: -1 };
+      if (it.kind === "copiar") return !FEATURES.copyExact ? null : { ...it, scope: "todo" as const, from_word: -1, to_word: -1, attachments: [], prompt: it.prompt.trim().slice(0, 1500) };
       if (it.kind === "corregir") {
         const want = normWord(it.hit_text ?? "");
         const fixed = it.prompt.replace(/\s+/g, " ").trim().slice(0, 40);

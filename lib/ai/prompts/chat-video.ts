@@ -44,7 +44,7 @@ Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "texto": un texto o título a mano en un momento (lo que dice la persona: «pon un título que diga…», «escribe "Paso 1" acá», «un cartel con mi nombre»). En prompt va SOLO el texto que se ve, tal cual y corto (hasta 80 caracteres; en «Nombre y cargo», el nombre). text_style con el estilo: title (título grande), titleBox (título con fondo), subtitle (línea abajo), pill (etiqueta corta), number (número gigante: solo si la persona dio la cifra), quote (cita), marker (resaltado), strike (tachado), cta (llamado a la acción), lowerThird (nombre y cargo), typewriter (máquina de escribir), neon (neón). El tramo: la frase donde va. Nunca inventes cifras ni datos: si falta el número, pregúntalo.
 - "color": cambiar el color de TODO el video (la imagen de la persona). scope "todo", from_word y to_word en -1, y look con el filtro: natural (quitar el color), vivido, calido, frio, cine, luminoso, suave, retro, bn (blanco y negro) o noche.
 - "editar": un cambio general de la edición que hace el director (más o menos ritmo, más zooms, quitar o cambiar b-roll, efectos o gráficos en todo el video, cortar una parte que sobra, cambiar el sonido). scope "todo", from_word y to_word en -1, y en prompt el pedido completo y claro, con lo que se habló (hasta 550 caracteres). Nunca para cambiar el orden del video ni traer un gancho de otra parte: eso no se hace.
-- "transicion": una transición en un momento («una transición cuando cambio de tema», «un barrido en el 0:40»). transition con el tipo (lista abajo). El momento: el tramo de la frase y, en hit_text, la palabra exacta donde cae (tal cual se dice en esa frase), o at_second si dio el segundo. Si pide transiciones en todos los cambios de tema, una acción por cada cambio (máximo 6 por mensaje).
+- "transicion": una transición en un momento («una transición cuando cambio de tema», «un barrido en el 0:40»). transition con el tipo (lista abajo). El momento: el tramo de la frase y, en hit_text, la palabra exacta donde cae (tal cual se dice en esa frase), o at_second si dio el segundo. Si pide transiciones en todos los cambios de tema, una acción por cada cambio (máximo 10 por mensaje).
 - "sonido": un efecto de sonido en un momento («un whoosh en el 0:12», «un golpe cuando digo "precio"»). sound con el sonido (lista abajo) y el momento igual que en transicion (hit_text o at_second). level: volumen en dB entre -30 y 0 (null = normal; «fuerte» -3, «suave» -16).
 - "musica": la música de fondo de TODO el video (scope "todo", from_word y to_word en -1). music con el estilo (lista abajo) o "quitar" para sacarla; null si solo cambia el volumen. level: volumen de la música en dB entre -40 y -6 (null = como está; «más baja» -28, «bien bajita» -34, «más alta» -14). La música siempre baja sola cuando habla la persona.
 - "zoom": un acercamiento a la cara en un tramo corto (1 a 3 segundos) para remarcar algo.
@@ -52,6 +52,7 @@ Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "voz": el volumen de la voz en todo el video (scope "todo"). level en dB entre -12 y 6 («más fuerte» 3, «más baja» -4).
 - "quitar": sacar cosas que ya tiene el video en un tramo, o en todo (scope "todo"). remove con lo que se saca: animaciones, broll, graficos, textos, efectos, transiciones, sonidos, zooms o todo.
 - "corregir": arreglar una palabra mal transcrita en los subtítulos y en los textos de las animaciones («donde dice Clot es Claude», «CO es K.O.»). hit_text: la palabra tal como está escrita mal en las frases que recibes; prompt: cómo se escribe bien (solo eso). Se corrige en todo el video. scope "todo". Si ves palabras mal transcritas obvias (nombres de marcas, herramientas), ofrécete a corregirlas.
+- "copiar": copiar TAL CUAL la edición del VIDEO DE REFERENCIA en todo el video («cópiala tal cual», «edítalo igual que este», «quiero exactamente esa edición»): una sola pieza con el mismo fondo, personaje, paneles, subtítulos y ritmo, con las escenas atadas a lo que dice la persona. scope "todo", from_word y to_word en -1; en prompt, lo que pidió además (o vacío). Solo si ya tienes abajo el VIDEO DE REFERENCIA; si todavía no te pasó el link, pídeselo. Tarda varios minutos: dilo. Si solo quiere tomar algunos momentos o ideas de la referencia, usa animaciones sueltas.
 - "deshacer": volver atrás lo último que hiciste en este video (scope "todo"). Úsalo cuando dice «deshazlo», «como estaba antes», «no me gustó, vuelve atrás».
 - En "subtitulos" también puedes cambiar el estilo y el tamaño: caption_style (lista abajo; "ninguno" los quita) y caption_size (chico, mediano o grande). null deja lo que está.
 
@@ -82,7 +83,9 @@ export const VIDEO_CHAT_DIRECT = `MODO EDICIÓN CON IA (manda sobre lo anterior)
 - Pregunta (items vacío) solo si falta algo que no puedes decidir: una cifra, el texto exacto, qué video usar.
 - Si pide ideas o pregunta algo, contesta y propone acciones con go = false: se hacen cuando diga que sí.
 - En reply, una o dos líneas: qué hiciste y en qué momento (minuto:segundo), como «Listo: puse un whoosh en 0:12 y bajé la música». Las animaciones tardan unos minutos: dilo.
-- Si pide algo que no está en tus acciones, dilo con honestidad y ofrece lo más cercano.`;
+- Si pide algo que no está en tus acciones, dilo con honestidad y ofrece lo más cercano.
+- Si pide que edites TODO el video («edítalo», «déjalo listo», «hazlo profesional») sin decir qué, decides tú como un editor profesional: mira la transcripción y lo que ya tiene, y arma un plan de 4 a 10 acciones que de verdad lo mejoren (recortar silencios si no se hizo, subtítulos, un gancho fuerte al principio con animación, zooms o sonidos en las frases que importan, transiciones en los cambios de tema, música de fondo, un texto o gráfico donde hay una cifra que dijo). Cada acción con su momento y, en title, el porqué en pocas palabras («Zoom: remarca la cifra»). Ejecútalo con go = true. En reply, el plan en 2 a 4 líneas con los minutos. No repitas lo que el video ya tiene.
+- Si te pasó un video de referencia y pide copiarlo tal cual, es la acción "copiar" con go = true.`;
 
 export const videoChatSchema = z.object({
   reply: z.string().describe("Lo que le contestas a la persona."),
@@ -90,7 +93,7 @@ export const videoChatSchema = z.object({
   items: z
     .array(
       z.object({
-        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar", "texto", "color", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar", "deshacer", "corregir"]),
+        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar", "texto", "color", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar", "deshacer", "corregir", "copiar"]),
         scope: z.enum(["momento", "todo"]),
         from_word: z.number().int(),
         to_word: z.number().int(),
@@ -114,7 +117,7 @@ export const videoChatSchema = z.object({
         at_second: z.number().nullable().describe("Transicion o sonido: el segundo del video final si la persona lo dio; si no, null."),
       }),
     )
-    .max(6),
+    .max(10),
 });
 export type VideoChatOutput = z.infer<typeof videoChatSchema>;
 /** Los campos de las acciones nuevas en null (para armar acciones a mano). */

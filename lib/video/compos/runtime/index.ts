@@ -20,6 +20,24 @@ const LIM = COMPOS_LIMITS;
 const COMPOSITES = new Set<string>(COMPOSITE_OPS);
 
 class ComposError extends Error {}
+
+/**
+ * El texto a dibujar. «undefined» o «NaN» siempre es un error del código (un valor que no llegó): no se dibuja y el
+ * cuadro lo avisa (`b`) para que la revisión de antes de entregar lo mande a corregir. Al renderizar, queda en blanco.
+ */
+let badText: string | null = null;
+function textOf(text: unknown): string {
+  if (text === undefined || text === null) {
+    badText ??= String(text);
+    return "";
+  }
+  const s = String(text).slice(0, LIM.textChars);
+  if (/\bundefined\b|\bNaN\b/.test(s)) {
+    badText ??= s.slice(0, 60);
+    return "";
+  }
+  return s;
+}
 function fail(msg: string): never {
   throw new ComposError(msg);
 }
@@ -305,12 +323,12 @@ class Rec {
   }
   fillText(text: unknown, x: unknown, y: unknown, maxWidth?: unknown) {
     this._syncStyles(true, false);
-    const s = String(text ?? "").slice(0, LIM.textChars);
+    const s = textOf(text);
     this._push(maxWidth == null ? ["ft", s, ...nums([x, y], "fillText")] : ["ft", s, ...nums([x, y, maxWidth], "fillText")]);
   }
   strokeText(text: unknown, x: unknown, y: unknown, maxWidth?: unknown) {
     this._syncStyles(false, true);
-    const s = String(text ?? "").slice(0, LIM.textChars);
+    const s = textOf(text);
     this._push(maxWidth == null ? ["kt", s, ...nums([x, y], "strokeText")] : ["kt", s, ...nums([x, y, maxWidth], "strokeText")]);
   }
   measureText(text: unknown) {
@@ -923,6 +941,15 @@ const api = {
     if (typeof obj.render !== "function") fail("Falta la función render(ctx, t, env) en el export default.");
     if (obj.background != null && obj.background !== "video" && obj.background !== "none") fail('background tiene que ser "video" o "none".');
     mod = obj as typeof mod;
+    // Los textos editables que no llegaron con la composición usan el valor por defecto del módulo (si no, el código
+    // dibuja «undefined»).
+    const p = (obj as { params?: unknown }).params;
+    if (env && p && typeof p === "object") {
+      const defaults: Record<string, string> = {};
+      for (const [k, v] of Object.entries(p as Record<string, unknown>)) if (typeof v === "string" || typeof v === "number") defaults[k.slice(0, 40)] = String(v).slice(0, 160);
+      const given = env.params as Record<string, string>;
+      if (Object.keys(defaults).some((k) => !(k in given))) env = Object.freeze({ ...env, params: Object.freeze({ ...defaults, ...given }) });
+    }
   },
   defaults(): string {
     const p = (mod as { params?: unknown } | null)?.params;
@@ -934,6 +961,7 @@ const api = {
     try {
       if (!env || !mod) fail("La composición no se cargó.");
       opCount = 0;
+      badText = null;
       layerSeq = 0;
       layerIds = 0;
       layersUsed = 0;
@@ -964,7 +992,7 @@ const api = {
       }
       const ops = main._ops;
       for (let i = 0; i < main._stack.length; i++) ops.push(["r"]);
-      return JSON.stringify({ ok: true, frame: { o: ops, l: frameLayers, n: opCount } });
+      return JSON.stringify({ ok: true, frame: { o: ops, l: frameLayers, n: opCount, ...(badText ? { b: badText } : {}) } });
     } catch (err) {
       const limit = err instanceof ComposError;
       let msg = "";

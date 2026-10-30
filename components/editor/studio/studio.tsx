@@ -2218,6 +2218,17 @@ export function Studio(props: StudioProps) {
       setSelection(null);
       return n;
     },
+    correct: (ids, text) =>
+      update((st) => {
+        const next = { ...st.corrections };
+        for (const id of ids) {
+          // Mantiene la puntuación que tenía la palabra («Clot,» → «Claude,»).
+          const w = words[id]?.text ?? "";
+          const tail = /[.,;:!?…]+$/.exec(w)?.[0] ?? "";
+          next[String(id)] = `${text}${tail}`;
+        }
+        return { ...st, corrections: next };
+      }),
     undo: (steps = 1) => {
       for (let i = 0; i < Math.max(1, Math.min(20, steps)); i++) undo();
     },

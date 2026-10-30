@@ -66,6 +66,7 @@ export async function validateComposition(code: string, env: ComposEnvData, opts
         total += r.ms;
         maxMs = Math.max(maxMs, r.ms);
       }
+      if (r.frame.b) return { ok: false, hash, error: `En el segundo ${t.toFixed(2)} un texto dice «${r.frame.b}»: falta un valor. Si es un texto editable, léelo de env.params con su clave exacta y dale un valor en params.`, line: null, kind: "error" };
       maxOps = Math.max(maxOps, r.frame.n);
       drew ||= drawsSomething(r.frame);
       if (use && drawsPerson(r.frame, use)) personFrames++;

@@ -331,3 +331,15 @@ test("videos dentro: env.clip(i, t) da el cuadro de ese segundo en su hoja (con 
     await bad.sandbox.close();
   }
 });
+
+test("textos editables: lo que no llegó usa el valor del módulo, y «undefined» no se entrega", async () => {
+  // Claude listó solo `title`: `cta` sale del valor por defecto del módulo (antes se dibujaba «undefined»).
+  const code = `export default { background: "none", params: { title: "HOLA", cta: "COMENTA LINKEDIN" }, render(ctx, t, env) { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, env.W, env.H); ctx.fillStyle = "#fff"; ctx.font = env.font(700, 60, env.fonts.sans); ctx.fillText(env.params.cta, 100, 200); ctx.fillText(env.params.title, 100, 300); } };`;
+  const r = await validateComposition(code, { ...env, params: { title: "OTRO" } });
+  assert.equal(r.ok, true, r.ok ? "" : r.error);
+  // Un valor que no existe en ningún lado: la revisión lo rechaza con un error claro.
+  const bad = `export default { background: "none", render(ctx, t, env) { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, env.W, env.H); ctx.fillStyle = "#fff"; ctx.font = env.font(700, 60, env.fonts.sans); ctx.fillText(env.params.cta, 100, 200); } };`;
+  const r2 = await validateComposition(bad, env);
+  assert.equal(r2.ok, false);
+  assert.match(r2.ok ? "" : r2.error, /undefined/);
+});

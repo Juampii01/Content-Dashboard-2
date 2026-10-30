@@ -176,6 +176,8 @@ export type StudioApi = {
     captions: (style: CaptionPresetKey | null, size: "chico" | "mediano" | "grande" | null) => void;
     /** Quita lo que hay en el tramo (o en todo el video). Devuelve cuántas cosas quitó. */
     removeIn: (range: WordSpan | null, what: RemoveWhat) => number;
+    /** Escribe distinto unas palabras de la transcripción (subtítulos y textos de las animaciones). */
+    correct: (ids: number[], text: string) => void;
     /** Deshace los últimos `steps` cambios. */
     undo: (steps?: number) => void;
   };

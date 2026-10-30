@@ -99,7 +99,8 @@ export type ComposEnvData = {
 };
 
 /** Un cuadro dibujado: la lista principal y las capas que usa (por clave "L<n>.<versión>"). */
-export type ComposFrame = { o: unknown[]; l: Record<string, unknown[]>; n: number };
+/** b: un texto que decía «undefined» o «NaN» (no se dibujó; la revisión lo manda a corregir). */
+export type ComposFrame = { o: unknown[]; l: Record<string, unknown[]>; n: number; b?: string };
 
 /** Resultado de un cuadro en el sandbox. */
 export type ComposFrameResult = { ok: true; frame: ComposFrame; ms: number } | { ok: false; error: string; line: number | null; kind: "error" | "timeout" | "memory" | "limit" };

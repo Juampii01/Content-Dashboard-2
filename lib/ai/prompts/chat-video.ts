@@ -51,6 +51,7 @@ Acciones (campo items), además de animaciones, gráficos y videos adjuntos:
 - "cortar": sacar del video una parte que dice la persona («saca cuando digo "bueno, eh"», «corta desde "en fin" hasta "listo"», «borra el 0:10 al 0:14»). El tramo: la frase; hit_text la primera palabra que se saca y end_text la última (tal cual se dicen), o null para sacar la frase entera. Solo lo que pide: nunca cortes de más.
 - "voz": el volumen de la voz en todo el video (scope "todo"). level en dB entre -12 y 6 («más fuerte» 3, «más baja» -4).
 - "quitar": sacar cosas que ya tiene el video en un tramo, o en todo (scope "todo"). remove con lo que se saca: animaciones, broll, graficos, textos, efectos, transiciones, sonidos, zooms o todo.
+- "corregir": arreglar una palabra mal transcrita en los subtítulos y en los textos de las animaciones («donde dice Clot es Claude», «CO es K.O.»). hit_text: la palabra tal como está escrita mal en las frases que recibes; prompt: cómo se escribe bien (solo eso). Se corrige en todo el video. scope "todo". Si ves palabras mal transcritas obvias (nombres de marcas, herramientas), ofrécete a corregirlas.
 - "deshacer": volver atrás lo último que hiciste en este video (scope "todo"). Úsalo cuando dice «deshazlo», «como estaba antes», «no me gustó, vuelve atrás».
 - En "subtitulos" también puedes cambiar el estilo y el tamaño: caption_style (lista abajo; "ninguno" los quita) y caption_size (chico, mediano o grande). null deja lo que está.
 
@@ -89,7 +90,7 @@ export const videoChatSchema = z.object({
   items: z
     .array(
       z.object({
-        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar", "texto", "color", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar", "deshacer"]),
+        kind: z.enum(["animacion", "grafico", "video", "subtitulos", "recortar", "editar", "texto", "color", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar", "deshacer", "corregir"]),
         scope: z.enum(["momento", "todo"]),
         from_word: z.number().int(),
         to_word: z.number().int(),

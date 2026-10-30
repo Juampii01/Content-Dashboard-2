@@ -75,4 +75,9 @@ describe("acciones nuevas", () => {
     const [s] = one({ kind: "subtitulos", from_word: -1, to_word: -1, caption_style: "hormozi", caption_size: "grande" });
     assert.deepEqual([s!.caption_style, s!.caption_size, s!.scope], ["hormozi", "grande", "todo"]);
   });
+  test("corregir una palabra en todo el video", () => {
+    const [c] = one({ kind: "corregir", from_word: -1, to_word: -1, hit_text: "precio", prompt: " PRECIO " });
+    assert.deepEqual([c!.wordIds, c!.prompt, c!.scope], [[9], "PRECIO", "todo"]);
+    assert.equal(one({ kind: "corregir", from_word: -1, to_word: -1, hit_text: "zapato", prompt: "x" }).length, 0);
+  });
 });

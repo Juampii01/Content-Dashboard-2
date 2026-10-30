@@ -28,6 +28,7 @@ export const STEP_LABEL: Record<string, string> = {
   "video.compos.charla": "Animaciones · charla",
   "video.compos.agente": "Animaciones · suscripción (ya no se usa)",
   "video.mirar.receta": "Mira este video · desarmar",
+  "video.copiar.escenas": "Copia exacta · escenas",
   "video.mirar.charla": "Mira este video · charla",
   "biblioteca.ficha": "Biblioteca · ficha de un clip o imagen",
   // Resto de la app

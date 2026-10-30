@@ -114,6 +114,8 @@ export type ComposTask = {
   clips?: TaskClip[];
   /** La charla completa con la IA del Estudio cuando el pedido salió de ahí: va entera a cada etapa (nada se resume). */
   conversation?: string;
+  /** Copia exacta de una referencia en la pieza única: el kit y el estilo (las hojas de toda la referencia van en `refSheets`). */
+  copyKit?: string;
   /** Pieza única de todo el video («Animar todo»), con sus escenas y la franja fija de la persona (si hay). */
   long?: boolean;
   scenes?: NonNullable<Composition["scenes"]>;
@@ -920,7 +922,7 @@ async function lookCall(ctx: WorkCtx, work: ComposWork, task: ComposTask, opts: 
     model: "main",
     thinking: { effort: "medium" },
     context: `${COMPOS_RULES}\n\n${ctx.brandCtx}`,
-    task: composLookTask({ brief: `${brief}${styleRefsText(task)}`, momentDetail: task.momentDetail ?? null, code: task.result!.code, times: task.sheet!.times, refFrames: refSheets.length, round: task.round + 1 }),
+    task: composLookTask({ brief: `${brief}${styleRefsText(task)}`, momentDetail: task.momentDetail ?? null, code: task.result!.code, times: task.sheet!.times, refFrames: refSheets.length, round: task.round + 1, copy: Boolean(task.copyKit) }),
     images: opts.images !== false ? await imagesOf(pics) : undefined,
     imageSizes: pics.map((r) => ({ width: r.width, height: r.height })),
     schema: composLookWireSchema,
@@ -1135,6 +1137,7 @@ function codeTaskInput(ctx: WorkCtx, work: ComposWork, task: ComposTask, s: { st
       ? `FRANJA FIJA DE LA PERSONA: la parte de abajo del cuadro (desde y = ${task.frame.kind === "split" ? "50" : "55"} % del alto) la dibuja el sistema con la cara de la persona, siempre igual, encima de todo. Tú animas SOLO en env.stage = { x, y, w, h } (la parte de arriba): ubica todo ahí y usa background: "none" (pinta tú el fondo de env.stage${task.frame.kind === "top" ? ", blanco #ffffff liso, con textos en tinta oscura y el acento de la marca" : ""}). No dibujes a la persona ni el video: no hace falta.`
       : null,
     scene: task.scene != null && task.base?.scenes?.[task.scene] ? { index: task.scene, ...task.base.scenes[task.scene]! } : null,
+    copyKit: task.copyKit ?? null,
   };
 }
 

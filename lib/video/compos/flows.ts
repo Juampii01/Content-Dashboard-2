@@ -687,14 +687,29 @@ export async function planWholeVideo(projectId: string, input: { mode: WholeMode
  * armada por las escenas que se revisaron. En «Mitad y mitad» y «Fondo blanco arriba», la franja de la persona es fija
  * (la dibuja el motor con el encuadre elegido; la IA solo anima arriba). Después se cambia por escena.
  */
-export async function startWholeVideo(projectId: string, plan: { mode: WholeMode; style: string; moments: { from_word: number; to_word: number; prompt: string; title?: string }[]; conversation?: string | null; clips?: unknown }, userId: string | null): Promise<{ count: number; workId: string; error: string | null }> {
+/** Cuántas hojas de la referencia ve la copia exacta (cada una con ~16 cuadros). */
+export const COPY_SHEETS_MAX = 8;
+
+export async function startWholeVideo(
+  projectId: string,
+  plan: {
+    mode: WholeMode;
+    style: string;
+    moments: { from_word: number; to_word: number; prompt: string; title?: string }[];
+    conversation?: string | null;
+    clips?: unknown;
+    /** Copia exacta de una referencia («Mira este video»): el kit y las hojas de toda la referencia. */
+    copy?: { kit: string; sheets: { key: string; width: number; height: number }[]; replaceId?: string | null } | null;
+  },
+  userId: string | null,
+): Promise<{ count: number; workId: string; error: string | null }> {
   const ctx = await loadWorkCtx(projectId);
   if (!ctx) throw new ComposRequestError("Este video todavía no está listo para animar.");
   if (ctx.project.status !== "AWAITING_REVIEW" && ctx.project.status !== "DONE") throw new ComposRequestError("Espera a que termine lo que se está procesando.");
   if (!aiConfigured()) throw new ComposRequestError("Falta configurar la IA en esta instalación.");
   const words = keptWords(ctx);
   if (!words.length) throw new ComposRequestError("El video no tiene texto para animar.");
-  const moments = cleanWhole(plan.mode, words, plan.moments.map((m) => ({ ...m, title: m.title ?? "" })), 30);
+  const moments = cleanWhole(plan.mode, words, plan.moments.map((m) => ({ ...m, title: m.title ?? "" })), plan.copy ? 40 : 30);
   if (!moments.length) throw new ComposRequestError("No quedó ninguna escena para crear.");
   const from = words[0]!.id;
   const to = words[words.length - 1]!.id;
@@ -705,7 +720,7 @@ export async function startWholeVideo(projectId: string, plan: { mode: WholeMode
     const r = outputRange(ctx.timeline, m.from_word, m.to_word);
     const a = Math.max(0, (r?.start ?? 0) - pieceStart);
     const b = Math.max(a + 0.5, (r?.end ?? a + 1) - pieceStart);
-    return { title: (m.title || `Escena ${i + 1}`).slice(0, 80), start: Math.round(a * 100) / 100, end: Math.round(b * 100) / 100, brief: m.prompt.slice(0, 1200) };
+    return { title: (m.title || `Escena ${i + 1}`).slice(0, 80), start: Math.round(a * 100) / 100, end: Math.round(b * 100) / 100, brief: m.prompt.slice(0, plan.copy ? 1600 : 1200) };
   });
   // En los modos que cubren todo, cada escena llega hasta la siguiente y la primera arranca en 0.
   if (plan.mode !== "face") {
@@ -733,15 +748,22 @@ export async function startWholeVideo(projectId: string, plan: { mode: WholeMode
       if (frame) task.frame = frame;
       if (clips.length) task.clips = clips;
       if (plan.conversation) task.conversation = plan.conversation.slice(-CONVERSATION_MAX);
+      if (plan.copy) {
+        task.source = "copy";
+        task.copyKit = plan.copy.kit.slice(0, 9000);
+        task.refSheets = plan.copy.sheets.slice(0, COPY_SHEETS_MAX);
+      }
       return {
         id: newWorkId(),
         mode: "request",
         tasks: [task],
         startedAt: new Date().toISOString(),
         spentAtStart: ctx.spent,
+        // En la copia exacta, la vuelta de revisión compara el render con las hojas de la referencia.
         lookRounds: Math.min(lookRounds, 1),
         done: false,
-        request: { instruction, from_word: from, to_word: to, replaceId: null },
+        // La copia reemplaza la pieza de todo el video que ya había (si había una).
+        request: { instruction, from_word: from, to_word: to, replaceId: plan.copy?.replaceId ?? null },
       };
     },
   });

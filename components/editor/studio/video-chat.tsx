@@ -49,6 +49,7 @@ const KIND_LABEL: Record<VideoChatItem["kind"], string> = {
   quitar: "Quitar",
   deshacer: "Deshacer",
   corregir: "Corregir una palabra",
+  copiar: "Copiar la edición",
 };
 /** Acciones que cambian el video en el momento (las que «deshacer» vuelve atrás). Las animaciones tardan y van aparte. */
 const INSTANT = new Set<VideoChatItem["kind"]>(["corregir", "subtitulos", "recortar", "texto", "color", "video", "transicion", "sonido", "musica", "zoom", "cortar", "voz", "quitar"]);
@@ -179,6 +180,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
     return { projectId, sentences: list.slice(0, 800), duration: timeline.duration, format: state.format, playhead: api.time, selection: sel, state: stateText(), attachments, images };
   }
   const contextRef = useRef(context);
+  const runRef = useRef<((it: VideoChatItem, key: string) => Promise<unknown>) | null>(null);
   useEffect(() => {
     contextRef.current = context;
   });
@@ -198,7 +200,13 @@ export function VideoChat({ api }: { api: StudioApi }) {
         setError(r.error);
         return;
       }
-      if (!r.waiting) setThread(r.thread);
+      if (r.waiting) return;
+      setThread(r.thread);
+      // Con el link pidió hacerlo ya («cópiala tal cual»): se hace sin otro toque.
+      if (r.go) {
+        const i = r.thread.messages.length - 1;
+        for (const [k, it] of (r.thread.messages[i]?.items ?? []).entries()) await runRef.current?.(it, `${i}-${k}`);
+      }
     };
     const id = setInterval(() => void tick(), POLL_MS);
     return () => {
@@ -222,7 +230,13 @@ export function VideoChat({ api }: { api: StudioApi }) {
         setError(r.error);
         return;
       }
-      if (!r.waiting) setThread(r.thread);
+      if (r.waiting) return;
+      setThread(r.thread);
+      // Con el link pidió hacerlo ya («cópiala tal cual»): se hace sin otro toque.
+      if (r.go) {
+        const i = r.thread.messages.length - 1;
+        for (const [k, it] of (r.thread.messages[i]?.items ?? []).entries()) await runRef.current?.(it, `${i}-${k}`);
+      }
     };
     const id = setInterval(() => void tick(), POLL_MS);
     return () => {
@@ -353,6 +367,8 @@ export function VideoChat({ api }: { api: StudioApi }) {
       const start = it.clipStart ?? it.clip_start;
       // Desde el segundo del clip que muestra lo que se dice (el estudio lo aplica al ponerlo).
       api.tools.clipAt(range, start != null && clip.kind !== "image" ? { ...clip, moment: { start, end: Math.min(clip.duration || start + 8, start + 8), what: it.title } } : clip);
+    } else if (it.kind === "copiar") {
+      if (!(await api.tools.copyLook(it.prompt))) return;
     } else if (it.scope === "todo" && it.kind === "animacion") {
       // Directo, sin pantalla de plan: la animación recibe la charla entera (y los videos para usar dentro).
       const clips = insideOf(it, key);
@@ -374,6 +390,10 @@ export function VideoChat({ api }: { api: StudioApi }) {
     setDone((d) => new Set(d).add(key));
     void videoChatDoneAction(projectId, `${KIND_LABEL[it.kind]}: ${it.title} (${timeOf(it)})`);
   }
+
+  useEffect(() => {
+    runRef.current = run;
+  });
 
   const canEdit = props.canEdit;
   return (
@@ -463,7 +483,7 @@ export function VideoChat({ api }: { api: StudioApi }) {
                     {it.kind === "texto" && <p className="line-clamp-2 text-[11px] text-white">«{it.prompt}»</p>}
                     {canEdit && (
                       <Button size="sm" variant={isDone ? "ghost" : "primary"} className="self-start" disabled={isDone} onClick={() => void run(it, key)} icon={isDone ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />}>
-                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : it.kind === "editar" ? "Editar así" : it.kind === "texto" ? "Poner el texto" : it.kind === "color" ? "Aplicar el color" : it.kind === "deshacer" ? "Deshacer" : it.kind === "quitar" ? "Quitarlo" : "Hacerlo"}
+                        {isDone ? "Hecho" : it.kind === "animacion" ? "Crear la animación" : it.kind === "grafico" ? "Crear el gráfico" : it.kind === "video" ? "Ponerlo ahí" : it.kind === "subtitulos" ? "Poner subtítulos" : it.kind === "recortar" ? "Recortar" : it.kind === "editar" ? "Editar así" : it.kind === "texto" ? "Poner el texto" : it.kind === "color" ? "Aplicar el color" : it.kind === "deshacer" ? "Deshacer" : it.kind === "quitar" ? "Quitarlo" : it.kind === "copiar" ? "Copiar la edición" : "Hacerlo"}
                       </Button>
                     )}
                   </div>

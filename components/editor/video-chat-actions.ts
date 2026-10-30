@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { FEATURES } from "@/lib/features";
 import { z } from "zod";
 import { AiError, aiConfigured } from "@/lib/ai/client";
 import { isDenied, requireEditor } from "@/lib/auth";
@@ -8,7 +9,11 @@ import { clearChat, loadChat, saveChat, type ChatMessage } from "@/lib/video/com
 import { findLinks } from "@/lib/video/director/request";
 import { cleanRefs } from "@/lib/video/refs";
 import { VIDEO_CHAT_ID } from "@/lib/video/chat-conversation";
-import { LookError, lookForChat, startLook } from "@/lib/video/look";
+import { copyWholeLook, LookError, lookForChat, startLook } from "@/lib/video/look";
+import { activeLongRequest, LONG_BUSY_MESSAGE } from "@/lib/video/compos/requests";
+import { ComposRequestError } from "@/lib/video/compos/flows";
+import { videoChatConversation } from "@/lib/video/chat-conversation";
+import { loadProject } from "@/lib/video/service";
 import type { VideoChatItem } from "@/lib/video/chat-library";
 import { chatInputSchema, chatTurn as turn, CLIP_WAIT_MAX_MS, clipStates, pendingClipWait } from "@/lib/video/chat-turn";
 import type { ChatClip } from "@/lib/video/compos/chat";
@@ -140,7 +145,7 @@ const lookInputSchema = inputSchema.omit({ text: true }).extend({ lookId: z.uuid
  * Lo pregunta el cliente cada pocos segundos mientras la IA mira una referencia. Cuando está lista, la IA contesta qué
  * vio y dónde lo pondría en este video; si falló, se dice en la charla.
  */
-export async function videoChatLookAction(input: z.input<typeof lookInputSchema>): Promise<{ ok: true; thread: VideoChatThread; waiting: boolean } | Fail> {
+export async function videoChatLookAction(input: z.input<typeof lookInputSchema>): Promise<{ ok: true; thread: VideoChatThread; waiting: boolean; go?: boolean } | Fail> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = lookInputSchema.safeParse(input);
@@ -151,6 +156,8 @@ export async function videoChatLookAction(input: z.input<typeof lookInputSchema>
   const look = await lookForChat(d.projectId, d.lookId);
   if (look.status !== "ready" && look.status !== "failed") return { ok: true, thread: view(saved.messages), waiting: true };
   let reply: ChatMessage;
+  // Si con el link pidió «cópiala tal cual» (o hacerlo ya), lo que propone la IA se hace solo.
+  let go = false;
   if (look.status === "failed" || !look.text) {
     reply = { role: "assistant", text: `No pude mirar ese video: ${(look.error ?? "algo falló al bajarlo").replace(/[.\s]+$/, "")}. Pégame el link otra vez o prueba con otro.`, at: new Date().toISOString(), lookDone: d.lookId };
   } else {
@@ -159,6 +166,7 @@ export async function videoChatLookAction(input: z.input<typeof lookInputSchema>
       const out = await turn(d, [...saved.messages, { role: "user", text: "[La app terminó de mirar el video de referencia. Cuéntame qué ves y dónde lo pondrías en mi video, según lo que te pedí.]", at: new Date().toISOString() }], user.id, { source: look.source, text: look.text }, lastUser);
       if ("ok" in out) return out;
       reply = { ...out.message, lookDone: d.lookId };
+      go = Boolean(out.go);
     } catch (error) {
       return failOf(error, "referencia");
     }
@@ -168,7 +176,7 @@ export async function videoChatLookAction(input: z.input<typeof lookInputSchema>
   if (pendingLook(fresh.messages) !== d.lookId) return { ok: true, thread: view(fresh.messages), waiting: false };
   const next = [...fresh.messages, reply];
   await saveChat(d.projectId, CHAT_ID, { messages: next, agreed: null });
-  return { ok: true, thread: view(next), waiting: false };
+  return { ok: true, thread: view(next), waiting: false, go };
 }
 
 const clipInputSchema = inputSchema.omit({ text: true }).extend({ waitId: z.string().regex(/^w[0-9a-z]{4,16}$/) });
@@ -177,7 +185,7 @@ const clipInputSchema = inputSchema.omit({ text: true }).extend({ waitId: z.stri
  * Lo pregunta el cliente cada pocos segundos mientras la app mira los videos adjuntos. Cuando terminan (o pasa demasiado
  * tiempo), la IA contesta lo que pidió la persona mirando sus hojas de cuadros y su ficha.
  */
-export async function videoChatClipAction(input: z.input<typeof clipInputSchema>): Promise<{ ok: true; thread: VideoChatThread; waiting: boolean } | Fail> {
+export async function videoChatClipAction(input: z.input<typeof clipInputSchema>): Promise<{ ok: true; thread: VideoChatThread; waiting: boolean; go?: boolean } | Fail> {
   const user = await requireEditor();
   if (isDenied(user)) return user;
   const parsed = clipInputSchema.safeParse(input);
@@ -192,6 +200,7 @@ export async function videoChatClipAction(input: z.input<typeof clipInputSchema>
   if (states.some((c) => c.state === "waiting") && !late) return { ok: true, thread: view(saved.messages), waiting: true };
   const failed = states.filter((c) => c.state !== "ready");
   let reply: ChatMessage;
+  let go = false;
   if (failed.length === states.length) {
     const why = failed[0]?.state === "waiting" ? "todavía no termino de prepararlo (revisa que el procesador de videos esté encendido)" : (failed[0]?.error ?? "algo falló al prepararlo").replace(/[.\s]+$/, "");
     reply = { role: "assistant", text: `No pude mirar tu video: ${why}. Vuelve a adjuntarlo o prueba con otro.`, at: new Date().toISOString(), clipDone: wait.id };
@@ -201,6 +210,7 @@ export async function videoChatClipAction(input: z.input<typeof clipInputSchema>
       const out = await turn(d, [...saved.messages, { role: "user", text: `[La app terminó de mirar ${states.length > 1 ? "los videos que adjunté" : "el video que adjunté"}: tienes sus cuadros. Contesta lo que te pedí arriba mirándolos.]`, at: new Date().toISOString() }], user.id, null, lastUser);
       if ("ok" in out) return out;
       reply = { ...out.message, clipDone: wait.id };
+      go = Boolean(out.go);
     } catch (error) {
       return failOf(error, "video adjunto");
     }
@@ -209,7 +219,7 @@ export async function videoChatClipAction(input: z.input<typeof clipInputSchema>
   if (pendingClipWait(fresh.messages)?.id !== wait.id) return { ok: true, thread: view(fresh.messages), waiting: false };
   const next = [...fresh.messages, reply];
   await saveChat(d.projectId, CHAT_ID, { messages: next, agreed: null });
-  return { ok: true, thread: view(next), waiting: false };
+  return { ok: true, thread: view(next), waiting: false, go };
 }
 
 /** Anota en la charla lo que se hizo (para que la IA lo sepa la próxima vez). */
@@ -220,4 +230,30 @@ export async function videoChatDoneAction(projectId: string, text: string): Prom
   const saved = await loadChat(projectId, CHAT_ID);
   await saveChat(projectId, CHAT_ID, { messages: [...saved.messages, { role: "applied", text: text.slice(0, 300), at: new Date().toISOString() }], agreed: null });
   return { ok: true };
+}
+
+/**
+ * «Cópiala tal cual»: toda la edición de la última referencia que miró la IA en esta charla, en una sola pieza para todo
+ * el video (kit, escenas atadas a palabras y las hojas de la referencia a la vista). Reemplaza la pieza que ya había.
+ */
+export async function videoChatCopyAction(projectId: string, notes: string): Promise<{ ok: true; count: number; error: string | null } | Fail> {
+  const user = await requireEditor();
+  if (isDenied(user)) return user;
+  if (!z.uuid().safeParse(projectId).success) return { ok: false, error: "Proyecto no válido." };
+  if (!FEATURES.copyExact) return { ok: false, error: "Copiar una edición completa todavía no está disponible." };
+  if (!aiConfigured()) return { ok: false, error: "La IA no está configurada en esta instalación." };
+  const saved = await loadChat(projectId, CHAT_ID);
+  const lookId = lastLook(saved.messages);
+  if (!lookId) return { ok: false, error: "Primero pégame el link del video que quieres copiar." };
+  try {
+    if (await activeLongRequest(projectId)) return { ok: false, error: LONG_BUSY_MESSAGE };
+    const project = await loadProject(projectId);
+    const long = (((project?.plan as { compositions?: { id: string; long?: boolean }[] } | null)?.compositions) ?? []).find((c) => c.long);
+    const conversation = await videoChatConversation(projectId);
+    const r = await copyWholeLook(projectId, lookId, user.id, { notes: String(notes ?? "").slice(0, 1500), conversation, replaceId: long?.id ?? null });
+    return { ok: true, count: r.count, error: r.error };
+  } catch (error) {
+    if (error instanceof ComposRequestError) return { ok: false, error: error.message };
+    return failOf(error, "copia exacta");
+  }
 }

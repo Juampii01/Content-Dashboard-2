@@ -161,6 +161,7 @@ export function fakeRecipe(moments: { t: number; frame: number; cut: boolean; te
   return {
     summary: "Simulación: edición rápida con textos grandes animados, tarjetas y golpes de cámara en cada idea.",
     global: { pace: "Algo cambia cada 2–3 s.", captions: "Palabra por palabra, grandes, abajo del centro.", typography: "Condensada gruesa en mayúsculas.", palette: ["#ffffff", "#2b8cff"], look: "Contraste alto, viñeta suave.", music: "Música electrónica con golpes en los cortes.", density: "reels" },
+    kit: { background: "Fondo oscuro #0e0d11 con grilla sutil.", character: "", components: ["Panel oscuro #1b191b con borde #3e3937 de 90 % del ancho", "Título chico en mayúsculas arriba del panel", "Caja negra de subtítulos con 2 o 3 palabras"], layout: "Título 24 %, panel 26–58 %, subtítulos 78 %.", transitions: "La escena nueva sube 40 px con fundido en 0,16 s." },
     moments: base.map((m, i) => ({
       t0: m.t,
       t1: Math.min(duration, m.t + 1.6),

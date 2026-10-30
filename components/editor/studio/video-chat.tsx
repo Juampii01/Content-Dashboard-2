@@ -288,6 +288,16 @@ export function VideoChat({ api }: { api: StudioApi }) {
     return [...new Set(ids)].slice(0, 2);
   }
 
+  /** ¿Las acciones del mensaje `i` ya se hicieron? (hay una línea «hecho» antes del próximo mensaje de la persona) */
+  function appliedAfter(i: number): boolean {
+    for (let j = i + 1; j < thread.messages.length; j++) {
+      const m = thread.messages[j]!;
+      if (m.role === "user") return false;
+      if (m.role === "applied") return true;
+    }
+    return false;
+  }
+
   /** Segundo del video final de una acción puntual (transición, sonido): el que dio la persona o el de su palabra. */
   function pointTime(it: VideoChatItem): number | null {
     return it.at_second != null ? it.at_second : api.tools.timeOfWord(it.from_word);
@@ -417,7 +427,8 @@ export function VideoChat({ api }: { api: StudioApi }) {
               </span>
               {m.items?.map((it, k) => {
                 const key = `${i}-${k}`;
-                const isDone = done.has(key);
+                // También cuenta como hecho si después de este mensaje quedó su línea verde (al volver a abrir el video).
+                const isDone = done.has(key) || appliedAfter(i);
                 // Solo con IA, lo que ya se hizo queda en la línea verde de abajo: la tarjeta sobra.
                 if (AI_ONLY && isDone) return null;
                 return (

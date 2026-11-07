@@ -67,6 +67,7 @@ export function ProjectScreen({
         sourceWidth={project.media?.width ?? 1080}
         sourceHeight={project.media?.height ?? 1920}
         proxyUrl={project.proxyUrl}
+        sourceDownloadUrl={project.sourceDownloadUrl}
         posterUrl={project.sourcePosterUrl ?? project.posterUrl}
         accent={project.accent}
         canEdit={project.canEdit}
@@ -118,6 +119,7 @@ export function ProjectScreen({
           posterUrl={project.posterUrl}
           canEdit={project.canEdit}
           auto={project.autoExport}
+          sourceDownloadUrl={project.sourceDownloadUrl}
           finalReview={project.director?.state.final ?? null}
           finalSheets={project.director?.finalSheets ?? []}
         />

@@ -119,6 +119,8 @@ export type ProjectView = {
   sourceName: string | null;
   sourceBytes: number | null;
   sourceKey: string | null;
+  /** Link para bajar el video tal como se subió, sin ninguna edición. */
+  sourceDownloadUrl: string | null;
   errorMessage: string | null;
   media: MediaInfo | null;
   /** Muestra de "Audio de estudio" (10 s antes y después), si el worker la armó al analizar. */
@@ -179,6 +181,9 @@ async function directorView(p: typeof schema.videoProjects.$inferSelect, sign: (
   };
 }
 
+/** Extensión del original (".mp4", ".mov"…) para el nombre del archivo que se baja. */
+const sourceExt = (key: string | null) => (key?.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ".mp4").toLowerCase();
+
 const safeName = (title: string) => title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "video";
 
 async function previewUrls(preview: AudioPreviewMedia | undefined, sign: (key: string | undefined) => Promise<string | null>): Promise<AudioPreview | null> {
@@ -214,6 +219,7 @@ export async function getProject(id: string): Promise<ProjectView | null> {
     sourceName: p.sourceName,
     sourceBytes: p.sourceBytes,
     sourceKey: p.sourceKey,
+    sourceDownloadUrl: p.status === "UPLOADING" ? null : await sign(p.sourceKey, `${name}-original${sourceExt(p.sourceKey)}`),
     errorMessage: p.errorMessage,
     media,
     audioPreview: await previewUrls(media?.audioPreview, sign),

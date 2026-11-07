@@ -42,6 +42,8 @@ export type StudioProps = {
   sourceWidth: number;
   sourceHeight: number;
   proxyUrl: string | null;
+  /** Link para bajar el video original, sin editar. */
+  sourceDownloadUrl?: string | null;
   posterUrl: string | null;
   accent: string;
   canEdit: boolean;

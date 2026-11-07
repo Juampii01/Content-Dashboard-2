@@ -18,7 +18,10 @@ export function ResultView({
   posterUrl,
   canEdit,
   auto = false,
+  sourceDownloadUrl = null,
 }: {
+  /** Link para bajar el video original, sin editar. */
+  sourceDownloadUrl?: string | null;
   /** Revisión final de la IA (cuadros del MP4), si se hizo. */
   finalReview?: FinalReview | null;
   finalSheets?: { url: string }[];
@@ -65,6 +68,11 @@ export function ResultView({
             <a href={output.downloadUrl} download className="btn">
               <Download className="h-4 w-4" aria-hidden /> Descargar MP4
             </a>
+            {sourceDownloadUrl && (
+              <a href={sourceDownloadUrl} download className="btn-ghost">
+                <Download className="h-4 w-4" aria-hidden /> Original sin editar
+              </a>
+            )}
             {output.srtUrl && (
               <a href={output.srtUrl} download className="btn-ghost">
                 <FileText className="h-4 w-4" aria-hidden /> Subtítulos (SRT)

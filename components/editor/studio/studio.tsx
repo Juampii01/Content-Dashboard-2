@@ -3,7 +3,7 @@
 import { cleanGrade, gradeCurve, gradeMatrix, presetGrade } from "@/lib/video/grade";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, AudioLines, BarChart3, Bot, Captions, Film, Flag, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
+import { ArrowLeft, AudioLines, Download, BarChart3, Bot, Captions, Film, Flag, Sparkles, WandSparkles, ZoomIn, Clapperboard, Keyboard, Library, Loader2, Maximize2, Minimize2, Minus, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, Redo2, Scissors, SpellCheck, SplitSquareHorizontal, Trash2, Type, Undo2, Wand2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
@@ -2555,6 +2555,11 @@ export function Studio(props: StudioProps) {
               <Keyboard className="h-4 w-4" aria-hidden />
             </button>
             {props.menu}
+            {props.sourceDownloadUrl && (
+              <a href={props.sourceDownloadUrl} download className="btn-ghost !h-9 !w-9 !p-0" aria-label="Descargar el video original, sin editar" title="Descargar original (sin editar)">
+                <Download className="h-4 w-4" aria-hidden />
+              </a>
+            )}
             {canEdit && (
               <Button onClick={render} disabled={rendering || timeline.clips.length === 0} className="!px-3 !py-2" icon={rendering ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />}>
                 {rendering ? "Enviando…" : <span>Renderizar</span>}
